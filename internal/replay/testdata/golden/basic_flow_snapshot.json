@@ -1,0 +1,104 @@
+{
+  "layer1": {
+    "events": [
+      {
+        "id": "c108c0bfe77ffc3c0e07f1056d0b5d008e2b4e2a8c4197af5b8c7e3582d41f74",
+        "pubkey": "37ce94259421d17a13e04382205c6061323ebc6bbfa46aab1f73e6f93c774a5e",
+        "created_at": 1700000000,
+        "kind": 1
+      }
+    ],
+    "event_tags": [
+      {
+        "event_id": "c108c0bfe77ffc3c0e07f1056d0b5d008e2b4e2a8c4197af5b8c7e3582d41f74",
+        "tag_name": "client",
+        "tag_index": 0,
+        "value_index": 0,
+        "value": "nostrmash"
+      },
+      {
+        "event_id": "c108c0bfe77ffc3c0e07f1056d0b5d008e2b4e2a8c4197af5b8c7e3582d41f74",
+        "tag_name": "t",
+        "tag_index": 1,
+        "value_index": 0,
+        "value": "test"
+      }
+    ],
+    "event_relays": [
+      {
+        "event_id": "c108c0bfe77ffc3c0e07f1056d0b5d008e2b4e2a8c4197af5b8c7e3582d41f74",
+        "relay_url": "wss://relay.one"
+      },
+      {
+        "event_id": "c108c0bfe77ffc3c0e07f1056d0b5d008e2b4e2a8c4197af5b8c7e3582d41f74",
+        "relay_url": "wss://relay.two"
+      }
+    ],
+    "invalid_events": [
+      {
+        "source_relay": "wss://relay.one",
+        "error_code": "missing_field"
+      }
+    ],
+    "pending_jobs": [],
+    "succeeded_jobs": [
+      {
+        "job_type": "derive_event_relationships",
+        "attempts": 0
+      },
+      {
+        "job_type": "project_author_recent_event",
+        "attempts": 0
+      },
+      {
+        "job_type": "project_profiles_latest",
+        "attempts": 0
+      },
+      {
+        "job_type": "project_reaction_counts",
+        "attempts": 0
+      },
+      {
+        "job_type": "project_reply_counts",
+        "attempts": 0
+      },
+      {
+        "job_type": "project_repost_counts",
+        "attempts": 0
+      },
+      {
+        "job_type": "repair_unresolved_references",
+        "attempts": 0
+      },
+      {
+        "job_type": "update_replaceable_state",
+        "attempts": 0
+      },
+      {
+        "job_type": "update_thread_projection",
+        "attempts": 0
+      }
+    ],
+    "dead_letter_jobs": []
+  },
+  "layer2": {
+    "event_references": [],
+    "pubkey_references": [],
+    "replaceable_state": [],
+    "thread_edges": [],
+    "unresolved_thread_references": []
+  },
+  "layer3": {
+    "profiles_latest": [],
+    "author_recent_events": [
+      {
+        "author_pubkey": "37ce94259421d17a13e04382205c6061323ebc6bbfa46aab1f73e6f93c774a5e",
+        "event_id": "c108c0bfe77ffc3c0e07f1056d0b5d008e2b4e2a8c4197af5b8c7e3582d41f74",
+        "created_at": 1700000000
+      }
+    ],
+    "reply_counts": [],
+    "reaction_counts": [],
+    "repost_counts": []
+  }
+}

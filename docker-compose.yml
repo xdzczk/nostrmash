@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nostrmash
+      POSTGRES_PASSWORD: nostrmash
+      POSTGRES_DB: nostrmash
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nostrmash -d nostrmash"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+
+  api:
+    build: .
+    image: nostrmash:dev
+    command: ["/app/api"]
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://nostrmash:nostrmash@postgres:5432/nostrmash?sslmode=disable
+      HTTP_ADDR: ":8080"
+      LOG_LEVEL: info
+      ENVIRONMENT: development
+      APP_VERSION: dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ingestor:
+    image: nostrmash:dev
+    build: .
+    command: ["/app/ingestor"]
+    environment:
+      DATABASE_URL: postgres://nostrmash:nostrmash@postgres:5432/nostrmash?sslmode=disable
+      LOG_LEVEL: info
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    image: nostrmash:dev
+    build: .
+    command: ["/app/worker"]
+    environment:
+      DATABASE_URL: postgres://nostrmash:nostrmash@postgres:5432/nostrmash?sslmode=disable
+      LOG_LEVEL: info
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy

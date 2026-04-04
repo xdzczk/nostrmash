@@ -1,0 +1,110 @@
+# Architecture
+
+## Purpose
+
+NostrMash turns relay traffic into a durable, queryable system without collapsing raw ingest and product-facing read models into the same thing. It stores canonical event truth first, then derives higher-level state asynchronously.
+
+That split is the point: raw history must survive schema changes and bad projection ideas; read models must be cheap to rebuild and easy to version.
+
+## Service Boundaries
+
+- `ingestor`: receives relay payloads in `live`, optional `backfill`, or deterministic `replay` mode; validates events; writes canonical data; records invalid payloads; persists relay checkpoints; enqueues derivation jobs.
+- `worker`: claims jobs from Postgres and materializes derivations and projections.
+- `api`: serves native read endpoints, a minimal `/primal/v1` compatibility surface, and admin inspection/rebuild endpoints.
+- `postgres`: primary datastore for canonical storage, checkpoints, queue state, derivation metadata, and projections.
+
+## Data Flow
+
+```text
+relays
+  |
+  v
+ingestor
+  |
+  +--> validation failure --> invalid_events
+  |
+  +--> canonical write --> events + event_tags + event_relays
+                         |
+                         +--> jobs
+                               |
+                               v
+                             worker
+                               |
+                               v
+              derivations / projections / rebuild state
+                               |
+                               v
+                               api
+```
+
+The canonical path is synchronous and durable. Derived state is asynchronous and may lag behind raw ingest.
+
+## Layer Model
+
+### Layer 1: Canonical Truth
+
+Layer 1 is the durable ingest record:
+
+- `events`: canonical raw event JSON and core fields
+- `event_tags`: expanded tag rows
+- `event_relays`: relay provenance
+- `invalid_events`: quarantined invalid payloads
+- `ingest_checkpoints`: per-relay progress for live/backfill
+
+This layer is append-heavy, replayable, and treated as the foundation.
+
+### Layer 2: Derivation State
+
+Layer 2 captures reusable interpreted state derived from raw truth:
+
+- `event_references`, `pubkey_references`
+- `replaceable_state`
+- `derivation_versions`, `derivation_active_versions`
+- `projection_rebuild_runs`
+
+This layer exists to avoid re-parsing the same semantics everywhere and to make rebuild/version control explicit.
+
+### Layer 3: Read Models
+
+Layer 3 is read-optimized projection state consumed by APIs:
+
+- `profiles_latest`
+- `author_recent_events`
+- `thread_edges`, `unresolved_thread_references`
+- `reply_counts`, `reaction_counts`, `repost_counts`
+- `reaction_events`, `repost_events`, `deletion_events`
+- `contact_lists_latest`, `relay_lists_latest`
+
+Layer 3 is disposable in principle. If a projection is wrong or changes shape, rebuild it from lower layers.
+
+## Versioned Derivations and Rebuilds
+
+Every projection is tied to an explicit derivation name and version. The code tracks:
+
+- compiled version: what the binary knows how to produce
+- target version: what operators want the system to converge to
+- active version: what the live read path currently serves
+
+Full rebuilds promote a derivation's active version after successful completion. The current implementation also supports narrower rebuild scopes for a single event, a pubkey, or a time range.
+
+This is the core contract: derived state can evolve without rewriting raw history.
+
+## Why Postgres Is Primary
+
+Postgres is not just storage here. It is the consistency boundary:
+
+- canonical event write, provenance write, and job enqueue happen together
+- checkpoints, queue state, rebuild metadata, and projections stay in one transactional system
+- operational complexity stays low for early production usage
+
+That design favors correctness and operability over distributed-system novelty.
+
+## Intentionally Deferred
+
+The current repository does not implement separate trust, ranking, or compatibility subsystems beyond the minimal Primal adapter. It also does not introduce Redis, ClickHouse, or another projection store.
+
+A few limits are explicit in the current code:
+
+- only the `default_v1` relay filter group is implemented
+- compatibility support is intentionally narrow
+- trust/ranking layers are future work, not hidden present features

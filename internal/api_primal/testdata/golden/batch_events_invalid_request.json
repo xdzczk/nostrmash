@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "event_ids must not be empty",
+    "request_id": "req-fixed-1"
+  }
+}

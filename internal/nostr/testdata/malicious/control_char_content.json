@@ -1,0 +1,11 @@
+{
+  "kind": 1,
+  "created_at": 1700000000,
+  "tags": [
+    ["client", "nostrmash"]
+  ],
+  "content": "safe\u0000boom",
+  "pubkey": "37ce94259421d17a13e04382205c6061323ebc6bbfa46aab1f73e6f93c774a5e",
+  "id": "170d3ed9ffae4cfa81b5489a872ec5c9f3de9177a4e0dd349bc4025d5c216c9d",
+  "sig": "a4832e737f0195b9903f4f833b3196f6d583fb5a98c8c2d65b95116218548d9ff95b361d3e7a1c21aacce2684477ca7caa66542460e2cc2acd18eb67aa99ea74"
+}

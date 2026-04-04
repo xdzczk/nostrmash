@@ -1,0 +1,9 @@
+{
+  "kind": "1",
+  "created_at": 1700000000,
+  "tags": [],
+  "content": "hello",
+  "pubkey": "37ce94259421d17a13e04382205c6061323ebc6bbfa46aab1f73e6f93c774a5e",
+  "id": "c108c0bfe77ffc3c0e07f1056d0b5d008e2b4e2a8c4197af5b8c7e3582d41f74",
+  "sig": "18cefd294b6f23128c635d1e49742b0191b4a6f61179af750d0b06a6f6bde6086a6743380fd368d146236cdd2a3e795180a0176baf96c50e3d789cdec72d26eb"
+}

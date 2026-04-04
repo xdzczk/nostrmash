@@ -1,0 +1,465 @@
+openapi: 3.0.3
+info:
+  title: NostrMash API
+  version: 0.15.0
+  description: Native, admin, and Primal compatibility APIs.
+servers:
+  - url: /
+tags:
+  - name: public
+  - name: admin
+  - name: primal
+paths:
+  /health:
+    get:
+      tags: [public]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                required: [status]
+  /ready:
+    get:
+      tags: [public]
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Database is reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ready }
+                required: [status]
+        '503':
+          $ref: '#/components/responses/Error'
+  /metrics:
+    get:
+      tags: [public]
+      summary: Prometheus metrics exposition
+      responses:
+        '200':
+          description: Prometheus text format metrics
+
+  /api/v1/events/{id}:
+    get:
+      tags: [public]
+      summary: Get canonical event plus relay provenance
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Event and provenance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event:
+                    type: object
+                    additionalProperties: true
+                  provenance:
+                    type: object
+                    properties:
+                      relays:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            relay_url: { type: string }
+                            seen_at: { type: string, format: date-time }
+                  consistency: { type: string, enum: [strong] }
+                required: [event, provenance, consistency]
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/events/batch:
+    post:
+      tags: [public]
+      summary: Batch fetch canonical events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: { type: string }
+              required: [ids]
+      responses:
+        '200':
+          description: Found and missing events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  missing:
+                    type: array
+                    items: { type: string }
+                required: [events, missing]
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/events/{id}/seen-on:
+    get:
+      tags: [public]
+      summary: Get relay provenance for one event
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Seen-on rows
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/events/{id}/counts:
+    get:
+      tags: [public]
+      summary: Get eventual interaction counters
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reply/reaction/repost counters
+  /api/v1/events/{id}/replies:
+    get:
+      tags: [public]
+      summary: Get direct replies with cursor pagination
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reply page
+  /api/v1/events/{id}/ancestors:
+    get:
+      tags: [public]
+      summary: Get root-to-parent chain
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: max_depth
+          schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+      responses:
+        '200':
+          description: Ancestor chain with missing IDs
+  /api/v1/threads/{eventId}:
+    get:
+      tags: [public]
+      summary: Get thread slice for one event
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: max_depth
+          schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: Thread view
+  /api/v1/profiles/{pubkey}:
+    get:
+      tags: [public]
+      summary: Get projected latest profile
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Profile projection
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/profiles/batch:
+    post:
+      tags: [public]
+      summary: Batch get profile projections
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pubkeys:
+                  type: array
+                  items: { type: string }
+              required: [pubkeys]
+      responses:
+        '200':
+          description: Found and missing profiles
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/authors/{pubkey}/events:
+    get:
+      tags: [public]
+      summary: Recent authored events
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Event list
+  /api/v1/authors/{pubkey}/replies:
+    get:
+      tags: [public]
+      summary: Replies authored by pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Reply list
+  /api/v1/relays/health:
+    get:
+      tags: [public]
+      summary: Aggregate persisted relay ingest health
+      responses:
+        '200':
+          description: Relay health rows from checkpoint state
+
+  /primal/v1/events/{id}:
+    get:
+      tags: [primal]
+      summary: Primal-compatible event by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Compatibility event payload
+        '404':
+          $ref: '#/components/responses/Error'
+  /primal/v1/events/batch:
+    post:
+      tags: [primal]
+      summary: Primal-compatible batch events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200':
+          description: Found and missing compatibility events
+        '400':
+          $ref: '#/components/responses/Error'
+  /primal/v1/profiles/{pubkey}:
+    get:
+      tags: [primal]
+      summary: Primal-compatible profile by pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Compatibility profile payload
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /admin/v1/relays:
+    get:
+      tags: [admin]
+      summary: Relay ingest state by relay URL
+      security: [{ BearerToken: [] }]
+      responses:
+        '200':
+          description: Relay checkpoint and config status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  relays:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        relay_url: { type: string }
+                        configured: { type: boolean }
+                        disabled: { type: boolean }
+                        latest_checkpoint_at: { type: string, format: date-time, nullable: true }
+                        checkpoints:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              mode: { type: string }
+                              filter_group: { type: string }
+                              status: { type: string }
+                              since: { type: integer, nullable: true }
+                              until: { type: integer, nullable: true }
+                              cursor: { type: string, nullable: true }
+                              eose_seen_at: { type: string, format: date-time, nullable: true }
+                              updated_at: { type: string, format: date-time }
+  /admin/v1/jobs:
+    get:
+      tags: [admin]
+      summary: Queue status and recent jobs
+      security: [{ BearerToken: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        '200':
+          description: Queue counts and sample jobs
+  /admin/v1/invalid-events:
+    get:
+      tags: [admin]
+      summary: Invalid event quarantine stats and latest rows
+      security: [{ BearerToken: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        '200':
+          description: Invalid event stats + records
+  /admin/v1/rebuilds:
+    get:
+      tags: [admin]
+      summary: Projection rebuild run history
+      security: [{ BearerToken: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        '200':
+          description: Rebuild runs
+    post:
+      tags: [admin]
+      summary: Enqueue projection rebuild run
+      security: [{ BearerToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                derivation_name: { type: string }
+                target_version: { type: integer, minimum: 1 }
+                scope:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [full, event, pubkey, time_range]
+                    event_id: { type: string }
+                    pubkey: { type: string }
+                    start_created_at: { type: integer }
+                    end_created_at: { type: integer }
+                  required: [type]
+              required: [derivation_name, scope]
+      responses:
+        '202':
+          description: Rebuild run accepted and enqueued
+        '400':
+          $ref: '#/components/responses/Error'
+  /admin/v1/storage:
+    get:
+      tags: [admin]
+      summary: Storage footprint and core table cardinality
+      security: [{ BearerToken: [] }]
+      responses:
+        '200':
+          description: Storage stats
+  /admin/v1/system:
+    get:
+      tags: [admin]
+      summary: Runtime and DB health snapshot
+      security: [{ BearerToken: [] }]
+      responses:
+        '200':
+          description: Runtime + pool + ping status
+  /admin/v1/derivation-versions:
+    get:
+      tags: [admin]
+      summary: Active vs target projection versions
+      security: [{ BearerToken: [] }]
+      responses:
+        '200':
+          description: Derivation version status list
+components:
+  securitySchemes:
+    BearerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: OpaqueToken
+  responses:
+    Error:
+      description: Structured API error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+                  request_id: { type: string }
+                required: [code, message, request_id]
+            required: [error]
