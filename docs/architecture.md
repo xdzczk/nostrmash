@@ -22,7 +22,7 @@ That split is the point: raw history must survive schema changes and bad project
 
 - `ingestor`: receives relay payloads in `live`, optional `backfill`, or deterministic `replay` mode; validates events; writes canonical data; records invalid payloads; persists relay checkpoints; enqueues derivation jobs.
 - `worker`: claims jobs from Postgres and materializes derivations and projections.
-- `api`: serves native read endpoints, a minimal `/primal/v1` compatibility surface, and admin inspection/rebuild endpoints.
+- `api`: serves native read endpoints, a focused but substantial `/primal/v1` and `/primal/ws` compatibility surface, and admin inspection/rebuild endpoints.
 - `postgres`: primary datastore for canonical storage, checkpoints, queue state, derivation metadata, and projections.
 
 ## Data Flow
@@ -86,6 +86,10 @@ Layer 3 is read-optimized projection state consumed by APIs:
 - `reply_counts`, `reaction_counts`, `repost_counts`
 - `reaction_events`, `repost_events`, `deletion_events`
 - `contact_lists_latest`, `relay_lists_latest`
+- `follower_edges`
+- `dm_unread_counts`, `dm_read_cursors`
+- `zap_receipts`
+- curated parity tables such as `curated_reads_topics`, `curated_featured_authors`, `curated_recommended_reads`, and `curated_creator_paid_tiers`
 
 Layer 3 is disposable in principle. If a projection is wrong or changes shape, rebuild it from lower layers.
 
@@ -113,12 +117,12 @@ That design favors correctness and operability over distributed-system novelty.
 
 ## Intentionally Deferred
 
-The current repository does not implement separate trust, ranking, or compatibility subsystems beyond the minimal Primal adapter. It also does not introduce Redis, ClickHouse, or another projection store.
+The current repository does not implement separate trust or ranking subsystems, and it does not introduce Redis, ClickHouse, or another projection store. The compatibility layer is intentionally boundary-only: translation stays in `internal/api_primal` and is backed by the same canonical and derived Postgres data as the native API.
 
 A few limits are explicit in the current code:
 
 - only the `default_v1` relay filter group is implemented
-- compatibility support is intentionally narrow
+- compatibility support is still partial relative to full product parity and is rolled out in phases
 - trust/ranking layers are future work, not hidden present features
 
 ## Related Docs

@@ -2,7 +2,7 @@
 
 This document defines the explicit compatibility target for replacing Primal Cache in phases.
 
-The matrix below is the contract for what NostrMash supports today, what is planned in the next migration phases, and what is intentionally deferred.
+The matrix below describes what NostrMash implements in the repository today, what is planned next, and what is intentionally deferred. The later "Frozen Cutover Scope (V1)" section is narrower on purpose: it captures the first production migration bundle, not the full currently implemented surface.
 
 ## Classification Legend
 
@@ -20,7 +20,7 @@ The matrix below is the contract for what NostrMash supports today, what is plan
 | `events` batch | supported_now | `POST /primal/v1/events/batch` | Returns found and missing IDs. |
 | `user_profile` | supported_now | `GET /primal/v1/profiles/{pubkey}` | Uses projected profile state. |
 | `user_infos` | supported_now | `POST /primal/v1/user_infos` | Batch profile lookup on projected state. |
-| `thread_view` | supported_now | `GET /primal/v1/threads/{event_id}` | Includes cursor pagination via `cursor`/`next_cursor`. |
+| `thread_view` | supported_now | `GET /primal/v1/threads/{eventId}` | Includes cursor pagination via `cursor`/`next_cursor`. |
 | author events feed | supported_now | `GET /primal/v1/authors/{pubkey}/events` | Maps to `author_recent_events`. |
 | author replies | supported_now | `GET /primal/v1/authors/{pubkey}/replies` | Maps to derived reply references. |
 | event action counts | supported_now | `GET /primal/v1/events/{id}/actions` | Derived from reply/reaction/repost counts. |
@@ -61,7 +61,7 @@ Initial Primal cutover can proceed only when all are true:
 
 ## Frozen Cutover Scope (V1)
 
-The first production cutover is explicitly limited to:
+The first production cutover is explicitly limited to this smaller deployment bundle, even though the repository implements additional compatibility functions today:
 
 - `events` by id and batch
 - `user_profile` and `user_infos`
@@ -71,4 +71,4 @@ The first production cutover is explicitly limited to:
 - contact list and relay list reads
 - WebSocket compatibility for the request types above
 
-Everything else in `deferred` or `unsupported` is out of scope for V1 and must not block cutover.
+Everything else outside this list must not block the first cutover, even if it is already implemented behind the compatibility boundary.

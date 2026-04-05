@@ -23,7 +23,7 @@ Exit criteria:
 Enable `GET /primal/ws` gateway for:
 
 - `REQ` / `CLOSE` protocol handling
-- cache dispatch for the Stage 1 compatibility subset
+- cache dispatch for the initial cutover subset first, while allowing the repository to carry broader compatibility handlers behind the same boundary
 - `EVENT`, `EOSE`, and `NOTICE` responses
 
 Exit criteria:
@@ -65,3 +65,8 @@ Promote NostrMash compatibility as the default path after:
 - all must-have functions are implemented
 - deferred functions are either shipped or intentionally retired
 - rollback and incident handling are documented and tested
+
+Implementation note:
+
+- This plan describes rollout sequencing, not a strict list of everything already implemented in the repository.
+- When rollout sequencing and the compatibility matrix differ, treat `primal_compatibility_matrix.md` as the source of truth for current feature availability and this document as the operational adoption plan.

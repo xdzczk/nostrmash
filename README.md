@@ -33,7 +33,7 @@ Most systems get into trouble by mixing ingest truth with read-time convenience.
 
 NostrMash is built as four simple pieces:
 
-- `api` serves the native read API, a minimal Primal compatibility adapter, health/metrics, and admin inspection endpoints
+- `api` serves the native read API, a focused but growing Primal compatibility adapter, health/metrics, and admin inspection endpoints
 - `ingestor` connects to relays, validates payloads, quarantines invalid events, writes canonical rows, and enqueues derivation jobs
 - `worker` drains the Postgres-backed job queue and materializes derived state
 - `postgres` is the source of truth for raw events, relay provenance, invalid payloads, checkpoints, job state, derivation metadata, and projections
@@ -99,10 +99,11 @@ Integration test note:
 
 - DB-backed integration tests require `TEST_DATABASE_URL` or `DATABASE_URL`.
 - For CI parity, prefer setting `TEST_DATABASE_URL` explicitly.
-- Example local setup:
+- Local `make ci` and `go test` runs need a Postgres instance reachable from the host.
+- The checked-in `docker-compose.yml` does not publish Postgres on `localhost:5432`, so `docker compose up -d postgres` alone is only enough for container-to-container traffic.
+- Example local setup against a host-reachable Postgres:
 
 ```bash
-docker compose up -d postgres
 export TEST_DATABASE_URL=postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
 make ci
 ```
@@ -129,18 +130,20 @@ There is also a docs index at [docs/README.md](docs/README.md).
 
 - `cmd/api`, `cmd/ingestor`, `cmd/worker`: service entrypoints
 - `internal/api`: native read API and admin handlers
-- `internal/api_primal`: isolated compatibility adapter and WebSocket gateway for phased `/primal` support
+- `internal/api_primal`: isolated compatibility adapter and WebSocket gateway for `/primal` support
 - `internal/ingestor`: live relay handling, backfill runner, relay lifecycle management
 - `internal/nostr`: parse and validate Nostr events before storage
 - `internal/store`: Postgres access, migrations, checkpoints, canonical read/write paths
 - `internal/derivation`: job dispatch, projections, derivation versioning, rebuild orchestration
 - `internal/jobs`: Postgres-backed worker queue
+- `internal/query`, `internal/config`, `internal/metrics`: shared query services, runtime config, and observability plumbing
+- `internal/replay`, `internal/archtest`: deterministic replay tooling and architecture boundary checks
 - `migrations`: embedded schema migrations
 
 ## Status And Scope
 
 - Postgres is the only primary datastore in this repository today
-- Compatibility support is currently minimal and intentional
+- Compatibility support is still partial relative to full Primal product parity, but it now includes a substantial HTTP + WebSocket surface for events, profiles, threads, social graph, moderation, search, zaps, DMs, and curated parity reads
 - Compatibility rollout is phased; see `docs/primal_compatibility_matrix.md` and `docs/compatibility_rollout.md`
 - Trust/ranking layers are future work, not hidden present features
 - Migrations are embedded and run on service startup
