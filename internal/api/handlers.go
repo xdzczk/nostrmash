@@ -101,8 +101,7 @@ type batchEventsResponse struct {
 
 func (h Handlers) BatchGetEvents(w http.ResponseWriter, r *http.Request) {
 	var req batchEventsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+	if !decodeJSONBodyLimited(w, r, publicBatchBodyLimitBytes, &req, false) {
 		return
 	}
 
@@ -241,8 +240,7 @@ type batchProfilesResponse struct {
 
 func (h Handlers) BatchGetProfiles(w http.ResponseWriter, r *http.Request) {
 	var req batchProfilesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+	if !decodeJSONBodyLimited(w, r, publicBatchBodyLimitBytes, &req, false) {
 		return
 	}
 	if len(req.Pubkeys) == 0 {
@@ -630,6 +628,29 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetBookmarks(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	type replaceableReader interface {
+		GetParameterizedReplaceableEvent(ctx context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error)
+	}
+	if reader, ok := h.store.(replaceableReader); ok {
+		event, err := reader.GetParameterizedReplaceableEvent(r.Context(), pubkey, 10003, "")
+		if err == nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"pubkey":      pubkey,
+				"bookmarks":   []json.RawMessage{event},
+				"consistency": "eventual",
+			})
+			return
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+	}
 	h.getKindScopedEvents(w, r, 10003, "bookmarks")
 }
 
@@ -642,15 +663,37 @@ func (h Handlers) GetLongForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetZaps(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	type zapReader interface {
+		GetUserZaps(ctx context.Context, pubkey string, limit int, sortBySats bool) ([]json.RawMessage, error)
+	}
+	if reader, ok := h.store.(zapReader); ok {
+		zaps, err := reader.GetUserZaps(r.Context(), pubkey, limit, true)
+		if err != nil {
+			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"pubkey":      pubkey,
+			"zaps":        zaps,
+			"consistency": "eventual",
+		})
+		return
+	}
 	h.getKindScopedEvents(w, r, 9735, "zaps")
 }
 
-func (h Handlers) GetDirectMessages(w http.ResponseWriter, r *http.Request) {
-	h.getKindScopedEvents(w, r, 4, "direct_messages")
-}
-
-// GetFollowers returns events referencing this pubkey via p-tags.
-func (h Handlers) GetFollowers(w http.ResponseWriter, r *http.Request) {
+// GetMentions returns events referencing this pubkey via p-tags.
+func (h Handlers) GetMentions(w http.ResponseWriter, r *http.Request) {
 	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
@@ -662,6 +705,30 @@ func (h Handlers) GetFollowers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items, err := h.store.GetEventsReferencingPubkey(r.Context(), pubkey, limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":      pubkey,
+		"items":       items,
+		"consistency": "eventual",
+	})
+}
+
+// GetFollowers returns follower edges derived from latest contact lists.
+func (h Handlers) GetFollowers(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	items, err := h.store.GetFollowersByPubkey(r.Context(), pubkey, limit)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return

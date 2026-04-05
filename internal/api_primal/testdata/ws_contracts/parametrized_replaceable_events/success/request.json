@@ -1,0 +1,28 @@
+[
+  "REQ",
+  "sub_param_events_contract",
+  {
+    "cache": [
+      "parametrized_replaceable_events",
+      {
+        "events": [
+          {
+            "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": 30023,
+            "identifier": "read-a"
+          },
+          {
+            "pubkey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "kind": 30023,
+            "identifier": "read-missing"
+          },
+          {
+            "pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "kind": 30023,
+            "identifier": "read-b"
+          }
+        ]
+      }
+    ]
+  }
+]

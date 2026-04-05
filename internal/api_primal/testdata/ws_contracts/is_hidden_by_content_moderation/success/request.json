@@ -1,0 +1,23 @@
+{
+  "frame": [
+    "REQ",
+    "sub_hidden_contract",
+    {
+      "cache": [
+        "is_hidden_by_content_moderation",
+        {
+          "user_pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pubkeys": [
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          ],
+          "event_ids": [
+            "evt_hidden",
+            "evt_visible"
+          ],
+          "event_id": "evt_hidden"
+        }
+      ]
+    }
+  ]
+}

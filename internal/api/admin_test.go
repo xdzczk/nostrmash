@@ -143,6 +143,22 @@ func TestAdminRebuilds_PostTriggersRebuildRun(t *testing.T) {
 	}
 }
 
+func TestAdminRebuilds_RejectsOversizedPayload(t *testing.T) {
+	mux := newAdminTestMux("token", fakeAdminService{
+		triggerRebuildFn: func(_ context.Context, p derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error) {
+			return adminRebuildRunResponse{}, nil
+		},
+	})
+	tooLarge := `{"derivation_name":"` + strings.Repeat("x", adminBodyLimitBytes+10) + `","target_version":2,"scope":{"type":"full"}}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/v1/rebuilds", strings.NewReader(tooLarge))
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
 func TestAdminDerivationVersions_ReturnsProjectionVersionStatus(t *testing.T) {
 	mux := newAdminTestMux("token", fakeAdminService{
 		getDerivationVersionsFn: func(_ context.Context) ([]adminDerivationVersionResponse, error) {

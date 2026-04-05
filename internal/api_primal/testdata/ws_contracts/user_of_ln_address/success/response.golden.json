@@ -1,0 +1,23 @@
+[
+  [
+    "EVENT",
+    "sub_ln_lookup_contract",
+    {
+      "content": "{\"pubkey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "kind": 10000138
+    }
+  ],
+  [
+    "EVENT",
+    "sub_ln_lookup_contract",
+    {
+      "id": "md_ln_user",
+      "kind": 0,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EOSE",
+    "sub_ln_lookup_contract"
+  ]
+]

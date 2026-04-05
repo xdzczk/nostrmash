@@ -54,7 +54,7 @@ func TestOpenAPIAndRouterStayInSync(t *testing.T) {
 		{Method: "GET", Path: "/api/v1/users/{pubkey}/highlights"},
 		{Method: "GET", Path: "/api/v1/users/{pubkey}/long-form"},
 		{Method: "GET", Path: "/api/v1/users/{pubkey}/zaps"},
-		{Method: "GET", Path: "/api/v1/users/{pubkey}/dms"},
+		{Method: "GET", Path: "/api/v1/users/{pubkey}/mentions"},
 		{Method: "GET", Path: "/api/v1/users/{pubkey}/followers"},
 		{Method: "GET", Path: "/primal/v1/events/{id}"},
 		{Method: "POST", Path: "/primal/v1/events/batch"},

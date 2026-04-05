@@ -1,25 +1,27 @@
 {
-  "status": 200,
   "body": {
+    "missing_pubkeys": [
+      "pubkey_missing"
+    ],
     "profiles": [
       {
-        "pubkey": "pubkey_abc",
-        "metadata_event_id": "evt_meta_1",
         "metadata_created_at": 1700000001,
+        "metadata_event_id": "evt_meta_1",
         "profile": {
-          "name": "Nostr Mash",
-          "about": "compat profile fixture"
-        }
+          "about": "compat profile fixture",
+          "name": "Nostr Mash"
+        },
+        "pubkey": "pubkey_abc"
       },
       {
-        "pubkey": "pubkey_xyz",
-        "metadata_event_id": "evt_meta_2",
         "metadata_created_at": 1700000500,
+        "metadata_event_id": "evt_meta_2",
         "profile": {
           "name": "XYZ"
-        }
+        },
+        "pubkey": "pubkey_xyz"
       }
-    ],
-    "missing_pubkeys": ["pubkey_missing"]
-  }
+    ]
+  },
+  "status": 200
 }

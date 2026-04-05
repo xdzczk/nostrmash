@@ -1,0 +1,55 @@
+[
+  [
+    "EVENT",
+    "sub_highlights_contract",
+    {
+      "created_at": 20,
+      "id": "hl_2",
+      "kind": 9802,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tags": [
+        [
+          "e",
+          "evt_target"
+        ]
+      ]
+    }
+  ],
+  [
+    "EVENT",
+    "sub_highlights_contract",
+    {
+      "created_at": 10,
+      "id": "hl_1",
+      "kind": 9802,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tags": [
+        [
+          "e",
+          "evt_target"
+        ]
+      ]
+    }
+  ],
+  [
+    "EVENT",
+    "sub_highlights_contract",
+    {
+      "id": "md_highlighter",
+      "kind": 0,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EVENT",
+    "sub_highlights_contract",
+    {
+      "content": "{\"order_by\":\"created_at\",\"since\":10,\"until\":20}",
+      "kind": 10000113
+    }
+  ],
+  [
+    "EOSE",
+    "sub_highlights_contract"
+  ]
+]

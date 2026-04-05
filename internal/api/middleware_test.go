@@ -84,3 +84,45 @@ func TestRequireBearerToken_AllowsValidToken(t *testing.T) {
 		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusNoContent)
 	}
 }
+
+func TestRequestPathTemplate_UsesServeMuxPattern(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/abc", nil)
+	req.Pattern = "GET /api/v1/events/{id}"
+	if got := requestPathTemplate(req); got != "/api/v1/events/{id}" {
+		t.Fatalf("unexpected path template: got %q", got)
+	}
+}
+
+func TestWithHTTPRateLimit_ExemptsHealthAndLimitsSearch(t *testing.T) {
+	limited := WithHTTPRateLimit(HTTPRateLimitOptions{
+		DefaultRPM:   1,
+		DefaultBurst: 1,
+		SearchRPM:    1,
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	healthReq := httptest.NewRequest(http.MethodGet, "/health", nil)
+	healthReq.RemoteAddr = "127.0.0.1:1234"
+	healthRec := httptest.NewRecorder()
+	limited.ServeHTTP(healthRec, healthReq)
+	if healthRec.Code != http.StatusNoContent {
+		t.Fatalf("unexpected health status: got %d want %d", healthRec.Code, http.StatusNoContent)
+	}
+
+	searchReq1 := httptest.NewRequest(http.MethodGet, "/api/v1/search?q=x", nil)
+	searchReq1.RemoteAddr = "127.0.0.1:4321"
+	searchRec1 := httptest.NewRecorder()
+	limited.ServeHTTP(searchRec1, searchReq1)
+	if searchRec1.Code != http.StatusNoContent {
+		t.Fatalf("unexpected first search status: got %d want %d", searchRec1.Code, http.StatusNoContent)
+	}
+
+	searchReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/search?q=x", nil)
+	searchReq2.RemoteAddr = "127.0.0.1:4321"
+	searchRec2 := httptest.NewRecorder()
+	limited.ServeHTTP(searchRec2, searchReq2)
+	if searchRec2.Code != http.StatusTooManyRequests {
+		t.Fatalf("unexpected second search status: got %d want %d", searchRec2.Code, http.StatusTooManyRequests)
+	}
+}

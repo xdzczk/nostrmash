@@ -108,11 +108,25 @@ func (s *PostgresStore) SearchEventsByContent(ctx context.Context, query string,
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT raw_json::text
-		FROM events
-		WHERE kind = 1
-		  AND content ILIKE '%' || $1 || '%'
-		ORDER BY created_at DESC, id DESC
+		WITH ranked AS (
+			SELECT
+				raw_json::text AS raw_text,
+				created_at,
+				id,
+				ts_rank_cd(
+					to_tsvector('simple', coalesce(content, '')),
+					websearch_to_tsquery('simple', $1)
+				) AS rank
+			FROM events
+			WHERE kind = 1
+			  AND (
+				to_tsvector('simple', coalesce(content, '')) @@ websearch_to_tsquery('simple', $1)
+				OR content ILIKE '%' || $1 || '%'
+			  )
+		)
+		SELECT raw_text
+		FROM ranked
+		ORDER BY rank DESC, created_at DESC, id DESC
 		LIMIT $2
 	`, query, limit)
 	if err != nil {
@@ -151,11 +165,42 @@ func (s *PostgresStore) SearchProfiles(ctx context.Context, query string, limit 
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT pubkey, metadata_event_id, metadata_created_at, profile_json::text
-		FROM profiles_latest
-		WHERE pubkey ILIKE '%' || $1 || '%'
-		   OR profile_json::text ILIKE '%' || $1 || '%'
-		ORDER BY metadata_created_at DESC, metadata_event_id DESC
+		WITH ranked AS (
+			SELECT
+				pubkey,
+				metadata_event_id,
+				metadata_created_at,
+				profile_json::text AS profile_text,
+				ts_rank_cd(
+					to_tsvector(
+						'simple',
+						coalesce(pubkey, '') || ' ' ||
+						coalesce(name, '') || ' ' ||
+						coalesce(display_name, '') || ' ' ||
+						coalesce(about, '') || ' ' ||
+						coalesce(nip05, '')
+					),
+					websearch_to_tsquery('simple', $1)
+				) AS rank
+			FROM profiles_latest
+			WHERE
+				to_tsvector(
+					'simple',
+					coalesce(pubkey, '') || ' ' ||
+					coalesce(name, '') || ' ' ||
+					coalesce(display_name, '') || ' ' ||
+					coalesce(about, '') || ' ' ||
+					coalesce(nip05, '')
+				) @@ websearch_to_tsquery('simple', $1)
+				OR pubkey ILIKE '%' || $1 || '%'
+				OR coalesce(name, '') ILIKE '%' || $1 || '%'
+				OR coalesce(display_name, '') ILIKE '%' || $1 || '%'
+				OR coalesce(about, '') ILIKE '%' || $1 || '%'
+				OR coalesce(nip05, '') ILIKE '%' || $1 || '%'
+		)
+		SELECT pubkey, metadata_event_id, metadata_created_at, profile_text
+		FROM ranked
+		ORDER BY rank DESC, metadata_created_at DESC, metadata_event_id DESC
 		LIMIT $2
 	`, query, limit)
 	if err != nil {
@@ -263,6 +308,196 @@ func (s *PostgresStore) GetEventsReferencingPubkey(ctx context.Context, targetPu
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read events referencing pubkey rows: %w", err)
+	}
+	return out, nil
+}
+
+// GetFollowersByPubkey returns follower edges derived from latest kind:3 contact lists.
+func (s *PostgresStore) GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	targetPubkey = strings.TrimSpace(targetPubkey)
+	if targetPubkey == "" {
+		return nil, fmt.Errorf("target pubkey is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT json_build_object(
+			'follower_pubkey', follower_pubkey,
+			'source_event_id', source_event_id,
+			'contact_list_created_at', contact_list_created_at
+		)::text
+		FROM follower_edges
+		WHERE followed_pubkey = $1
+		ORDER BY contact_list_created_at DESC, source_event_id DESC, follower_pubkey ASC
+		LIMIT $2
+	`, targetPubkey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get followers by pubkey: %w", err)
+	}
+	defer rows.Close()
+	out := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan followers row: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read followers rows: %w", err)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) GetHighlightsByEventID(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return nil, fmt.Errorf("event id is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT e.raw_json::text
+		FROM event_tags et
+		INNER JOIN events e ON e.id = et.event_id
+		WHERE et.tag_name = 'e'
+		  AND et.value_index = 0
+		  AND et.value = $1
+		  AND e.kind = 9802
+		ORDER BY e.created_at DESC, e.id DESC
+		LIMIT $2
+	`, eventID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get highlights by event id: %w", err)
+	}
+	defer rows.Close()
+	out := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan highlights by event id row: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read highlights by event id rows: %w", err)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) GetHighlightsByATarget(
+	ctx context.Context,
+	kind int,
+	pubkey string,
+	identifier string,
+	limit int,
+) ([]json.RawMessage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	pubkey = strings.TrimSpace(pubkey)
+	identifier = strings.TrimSpace(identifier)
+	if kind <= 0 {
+		return nil, fmt.Errorf("kind is required")
+	}
+	if pubkey == "" {
+		return nil, fmt.Errorf("pubkey is required")
+	}
+	if identifier == "" {
+		return nil, fmt.Errorf("identifier is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	target := fmt.Sprintf("%d:%s:%s", kind, pubkey, identifier)
+	rows, err := s.pool.Query(ctx, `
+		SELECT e.raw_json::text
+		FROM event_tags et
+		INNER JOIN events e ON e.id = et.event_id
+		WHERE et.tag_name = 'a'
+		  AND et.value_index = 0
+		  AND et.value = $1
+		  AND e.kind = 9802
+		ORDER BY e.created_at DESC, e.id DESC
+		LIMIT $2
+	`, target, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get highlights by a target: %w", err)
+	}
+	defer rows.Close()
+	out := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan highlights by a target row: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read highlights by a target rows: %w", err)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) GetEventsByATagAndKind(ctx context.Context, kind int, aTagValue string, limit int) ([]json.RawMessage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	if kind <= 0 {
+		return nil, fmt.Errorf("kind must be positive")
+	}
+	aTagValue = strings.TrimSpace(aTagValue)
+	if aTagValue == "" {
+		return nil, fmt.Errorf("a tag value is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT e.raw_json::text
+		FROM event_tags et
+		INNER JOIN events e ON e.id = et.event_id
+		WHERE et.tag_name = 'a'
+		  AND et.value_index = 0
+		  AND et.value = $1
+		  AND e.kind = $2
+		ORDER BY e.created_at DESC, e.id DESC
+		LIMIT $3
+	`, aTagValue, kind, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get events by a tag and kind: %w", err)
+	}
+	defer rows.Close()
+	out := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan events by a tag and kind row: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read events by a tag and kind rows: %w", err)
 	}
 	return out, nil
 }

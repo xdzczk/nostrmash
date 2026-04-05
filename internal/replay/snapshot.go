@@ -38,6 +38,13 @@ type Layer3Snapshot struct {
 	ReplyCounts       []CountRow            `json:"reply_counts"`
 	ReactionCounts    []CountRow            `json:"reaction_counts"`
 	RepostCounts      []CountRow            `json:"repost_counts"`
+	FollowerEdges     []FollowerEdgeRow     `json:"follower_edges"`
+	DMUnreadCounts    []DMUnreadCountRow    `json:"dm_unread_counts"`
+	ZapReceipts       []ZapReceiptRow       `json:"zap_receipts"`
+	CuratedReads      []CuratedReadRow      `json:"curated_recommended_reads"`
+	CuratedTopics     []CuratedTopicRow     `json:"curated_reads_topics"`
+	CuratedAuthors    []CuratedAuthorRow    `json:"curated_featured_authors"`
+	CuratedPaidTiers  []CuratedPaidTierRow  `json:"curated_creator_paid_tiers"`
 }
 
 type Layer1Event struct {
@@ -117,6 +124,50 @@ type AuthorRecentRow struct {
 type CountRow struct {
 	EventID string `json:"event_id"`
 	Count   int64  `json:"count"`
+}
+
+type FollowerEdgeRow struct {
+	FollowedPubkey string `json:"followed_pubkey"`
+	FollowerPubkey string `json:"follower_pubkey"`
+	SourceEventID  string `json:"source_event_id"`
+}
+
+type DMUnreadCountRow struct {
+	ReceiverPubkey string `json:"receiver_pubkey"`
+	SenderPubkey   string `json:"sender_pubkey"`
+	Count          int64  `json:"cnt"`
+	LatestAt       int64  `json:"latest_at"`
+	LatestEventID  string `json:"latest_event_id"`
+}
+
+type ZapReceiptRow struct {
+	ZapReceiptID   string `json:"zap_receipt_id"`
+	EventID        string `json:"event_id"`
+	SenderPubkey   string `json:"sender_pubkey"`
+	ReceiverPubkey string `json:"receiver_pubkey"`
+	AmountSats     int64  `json:"amount_sats"`
+}
+
+type CuratedReadRow struct {
+	EventID string  `json:"event_id"`
+	Rank    float64 `json:"rank"`
+}
+
+type CuratedTopicRow struct {
+	Topic string  `json:"topic"`
+	Rank  float64 `json:"rank"`
+}
+
+type CuratedAuthorRow struct {
+	Pubkey string  `json:"pubkey"`
+	Rank   float64 `json:"rank"`
+}
+
+type CuratedPaidTierRow struct {
+	Pubkey    string `json:"pubkey"`
+	TierID    string `json:"tier_id"`
+	Title     string `json:"title"`
+	PriceSats int64  `json:"price_sats"`
 }
 
 func CaptureStateSnapshot(ctx context.Context, pool *pgxpool.Pool) (StateSnapshot, error) {
@@ -246,6 +297,55 @@ func CaptureStateSnapshot(ctx context.Context, pool *pgxpool.Pool) (StateSnapsho
 		SELECT event_id, count
 		FROM repost_counts
 		ORDER BY event_id ASC
+	`); err != nil {
+		return out, err
+	}
+	if err := queryRows(ctx, pool, &out.Layer3.FollowerEdges, `
+		SELECT followed_pubkey, follower_pubkey, source_event_id
+		FROM follower_edges
+		ORDER BY followed_pubkey ASC, follower_pubkey ASC
+	`); err != nil {
+		return out, err
+	}
+	if err := queryRows(ctx, pool, &out.Layer3.DMUnreadCounts, `
+		SELECT receiver_pubkey, sender_pubkey, cnt, latest_at, latest_event_id
+		FROM dm_unread_counts
+		ORDER BY receiver_pubkey ASC, sender_pubkey ASC
+	`); err != nil {
+		return out, err
+	}
+	if err := queryRows(ctx, pool, &out.Layer3.ZapReceipts, `
+		SELECT zap_receipt_id, COALESCE(event_id, ''), sender_pubkey, COALESCE(receiver_pubkey, ''), amount_sats
+		FROM zap_receipts
+		ORDER BY zap_receipt_id ASC
+	`); err != nil {
+		return out, err
+	}
+	if err := queryRows(ctx, pool, &out.Layer3.CuratedReads, `
+		SELECT event_id, rank
+		FROM curated_recommended_reads
+		ORDER BY rank DESC, event_id ASC
+	`); err != nil {
+		return out, err
+	}
+	if err := queryRows(ctx, pool, &out.Layer3.CuratedTopics, `
+		SELECT topic, rank
+		FROM curated_reads_topics
+		ORDER BY rank DESC, topic ASC
+	`); err != nil {
+		return out, err
+	}
+	if err := queryRows(ctx, pool, &out.Layer3.CuratedAuthors, `
+		SELECT pubkey, rank
+		FROM curated_featured_authors
+		ORDER BY rank DESC, pubkey ASC
+	`); err != nil {
+		return out, err
+	}
+	if err := queryRows(ctx, pool, &out.Layer3.CuratedPaidTiers, `
+		SELECT pubkey, tier_id, title, price_sats
+		FROM curated_creator_paid_tiers
+		ORDER BY pubkey ASC, price_sats ASC, tier_id ASC
 	`); err != nil {
 		return out, err
 	}

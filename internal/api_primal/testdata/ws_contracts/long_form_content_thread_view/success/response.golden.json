@@ -1,0 +1,61 @@
+[
+  [
+    "EVENT",
+    "sub_read_thread_contract",
+    {
+      "created_at": 33,
+      "id": "reply_a_only",
+      "kind": 1,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EVENT",
+    "sub_read_thread_contract",
+    {
+      "created_at": 22,
+      "id": "reply_2",
+      "kind": 1,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EVENT",
+    "sub_read_thread_contract",
+    {
+      "id": "md_author",
+      "kind": 0,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EVENT",
+    "sub_read_thread_contract",
+    {
+      "content": "{\"next_cursor\":\"eyJjcmVhdGVkX2F0IjoyMiwiaWQiOiJyZXBseV8yIn0\",\"order_by\":\"created_at\",\"since\":22,\"until\":33}",
+      "kind": 10000113
+    }
+  ],
+  [
+    "EVENT",
+    "sub_read_thread_contract",
+    {
+      "id": "evt_parent",
+      "kind": 1,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EVENT",
+    "sub_read_thread_contract",
+    {
+      "id": "evt_read_root",
+      "kind": 30023,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EOSE",
+    "sub_read_thread_contract"
+  ]
+]

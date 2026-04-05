@@ -1,0 +1,14 @@
+[
+  [
+    "EVENT",
+    "sub_reads_topics_contract",
+    {
+      "content": "{\"topics\":[{\"topic\":\"nostr\",\"rank\":10},{\"topic\":\"bitcoin\",\"rank\":9}]}",
+      "kind": 10000146
+    }
+  ],
+  [
+    "EOSE",
+    "sub_reads_topics_contract"
+  ]
+]

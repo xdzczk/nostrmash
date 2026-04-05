@@ -1,19 +1,21 @@
 {
-  "status": 200,
   "body": {
     "events": [
       {
+        "content": "hello primal",
         "id": "evt_1",
         "kind": 1,
-        "pubkey": "pubkey_1",
-        "content": "hello primal"
+        "pubkey": "pubkey_1"
       },
       {
+        "content": "note-3",
         "id": "evt_3",
-        "kind": 7,
-        "content": "note-3"
+        "kind": 7
       }
     ],
-    "missing_event_ids": ["evt_2"]
-  }
+    "missing_event_ids": [
+      "evt_2"
+    ]
+  },
+  "status": 200
 }

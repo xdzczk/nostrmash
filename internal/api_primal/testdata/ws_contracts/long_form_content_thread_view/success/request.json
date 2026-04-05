@@ -1,0 +1,15 @@
+[
+  "REQ",
+  "sub_read_thread_contract",
+  {
+    "cache": [
+      "long_form_content_thread_view",
+      {
+        "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": 30023,
+        "identifier": "read-id",
+        "limit": 2
+      }
+    ]
+  }
+]

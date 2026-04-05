@@ -33,6 +33,7 @@ type fakeEventReader struct {
 	searchProfilesFn   func(context.Context, string, int) ([]store.ProfileProjection, error)
 	getByKindPubkeyFn  func(context.Context, int, string, int) ([]json.RawMessage, error)
 	getRefsPubkeyFn    func(context.Context, string, int) ([]json.RawMessage, error)
+	getFollowersFn     func(context.Context, string, int) ([]json.RawMessage, error)
 }
 
 func (f fakeEventReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -164,6 +165,13 @@ func (f fakeEventReader) GetEventsReferencingPubkey(ctx context.Context, targetP
 		return nil, errors.New("not implemented")
 	}
 	return f.getRefsPubkeyFn(ctx, targetPubkey, limit)
+}
+
+func (f fakeEventReader) GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+	if f.getFollowersFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getFollowersFn(ctx, targetPubkey, limit)
 }
 
 func TestBatchGetEvents_SuccessWithExplicitMissingIDs(t *testing.T) {
@@ -535,5 +543,64 @@ func TestGetEventAncestors_IncludesMissingAncestorIDs(t *testing.T) {
 	}
 	if len(resp.Missing) != 1 || resp.Missing[0] != "evt_missing_parent" {
 		t.Fatalf("unexpected missing ids: %#v", resp.Missing)
+	}
+}
+
+func TestGetMentions_ReturnsReferencedEvents(t *testing.T) {
+	handlers := NewHandlers(fakeEventReader{
+		getRefsPubkeyFn: func(_ context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
+			if pubkey != "pk1" {
+				t.Fatalf("unexpected pubkey: %s", pubkey)
+			}
+			if limit != 10 {
+				t.Fatalf("unexpected limit: %d", limit)
+			}
+			return []json.RawMessage{json.RawMessage(`{"id":"evt_mention_1"}`)}, nil
+		},
+	}, 10)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/mentions", handlers.GetMentions)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/pk1/mentions?limit=10", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestUserDMRouteAbsentWhenOnlyMentionsAndFollowersRegistered(t *testing.T) {
+	handlers := NewHandlers(fakeEventReader{}, 10)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/mentions", handlers.GetMentions)
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/followers", handlers.GetFollowers)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/pk1/dms", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestBatchGetEvents_RejectsOversizedPayload(t *testing.T) {
+	handlers := NewHandlers(fakeEventReader{}, 200)
+	tooLargeJSON := `{"ids":["` + strings.Repeat("a", publicBatchBodyLimitBytes+10) + `"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/events/batch", strings.NewReader(tooLargeJSON))
+	rec := httptest.NewRecorder()
+	handlers.BatchGetEvents(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestBatchGetProfiles_RejectsOversizedPayload(t *testing.T) {
+	handlers := NewHandlers(fakeEventReader{}, 200)
+	tooLargeJSON := `{"pubkeys":["` + strings.Repeat("a", publicBatchBodyLimitBytes+10) + `"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/batch", strings.NewReader(tooLargeJSON))
+	rec := httptest.NewRecorder()
+	handlers.BatchGetProfiles(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusRequestEntityTooLarge)
 	}
 }

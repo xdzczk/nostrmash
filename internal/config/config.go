@@ -23,6 +23,14 @@ type Config struct {
 	HTTPAddr string
 	// APIMaxBatchSize caps number of event IDs in /api/v1/events/batch.
 	APIMaxBatchSize int
+	// HTTPRateLimitRPM controls default per-IP request rate for public HTTP APIs.
+	HTTPRateLimitRPM int
+	// HTTPRateLimitBurst controls token burst allowance for HTTP rate limiting.
+	HTTPRateLimitBurst int
+	// HTTPSearchRateLimitRPM overrides default rate for search endpoints.
+	HTTPSearchRateLimitRPM int
+	// HTTPBatchRateLimitRPM overrides default rate for batch endpoints.
+	HTTPBatchRateLimitRPM int
 	// MetricsAddr is optional HTTP address for Prometheus metrics exposition.
 	MetricsAddr string
 	// AdminBearerToken protects /admin endpoints with Bearer auth.
@@ -35,10 +43,14 @@ type Config struct {
 	PrimalWSMaxMessageBytes int64
 	// PrimalWSMaxReqPerMinute caps REQ frames per connection per minute.
 	PrimalWSMaxReqPerMinute int
+	// PrimalWSDMCompatRateLimitRPM caps get_directmsgs compatibility requests per connection per minute.
+	PrimalWSDMCompatRateLimitRPM int
 	// PrimalWSAllowedOrigins is an exact origin allowlist (scheme://host[:port]).
 	PrimalWSAllowedOrigins []string
 	// PrimalWSAllowAnyOrigin disables origin enforcement when true.
 	PrimalWSAllowAnyOrigin bool
+	// WorkerConcurrency controls concurrent in-process worker job execution.
+	WorkerConcurrency int
 
 	Relay    RelayConfig
 	Backfill BackfillConfig
@@ -124,13 +136,22 @@ func Load(serviceName string) (Config, error) {
 			"API_MAX_BATCH_SIZE",
 			200,
 		),
-		AdminBearerToken: strings.TrimSpace(os.Getenv("ADMIN_BEARER_TOKEN")),
+		HTTPRateLimitRPM:         getEnvInt("HTTP_RATE_LIMIT_RPM", 240),
+		HTTPRateLimitBurst:       getEnvInt("HTTP_RATE_LIMIT_BURST", 60),
+		HTTPSearchRateLimitRPM:   getEnvInt("HTTP_SEARCH_RATE_LIMIT_RPM", 60),
+		HTTPBatchRateLimitRPM:    getEnvInt("HTTP_BATCH_RATE_LIMIT_RPM", 40),
+		AdminBearerToken:         strings.TrimSpace(os.Getenv("ADMIN_BEARER_TOKEN")),
 		PrimalWSMaxSubscriptions: getEnvInt("PRIMAL_WS_MAX_SUBSCRIPTIONS", 200),
 		PrimalWSRequestTimeout:   getEnvDuration("PRIMAL_WS_REQUEST_TIMEOUT", 10*time.Second),
 		PrimalWSMaxMessageBytes:  getEnvInt64("PRIMAL_WS_MAX_MESSAGE_BYTES", 1<<20),
 		PrimalWSMaxReqPerMinute:  getEnvInt("PRIMAL_WS_MAX_REQ_PER_MINUTE", 240),
-		PrimalWSAllowedOrigins:   parseCSVEnv("PRIMAL_WS_ALLOWED_ORIGINS"),
-		PrimalWSAllowAnyOrigin:   getEnvBool("PRIMAL_WS_ALLOW_ANY_ORIGIN", false),
+		PrimalWSDMCompatRateLimitRPM: getEnvInt(
+			"HTTP_DM_COMPAT_RATE_LIMIT_RPM",
+			30,
+		),
+		PrimalWSAllowedOrigins: parseCSVEnv("PRIMAL_WS_ALLOWED_ORIGINS"),
+		PrimalWSAllowAnyOrigin: getEnvBool("PRIMAL_WS_ALLOW_ANY_ORIGIN", false),
+		WorkerConcurrency:      getEnvInt("WORKER_CONCURRENCY", 4),
 		Relay: RelayConfig{
 			URLs:           parseCSVEnv("INGESTOR_RELAY_URLS"),
 			Allowlist:      parseCSVEnv("INGESTOR_RELAY_ALLOWLIST"),

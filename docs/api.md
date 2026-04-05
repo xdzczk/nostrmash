@@ -26,6 +26,8 @@ It serves:
 - thread and ancestor/reply views
 - relay health summaries
 - projected interaction counts
+- `mentions` (p-tag reference events)
+- `followers` (derived follower edges from latest kind:3 contact lists)
 
 This is the surface to extend when the system gains new first-class read capabilities.
 
@@ -46,6 +48,23 @@ It now includes a phased subset plus a WebSocket gateway:
 - `GET /primal/v1/contact-lists/{pubkey}`
 - `GET /primal/v1/relay-lists/{pubkey}`
 - `GET /primal/ws` (WebSocket `REQ`/`CLOSE` compatibility gateway)
+
+Compatibility notes:
+
+- `thread_view` supports opaque cursor pagination (`cursor` query input, `next_cursor` output).
+- `get_directmsgs` exists on the WS cache gateway for compatibility only; there is no public native HTTP DM retrieval route.
+- DM companion cache calls are available for parity flows: `get_directmsg_contacts`, `directmsg_count`, `directmsg_count_2`, `reset_directmsg_count`, and `reset_directmsg_counts`.
+- DM reset mutations now require signed `event_from_user` payloads; raw pubkey-only reset calls are rejected.
+- `directmsg_count` and `directmsg_count_2` are intentionally split into two wire shapes and can stay live via WS subscriptions.
+- `user_mentions` is a truthful reference-based surface (p-tag mentions).
+- `user_followers` is backed by follower-edge projection derived from latest kind:3 contact lists.
+- Search behavior is intentionally unified between top-level WS `search` filters and `cache:search`.
+- Additional parity cache groups are available for zaps, moderation/filterlists, parameterized replaceables, and curated stats/read surfaces.
+- Moderation checks are tag-aware for pubkey/event/term entries and treat empty lists as valid empty responses.
+- Curated/external cache reads now use Primal-like kind envelopes for reads/topics/authors and LN lookup: `get_recommended_reads` (`10000145`), `get_reads_topics` (`10000146`), `get_featured_authors` (`10000148`), and `user_of_ln_address` (`10000138`).
+- `get_featured_authors` and `user_of_ln_address` also emit profile metadata events when available.
+- `creator_paid_tiers` now prefers live event-native output (latest kind `17000` + referenced `e` events) and falls back to curated normalized payload (`10000147`) when source events are unavailable.
+- `user_of_ln_address` resolves against exact LN address identity data (`nip05`-style match), not search heuristics.
 
 This is still not full product parity. Compatibility logic remains boundary-only and avoids leaking protocol-specific models into core storage and derivation code.
 
@@ -109,6 +128,8 @@ Practical expectations:
 - treat cursors as opaque values
 - do not construct them manually
 - expect deterministic ordering on paginated event lists
+- expect `413` for oversized JSON POST bodies on batch/admin endpoints
+- expect `429` when HTTP per-client rate limits are exceeded
 
 Error responses use a consistent envelope:
 

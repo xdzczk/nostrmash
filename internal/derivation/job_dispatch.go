@@ -33,6 +33,12 @@ func ProcessJob(ctx context.Context, handlers *Handlers, job Job) error {
 			return fmt.Errorf("run_id is required in payload")
 		}
 		return handlers.ExecuteProjectionRebuildRun(ctx, payload.RunID)
+	case JobTypeDeriveEventBundle:
+		payload, err := decodeEventJobPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return handlers.DeriveEventBundle(ctx, payload.EventID)
 	case JobTypeDeriveEventRelationships:
 		payload, err := decodeEventJobPayload(job.Payload)
 		if err != nil {
@@ -105,6 +111,18 @@ func ProcessJob(ctx context.Context, handlers *Handlers, job Job) error {
 			return err
 		}
 		return handlers.ProjectRelayListsLatest(ctx, payload.EventID)
+	case JobTypeProjectDMUnreadCounts:
+		payload, err := decodeEventJobPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return handlers.ProjectDMUnreadCounts(ctx, payload.EventID)
+	case JobTypeProjectZapReceipts:
+		payload, err := decodeEventJobPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return handlers.ProjectZapReceipts(ctx, payload.EventID)
 	case JobTypeUpdateThreadProjection:
 		payload, err := decodeEventJobPayload(job.Payload)
 		if err != nil {

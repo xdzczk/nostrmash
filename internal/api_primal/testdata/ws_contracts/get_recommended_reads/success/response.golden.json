@@ -1,0 +1,14 @@
+[
+  [
+    "EVENT",
+    "sub_recommended_reads_contract",
+    {
+      "content": "{\"reads\":[{\"event_id\":\"evt_read_1\",\"title\":\"Read 1\",\"url\":\"https://example.com/1\",\"rank\":20},{\"event_id\":\"evt_read_2\",\"title\":\"Read 2\",\"url\":\"https://example.com/2\",\"rank\":10}]}",
+      "kind": 10000145
+    }
+  ],
+  [
+    "EOSE",
+    "sub_recommended_reads_contract"
+  ]
+]

@@ -323,6 +323,97 @@ func TestProjectCounts_ReplyReactionRepost(t *testing.T) {
 	}
 }
 
+func TestProjectContactListsLatest_DerivesFollowerEdgesFromLatestList(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	baseTime := time.Date(2026, 4, 5, 10, 0, 0, 0, time.UTC)
+
+	firstTags := [][]string{
+		{"p", "bob"},
+		{"p", "carol"},
+	}
+	first := newEventForTest(
+		"contact_evt_1",
+		"alice",
+		1000,
+		3,
+		firstTags,
+		`{"content":"contacts1"}`,
+		baseTime,
+	)
+	secondTags := [][]string{
+		{"p", "carol"},
+	}
+	second := newEventForTest(
+		"contact_evt_2",
+		"alice",
+		1001,
+		3,
+		secondTags,
+		`{"content":"contacts2"}`,
+		baseTime.Add(1*time.Second),
+	)
+	insertFixtures := []struct {
+		event model.Event
+		tags  [][]string
+	}{
+		{event: first, tags: firstTags},
+		{event: second, tags: secondTags},
+	}
+	for _, fixture := range insertFixtures {
+		if err := pgStore.InsertCanonicalEvent(ctx, fixture.event, fixture.tags, "wss://relay.one", fixture.event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", fixture.event.ID, err)
+		}
+	}
+
+	if err := handlers.ProjectContactListsLatest(ctx, first.ID); err != nil {
+		t.Fatalf("project first contact list: %v", err)
+	}
+	bobFollowers, err := pgStore.GetFollowersByPubkey(ctx, "bob", 20)
+	if err != nil {
+		t.Fatalf("get bob followers after first projection: %v", err)
+	}
+	if len(bobFollowers) != 1 {
+		t.Fatalf("expected bob to have one follower after first projection, got %d", len(bobFollowers))
+	}
+
+	if err := handlers.ProjectContactListsLatest(ctx, second.ID); err != nil {
+		t.Fatalf("project second contact list: %v", err)
+	}
+	bobFollowers, err = pgStore.GetFollowersByPubkey(ctx, "bob", 20)
+	if err != nil {
+		t.Fatalf("get bob followers after replacement: %v", err)
+	}
+	if len(bobFollowers) != 0 {
+		t.Fatalf("expected bob followers to be removed after replacement, got %d", len(bobFollowers))
+	}
+
+	carolFollowers, err := pgStore.GetFollowersByPubkey(ctx, "carol", 20)
+	if err != nil {
+		t.Fatalf("get carol followers after replacement: %v", err)
+	}
+	if len(carolFollowers) != 1 {
+		t.Fatalf("expected carol to have one follower, got %d", len(carolFollowers))
+	}
+	var followerRow struct {
+		FollowerPubkey string `json:"follower_pubkey"`
+		SourceEventID  string `json:"source_event_id"`
+	}
+	if err := json.Unmarshal(carolFollowers[0], &followerRow); err != nil {
+		t.Fatalf("decode follower row: %v", err)
+	}
+	if followerRow.FollowerPubkey != "alice" || followerRow.SourceEventID != second.ID {
+		t.Fatalf("unexpected follower row: %+v", followerRow)
+	}
+}
+
 func TestThreadProjection_RepairsMissingParentWhenReferenceArrives(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
@@ -617,6 +708,146 @@ func TestProjectionRebuildRun_FailedRunsTrackErrorAndRetryAttempts(t *testing.T)
 	if second.LastError == nil || strings.TrimSpace(*second.LastError) == "" {
 		t.Fatalf("expected last_error to remain populated after second failure")
 	}
+}
+
+func TestProjectDMUnreadCounts_IdempotentAndDeletionAware(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+
+	const sender = "sender_pubkey"
+	const receiver = "receiver_pubkey"
+	dm := newEventForTest(
+		"dm_evt_1",
+		sender,
+		1000,
+		4,
+		[][]string{{"p", receiver}},
+		`"encrypted"`,
+		time.Unix(1000, 0).UTC(),
+	)
+	if err := pgStore.InsertCanonicalEvent(ctx, dm, extractTagsFromRaw(t, dm.RawJSON), "wss://relay.one", dm.FirstSeenAt); err != nil {
+		t.Fatalf("insert dm event: %v", err)
+	}
+
+	if err := handlers.ProjectDMUnreadCounts(ctx, dm.ID); err != nil {
+		t.Fatalf("project dm unread first pass: %v", err)
+	}
+	if err := handlers.ProjectDMUnreadCounts(ctx, dm.ID); err != nil {
+		t.Fatalf("project dm unread second pass: %v", err)
+	}
+
+	var pairCount int64
+	if err := pool.QueryRow(ctx, `
+		SELECT cnt
+		FROM dm_unread_counts
+		WHERE receiver_pubkey = $1
+		  AND sender_pubkey = $2
+	`, receiver, sender).Scan(&pairCount); err != nil {
+		t.Fatalf("load pair dm count: %v", err)
+	}
+	if pairCount != 1 {
+		t.Fatalf("expected pair count=1 after idempotent projection, got %d", pairCount)
+	}
+
+	deletion := newEventForTest(
+		"del_evt_1",
+		sender,
+		1001,
+		5,
+		[][]string{{"e", dm.ID}},
+		`""`,
+		time.Unix(1001, 0).UTC(),
+	)
+	if err := pgStore.InsertCanonicalEvent(ctx, deletion, extractTagsFromRaw(t, deletion.RawJSON), "wss://relay.one", deletion.FirstSeenAt); err != nil {
+		t.Fatalf("insert deletion event: %v", err)
+	}
+	if err := handlers.DeriveEventRelationships(ctx, deletion.ID); err != nil {
+		t.Fatalf("derive deletion references: %v", err)
+	}
+	if err := handlers.ProjectDeletionEvents(ctx, deletion.ID); err != nil {
+		t.Fatalf("project deletion event: %v", err)
+	}
+
+	if err := pool.QueryRow(ctx, `
+		SELECT cnt
+		FROM dm_unread_counts
+		WHERE receiver_pubkey = $1
+		  AND sender_pubkey = $2
+	`, receiver, sender).Scan(&pairCount); err != nil {
+		t.Fatalf("load pair dm count after deletion: %v", err)
+	}
+	if pairCount != 0 {
+		t.Fatalf("expected pair count=0 after deletion reconciliation, got %d", pairCount)
+	}
+}
+
+func TestProjectionRebuildRun_SupportsDMUnreadAndZapReceipts(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+
+	dm := newEventForTest(
+		"dm_for_rebuild",
+		"sender_dm",
+		1100,
+		4,
+		[][]string{{"p", "receiver_dm"}},
+		`"encrypted"`,
+		time.Unix(1100, 0).UTC(),
+	)
+	zap := newEventForTest(
+		"zap_for_rebuild",
+		"sender_zap",
+		1101,
+		9735,
+		[][]string{{"p", "receiver_zap"}, {"e", "target_evt"}, {"amount", "5000"}},
+		`""`,
+		time.Unix(1101, 0).UTC(),
+	)
+	for _, event := range []model.Event{dm, zap} {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+	}
+
+	runDM, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
+		DerivationName: derivation.DerivationDMUnreadCounts,
+		Scope: derivation.ProjectionRebuildScope{
+			Type: derivation.RebuildScopeFull,
+		},
+	})
+	if err != nil {
+		t.Fatalf("trigger dm rebuild: %v", err)
+	}
+	if err := handlers.ExecuteProjectionRebuildRun(ctx, runDM.ID); err != nil {
+		t.Fatalf("execute dm rebuild: %v", err)
+	}
+	assertRebuildRunSucceeded(t, ctx, handlers, runDM.ID)
+
+	runZap, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
+		DerivationName: derivation.DerivationZapReceipts,
+		Scope: derivation.ProjectionRebuildScope{
+			Type: derivation.RebuildScopeFull,
+		},
+	})
+	if err != nil {
+		t.Fatalf("trigger zap rebuild: %v", err)
+	}
+	if err := handlers.ExecuteProjectionRebuildRun(ctx, runZap.ID); err != nil {
+		t.Fatalf("execute zap rebuild: %v", err)
+	}
+	assertRebuildRunSucceeded(t, ctx, handlers, runZap.ID)
 }
 
 func newEventForTest(

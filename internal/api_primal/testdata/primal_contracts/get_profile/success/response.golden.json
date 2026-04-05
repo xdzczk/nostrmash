@@ -1,12 +1,12 @@
 {
-  "status": 200,
   "body": {
-    "pubkey": "pubkey_abc",
-    "metadata_event_id": "evt_meta_1",
     "metadata_created_at": 1700000001,
+    "metadata_event_id": "evt_meta_1",
     "profile": {
-      "name": "Nostr Mash",
-      "about": "compat profile fixture"
-    }
-  }
+      "about": "compat profile fixture",
+      "name": "Nostr Mash"
+    },
+    "pubkey": "pubkey_abc"
+  },
+  "status": 200
 }

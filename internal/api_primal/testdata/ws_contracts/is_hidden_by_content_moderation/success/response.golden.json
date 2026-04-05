@@ -1,0 +1,35 @@
+[
+  [
+    "EVENT",
+    "sub_hidden_contract",
+    {
+      "content": "{\"event_ids\":{\"evt_hidden\":true,\"evt_visible\":false},\"pubkeys\":{\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\":true,\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\":false},\"reasons\":{\"event_ids\":{\"evt_hidden\":\"muted_pubkey:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"evt_visible\":\"\"},\"pubkeys\":{\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\":\"muted_pubkey:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\":\"allowed_pubkey:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}}}",
+      "event_id": "evt_hidden",
+      "event_ids": {
+        "evt_hidden": true,
+        "evt_visible": false
+      },
+      "hidden": true,
+      "kind": 10000137,
+      "pubkeys": {
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": true,
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": false
+      },
+      "reason": "muted_pubkey:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "reasons": {
+        "event_ids": {
+          "evt_hidden": "muted_pubkey:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "evt_visible": ""
+        },
+        "pubkeys": {
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "muted_pubkey:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": "allowed_pubkey:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    }
+  ],
+  [
+    "EOSE",
+    "sub_hidden_contract"
+  ]
+]

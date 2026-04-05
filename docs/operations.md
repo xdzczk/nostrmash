@@ -55,8 +55,17 @@ Compatibility gateway tuning:
 - `PRIMAL_WS_REQUEST_TIMEOUT` bounds per-request filter processing.
 - `PRIMAL_WS_MAX_MESSAGE_BYTES` caps inbound frame size.
 - `PRIMAL_WS_MAX_REQ_PER_MINUTE` caps REQ frame rate per connection.
+- `HTTP_DM_COMPAT_RATE_LIMIT_RPM` caps `get_directmsgs` compatibility requests per connection.
 - `PRIMAL_WS_ALLOWED_ORIGINS` defines explicit browser-origin allowlist.
 - `PRIMAL_WS_ALLOW_ANY_ORIGIN` disables origin enforcement when explicitly enabled.
+
+HTTP edge protection tuning:
+
+- `HTTP_RATE_LIMIT_RPM` default per-client rate for public HTTP APIs.
+- `HTTP_RATE_LIMIT_BURST` token-bucket burst budget.
+- `HTTP_SEARCH_RATE_LIMIT_RPM` tighter override for `/api/v1/search`.
+- `HTTP_BATCH_RATE_LIMIT_RPM` tighter override for batch POST endpoints.
+- Batch JSON bodies are capped at ~2 MiB and admin JSON bodies at 256 KiB; oversized requests return `413`.
 
 Compatibility WS observability metrics:
 
@@ -64,6 +73,13 @@ Compatibility WS observability metrics:
 - `nostrmash_primal_ws_frames_total{frame_type=...}`
 - `nostrmash_primal_ws_requests_total{request_kind=...,outcome=...}`
 - `nostrmash_primal_ws_request_duration_seconds{request_kind=...}`
+
+HTTP API observability metrics:
+
+- `nostrmash_api_requests_total{method,path_template,status_code}`
+- `nostrmash_api_request_duration_seconds{method,path_template}`
+
+Metrics use route templates (for example `/api/v1/events/{id}`) to avoid label-cardinality explosions; structured request logs still include both actual and template paths.
 
 ## Key Operational Concepts
 
@@ -116,7 +132,11 @@ Jobs live in Postgres and move through:
 - `succeeded`
 - `dead`
 
-The worker claims jobs with `FOR UPDATE SKIP LOCKED`, retries failures, and dead-letters after the configured max attempts.
+The worker claims jobs with `FOR UPDATE SKIP LOCKED`, pushes claimed work to a bounded in-process worker pool, retries failures, and dead-letters after the configured max attempts.
+
+Worker throughput tuning:
+
+- `WORKER_CONCURRENCY` controls bounded in-process worker pool size (default `4`).
 
 Primary inspection endpoint:
 
@@ -203,6 +223,26 @@ Operationally that means:
 - never modify old migration files in place after a database has seen them
 
 If projections are suspect after restore, rebuild them. If canonical raw storage is suspect, treat that as a data integrity incident.
+
+## Curated Data Operations
+
+Curated compatibility surfaces are operator-seeded. The runtime does not auto-ingest external curation feeds.
+
+Tables backing curated responses:
+
+- `curated_recommended_reads`
+- `curated_reads_topics`
+- `curated_featured_authors`
+- `curated_creator_paid_tiers`
+
+Operational expectations:
+
+- Seed and update curated rows using controlled SQL migrations or operator runbooks.
+- Keep curated updates transactional to avoid partial list states.
+- Treat empty curated tables as valid empty-state behavior, not incidents.
+- Curated cache responses for reads/topics/authors are exposed as kind-wrapped WS payloads (`10000145`/`146`/`148`) with JSON content derived from curated tables.
+- `creator_paid_tiers` first tries event-native output (latest kind `17000` plus referenced `e` events) and falls back to curated normalized output (`10000147`) when source events are absent.
+- `user_of_ln_address` resolves from `profiles_latest.nip05` and emits kind `10000138`; ensure metadata ingestion is healthy when troubleshooting LN-address lookup gaps.
 
 ## Related Docs
 

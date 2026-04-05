@@ -1,0 +1,26 @@
+[
+  [
+    "EVENT",
+    "sub_param_events_contract",
+    {
+      "created_at": 30,
+      "id": "pre_evt_a",
+      "kind": 30023,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EVENT",
+    "sub_param_events_contract",
+    {
+      "created_at": 20,
+      "id": "pre_evt_b",
+      "kind": 30023,
+      "pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  [
+    "EOSE",
+    "sub_param_events_contract"
+  ]
+]

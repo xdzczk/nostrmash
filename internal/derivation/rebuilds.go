@@ -439,6 +439,20 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			description:    "Project reply parent/root edges with unresolved reference tracking",
 			rebuildProject: h.updateThreadProjectionWithVersion,
 		}, nil
+	case DerivationDMUnreadCounts:
+		return projectionDefinition{
+			name:           DerivationDMUnreadCounts,
+			compiled:       DMUnreadCountsVersion,
+			description:    "Track unread DM counters by receiver and sender",
+			rebuildProject: h.projectDMUnreadCountsWithVersion,
+		}, nil
+	case DerivationZapReceipts:
+		return projectionDefinition{
+			name:           DerivationZapReceipts,
+			compiled:       ZapReceiptsVersion,
+			description:    "Project zap receipts by sender, receiver, target event, and sats",
+			rebuildProject: h.projectZapReceiptsWithVersion,
+		}, nil
 	default:
 		return projectionDefinition{}, fmt.Errorf("projection rebuild is not supported for derivation %q", normalized)
 	}

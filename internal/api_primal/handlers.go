@@ -1,6 +1,7 @@
 package api_primal
 
 import (
+	"encoding/base64"
 	"context"
 	"encoding/json"
 	"errors"
@@ -74,8 +75,7 @@ type primalBatchEventsResponse struct {
 
 func (h Handlers) BatchGetEvents(w http.ResponseWriter, r *http.Request) {
 	var req primalBatchEventsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+	if !decodeJSONBodyLimited(w, r, publicBatchBodyLimitBytes, &req) {
 		return
 	}
 	inputIDs := req.sourceIDs()
@@ -158,8 +158,7 @@ type primalUserInfosResponse struct {
 
 func (h Handlers) BatchGetUserInfos(w http.ResponseWriter, r *http.Request) {
 	var req primalUserInfosRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+	if !decodeJSONBodyLimited(w, r, publicBatchBodyLimitBytes, &req) {
 		return
 	}
 	if len(req.Pubkeys) == 0 {
@@ -209,6 +208,11 @@ func (h Handlers) GetThreadView(w http.ResponseWriter, r *http.Request) {
 	}
 	limit := parseBoundedPositiveInt(r.URL.Query().Get("limit"), 20, 100)
 	maxDepth := parseBoundedPositiveInt(r.URL.Query().Get("max_depth"), 100, 100)
+	cursor, err := decodeEventCursor(strings.TrimSpace(r.URL.Query().Get("cursor")))
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_cursor", "cursor is malformed")
+		return
+	}
 
 	eventRaw, err := h.store.GetEventRawByID(r.Context(), eventID)
 	if err != nil {
@@ -224,19 +228,25 @@ func (h Handlers) GetThreadView(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	replies, _, err := h.store.GetEventReplies(r.Context(), eventID, limit, nil)
+	replies, next, err := h.store.GetEventReplies(r.Context(), eventID, limit, cursor)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"event_id":             eventID,
-		"event":                eventRaw,
-		"ancestors":            ancestors,
-		"missing_ancestor_ids": missing,
-		"replies":              replies,
-		"consistency":          "eventual",
-	})
+	nextCursor, err := encodeEventCursor(next)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, buildThreadViewResponse(
+		eventID,
+		eventRaw,
+		ancestors,
+		missing,
+		replies,
+		nextCursor,
+		"eventual",
+	))
 }
 
 func (h Handlers) GetAuthorEvents(w http.ResponseWriter, r *http.Request) {
@@ -352,6 +362,45 @@ func parseBoundedPositiveInt(raw string, defaultValue int, maxValue int) int {
 		return maxValue
 	}
 	return parsed
+}
+
+func encodeEventCursor(cursor *store.EventOrderCursor) (string, error) {
+	if cursor == nil {
+		return "", nil
+	}
+	payload, err := json.Marshal(map[string]any{
+		"created_at": cursor.CreatedAt,
+		"id":         cursor.ID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeEventCursor(value string) (*store.EventOrderCursor, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		CreatedAt int64  `json:"created_at"`
+		ID        string `json:"id"`
+	}
+	if err := json.Unmarshal(decoded, &payload); err != nil {
+		return nil, err
+	}
+	payload.ID = strings.TrimSpace(payload.ID)
+	if payload.ID == "" {
+		return nil, errors.New("cursor id is required")
+	}
+	return &store.EventOrderCursor{
+		CreatedAt: payload.CreatedAt,
+		ID:        payload.ID,
+	}, nil
 }
 
 type apiErrorEnvelope struct {

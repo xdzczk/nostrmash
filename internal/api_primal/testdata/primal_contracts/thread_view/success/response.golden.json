@@ -1,30 +1,33 @@
 {
-  "status": 200,
   "body": {
-    "event_id": "evt_123",
-    "event": {
-      "id": "evt_1",
-      "kind": 1,
-      "pubkey": "pubkey_1",
-      "content": "hello primal"
-    },
     "ancestors": [
       {
+        "created_at": 1699999990,
         "id": "root_evt",
         "kind": 1,
-        "pubkey": "pubkey_root",
-        "created_at": 1699999990
+        "pubkey": "pubkey_root"
       }
     ],
-    "missing_ancestor_ids": ["missing_ancestor_1"],
+    "consistency": "eventual",
+    "event": {
+      "content": "hello primal",
+      "id": "evt_1",
+      "kind": 1,
+      "pubkey": "pubkey_1"
+    },
+    "event_id": "evt_123",
+    "missing_ancestor_ids": [
+      "missing_ancestor_1"
+    ],
+    "next_cursor": "",
     "replies": [
       {
+        "created_at": 1700000020,
         "id": "thread_reply_1",
         "kind": 1,
-        "pubkey": "pubkey_b",
-        "created_at": 1700000020
+        "pubkey": "pubkey_b"
       }
-    ],
-    "consistency": "eventual"
-  }
+    ]
+  },
+  "status": 200
 }

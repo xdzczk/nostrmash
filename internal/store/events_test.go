@@ -388,23 +388,12 @@ func TestInsertCanonicalEventEnqueuesDerivationJobsOnce(t *testing.T) {
 		t.Fatalf("read jobs rows: %v", err)
 	}
 
-	if len(got) != 14 {
-		t.Fatalf("expected 14 derivation jobs, got %d", len(got))
+	if len(got) != 3 {
+		t.Fatalf("expected 3 derivation jobs, got %d", len(got))
 	}
 	expected := map[string]string{
-		"derive_event_relationships":   "derive_event_relationships:event_enqueue_1",
-		"project_contact_lists_latest": "project_contact_lists_latest:event_enqueue_1",
-		"project_deletion_events":      "project_deletion_events:event_enqueue_1",
-		"project_author_recent_event":  "project_author_recent_event:event_enqueue_1",
-		"project_profiles_latest":      "project_profiles_latest:event_enqueue_1",
-		"project_reaction_events":      "project_reaction_events:event_enqueue_1",
-		"project_reaction_counts":      "project_reaction_counts:event_enqueue_1",
-		"project_relay_lists_latest":   "project_relay_lists_latest:event_enqueue_1",
-		"project_reply_counts":         "project_reply_counts:event_enqueue_1",
-		"project_repost_events":        "project_repost_events:event_enqueue_1",
-		"project_repost_counts":        "project_repost_counts:event_enqueue_1",
+		"derive_event_bundle":          "derive_event_bundle:event_enqueue_1",
 		"repair_unresolved_references": "repair_unresolved_references:event_enqueue_1",
-		"update_replaceable_state":     "update_replaceable_state:event_enqueue_1",
 		"update_thread_projection":     "update_thread_projection:event_enqueue_1",
 	}
 	for _, row := range got {

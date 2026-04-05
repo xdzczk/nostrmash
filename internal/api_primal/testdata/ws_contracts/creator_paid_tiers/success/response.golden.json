@@ -1,0 +1,41 @@
+[
+  [
+    "EVENT",
+    "sub_creator_paid_tiers_contract",
+    {
+      "id": "tiers_index_evt",
+      "kind": 17000,
+      "pubkey": "pk_tiers",
+      "tags": [
+        [
+          "e",
+          "tier_evt_1"
+        ],
+        [
+          "e",
+          "tier_evt_2"
+        ]
+      ]
+    }
+  ],
+  [
+    "EVENT",
+    "sub_creator_paid_tiers_contract",
+    {
+      "id": "tier_evt_1",
+      "kind": 17001
+    }
+  ],
+  [
+    "EVENT",
+    "sub_creator_paid_tiers_contract",
+    {
+      "id": "tier_evt_2",
+      "kind": 17001
+    }
+  ],
+  [
+    "EOSE",
+    "sub_creator_paid_tiers_contract"
+  ]
+]

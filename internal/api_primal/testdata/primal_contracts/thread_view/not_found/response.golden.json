@@ -1,10 +1,10 @@
 {
-  "status": 404,
   "body": {
     "error": {
       "code": "not_found",
       "message": "event not found",
       "request_id": "req-thread-not-found"
     }
-  }
+  },
+  "status": 404
 }

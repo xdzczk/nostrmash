@@ -1,0 +1,5 @@
+{
+  "method": "GET",
+  "path": "/primal/v1/threads/evt_cursor?limit=1&cursor=not-base64",
+  "request_id": "req-thread-invalid-cursor"
+}

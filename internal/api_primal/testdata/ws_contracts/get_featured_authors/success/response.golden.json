@@ -1,0 +1,32 @@
+[
+  [
+    "EVENT",
+    "sub_featured_authors_contract",
+    {
+      "content": "{\"authors\":[{\"pubkey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"rank\":12},{\"pubkey\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"rank\":11}]}",
+      "kind": 10000148
+    }
+  ],
+  [
+    "EVENT",
+    "sub_featured_authors_contract",
+    {
+      "id": "md_author_a",
+      "kind": 0,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EVENT",
+    "sub_featured_authors_contract",
+    {
+      "id": "md_author_b",
+      "kind": 0,
+      "pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  [
+    "EOSE",
+    "sub_featured_authors_contract"
+  ]
+]

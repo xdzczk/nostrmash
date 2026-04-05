@@ -138,10 +138,7 @@ func (h AdminHandlers) GetRebuilds(w http.ResponseWriter, r *http.Request) {
 
 func (h AdminHandlers) TriggerRebuild(w http.ResponseWriter, r *http.Request) {
 	var req triggerRebuildRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+	if !decodeJSONBodyLimited(w, r, adminBodyLimitBytes, &req, true) {
 		return
 	}
 

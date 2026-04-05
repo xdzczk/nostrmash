@@ -1,0 +1,46 @@
+[
+  [
+    "EVENT",
+    "sub_param_list_contract",
+    {
+      "created_at": 20,
+      "id": "pl_evt_2",
+      "kind": 30000,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tags": [
+        [
+          "d",
+          "custom-list"
+        ],
+        [
+          "p",
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ]
+      ]
+    }
+  ],
+  [
+    "EVENT",
+    "sub_param_list_contract",
+    {
+      "created_at": 10,
+      "id": "pl_evt_1",
+      "kind": 30000,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tags": [
+        [
+          "d",
+          "custom-list"
+        ],
+        [
+          "p",
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ]
+      ]
+    }
+  ],
+  [
+    "EOSE",
+    "sub_param_list_contract"
+  ]
+]

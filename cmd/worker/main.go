@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -58,10 +59,31 @@ func main() {
 	)
 
 	log.Info("worker_started", "worker_id", workerID, "claim_batch_size", claimBatchSize)
-	runClaimLoop(ctx, log, queue, handlers, workerID, claimBatchSize, pollInterval, retryDelay)
+	runClaimLoop(
+		ctx,
+		log,
+		queue,
+		workerID,
+		claimBatchSize,
+		cfg.WorkerConcurrency,
+		pollInterval,
+		retryDelay,
+		func(job jobs.Job) error {
+			return derivation.ProcessJob(ctx, handlers, derivation.Job{
+				JobType: job.JobType,
+				Payload: job.Payload,
+			})
+		},
+	)
 
 	<-ctx.Done()
 	log.Info("shutdown_complete")
+}
+
+type workerQueue interface {
+	ClaimAvailable(ctx context.Context, workerID string, limit int) ([]jobs.Job, error)
+	CompleteJob(ctx context.Context, jobID int64, workerID string) error
+	FailJob(ctx context.Context, jobID int64, workerID string, errMsg string, retryDelay time.Duration) (jobs.FailureResult, error)
 }
 
 func runClaimLoop(
@@ -70,13 +92,72 @@ func runClaimLoop(
 		Info(msg string, args ...any)
 		Error(msg string, args ...any)
 	},
-	queue *jobs.Queue,
-	handlers *derivation.Handlers,
+	queue workerQueue,
 	workerID string,
 	batchSize int,
+	concurrency int,
 	pollInterval time.Duration,
 	retryDelay time.Duration,
+	processJob func(job jobs.Job) error,
 ) {
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	jobQueue := make(chan jobs.Job, batchSize*concurrency)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobQueue {
+				// Drain in-flight jobs even after shutdown signal.
+				workerCtx := context.WithoutCancel(ctx)
+				err := processJob(job)
+				if err == nil {
+					if completeErr := queue.CompleteJob(workerCtx, job.ID, workerID); completeErr != nil {
+						log.Error("job_complete_failed", "job_id", job.ID, "error", completeErr)
+						continue
+					}
+					metrics.IncWorkerJob(job.JobType, "succeeded")
+					log.Info("job_completed", "job_id", job.ID, "job_type", job.JobType)
+					continue
+				}
+
+				failure, failErr := queue.FailJob(workerCtx, job.ID, workerID, err.Error(), retryDelay)
+				if failErr != nil {
+					log.Error("job_fail_mark_failed", "job_id", job.ID, "error", failErr)
+					continue
+				}
+				if failure.Status == jobs.StatusDead {
+					metrics.IncWorkerJob(job.JobType, "dead")
+					log.Error(
+						"job_dead_lettered",
+						"job_id", job.ID,
+						"job_type", job.JobType,
+						"attempts", failure.Attempts,
+						"max_attempts", failure.MaxAttempts,
+						"error", err,
+					)
+					continue
+				}
+				metrics.IncWorkerJob(job.JobType, "retry")
+				log.Error(
+					"job_failed_retry_scheduled",
+					"job_id", job.ID,
+					"job_type", job.JobType,
+					"attempts", failure.Attempts,
+					"max_attempts", failure.MaxAttempts,
+					"retry_after", retryDelay.String(),
+					"error", err,
+				)
+			}
+		}()
+	}
+	defer func() {
+		close(jobQueue)
+		wg.Wait()
+	}()
+
 	for {
 		if ctx.Err() != nil {
 			return
@@ -102,47 +183,11 @@ func runClaimLoop(
 		}
 
 		for _, job := range claimed {
-			err := derivation.ProcessJob(ctx, handlers, derivation.Job{
-				JobType: job.JobType,
-				Payload: job.Payload,
-			})
-			if err == nil {
-				if completeErr := queue.CompleteJob(ctx, job.ID, workerID); completeErr != nil {
-					log.Error("job_complete_failed", "job_id", job.ID, "error", completeErr)
-					continue
-				}
-				metrics.IncWorkerJob(job.JobType, "succeeded")
-				log.Info("job_completed", "job_id", job.ID, "job_type", job.JobType)
-				continue
+			select {
+			case <-ctx.Done():
+				return
+			case jobQueue <- job:
 			}
-
-			failure, failErr := queue.FailJob(ctx, job.ID, workerID, err.Error(), retryDelay)
-			if failErr != nil {
-				log.Error("job_fail_mark_failed", "job_id", job.ID, "error", failErr)
-				continue
-			}
-			if failure.Status == jobs.StatusDead {
-				metrics.IncWorkerJob(job.JobType, "dead")
-				log.Error(
-					"job_dead_lettered",
-					"job_id", job.ID,
-					"job_type", job.JobType,
-					"attempts", failure.Attempts,
-					"max_attempts", failure.MaxAttempts,
-					"error", err,
-				)
-				continue
-			}
-			metrics.IncWorkerJob(job.JobType, "retry")
-			log.Error(
-				"job_failed_retry_scheduled",
-				"job_id", job.ID,
-				"job_type", job.JobType,
-				"attempts", failure.Attempts,
-				"max_attempts", failure.MaxAttempts,
-				"retry_after", retryDelay.String(),
-				"error", err,
-			)
 		}
 	}
 }

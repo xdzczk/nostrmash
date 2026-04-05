@@ -1,10 +1,10 @@
 {
-  "status": 400,
   "body": {
     "error": {
       "code": "invalid_json",
       "message": "request body must be valid JSON",
       "request_id": "req-batch-invalid-json"
     }
-  }
+  },
+  "status": 400
 }

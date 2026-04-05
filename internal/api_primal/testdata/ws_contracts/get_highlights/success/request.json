@@ -1,0 +1,13 @@
+[
+  "REQ",
+  "sub_highlights_contract",
+  {
+    "cache": [
+      "get_highlights",
+      {
+        "event_id": "evt_target",
+        "limit": 2
+      }
+    ]
+  }
+]

@@ -25,13 +25,20 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 	expectedTables := []string{
 		"author_recent_events",
 		"contact_lists_latest",
+		"curated_creator_paid_tiers",
+		"curated_featured_authors",
+		"curated_reads_topics",
+		"curated_recommended_reads",
 		"deletion_events",
 		"derivation_active_versions",
 		"derivation_versions",
+		"dm_unread_counts",
+		"dm_read_cursors",
 		"event_references",
 		"events",
 		"event_relays",
 		"event_tags",
+		"follower_edges",
 		"invalid_events",
 		"ingest_checkpoints",
 		"jobs",
@@ -51,6 +58,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"schema_migrations_audit",
 		"thread_edges",
 		"unresolved_thread_references",
+		"zap_receipts",
 	}
 	for _, tableName := range expectedTables {
 		var exists bool

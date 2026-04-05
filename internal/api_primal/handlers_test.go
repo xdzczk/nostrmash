@@ -37,6 +37,37 @@ type fakeEventReader struct {
 	searchProfilesFn   func(context.Context, string, int) ([]store.ProfileProjection, error)
 	getByKindPubkeyFn  func(context.Context, int, string, int) ([]json.RawMessage, error)
 	getRefsPubkeyFn    func(context.Context, string, int) ([]json.RawMessage, error)
+	getFollowersFn     func(context.Context, string, int) ([]json.RawMessage, error)
+	getUserZapsFn      func(context.Context, string, int, bool) ([]json.RawMessage, error)
+	getEventZapsFn     func(context.Context, string, int) ([]json.RawMessage, error)
+	isFollowingFn      func(context.Context, string, string) (bool, error)
+	getMutualFollowsFn func(context.Context, string, string, int) ([]string, error)
+	getDMContactsFn    func(context.Context, string, int) ([]string, error)
+	getDMContactsDetailedFn func(context.Context, string, int, int, int64, int64) ([]json.RawMessage, error)
+	getDirectMsgsFn    func(context.Context, string, string, int) ([]json.RawMessage, error)
+	getDirectMsgsRangeFn func(context.Context, string, string, int64, int64, int, int) ([]json.RawMessage, error)
+	getDMUnreadFn      func(context.Context, string, int) ([]json.RawMessage, error)
+	resetDMUnreadFn    func(context.Context, string, string) error
+	getDMCountFn       func(context.Context, string, string) (int64, error)
+	resetDMCountFn     func(context.Context, string, string) error
+	resetDMCountsFn    func(context.Context, string) error
+	getModerationFn    func(context.Context, string, int) ([]string, error)
+	getModerationByIdentifierFn func(context.Context, string, string) ([]string, error)
+	isHiddenFn         func(context.Context, string, string) (bool, string, error)
+	getParamListFn     func(context.Context, string, int, int) ([]json.RawMessage, error)
+	getParamListByIdentifierFn func(context.Context, string, int, string, int) ([]json.RawMessage, error)
+	getParamEventFn    func(context.Context, string, int, string) (json.RawMessage, error)
+	getParamEventsFn   func(context.Context, int, string, int) ([]json.RawMessage, error)
+	getHighlightsByEventFn func(context.Context, string, int) ([]json.RawMessage, error)
+	getHighlightsByATargetFn func(context.Context, int, string, string, int) ([]json.RawMessage, error)
+	getEventsByATagAndKindFn func(context.Context, int, string, int) ([]json.RawMessage, error)
+	getNetworkStatsFn  func(context.Context) (store.NetworkStats, error)
+	getCuratedValuesFn func(context.Context, string, string, int) ([]string, error)
+	getCuratedRecommendedReadsFn func(context.Context, int) ([]store.CuratedRecommendedRead, error)
+	getCuratedReadsTopicsFn func(context.Context, int) ([]store.CuratedReadsTopic, error)
+	getCuratedFeaturedAuthorsFn func(context.Context, int) ([]store.CuratedFeaturedAuthor, error)
+	getCreatorPaidTiersFn func(context.Context, string) ([]json.RawMessage, error)
+	getPubkeyByLNAddressFn func(context.Context, string) (string, error)
 }
 
 func (f fakeEventReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -161,6 +192,223 @@ func (f fakeEventReader) GetEventsReferencingPubkey(ctx context.Context, targetP
 	return f.getRefsPubkeyFn(ctx, targetPubkey, limit)
 }
 
+func (f fakeEventReader) GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+	if f.getFollowersFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getFollowersFn(ctx, targetPubkey, limit)
+}
+
+func (f fakeEventReader) GetUserZaps(ctx context.Context, pubkey string, limit int, sortBySats bool) ([]json.RawMessage, error) {
+	if f.getUserZapsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getUserZapsFn(ctx, pubkey, limit, sortBySats)
+}
+
+func (f fakeEventReader) GetEventZapsBySats(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
+	if f.getEventZapsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getEventZapsFn(ctx, eventID, limit)
+}
+
+func (f fakeEventReader) IsUserFollowing(ctx context.Context, followerPubkey string, followedPubkey string) (bool, error) {
+	if f.isFollowingFn == nil {
+		return false, errors.New("not implemented")
+	}
+	return f.isFollowingFn(ctx, followerPubkey, followedPubkey)
+}
+
+func (f fakeEventReader) GetMutualFollows(ctx context.Context, leftPubkey string, rightPubkey string, limit int) ([]string, error) {
+	if f.getMutualFollowsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getMutualFollowsFn(ctx, leftPubkey, rightPubkey, limit)
+}
+
+func (f fakeEventReader) GetDirectMessageContacts(ctx context.Context, pubkey string, limit int) ([]string, error) {
+	if f.getDMContactsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getDMContactsFn(ctx, pubkey, limit)
+}
+
+func (f fakeEventReader) GetDirectMessages(ctx context.Context, pubkey string, peer string, limit int) ([]json.RawMessage, error) {
+	if f.getDirectMsgsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getDirectMsgsFn(ctx, pubkey, peer, limit)
+}
+
+func (f fakeEventReader) GetDirectMessagesWithRange(ctx context.Context, pubkey string, peer string, since int64, until int64, limit int, offset int) ([]json.RawMessage, error) {
+	if f.getDirectMsgsRangeFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getDirectMsgsRangeFn(ctx, pubkey, peer, since, until, limit, offset)
+}
+
+func (f fakeEventReader) GetDirectMessageUnreadCounts(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
+	if f.getDMUnreadFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getDMUnreadFn(ctx, pubkey, limit)
+}
+
+func (f fakeEventReader) GetDirectMessageContactsDetailed(ctx context.Context, receiver string, limit int, offset int, since int64, until int64) ([]json.RawMessage, error) {
+	if f.getDMContactsDetailedFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getDMContactsDetailedFn(ctx, receiver, limit, offset, since, until)
+}
+
+func (f fakeEventReader) GetDirectMessageCount(ctx context.Context, receiver string, sender string) (int64, error) {
+	if f.getDMCountFn == nil {
+		return 0, errors.New("not implemented")
+	}
+	return f.getDMCountFn(ctx, receiver, sender)
+}
+
+func (f fakeEventReader) ResetDirectMessageUnread(ctx context.Context, pubkey string, peer string) error {
+	if f.resetDMUnreadFn == nil {
+		return errors.New("not implemented")
+	}
+	return f.resetDMUnreadFn(ctx, pubkey, peer)
+}
+
+func (f fakeEventReader) ResetDirectMessageCount(ctx context.Context, receiver string, sender string) error {
+	if f.resetDMCountFn == nil {
+		return errors.New("not implemented")
+	}
+	return f.resetDMCountFn(ctx, receiver, sender)
+}
+
+func (f fakeEventReader) ResetDirectMessageCounts(ctx context.Context, receiver string) error {
+	if f.resetDMCountsFn == nil {
+		return errors.New("not implemented")
+	}
+	return f.resetDMCountsFn(ctx, receiver)
+}
+
+func (f fakeEventReader) GetModerationList(ctx context.Context, pubkey string, kind int) ([]string, error) {
+	if f.getModerationFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getModerationFn(ctx, pubkey, kind)
+}
+
+func (f fakeEventReader) GetModerationListByIdentifier(ctx context.Context, pubkey string, identifier string) ([]string, error) {
+	if f.getModerationByIdentifierFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getModerationByIdentifierFn(ctx, pubkey, identifier)
+}
+
+func (f fakeEventReader) IsHiddenByContentModeration(ctx context.Context, viewerPubkey string, eventID string) (bool, string, error) {
+	if f.isHiddenFn == nil {
+		return false, "", errors.New("not implemented")
+	}
+	return f.isHiddenFn(ctx, viewerPubkey, eventID)
+}
+
+func (f fakeEventReader) GetParameterizedReplaceableList(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error) {
+	if f.getParamListFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getParamListFn(ctx, pubkey, kind, limit)
+}
+
+func (f fakeEventReader) GetParameterizedReplaceableListByIdentifier(ctx context.Context, pubkey string, kind int, identifier string, limit int) ([]json.RawMessage, error) {
+	if f.getParamListByIdentifierFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getParamListByIdentifierFn(ctx, pubkey, kind, identifier, limit)
+}
+
+func (f fakeEventReader) GetParameterizedReplaceableEvent(ctx context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
+	if f.getParamEventFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getParamEventFn(ctx, pubkey, kind, dTag)
+}
+
+func (f fakeEventReader) GetParameterizedReplaceableEvents(ctx context.Context, kind int, dTag string, limit int) ([]json.RawMessage, error) {
+	if f.getParamEventsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getParamEventsFn(ctx, kind, dTag, limit)
+}
+
+func (f fakeEventReader) GetHighlightsByEventID(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
+	if f.getHighlightsByEventFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getHighlightsByEventFn(ctx, eventID, limit)
+}
+
+func (f fakeEventReader) GetHighlightsByATarget(ctx context.Context, kind int, pubkey string, identifier string, limit int) ([]json.RawMessage, error) {
+	if f.getHighlightsByATargetFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getHighlightsByATargetFn(ctx, kind, pubkey, identifier, limit)
+}
+
+func (f fakeEventReader) GetEventsByATagAndKind(ctx context.Context, kind int, aTagValue string, limit int) ([]json.RawMessage, error) {
+	if f.getEventsByATagAndKindFn == nil {
+		return []json.RawMessage{}, nil
+	}
+	return f.getEventsByATagAndKindFn(ctx, kind, aTagValue, limit)
+}
+
+func (f fakeEventReader) GetNetworkStats(ctx context.Context) (store.NetworkStats, error) {
+	if f.getNetworkStatsFn == nil {
+		return store.NetworkStats{}, errors.New("not implemented")
+	}
+	return f.getNetworkStatsFn(ctx)
+}
+
+func (f fakeEventReader) GetCuratedValues(ctx context.Context, tableName string, valueColumn string, limit int) ([]string, error) {
+	if f.getCuratedValuesFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getCuratedValuesFn(ctx, tableName, valueColumn, limit)
+}
+
+func (f fakeEventReader) GetCreatorPaidTiers(ctx context.Context, pubkey string) ([]json.RawMessage, error) {
+	if f.getCreatorPaidTiersFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getCreatorPaidTiersFn(ctx, pubkey)
+}
+
+func (f fakeEventReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]store.CuratedRecommendedRead, error) {
+	if f.getCuratedRecommendedReadsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getCuratedRecommendedReadsFn(ctx, limit)
+}
+
+func (f fakeEventReader) GetCuratedReadsTopics(ctx context.Context, limit int) ([]store.CuratedReadsTopic, error) {
+	if f.getCuratedReadsTopicsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getCuratedReadsTopicsFn(ctx, limit)
+}
+
+func (f fakeEventReader) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
+	if f.getCuratedFeaturedAuthorsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getCuratedFeaturedAuthorsFn(ctx, limit)
+}
+
+func (f fakeEventReader) GetPubkeyByLNAddress(ctx context.Context, lnAddress string) (string, error) {
+	if f.getPubkeyByLNAddressFn == nil {
+		return "", errors.New("not implemented")
+	}
+	return f.getPubkeyByLNAddressFn(ctx, lnAddress)
+}
+
 func TestPrimalContracts(t *testing.T) {
 	root := filepath.Join("testdata", "primal_contracts")
 	endpoints, err := os.ReadDir(root)
@@ -217,6 +465,8 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 		getEventRawByIDFn: func(_ context.Context, id string) (json.RawMessage, error) {
 			switch id {
 			case "evt_123":
+				return eventRaw, nil
+			case "evt_cursor":
 				return eventRaw, nil
 			case "evt_missing":
 				return nil, store.ErrNotFound
@@ -327,6 +577,14 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 			if eventID == "evt_missing" {
 				return nil, nil, store.ErrNotFound
 			}
+			if eventID == "evt_cursor" {
+				return []json.RawMessage{
+					json.RawMessage(`{"id":"thread_reply_1","kind":1,"pubkey":"pubkey_b","created_at":1700000020}`),
+				}, &store.EventOrderCursor{
+					CreatedAt: 1700000020,
+					ID:        "thread_reply_1",
+				}, nil
+			}
 			return []json.RawMessage{
 				json.RawMessage(`{"id":"thread_reply_1","kind":1,"pubkey":"pubkey_b","created_at":1700000020}`),
 			}, nil, nil
@@ -414,6 +672,28 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 	}
 	want := mustReadJSONPath(t, goldenPath)
 	assertJSONEqual(t, actualBody, want)
+}
+
+func TestPrimalBatchEndpoints_RejectOversizedPayloads(t *testing.T) {
+	handlers := NewHandlers(fakeEventReader{}, 10)
+
+	tooLargeIDs := bytes.Repeat([]byte("a"), int(publicBatchBodyLimitBytes+10))
+	eventsBody := []byte(`{"event_ids":["` + string(tooLargeIDs) + `"]}`)
+	eventsReq := httptest.NewRequest(http.MethodPost, "/primal/v1/events/batch", bytes.NewReader(eventsBody))
+	eventsRec := httptest.NewRecorder()
+	handlers.BatchGetEvents(eventsRec, eventsReq)
+	if eventsRec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unexpected events status: got=%d want=%d", eventsRec.Code, http.StatusRequestEntityTooLarge)
+	}
+
+	tooLargePubkeys := bytes.Repeat([]byte("b"), int(publicBatchBodyLimitBytes+10))
+	userInfosBody := []byte(`{"pubkeys":["` + string(tooLargePubkeys) + `"]}`)
+	userInfosReq := httptest.NewRequest(http.MethodPost, "/primal/v1/user_infos", bytes.NewReader(userInfosBody))
+	userInfosRec := httptest.NewRecorder()
+	handlers.BatchGetUserInfos(userInfosRec, userInfosReq)
+	if userInfosRec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unexpected user infos status: got=%d want=%d", userInfosRec.Code, http.StatusRequestEntityTooLarge)
+	}
 }
 
 func readJSONFile[T any](t *testing.T, path string) T {

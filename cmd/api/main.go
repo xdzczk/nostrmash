@@ -52,13 +52,14 @@ func main() {
 	primalHandlers := api_primal.NewHandlers(queryStore, cfg.APIMaxBatchSize)
 	wsLog := logging.New("api_primal_ws")
 	primalWS := api_primal.NewWSGateway(queryStore, api_primal.WSGatewayOptions{
-		MaxSubscriptions: cfg.PrimalWSMaxSubscriptions,
-		RequestTimeout:   cfg.PrimalWSRequestTimeout,
-		MaxMessageBytes:  cfg.PrimalWSMaxMessageBytes,
-		MaxReqPerMinute:  cfg.PrimalWSMaxReqPerMinute,
-		AllowedOrigins:   cfg.PrimalWSAllowedOrigins,
-		AllowAnyOrigin:   cfg.PrimalWSAllowAnyOrigin,
-		Logger:           wsLog,
+		MaxSubscriptions:  cfg.PrimalWSMaxSubscriptions,
+		RequestTimeout:    cfg.PrimalWSRequestTimeout,
+		MaxMessageBytes:   cfg.PrimalWSMaxMessageBytes,
+		MaxReqPerMinute:   cfg.PrimalWSMaxReqPerMinute,
+		MaxDMReqPerMinute: cfg.PrimalWSDMCompatRateLimitRPM,
+		AllowedOrigins:    cfg.PrimalWSAllowedOrigins,
+		AllowAnyOrigin:    cfg.PrimalWSAllowAnyOrigin,
+		Logger:            wsLog,
 	})
 	adminService := api.NewAdminService(pool, derivation.NewHandlers(pool), api.AdminServiceOptions{
 		ServiceName:      cfg.ServiceName,
@@ -93,7 +94,7 @@ func main() {
 	mux.HandleFunc("GET /api/v1/users/{pubkey}/highlights", handlers.GetHighlights)
 	mux.HandleFunc("GET /api/v1/users/{pubkey}/long-form", handlers.GetLongForm)
 	mux.HandleFunc("GET /api/v1/users/{pubkey}/zaps", handlers.GetZaps)
-	mux.HandleFunc("GET /api/v1/users/{pubkey}/dms", handlers.GetDirectMessages)
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/mentions", handlers.GetMentions)
 	mux.HandleFunc("GET /api/v1/users/{pubkey}/followers", handlers.GetFollowers)
 	mux.HandleFunc("GET /primal/v1/events/{id}", primalHandlers.GetEventByID)
 	mux.HandleFunc("POST /primal/v1/events/batch", primalHandlers.BatchGetEvents)
@@ -119,6 +120,12 @@ func main() {
 	mux.Handle("/admin/", api.RequireBearerToken(strings.TrimSpace(cfg.AdminBearerToken), adminMux))
 
 	var handler http.Handler = mux
+	handler = api.WithHTTPRateLimit(api.HTTPRateLimitOptions{
+		DefaultRPM:   cfg.HTTPRateLimitRPM,
+		DefaultBurst: cfg.HTTPRateLimitBurst,
+		SearchRPM:    cfg.HTTPSearchRateLimitRPM,
+		BatchRPM:     cfg.HTTPBatchRateLimitRPM,
+	}, handler)
 	handler = api.LogRequests(log, handler)
 	handler = api.WithRequestID(handler)
 

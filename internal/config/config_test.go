@@ -139,6 +139,7 @@ func TestLoad_PrimalWSDefaultsAndEnv(t *testing.T) {
 	t.Setenv("PRIMAL_WS_REQUEST_TIMEOUT", "")
 	t.Setenv("PRIMAL_WS_MAX_MESSAGE_BYTES", "")
 	t.Setenv("PRIMAL_WS_MAX_REQ_PER_MINUTE", "")
+	t.Setenv("HTTP_DM_COMPAT_RATE_LIMIT_RPM", "")
 	t.Setenv("PRIMAL_WS_ALLOWED_ORIGINS", "")
 	t.Setenv("PRIMAL_WS_ALLOW_ANY_ORIGIN", "")
 
@@ -158,6 +159,9 @@ func TestLoad_PrimalWSDefaultsAndEnv(t *testing.T) {
 	if cfg.PrimalWSMaxReqPerMinute != 240 {
 		t.Fatalf("unexpected default ws req per minute: got %d want 240", cfg.PrimalWSMaxReqPerMinute)
 	}
+	if cfg.PrimalWSDMCompatRateLimitRPM != 30 {
+		t.Fatalf("unexpected default ws dm req per minute: got %d want 30", cfg.PrimalWSDMCompatRateLimitRPM)
+	}
 	if cfg.PrimalWSAllowAnyOrigin {
 		t.Fatal("expected default ws allow any origin to be false")
 	}
@@ -166,6 +170,7 @@ func TestLoad_PrimalWSDefaultsAndEnv(t *testing.T) {
 	t.Setenv("PRIMAL_WS_REQUEST_TIMEOUT", "2s")
 	t.Setenv("PRIMAL_WS_MAX_MESSAGE_BYTES", "2048")
 	t.Setenv("PRIMAL_WS_MAX_REQ_PER_MINUTE", "33")
+	t.Setenv("HTTP_DM_COMPAT_RATE_LIMIT_RPM", "11")
 	t.Setenv("PRIMAL_WS_ALLOWED_ORIGINS", "https://app.primal.net,https://nostrmash.local")
 	t.Setenv("PRIMAL_WS_ALLOW_ANY_ORIGIN", "true")
 	cfg, err = Load("api")
@@ -184,11 +189,78 @@ func TestLoad_PrimalWSDefaultsAndEnv(t *testing.T) {
 	if cfg.PrimalWSMaxReqPerMinute != 33 {
 		t.Fatalf("unexpected env ws req per minute: got %d want 33", cfg.PrimalWSMaxReqPerMinute)
 	}
+	if cfg.PrimalWSDMCompatRateLimitRPM != 11 {
+		t.Fatalf("unexpected env ws dm req per minute: got %d want 11", cfg.PrimalWSDMCompatRateLimitRPM)
+	}
 	if len(cfg.PrimalWSAllowedOrigins) != 2 {
 		t.Fatalf("unexpected ws allowed origins length: got %d want 2", len(cfg.PrimalWSAllowedOrigins))
 	}
 	if !cfg.PrimalWSAllowAnyOrigin {
 		t.Fatal("expected ws allow any origin to be true from env")
+	}
+}
+
+func TestLoad_HTTPRateLimitDefaultsAndEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("INGESTOR_RELAY_URLS", "")
+	t.Setenv("INGESTOR_RELAY_ALLOWLIST", "")
+	t.Setenv("INGESTOR_RELAY_DISABLED", "")
+	t.Setenv("INGESTOR_FILTER_GROUP", "default_v1")
+	t.Setenv("HTTP_RATE_LIMIT_RPM", "")
+	t.Setenv("HTTP_RATE_LIMIT_BURST", "")
+	t.Setenv("HTTP_SEARCH_RATE_LIMIT_RPM", "")
+	t.Setenv("HTTP_BATCH_RATE_LIMIT_RPM", "")
+
+	cfg, err := Load("api")
+	if err != nil {
+		t.Fatalf("load config defaults: %v", err)
+	}
+	if cfg.HTTPRateLimitRPM != 240 || cfg.HTTPRateLimitBurst != 60 {
+		t.Fatalf("unexpected default http limits rpm=%d burst=%d", cfg.HTTPRateLimitRPM, cfg.HTTPRateLimitBurst)
+	}
+	if cfg.HTTPSearchRateLimitRPM != 60 || cfg.HTTPBatchRateLimitRPM != 40 {
+		t.Fatalf("unexpected default http override limits search=%d batch=%d", cfg.HTTPSearchRateLimitRPM, cfg.HTTPBatchRateLimitRPM)
+	}
+
+	t.Setenv("HTTP_RATE_LIMIT_RPM", "120")
+	t.Setenv("HTTP_RATE_LIMIT_BURST", "30")
+	t.Setenv("HTTP_SEARCH_RATE_LIMIT_RPM", "20")
+	t.Setenv("HTTP_BATCH_RATE_LIMIT_RPM", "10")
+	cfg, err = Load("api")
+	if err != nil {
+		t.Fatalf("load config env: %v", err)
+	}
+	if cfg.HTTPRateLimitRPM != 120 || cfg.HTTPRateLimitBurst != 30 {
+		t.Fatalf("unexpected env http limits rpm=%d burst=%d", cfg.HTTPRateLimitRPM, cfg.HTTPRateLimitBurst)
+	}
+	if cfg.HTTPSearchRateLimitRPM != 20 || cfg.HTTPBatchRateLimitRPM != 10 {
+		t.Fatalf("unexpected env http override limits search=%d batch=%d", cfg.HTTPSearchRateLimitRPM, cfg.HTTPBatchRateLimitRPM)
+	}
+}
+
+func TestLoad_WorkerConcurrencyDefaultsAndEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("INGESTOR_RELAY_URLS", "")
+	t.Setenv("INGESTOR_RELAY_ALLOWLIST", "")
+	t.Setenv("INGESTOR_RELAY_DISABLED", "")
+	t.Setenv("INGESTOR_FILTER_GROUP", "default_v1")
+	t.Setenv("WORKER_CONCURRENCY", "")
+
+	cfg, err := Load("worker")
+	if err != nil {
+		t.Fatalf("load config defaults: %v", err)
+	}
+	if cfg.WorkerConcurrency != 4 {
+		t.Fatalf("unexpected default worker concurrency: got %d want 4", cfg.WorkerConcurrency)
+	}
+
+	t.Setenv("WORKER_CONCURRENCY", "8")
+	cfg, err = Load("worker")
+	if err != nil {
+		t.Fatalf("load config env: %v", err)
+	}
+	if cfg.WorkerConcurrency != 8 {
+		t.Fatalf("unexpected env worker concurrency: got %d want 8", cfg.WorkerConcurrency)
 	}
 }
 

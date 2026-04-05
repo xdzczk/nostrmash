@@ -16,7 +16,7 @@ var (
 			Name: "nostrmash_api_requests_total",
 			Help: "Total number of API requests.",
 		},
-		[]string{"method", "path", "status_code"},
+		[]string{"method", "path_template", "status_code"},
 	)
 	apiRequestDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -24,7 +24,7 @@ var (
 			Help:    "API request latency in seconds.",
 			Buckets: prometheus.DefBuckets,
 		},
-		[]string{"method", "path"},
+		[]string{"method", "path_template"},
 	)
 	ingestEventsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -81,10 +81,10 @@ func Handler() http.Handler {
 	return promhttp.Handler()
 }
 
-func ObserveAPI(method, path string, statusCode int, d time.Duration) {
+func ObserveAPI(method, pathTemplate string, statusCode int, d time.Duration) {
 	status := strconv.Itoa(statusCode)
-	apiRequestsTotal.WithLabelValues(method, path, status).Inc()
-	apiRequestDuration.WithLabelValues(method, path).Observe(d.Seconds())
+	apiRequestsTotal.WithLabelValues(method, pathTemplate, status).Inc()
+	apiRequestDuration.WithLabelValues(method, pathTemplate).Observe(d.Seconds())
 }
 
 func IncIngestOutcome(outcome string) {

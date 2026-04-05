@@ -1,0 +1,23 @@
+[
+  [
+    "EVENT",
+    "sub_filterlist_contract",
+    {
+      "id": "md_viewer",
+      "kind": 0,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  [
+    "EVENT",
+    "sub_filterlist_contract",
+    {
+      "content": "{\"action\":\"block\",\"pubkey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"target_pubkey\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}",
+      "kind": 10000131
+    }
+  ],
+  [
+    "EOSE",
+    "sub_filterlist_contract"
+  ]
+]

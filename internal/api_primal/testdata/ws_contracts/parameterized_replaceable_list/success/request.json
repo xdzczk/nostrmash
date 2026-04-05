@@ -1,0 +1,15 @@
+[
+  "REQ",
+  "sub_param_list_contract",
+  {
+    "cache": [
+      "parameterized_replaceable_list",
+      {
+        "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": 30023,
+        "identifier": "custom-list",
+        "limit": 2
+      }
+    ]
+  }
+]

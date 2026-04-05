@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	JobTypeDeriveEventBundle        = "derive_event_bundle"
 	JobTypeDeriveEventRelationships = "derive_event_relationships"
 	JobTypeUpdateReplaceableState   = "update_replaceable_state"
 	JobTypeProjectProfilesLatest    = "project_profiles_latest"
@@ -18,6 +19,8 @@ const (
 	JobTypeProjectDeletionEvents    = "project_deletion_events"
 	JobTypeProjectContactLists      = "project_contact_lists_latest"
 	JobTypeProjectRelayLists        = "project_relay_lists_latest"
+	JobTypeProjectDMUnreadCounts    = "project_dm_unread_counts"
+	JobTypeProjectZapReceipts       = "project_zap_receipts"
 	JobTypeUpdateThreadProjection   = "update_thread_projection"
 	JobTypeRepairUnresolvedRefs     = "repair_unresolved_references"
 	JobTypeRebuildProjectionScope   = "rebuild_projection_scope"
@@ -35,7 +38,10 @@ const (
 	DerivationRepostEvents       = "repost_events"
 	DerivationDeletionEvents     = "deletion_events"
 	DerivationContactListsLatest = "contact_lists_latest"
+	DerivationFollowerEdges      = "follower_edges"
 	DerivationRelayListsLatest   = "relay_lists_latest"
+	DerivationDMUnreadCounts     = "dm_unread_counts"
+	DerivationZapReceipts        = "zap_receipts"
 	DerivationThreadProjection   = "thread_projection"
 )
 
@@ -51,7 +57,10 @@ const (
 	RepostEventsVersion       = 1
 	DeletionEventsVersion     = 1
 	ContactListsLatestVersion = 1
+	FollowerEdgesVersion      = 1
 	RelayListsLatestVersion   = 1
+	DMUnreadCountsVersion     = 1
+	ZapReceiptsVersion        = 1
 	ThreadProjectionVersion   = 1
 )
 

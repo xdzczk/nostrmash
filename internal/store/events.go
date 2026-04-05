@@ -143,40 +143,7 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 	}
 
 	if outcome.EventInserted {
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeDeriveEventRelationships, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeUpdateReplaceableState, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectProfilesLatest, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectAuthorRecentEvent, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectReplyCounts, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectReactionCounts, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectRepostCounts, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectReactionEvents, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectRepostEvents, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectDeletionEvents, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectContactLists, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeProjectRelayLists, event.ID); err != nil {
+		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeDeriveEventBundle, event.ID); err != nil {
 			return outcome, err
 		}
 		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeUpdateThreadProjection, event.ID); err != nil {

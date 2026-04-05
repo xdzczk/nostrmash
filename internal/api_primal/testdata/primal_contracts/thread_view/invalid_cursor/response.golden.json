@@ -1,0 +1,10 @@
+{
+  "body": {
+    "error": {
+      "code": "invalid_cursor",
+      "message": "cursor is malformed",
+      "request_id": "req-thread-invalid-cursor"
+    }
+  },
+  "status": 400
+}

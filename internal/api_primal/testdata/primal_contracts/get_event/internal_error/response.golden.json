@@ -1,10 +1,10 @@
 {
-  "status": 500,
   "body": {
     "error": {
       "code": "internal_error",
       "message": "internal server error",
       "request_id": "req-event-500"
     }
-  }
+  },
+  "status": 500
 }
