@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
@@ -26,6 +26,11 @@ type EventStore interface {
 	InsertInvalidEvent(ctx context.Context, invalid model.InvalidEvent) error
 }
 
+// CheckpointWriter persists durable live checkpoint progress.
+type CheckpointWriter interface {
+	MarkEventProcessed(ctx context.Context, relayURL string, eventID string, createdAt int64) error
+}
+
 // Counters are cumulative ingest metrics for logging/observability.
 type Counters struct {
 	Valid     uint64
@@ -35,12 +40,13 @@ type Counters struct {
 
 // Processor validates relay payloads and writes canonical/quarantine rows.
 type Processor struct {
-	log           *slog.Logger
-	store         EventStore
-	validateOpts  nostr.Options
-	validCount    atomic.Uint64
-	dupeCount     atomic.Uint64
-	invalidCount  atomic.Uint64
+	log              *slog.Logger
+	store            EventStore
+	validateOpts     nostr.Options
+	checkpointWriter CheckpointWriter
+	validCount       atomic.Uint64
+	dupeCount        atomic.Uint64
+	invalidCount     atomic.Uint64
 }
 
 func NewProcessor(log *slog.Logger, store EventStore, validateOpts nostr.Options) (*Processor, error) {
@@ -55,6 +61,14 @@ func NewProcessor(log *slog.Logger, store EventStore, validateOpts nostr.Options
 		store:        store,
 		validateOpts: validateOpts,
 	}, nil
+}
+
+// SetCheckpointWriter wires an optional live checkpoint sink.
+func (p *Processor) SetCheckpointWriter(writer CheckpointWriter) {
+	if p == nil {
+		return
+	}
+	p.checkpointWriter = writer
 }
 
 func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte) error {
@@ -82,6 +96,16 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 		)
 		if err != nil {
 			return fmt.Errorf("store canonical event: %w", err)
+		}
+		if p.checkpointWriter != nil {
+			if err := p.checkpointWriter.MarkEventProcessed(
+				ctx,
+				relayURL,
+				event.ID,
+				event.CreatedAt,
+			); err != nil {
+				return fmt.Errorf("persist live checkpoint: %w", err)
+			}
 		}
 
 		if outcome.EventInserted {

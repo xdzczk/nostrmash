@@ -48,6 +48,9 @@ type RelayConfig struct {
 
 	FilterGroups      map[string]FilterGroup
 	ActiveFilterGroup string
+
+	LiveBootstrapLookbackSeconds int64
+	LiveResumeOverlapSeconds     int64
 }
 
 // BackfillConfig controls bootstrap/backfill ingest behavior.
@@ -83,6 +86,20 @@ func Load(serviceName string) (Config, error) {
 	environment := getEnv("ENVIRONMENT", "development")
 	localDev := isLocalDevEnvironment(environment)
 	requireTLS := getEnvBool("INGESTOR_RELAY_REQUIRE_TLS", !localDev)
+	liveBootstrapLookbackSeconds, err := getEnvNonNegativeInt64(
+		"INGESTOR_LIVE_BOOTSTRAP_LOOKBACK_SECONDS",
+		300,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+	liveResumeOverlapSeconds, err := getEnvNonNegativeInt64(
+		"INGESTOR_LIVE_RESUME_OVERLAP_SECONDS",
+		60,
+	)
+	if err != nil {
+		return Config{}, err
+	}
 
 	c := Config{
 		ServiceName: serviceName,
@@ -109,6 +126,8 @@ func Load(serviceName string) (Config, error) {
 			ActiveFilterGroup: strings.TrimSpace(
 				getEnv("INGESTOR_FILTER_GROUP", defaultFilterGroupName),
 			),
+			LiveBootstrapLookbackSeconds: liveBootstrapLookbackSeconds,
+			LiveResumeOverlapSeconds:     liveResumeOverlapSeconds,
 		},
 		Backfill: BackfillConfig{
 			Enabled:        getEnvBool("INGESTOR_BACKFILL_ENABLED", false),
@@ -137,7 +156,7 @@ func Load(serviceName string) (Config, error) {
 	if err := validateBackfillConfig(c.Backfill); err != nil {
 		return c, err
 	}
-	if err := validateIngestorMode(c.Mode, c.Replay); err != nil {
+	if err := validateIngestorMode(c.ServiceName, c.Mode, c.Replay, c.Relay); err != nil {
 		return c, err
 	}
 
@@ -197,6 +216,21 @@ func getEnvOptionalUnix(key string) *int64 {
 		return nil
 	}
 	return &v
+}
+
+func getEnvNonNegativeInt64(key string, def int64) (int64, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def, nil
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a non-negative integer", key)
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("%s must be >= 0", key)
+	}
+	return v, nil
 }
 
 func parseCSVEnv(key string) []string {
@@ -299,10 +333,22 @@ func validateBackfillConfig(cfg BackfillConfig) error {
 	return nil
 }
 
-func validateIngestorMode(mode string, replay ReplayConfig) error {
+func validateIngestorMode(serviceName, mode string, replay ReplayConfig, relay RelayConfig) error {
+	if strings.TrimSpace(serviceName) != "ingestor" {
+		return nil
+	}
 	normalized := strings.ToLower(strings.TrimSpace(mode))
 	switch normalized {
 	case "live":
+		if len(relay.URLs) == 0 {
+			return fmt.Errorf("live ingest requires at least one relay URL; set INGESTOR_RELAY_URLS")
+		}
+		if relay.LiveBootstrapLookbackSeconds <= 0 {
+			return fmt.Errorf("INGESTOR_LIVE_BOOTSTRAP_LOOKBACK_SECONDS must be > 0")
+		}
+		if relay.LiveResumeOverlapSeconds < 0 {
+			return fmt.Errorf("INGESTOR_LIVE_RESUME_OVERLAP_SECONDS must be >= 0")
+		}
 		return nil
 	case "replay":
 		if strings.TrimSpace(replay.FixturePath) == "" {

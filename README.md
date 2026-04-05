@@ -44,6 +44,7 @@ docker compose up --build
 ```
 
 The API will be available at `http://localhost:8080`.
+The ingestor is configured for live mode with default relay URLs in Compose, so it should begin consuming events shortly after startup.
 
 Start by checking:
 
@@ -62,6 +63,8 @@ Runtime notes:
 
 - Compose starts `postgres`, `api`, `ingestor`, and `worker`
 - Migrations are embedded and run automatically on service startup
+- Compose sets default ingestor relay config (`INGESTOR_MODE=live`, `INGESTOR_FILTER_GROUP=default_v1`) and relay URLs for local/dev bootstrap
+- Override relay env vars if needed, for example: `INGESTOR_RELAY_URLS=... INGESTOR_RELAY_ALLOWLIST=... docker compose up --build`
 - Admin routes require `ADMIN_BEARER_TOKEN`; without it, `/admin/*` returns `503 admin_unavailable`
 
 ### Local Run

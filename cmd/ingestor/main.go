@@ -63,6 +63,8 @@ func main() {
 		log.Error("ingestor_processor", "error", err)
 		os.Exit(1)
 	}
+	var checkpointTracker *live.CheckpointTracker
+	var sinceResolver relay.SinceResolver
 	runMetricsEndpoint(ctx, log, cfg.MetricsAddr)
 
 	go runMetricsLogger(ctx, log, processor, 30*time.Second)
@@ -89,6 +91,38 @@ func main() {
 		)
 		return
 	}
+
+	checkpointTracker, err = live.NewCheckpointTracker(
+		log,
+		eventStore,
+		cfg.Relay.ActiveFilterGroup,
+		5*time.Second,
+	)
+	if err != nil {
+		log.Error("live_checkpoint_tracker", "error", err)
+		os.Exit(1)
+	}
+	processor.SetCheckpointWriter(checkpointTracker)
+	sinceResolver, err = live.NewResumeSinceResolver(
+		eventStore,
+		cfg.Relay.ActiveFilterGroup,
+		cfg.Relay.LiveBootstrapLookbackSeconds,
+		cfg.Relay.LiveResumeOverlapSeconds,
+	)
+	if err != nil {
+		log.Error("live_since_resolver", "error", err)
+		os.Exit(1)
+	}
+	log.Info(
+		"ingestor_live_startup",
+		"mode", cfg.Mode,
+		"filter_group", cfg.Relay.ActiveFilterGroup,
+		"relay_count", len(cfg.Relay.URLs),
+		"relay_urls", cfg.Relay.URLs,
+		"resume_checkpoint_enabled", true,
+		"bootstrap_lookback_seconds", cfg.Relay.LiveBootstrapLookbackSeconds,
+		"resume_overlap_seconds", cfg.Relay.LiveResumeOverlapSeconds,
+	)
 
 	if cfg.Backfill.Enabled {
 		backfillRunner, err := backfill.NewRunner(
@@ -131,11 +165,13 @@ func main() {
 			InitialBackoff: cfg.Relay.InitialBackoff,
 			MaxBackoff:     cfg.Relay.MaxBackoff,
 			LagThreshold:   cfg.Relay.LagThreshold,
+			StatusSink:     checkpointTracker,
 		},
 		relay.NostrConnector{
-			Log:         log,
-			Kinds:       kinds,
-			FilterGroup: cfg.Relay.ActiveFilterGroup,
+			Log:           log,
+			Kinds:         kinds,
+			FilterGroup:   cfg.Relay.ActiveFilterGroup,
+			SinceResolver: sinceResolver,
 		},
 		processor.Handle,
 		log,
@@ -148,6 +184,11 @@ func main() {
 	log.Info("relay_manager_started", "relay_count", len(cfg.Relay.URLs))
 
 	<-ctx.Done()
+	if checkpointTracker != nil {
+		if err := checkpointTracker.FlushAll(context.Background()); err != nil {
+			log.Warn("live_checkpoint_flush_shutdown", "error", err)
+		}
+	}
 	final := processor.Snapshot()
 	log.Info(
 		"ingest_metrics_final",

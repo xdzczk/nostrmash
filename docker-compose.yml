@@ -36,6 +36,10 @@ services:
       DATABASE_URL: postgres://nostrmash:nostrmash@postgres:5432/nostrmash?sslmode=disable
       LOG_LEVEL: info
       ENVIRONMENT: development
+      INGESTOR_MODE: live
+      INGESTOR_FILTER_GROUP: default_v1
+      INGESTOR_RELAY_URLS: wss://relay.primal.net,wss://relay.damus.io,wss://nos.lol
+      INGESTOR_RELAY_ALLOWLIST: wss://relay.primal.net,wss://relay.damus.io,wss://nos.lol
     depends_on:
       postgres:
         condition: service_healthy

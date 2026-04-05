@@ -45,6 +45,38 @@ func TestProcessorHandle_ValidDuplicateInvalidCounters(t *testing.T) {
 	}
 }
 
+func TestProcessorHandle_OverlapReplayDuplicateCheckpointSafety(t *testing.T) {
+	t.Parallel()
+
+	store := &replaySafeStore{seenIDs: map[string]struct{}{}}
+	checkpoints := &checkpointRecorder{}
+	processor, err := NewProcessor(silentLogger(), store, nostr.Options{})
+	if err != nil {
+		t.Fatalf("NewProcessor: %v", err)
+	}
+	processor.SetCheckpointWriter(checkpoints)
+
+	if err := processor.Handle(context.Background(), "wss://relay.one", []byte(validEventFixture)); err != nil {
+		t.Fatalf("first event handle: %v", err)
+	}
+	if err := processor.Handle(context.Background(), "wss://relay.one", []byte(validEventFixture)); err != nil {
+		t.Fatalf("duplicate event handle: %v", err)
+	}
+
+	if store.insertedCount != 1 {
+		t.Fatalf("expected one inserted canonical row, got %d", store.insertedCount)
+	}
+	if store.totalWrites != 2 {
+		t.Fatalf("expected two processed events, got %d", store.totalWrites)
+	}
+	if checkpoints.calls != 2 {
+		t.Fatalf("expected two checkpoint writes, got %d", checkpoints.calls)
+	}
+	if checkpoints.maxCreatedAt != 1700000000 {
+		t.Fatalf("unexpected checkpoint max created_at: got %d", checkpoints.maxCreatedAt)
+	}
+}
+
 const validEventFixture = `{
   "kind": 1,
   "created_at": 1700000000,
@@ -86,4 +118,48 @@ func (f *fakeStore) InsertInvalidEvent(ctx context.Context, invalid model.Invali
 
 func silentLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(io.Discard, nil))
+}
+
+type replaySafeStore struct {
+	seenIDs       map[string]struct{}
+	insertedCount int
+	totalWrites   int
+}
+
+func (s *replaySafeStore) InsertCanonicalEventWithResult(
+	ctx context.Context,
+	event model.Event,
+	tags [][]string,
+	relayURL string,
+	relaySeenAt time.Time,
+) (store.CanonicalInsertResult, error) {
+	s.totalWrites++
+	if _, exists := s.seenIDs[event.ID]; exists {
+		return store.CanonicalInsertResult{EventInserted: false}, nil
+	}
+	s.seenIDs[event.ID] = struct{}{}
+	s.insertedCount++
+	return store.CanonicalInsertResult{EventInserted: true}, nil
+}
+
+func (s *replaySafeStore) InsertInvalidEvent(ctx context.Context, invalid model.InvalidEvent) error {
+	return nil
+}
+
+type checkpointRecorder struct {
+	calls        int
+	maxCreatedAt int64
+}
+
+func (r *checkpointRecorder) MarkEventProcessed(
+	ctx context.Context,
+	relayURL string,
+	eventID string,
+	createdAt int64,
+) error {
+	r.calls++
+	if createdAt > r.maxCreatedAt {
+		r.maxCreatedAt = createdAt
+	}
+	return nil
 }

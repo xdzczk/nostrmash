@@ -47,15 +47,18 @@ type InvalidEvent struct {
 
 // IngestCheckpoint persists per-relay ingest state.
 type IngestCheckpoint struct {
-	RelayURL    string
-	Mode        string // live | backfill
-	FilterGroup string
-	Since       *int64
-	Until       *int64
-	Cursor      *string
-	EOSESeenAt  *time.Time
-	Status      string // running | paused | completed | failed
-	UpdatedAt   time.Time
+	RelayURL       string
+	Mode           string // live | backfill
+	FilterGroup    string
+	Since          *int64
+	Until          *int64
+	Cursor         *string
+	LastEventID    *string
+	LastProgressAt *time.Time
+	EOSESeenAt     *time.Time
+	Status         string
+	LastError      *string
+	UpdatedAt      time.Time
 }
 
 // IngestMode constants.
@@ -66,8 +69,12 @@ const (
 
 // Checkpoint status constants.
 const (
-	CheckpointRunning   = "running"
-	CheckpointPaused    = "paused"
-	CheckpointCompleted = "completed"
-	CheckpointFailed    = "failed"
+	CheckpointRunning    = "running"
+	CheckpointPaused     = "paused"
+	CheckpointCompleted  = "completed"
+	CheckpointFailed     = "failed"
+	CheckpointConnecting = "connecting"
+	CheckpointHealthy    = "healthy"
+	CheckpointBackingOff = "backing_off"
+	CheckpointErrored    = "errored"
 )

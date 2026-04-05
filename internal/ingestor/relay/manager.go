@@ -20,10 +20,11 @@ type MessageHandler func(ctx context.Context, relayURL string, payload []byte) e
 
 // Manager owns relay connection lifecycle state and reconnect loops.
 type Manager struct {
-	log       *slog.Logger
-	connector Connector
-	cfg       Config
-	handler   MessageHandler
+	log        *slog.Logger
+	connector  Connector
+	cfg        Config
+	handler    MessageHandler
+	statusSink RelayStatusSink
 
 	nowFn   func() time.Time
 	sleepFn func(context.Context, time.Duration) bool
@@ -61,13 +62,14 @@ func NewManager(cfg Config, connector Connector, handler MessageHandler, log *sl
 
 	nowFn := time.Now
 	m := &Manager{
-		log:       log,
-		connector: connector,
-		cfg:       cfg,
-		handler:   handler,
-		nowFn:     nowFn,
-		sleepFn:   sleepContext,
-		relays:    make(map[string]*relayRuntime, len(cfg.Relays)),
+		log:        log,
+		connector:  connector,
+		cfg:        cfg,
+		handler:    handler,
+		statusSink: cfg.StatusSink,
+		nowFn:      nowFn,
+		sleepFn:    sleepContext,
+		relays:     make(map[string]*relayRuntime, len(cfg.Relays)),
 	}
 
 	disabledSet := make(map[string]struct{}, len(cfg.DisabledRelays))
@@ -144,14 +146,17 @@ func (m *Manager) runRelay(ctx context.Context, relayURL string) {
 		}
 
 		m.setConnecting(relayURL)
+		m.reportStatus(ctx, relayURL, StateConnecting, "")
 
 		connectCtx, cancel := context.WithTimeout(ctx, m.cfg.ConnectTimeout)
 		conn, err := m.connector.Connect(connectCtx, relayURL)
 		cancel()
 		if err != nil {
 			m.setState(relayURL, StateErrored, err.Error(), 0, "connect_failed")
+			m.reportStatus(ctx, relayURL, StateErrored, err.Error())
 			wait := backoff.Next()
 			m.setState(relayURL, StateBackingOff, err.Error(), wait, "reconnect_backoff")
+			m.reportStatus(ctx, relayURL, StateBackingOff, err.Error())
 			if ok := m.sleepFn(ctx, wait); !ok {
 				return
 			}
@@ -160,6 +165,7 @@ func (m *Manager) runRelay(ctx context.Context, relayURL string) {
 
 		backoff.Reset()
 		m.setConnected(relayURL)
+		m.reportStatus(ctx, relayURL, StateHealthy, "")
 		if !m.monitorConnection(ctx, relayURL, conn, backoff) {
 			return
 		}
@@ -206,11 +212,14 @@ func (m *Manager) monitorConnection(ctx context.Context, relayURL string, conn C
 			}
 			if err != nil {
 				m.setState(relayURL, StateErrored, err.Error(), 0, "connection_lost")
+				m.reportStatus(ctx, relayURL, StateErrored, err.Error())
 			} else {
 				m.setState(relayURL, StateErrored, "connection closed", 0, "connection_closed")
+				m.reportStatus(ctx, relayURL, StateErrored, "connection closed")
 			}
 			wait := backoff.Next()
 			m.setState(relayURL, StateBackingOff, "connection_lost", wait, "reconnect_backoff")
+			m.reportStatus(ctx, relayURL, StateBackingOff, "connection_lost")
 			if ok := m.sleepFn(ctx, wait); !ok {
 				return false
 			}
@@ -383,4 +392,18 @@ func tickerC(t *time.Ticker) <-chan time.Time {
 		return nil
 	}
 	return t.C
+}
+
+func (m *Manager) reportStatus(ctx context.Context, relayURL string, state State, lastError string) {
+	if m.statusSink == nil {
+		return
+	}
+	if err := m.statusSink.SetRelayStatus(ctx, relayURL, state, lastError); err != nil {
+		m.log.Warn(
+			"relay_status_persist_failed",
+			"relay_url", relayURL,
+			"state", state,
+			"error", err,
+		)
+	}
 }

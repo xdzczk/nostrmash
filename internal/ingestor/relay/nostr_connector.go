@@ -15,9 +15,10 @@ import (
 
 // NostrConnector dials a relay, sends one live REQ, and streams EVENT payloads.
 type NostrConnector struct {
-	Log         *slog.Logger
-	Kinds       []int
-	FilterGroup string
+	Log           *slog.Logger
+	Kinds         []int
+	FilterGroup   string
+	SinceResolver SinceResolver
 }
 
 func (c NostrConnector) Connect(ctx context.Context, relayURL string) (Connection, error) {
@@ -30,12 +31,29 @@ func (c NostrConnector) Connect(ctx context.Context, relayURL string) (Connectio
 	}
 
 	subID := fmt.Sprintf("nm-live-%d", time.Now().UnixNano())
+	since := time.Now().UTC().Unix()
+	resumeStrategy := "bootstrap_lookback"
+	var checkpointSince *int64
+	var overlapSeconds int64
+	var bootstrapLookbackSeconds int64
+	if c.SinceResolver != nil {
+		resolution, err := c.SinceResolver.ResolveSince(ctx, relayURL)
+		if err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("resolve relay since: %w", err)
+		}
+		since = resolution.Since
+		resumeStrategy = resolution.Strategy
+		checkpointSince = resolution.CheckpointSince
+		overlapSeconds = resolution.OverlapSeconds
+		bootstrapLookbackSeconds = resolution.BootstrapLookbackSeconds
+	}
 	req := []any{
 		"REQ",
 		subID,
 		map[string]any{
 			"kinds": c.Kinds,
-			"since": time.Now().UTC().Unix(),
+			"since": since,
 		},
 	}
 	reqRaw, err := json.Marshal(req)
@@ -57,6 +75,11 @@ func (c NostrConnector) Connect(ctx context.Context, relayURL string) (Connectio
 			"relay_url", relayURL,
 			"filter_group", c.FilterGroup,
 			"kinds", c.Kinds,
+			"since", since,
+			"resume_strategy", resumeStrategy,
+			"checkpoint_since", checkpointSince,
+			"resume_overlap_seconds", overlapSeconds,
+			"bootstrap_lookback_seconds", bootstrapLookbackSeconds,
 			"subscription_id", subID,
 		)
 	}

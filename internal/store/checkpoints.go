@@ -30,7 +30,7 @@ func (s *PostgresStore) GetIngestCheckpoint(
 
 	var checkpoint model.IngestCheckpoint
 	err := s.pool.QueryRow(ctx, `
-		SELECT relay_url, mode, filter_group, since, "until", cursor, eose_seen_at, status, updated_at
+		SELECT relay_url, mode, filter_group, since, "until", cursor, last_event_id, last_progress_at, eose_seen_at, status, last_error, updated_at
 		FROM ingest_checkpoints
 		WHERE relay_url = $1 AND mode = $2 AND filter_group = $3
 	`,
@@ -42,8 +42,11 @@ func (s *PostgresStore) GetIngestCheckpoint(
 		&checkpoint.Since,
 		&checkpoint.Until,
 		&checkpoint.Cursor,
+		&checkpoint.LastEventID,
+		&checkpoint.LastProgressAt,
 		&checkpoint.EOSESeenAt,
 		&checkpoint.Status,
+		&checkpoint.LastError,
 		&checkpoint.UpdatedAt,
 	)
 	if err != nil {
@@ -77,15 +80,18 @@ func (s *PostgresStore) UpsertIngestCheckpoint(ctx context.Context, checkpoint m
 
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO ingest_checkpoints (
-			relay_url, mode, filter_group, since, "until", cursor, eose_seen_at, status, updated_at
+			relay_url, mode, filter_group, since, "until", cursor, last_event_id, last_progress_at, eose_seen_at, status, last_error, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (relay_url, mode, filter_group) DO UPDATE
 		SET since = EXCLUDED.since,
 			"until" = EXCLUDED."until",
 			cursor = EXCLUDED.cursor,
+			last_event_id = EXCLUDED.last_event_id,
+			last_progress_at = EXCLUDED.last_progress_at,
 			eose_seen_at = EXCLUDED.eose_seen_at,
 			status = EXCLUDED.status,
+			last_error = EXCLUDED.last_error,
 			updated_at = EXCLUDED.updated_at
 	`,
 		checkpoint.RelayURL,
@@ -94,8 +100,11 @@ func (s *PostgresStore) UpsertIngestCheckpoint(ctx context.Context, checkpoint m
 		checkpoint.Since,
 		checkpoint.Until,
 		checkpoint.Cursor,
+		checkpoint.LastEventID,
+		checkpoint.LastProgressAt,
 		checkpoint.EOSESeenAt,
 		checkpoint.Status,
+		checkpoint.LastError,
 		updatedAt,
 	)
 	if err != nil {

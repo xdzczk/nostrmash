@@ -39,6 +39,13 @@ type Config struct {
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration
 	LagThreshold   time.Duration
+
+	StatusSink RelayStatusSink
+}
+
+// RelayStatusSink records durable relay lifecycle status transitions.
+type RelayStatusSink interface {
+	SetRelayStatus(ctx context.Context, relayURL string, state State, lastError string) error
 }
 
 // Connection represents an active relay connection.
@@ -52,4 +59,18 @@ type Connection interface {
 // Connector establishes relay connections.
 type Connector interface {
 	Connect(ctx context.Context, relayURL string) (Connection, error)
+}
+
+// SinceResolution describes a computed live subscription cursor.
+type SinceResolution struct {
+	Since                    int64
+	Strategy                 string
+	CheckpointSince          *int64
+	BootstrapLookbackSeconds int64
+	OverlapSeconds           int64
+}
+
+// SinceResolver computes per-relay "since" values for live subscriptions.
+type SinceResolver interface {
+	ResolveSince(ctx context.Context, relayURL string) (SinceResolution, error)
 }

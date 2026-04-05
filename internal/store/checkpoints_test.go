@@ -20,16 +20,22 @@ func TestIngestCheckpointUpsertAndLoad(t *testing.T) {
 	since := int64(100)
 	until := int64(200)
 	cursor := "140"
+	lastEventID := "evt-140"
 	eoseAt := time.Date(2026, 4, 4, 16, 0, 0, 0, time.UTC)
+	progressAt := time.Date(2026, 4, 4, 16, 1, 0, 0, time.UTC)
+	lastError := "temporary relay timeout"
 	initial := model.IngestCheckpoint{
-		RelayURL:    "wss://relay.one",
-		Mode:        model.ModeBackfill,
-		FilterGroup: "default_v1",
-		Since:       &since,
-		Until:       &until,
-		Cursor:      &cursor,
-		EOSESeenAt:  &eoseAt,
-		Status:      model.CheckpointRunning,
+		RelayURL:       "wss://relay.one",
+		Mode:           model.ModeBackfill,
+		FilterGroup:    "default_v1",
+		Since:          &since,
+		Until:          &until,
+		Cursor:         &cursor,
+		LastEventID:    &lastEventID,
+		LastProgressAt: &progressAt,
+		EOSESeenAt:     &eoseAt,
+		Status:         model.CheckpointRunning,
+		LastError:      &lastError,
 	}
 	if err := ps.UpsertIngestCheckpoint(ctx, initial); err != nil {
 		t.Fatalf("upsert initial checkpoint: %v", err)
@@ -51,6 +57,15 @@ func TestIngestCheckpointUpsertAndLoad(t *testing.T) {
 	if loaded.EOSESeenAt == nil || !loaded.EOSESeenAt.Equal(eoseAt) {
 		t.Fatalf("eose_seen_at mismatch: got %v want %s", loaded.EOSESeenAt, eoseAt)
 	}
+	if loaded.LastEventID == nil || *loaded.LastEventID != lastEventID {
+		t.Fatalf("last_event_id mismatch: got %v want %s", loaded.LastEventID, lastEventID)
+	}
+	if loaded.LastProgressAt == nil || !loaded.LastProgressAt.Equal(progressAt) {
+		t.Fatalf("last_progress_at mismatch: got %v want %s", loaded.LastProgressAt, progressAt)
+	}
+	if loaded.LastError == nil || *loaded.LastError != lastError {
+		t.Fatalf("last_error mismatch: got %v want %s", loaded.LastError, lastError)
+	}
 
 	cursor2 := "190"
 	updated := model.IngestCheckpoint{
@@ -61,6 +76,7 @@ func TestIngestCheckpointUpsertAndLoad(t *testing.T) {
 		Until:       &until,
 		Cursor:      &cursor2,
 		Status:      model.CheckpointCompleted,
+		LastError:   nil,
 	}
 	if err := ps.UpsertIngestCheckpoint(ctx, updated); err != nil {
 		t.Fatalf("upsert updated checkpoint: %v", err)
@@ -74,5 +90,8 @@ func TestIngestCheckpointUpsertAndLoad(t *testing.T) {
 	}
 	if loaded.Cursor == nil || *loaded.Cursor != "190" {
 		t.Fatalf("cursor mismatch: got %v want 190", loaded.Cursor)
+	}
+	if loaded.LastError != nil {
+		t.Fatalf("last_error should be cleared: got %v", *loaded.LastError)
 	}
 }
