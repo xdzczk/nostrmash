@@ -1,0 +1,30 @@
+{
+  "status": 200,
+  "body": {
+    "event_id": "evt_123",
+    "event": {
+      "id": "evt_1",
+      "kind": 1,
+      "pubkey": "pubkey_1",
+      "content": "hello primal"
+    },
+    "ancestors": [
+      {
+        "id": "root_evt",
+        "kind": 1,
+        "pubkey": "pubkey_root",
+        "created_at": 1699999990
+      }
+    ],
+    "missing_ancestor_ids": ["missing_ancestor_1"],
+    "replies": [
+      {
+        "id": "thread_reply_1",
+        "kind": 1,
+        "pubkey": "pubkey_b",
+        "created_at": 1700000020
+      }
+    ],
+    "consistency": "eventual"
+  }
+}

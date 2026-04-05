@@ -1,0 +1,5 @@
+{
+  "method": "GET",
+  "path": "/primal/v1/threads/evt_missing",
+  "request_id": "req-thread-not-found"
+}

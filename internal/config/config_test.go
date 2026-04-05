@@ -129,6 +129,69 @@ func TestLoad_APIMaxBatchSizeFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoad_PrimalWSDefaultsAndEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("INGESTOR_RELAY_URLS", "")
+	t.Setenv("INGESTOR_RELAY_ALLOWLIST", "")
+	t.Setenv("INGESTOR_RELAY_DISABLED", "")
+	t.Setenv("INGESTOR_FILTER_GROUP", "default_v1")
+	t.Setenv("PRIMAL_WS_MAX_SUBSCRIPTIONS", "")
+	t.Setenv("PRIMAL_WS_REQUEST_TIMEOUT", "")
+	t.Setenv("PRIMAL_WS_MAX_MESSAGE_BYTES", "")
+	t.Setenv("PRIMAL_WS_MAX_REQ_PER_MINUTE", "")
+	t.Setenv("PRIMAL_WS_ALLOWED_ORIGINS", "")
+	t.Setenv("PRIMAL_WS_ALLOW_ANY_ORIGIN", "")
+
+	cfg, err := Load("api")
+	if err != nil {
+		t.Fatalf("load config defaults: %v", err)
+	}
+	if cfg.PrimalWSMaxSubscriptions != 200 {
+		t.Fatalf("unexpected default ws max subscriptions: got %d want 200", cfg.PrimalWSMaxSubscriptions)
+	}
+	if cfg.PrimalWSRequestTimeout.String() != "10s" {
+		t.Fatalf("unexpected default ws request timeout: got %s want 10s", cfg.PrimalWSRequestTimeout)
+	}
+	if cfg.PrimalWSMaxMessageBytes != 1<<20 {
+		t.Fatalf("unexpected default ws max message bytes: got %d want %d", cfg.PrimalWSMaxMessageBytes, 1<<20)
+	}
+	if cfg.PrimalWSMaxReqPerMinute != 240 {
+		t.Fatalf("unexpected default ws req per minute: got %d want 240", cfg.PrimalWSMaxReqPerMinute)
+	}
+	if cfg.PrimalWSAllowAnyOrigin {
+		t.Fatal("expected default ws allow any origin to be false")
+	}
+
+	t.Setenv("PRIMAL_WS_MAX_SUBSCRIPTIONS", "50")
+	t.Setenv("PRIMAL_WS_REQUEST_TIMEOUT", "2s")
+	t.Setenv("PRIMAL_WS_MAX_MESSAGE_BYTES", "2048")
+	t.Setenv("PRIMAL_WS_MAX_REQ_PER_MINUTE", "33")
+	t.Setenv("PRIMAL_WS_ALLOWED_ORIGINS", "https://app.primal.net,https://nostrmash.local")
+	t.Setenv("PRIMAL_WS_ALLOW_ANY_ORIGIN", "true")
+	cfg, err = Load("api")
+	if err != nil {
+		t.Fatalf("load config env: %v", err)
+	}
+	if cfg.PrimalWSMaxSubscriptions != 50 {
+		t.Fatalf("unexpected env ws max subscriptions: got %d want 50", cfg.PrimalWSMaxSubscriptions)
+	}
+	if cfg.PrimalWSRequestTimeout.String() != "2s" {
+		t.Fatalf("unexpected env ws request timeout: got %s want 2s", cfg.PrimalWSRequestTimeout)
+	}
+	if cfg.PrimalWSMaxMessageBytes != 2048 {
+		t.Fatalf("unexpected env ws max message bytes: got %d want 2048", cfg.PrimalWSMaxMessageBytes)
+	}
+	if cfg.PrimalWSMaxReqPerMinute != 33 {
+		t.Fatalf("unexpected env ws req per minute: got %d want 33", cfg.PrimalWSMaxReqPerMinute)
+	}
+	if len(cfg.PrimalWSAllowedOrigins) != 2 {
+		t.Fatalf("unexpected ws allowed origins length: got %d want 2", len(cfg.PrimalWSAllowedOrigins))
+	}
+	if !cfg.PrimalWSAllowAnyOrigin {
+		t.Fatal("expected ws allow any origin to be true from env")
+	}
+}
+
 func TestValidateIngestorMode_ReplayRequiresFixturePath(t *testing.T) {
 	err := validateIngestorMode("ingestor", "replay", ReplayConfig{}, testRelayConfig())
 	if err == nil {

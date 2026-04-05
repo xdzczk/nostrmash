@@ -1,0 +1,8 @@
+{
+  "method": "POST",
+  "path": "/primal/v1/user_infos",
+  "body": {
+    "pubkeys": ["pubkey_store_err"]
+  },
+  "request_id": "req-user-infos-err"
+}

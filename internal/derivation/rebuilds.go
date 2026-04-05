@@ -416,18 +416,18 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 		}, nil
 	case DerivationContactListsLatest:
 		return projectionDefinition{
-			name:           DerivationContactListsLatest,
-			compiled:       ContactListsLatestVersion,
-			description:    "Project contact_lists_latest from kind=3 replaceables",
+			name:        DerivationContactListsLatest,
+			compiled:    ContactListsLatestVersion,
+			description: "Project contact_lists_latest from kind=3 replaceables",
 			rebuildProject: func(ctx context.Context, eventID string, version *int) error {
 				return h.projectContactListsLatestWithVersion(ctx, eventID, version)
 			},
 		}, nil
 	case DerivationRelayListsLatest:
 		return projectionDefinition{
-			name:           DerivationRelayListsLatest,
-			compiled:       RelayListsLatestVersion,
-			description:    "Project relay_lists_latest from kind=10002 replaceables",
+			name:        DerivationRelayListsLatest,
+			compiled:    RelayListsLatestVersion,
+			description: "Project relay_lists_latest from kind=10002 replaceables",
 			rebuildProject: func(ctx context.Context, eventID string, version *int) error {
 				return h.projectRelayListsLatestWithVersion(ctx, eventID, version)
 			},

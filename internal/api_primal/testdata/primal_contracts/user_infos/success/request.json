@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/primal/v1/user_infos",
+  "body": {
+    "pubkeys": ["pubkey_abc", "pubkey_missing", "pubkey_xyz"]
+  }
+}

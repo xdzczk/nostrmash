@@ -9,12 +9,13 @@ import (
 type State string
 
 const (
-	StateConnecting State = "connecting"
-	StateHealthy    State = "healthy"
-	StateLagging    State = "lagging"
-	StateBackingOff State = "backing_off"
-	StateDisabled   State = "disabled"
-	StateErrored    State = "errored"
+	StateConnecting   State = "connecting"
+	StateHealthy      State = "healthy"
+	StateLagging      State = "lagging"
+	StateBackingOff   State = "backing_off"
+	StateDisabled     State = "disabled"
+	StateErrored      State = "errored"
+	StateDisconnected State = "disconnected"
 )
 
 // Status is the internal relay lifecycle snapshot for metrics/admin use.

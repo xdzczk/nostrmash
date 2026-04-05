@@ -1,5 +1,16 @@
 # API Surfaces
 
+This page is the high-level API map for NostrMash. Read this before diving into [openapi.yaml](openapi.yaml) if you need to understand which surface to use, what consistency to expect, and how the current compatibility layer is intentionally scoped.
+
+## On This Page
+
+- [Native API](#native-api)
+- [Compatibility API](#compatibility-api)
+- [Admin API](#admin-api)
+- [Consistency Model](#consistency-model)
+- [OpenAPI](#openapi)
+- [Pagination, Cursors, and Errors](#pagination-cursors-and-errors)
+
 NostrMash currently exposes three API surfaces with different purposes.
 
 ## Native API
@@ -22,13 +33,39 @@ This is the surface to extend when the system gains new first-class read capabil
 
 The compatibility surface currently lives under `/primal/v1`.
 
-It is intentionally small:
+It now includes a phased subset plus a WebSocket gateway:
+
+- `GET /primal/v1/events/{id}`
+- `POST /primal/v1/events/batch`
+- `GET /primal/v1/profiles/{pubkey}`
+- `POST /primal/v1/user_infos`
+- `GET /primal/v1/threads/{eventId}`
+- `GET /primal/v1/authors/{pubkey}/events`
+- `GET /primal/v1/authors/{pubkey}/replies`
+- `GET /primal/v1/events/{id}/actions`
+- `GET /primal/v1/contact-lists/{pubkey}`
+- `GET /primal/v1/relay-lists/{pubkey}`
+- `GET /primal/ws` (WebSocket `REQ`/`CLOSE` compatibility gateway)
+
+This is still not full product parity. Compatibility logic remains boundary-only and avoids leaking protocol-specific models into core storage and derivation code.
+
+Compatibility contract coverage remains fixture-driven for HTTP compatibility routes:
 
 - `GET /primal/v1/events/{id}`
 - `POST /primal/v1/events/batch`
 - `GET /primal/v1/profiles/{pubkey}`
 
-This is not a general compatibility layer yet. The current implementation is a narrow boundary adapter and keeps compatibility logic out of core storage and derivation code.
+Contract fixtures and golden responses live under [`../internal/api_primal/testdata/primal_contracts`](../internal/api_primal/testdata/primal_contracts).
+Run with strict comparison by default and update intentionally only with:
+
+```bash
+go test ./internal/api_primal -update
+```
+
+The phased target and deferred scope are defined in:
+
+- [primal_compatibility_matrix.md](primal_compatibility_matrix.md)
+- [compatibility_rollout.md](compatibility_rollout.md)
 
 ## Admin API
 
@@ -55,7 +92,7 @@ That split is intentional. Clients should treat canonical reads and projection r
 
 ## OpenAPI
 
-Detailed request and response contracts live in `docs/openapi.yaml`.
+Detailed request and response contracts live in [openapi.yaml](openapi.yaml).
 
 This document is the map. The OpenAPI file is the schema.
 
@@ -86,3 +123,11 @@ Error responses use a consistent envelope:
 ```
 
 Use `request_id` for tracing across logs. Use `code` for program logic. Use `message` for operator-facing context.
+
+## Related Docs
+
+- [../README.md](../README.md)
+- [docs/README.md](README.md)
+- [architecture.md](architecture.md)
+- [development.md](development.md)
+- [operations.md](operations.md)

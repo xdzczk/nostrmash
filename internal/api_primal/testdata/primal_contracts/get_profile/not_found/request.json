@@ -1,0 +1,5 @@
+{
+  "method": "GET",
+  "path": "/primal/v1/profiles/pubkey_missing",
+  "request_id": "req-profile-404"
+}

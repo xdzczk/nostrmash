@@ -3,18 +3,15 @@ package replay_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"reflect"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/replay"
 	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/testutil/dbtest"
 )
 
 func TestReplayFixtureMatchesGoldenSnapshot(t *testing.T) {
@@ -107,58 +104,10 @@ func readGoldenSnapshot(t *testing.T, path string) replay.StateSnapshot {
 
 func setupSchemaPool(t *testing.T, ctx context.Context, dbURL string) *pgxpool.Pool {
 	t.Helper()
-
-	adminPool, err := store.OpenPool(ctx, dbURL)
-	if err != nil {
-		t.Fatalf("open admin pool: %v", err)
-	}
-
-	schemaName := fmt.Sprintf("test_replay_%d", time.Now().UnixNano())
-	quotedSchema := pgx.Identifier{schemaName}.Sanitize()
-	if _, err := adminPool.Exec(ctx, fmt.Sprintf(`CREATE SCHEMA %s`, quotedSchema)); err != nil {
-		adminPool.Close()
-		t.Fatalf("create schema %s: %v", schemaName, err)
-	}
-
-	cfg, err := pgxpool.ParseConfig(dbURL)
-	if err != nil {
-		adminPool.Close()
-		t.Fatalf("parse pool config: %v", err)
-	}
-	if cfg.ConnConfig.RuntimeParams == nil {
-		cfg.ConnConfig.RuntimeParams = map[string]string{}
-	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schemaName
-
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		adminPool.Close()
-		t.Fatalf("open schema pool: %v", err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = adminPool.Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA IF EXISTS %s CASCADE`, quotedSchema))
-		adminPool.Close()
-	})
-
-	return pool
+	return dbtest.SetupSchemaPool(t, ctx, dbURL, "replay")
 }
 
 func testDatabaseURL(t *testing.T) string {
 	t.Helper()
-
-	candidates := []string{
-		os.Getenv("TEST_DATABASE_URL"),
-		os.Getenv("DATABASE_URL"),
-	}
-	for _, candidate := range candidates {
-		if strings.TrimSpace(candidate) == "" {
-			continue
-		}
-		return candidate
-	}
-
-	t.Skip("set TEST_DATABASE_URL or DATABASE_URL to run replay integration tests")
-	return ""
+	return dbtest.DatabaseURL(t, "replay")
 }

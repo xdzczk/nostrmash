@@ -1,6 +1,18 @@
 # Development
 
-## Local Setup
+This page is the contributor workflow reference for NostrMash. Use the top-level [README](../README.md) for first boot; use this document for day-to-day local work, tests, migrations, replay, and safe projection changes.
+
+## On This Page
+
+- [Fast Path](#fast-path)
+- [Common Loops](#common-loops)
+- [Migrations](#migrations)
+- [Running Tests](#running-tests)
+- [Adding a New Projection Safely](#adding-a-new-projection-safely)
+- [Codebase Conventions](#codebase-conventions)
+- [How Not To Break The Architecture](#how-not-to-break-the-architecture)
+
+## Fast Path
 
 Prerequisites:
 
@@ -28,12 +40,12 @@ go run ./cmd/worker
 
 Migrations are embedded and auto-run on startup, so you do not need a separate migration command for normal local work.
 
-## Main Commands
+## Common Loops
 
-Run tests:
+Run the same quality gate as CI:
 
 ```bash
-go test ./...
+make ci
 ```
 
 Run one service directly:
@@ -86,13 +98,50 @@ The repository already has focused unit and integration-style tests around:
 Start with:
 
 ```bash
-go test ./...
+make test
 ```
+
+Note on integration coverage:
+
+- Several integration tests require Postgres and will skip when neither `TEST_DATABASE_URL` nor `DATABASE_URL` is set.
+- CI sets `TEST_DATABASE_URL` so DB-backed integration tests run on every push/PR.
+- For local parity with CI, run `docker compose up -d postgres` and export `TEST_DATABASE_URL` before testing.
 
 When changing derivation behavior, also run the most relevant targeted packages:
 
 ```bash
 go test ./internal/derivation ./internal/replay ./internal/store ./internal/api ./internal/api_primal
+```
+
+Run static analysis locally:
+
+```bash
+make lint
+```
+
+Run race checks for concurrency-sensitive packages:
+
+```bash
+make test-race
+```
+
+Generate a coverage profile and summary:
+
+```bash
+make cover
+```
+
+Verify module integrity and known vulnerabilities:
+
+```bash
+make mod-verify
+make vulncheck
+```
+
+Optionally verify local build parity with CI:
+
+```bash
+make build
 ```
 
 ## Adding a New Projection Safely
@@ -133,3 +182,16 @@ Good projection behavior in this repo means:
 - Do not edit old migrations after they have been applied anywhere.
 
 If a change makes rebuilds harder, it is probably pushing logic into the wrong layer.
+
+Automated boundary checks:
+
+- Import boundaries are enforced by [`internal/archtest/boundaries_test.go`](../internal/archtest/boundaries_test.go).
+- Keep new package dependencies aligned with that test and the layering model in [`architecture.md`](architecture.md).
+
+## Related Docs
+
+- [../README.md](../README.md)
+- [docs/README.md](README.md)
+- [architecture.md](architecture.md)
+- [operations.md](operations.md)
+- [api.md](api.md)

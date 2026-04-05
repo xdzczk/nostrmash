@@ -1,0 +1,11 @@
+{
+  "status": 200,
+  "body": {
+    "event": {
+      "id": "evt_1",
+      "kind": 1,
+      "pubkey": "pubkey_1",
+      "content": "hello primal"
+    }
+  }
+}

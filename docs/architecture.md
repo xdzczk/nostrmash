@@ -1,5 +1,17 @@
 # Architecture
 
+NostrMash separates durable ingest truth from rebuildable read models. Read this page first if you need the system shape, service boundaries, or the reasoning behind the Layer 1 / 2 / 3 model.
+
+## On This Page
+
+- [Purpose](#purpose)
+- [Service Boundaries](#service-boundaries)
+- [Data Flow](#data-flow)
+- [Layer Model](#layer-model)
+- [Versioned Derivations and Rebuilds](#versioned-derivations-and-rebuilds)
+- [Why Postgres Is Primary](#why-postgres-is-primary)
+- [Intentionally Deferred](#intentionally-deferred)
+
 ## Purpose
 
 NostrMash turns relay traffic into a durable, queryable system without collapsing raw ingest and product-facing read models into the same thing. It stores canonical event truth first, then derives higher-level state asynchronously.
@@ -108,3 +120,11 @@ A few limits are explicit in the current code:
 - only the `default_v1` relay filter group is implemented
 - compatibility support is intentionally narrow
 - trust/ranking layers are future work, not hidden present features
+
+## Related Docs
+
+- [README.md](../README.md)
+- [docs/README.md](README.md)
+- [development.md](development.md)
+- [operations.md](operations.md)
+- [api.md](api.md)

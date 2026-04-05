@@ -185,6 +185,11 @@ func main() {
 
 	<-ctx.Done()
 	if checkpointTracker != nil {
+		for _, relayURL := range cfg.Relay.URLs {
+			if err := checkpointTracker.SetRelayStatus(context.Background(), relayURL, relay.StateDisconnected, ""); err != nil {
+				log.Warn("live_checkpoint_disconnect_shutdown", "relay_url", relayURL, "error", err)
+			}
+		}
 		if err := checkpointTracker.FlushAll(context.Background()); err != nil {
 			log.Warn("live_checkpoint_flush_shutdown", "error", err)
 		}

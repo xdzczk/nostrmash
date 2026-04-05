@@ -122,12 +122,24 @@ func (t *CheckpointTracker) SetRelayStatus(
 
 	t.mu.Lock()
 	checkpointState := t.ensureRelayStateLocked(relayURL)
-	checkpointState.checkpoint.Status = string(state)
+	prevStatus := checkpointState.checkpoint.Status
+	checkpointState.checkpoint.Status = normalizeRelayState(state)
+	if state == relay.StateConnecting {
+		checkpointState.checkpoint.ReconnectCount++
+	}
+	if state == relay.StateHealthy {
+		checkpointState.checkpoint.LastConnectedAt = ptrTime(now)
+	}
+	if becameDisconnected(prevStatus, checkpointState.checkpoint.Status) || state == relay.StateDisconnected {
+		checkpointState.checkpoint.LastDisconnectedAt = ptrTime(now)
+	}
 	lastError = strings.TrimSpace(lastError)
 	if lastError == "" {
 		checkpointState.checkpoint.LastError = nil
+		checkpointState.checkpoint.LastErrorAt = nil
 	} else {
 		checkpointState.checkpoint.LastError = ptrString(lastError)
+		checkpointState.checkpoint.LastErrorAt = ptrTime(now)
 	}
 	checkpointState.checkpoint.UpdatedAt = now
 	checkpointState.dirty = true
@@ -223,4 +235,32 @@ func ptrInt64(v int64) *int64 {
 func ptrTime(v time.Time) *time.Time {
 	c := v
 	return &c
+}
+
+func normalizeRelayState(state relay.State) string {
+	switch state {
+	case relay.StateHealthy, relay.StateLagging:
+		return model.CheckpointHealthy
+	case relay.StateConnecting:
+		return model.CheckpointConnecting
+	case relay.StateBackingOff:
+		return model.CheckpointBackingOff
+	case relay.StateErrored:
+		return model.CheckpointErrored
+	case relay.StateDisconnected:
+		return model.CheckpointDisconnected
+	case relay.StateDisabled:
+		return model.CheckpointDisconnected
+	default:
+		return string(state)
+	}
+}
+
+func becameDisconnected(prev string, next string) bool {
+	prev = strings.TrimSpace(prev)
+	next = strings.TrimSpace(next)
+	if prev != model.CheckpointHealthy {
+		return false
+	}
+	return next == model.CheckpointErrored || next == model.CheckpointBackingOff || next == model.CheckpointDisconnected
 }

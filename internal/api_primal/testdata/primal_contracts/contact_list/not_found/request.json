@@ -1,0 +1,5 @@
+{
+  "method": "GET",
+  "path": "/primal/v1/contact-lists/pubkey_missing",
+  "request_id": "req-contact-not-found"
+}

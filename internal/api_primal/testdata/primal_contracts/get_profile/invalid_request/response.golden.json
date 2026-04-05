@@ -1,0 +1,10 @@
+{
+  "status": 400,
+  "body": {
+    "error": {
+      "code": "invalid_request",
+      "message": "pubkey is required",
+      "request_id": "req-profile-400"
+    }
+  }
+}

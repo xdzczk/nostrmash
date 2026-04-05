@@ -1,0 +1,11 @@
+{
+  "status": 200,
+  "body": {
+    "pubkey": "pubkey_abc",
+    "event_id": "contact_evt_1",
+    "created_at": 1700000100,
+    "contacts": ["pubkey_x", "pubkey_y"],
+    "consistency": "eventual",
+    "projection_v": 1
+  }
+}

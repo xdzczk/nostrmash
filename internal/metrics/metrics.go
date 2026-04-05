@@ -47,6 +47,34 @@ var (
 		},
 		[]string{"job_type", "outcome"},
 	)
+	primalWSConnections = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_primal_ws_connections",
+			Help: "Current number of active Primal compatibility websocket connections.",
+		},
+	)
+	primalWSFramesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_primal_ws_frames_total",
+			Help: "Total number of inbound websocket frames by type.",
+		},
+		[]string{"frame_type"},
+	)
+	primalWSRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_primal_ws_requests_total",
+			Help: "Total number of processed Primal websocket requests by kind and outcome.",
+		},
+		[]string{"request_kind", "outcome"},
+	)
+	primalWSRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "nostrmash_primal_ws_request_duration_seconds",
+			Help:    "Latency of Primal websocket request handling by request kind.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"request_kind"},
+	)
 )
 
 func Handler() http.Handler {
@@ -71,4 +99,21 @@ func SetIngestSnapshot(valid, duplicate, invalid uint64) {
 
 func IncWorkerJob(jobType, outcome string) {
 	workerJobsTotal.WithLabelValues(jobType, outcome).Inc()
+}
+
+func IncPrimalWSConnection() {
+	primalWSConnections.Inc()
+}
+
+func DecPrimalWSConnection() {
+	primalWSConnections.Dec()
+}
+
+func IncPrimalWSFrame(frameType string) {
+	primalWSFramesTotal.WithLabelValues(frameType).Inc()
+}
+
+func ObservePrimalWSRequest(requestKind, outcome string, d time.Duration) {
+	primalWSRequestsTotal.WithLabelValues(requestKind, outcome).Inc()
+	primalWSRequestDuration.WithLabelValues(requestKind).Observe(d.Seconds())
 }

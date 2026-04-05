@@ -214,26 +214,35 @@ type adminRelayState struct {
 }
 
 type adminRelayCheckpoint struct {
-	Mode        string     `json:"mode"`
-	FilterGroup string     `json:"filter_group"`
-	Status      string     `json:"status"`
-	Since       *int64     `json:"since,omitempty"`
-	Until       *int64     `json:"until,omitempty"`
-	Cursor      *string    `json:"cursor,omitempty"`
-	EOSESeenAt  *time.Time `json:"eose_seen_at,omitempty"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	Mode               string     `json:"mode"`
+	FilterGroup        string     `json:"filter_group"`
+	State              string     `json:"state"`
+	Status             string     `json:"status"`
+	Since              *int64     `json:"since,omitempty"`
+	Until              *int64     `json:"until,omitempty"`
+	Cursor             *string    `json:"cursor,omitempty"`
+	LastConnectedAt    *time.Time `json:"last_connected_at,omitempty"`
+	LastDisconnectedAt *time.Time `json:"last_disconnected_at,omitempty"`
+	LastProgressAt     *time.Time `json:"last_progress_at,omitempty"`
+	LastError          *string    `json:"last_error,omitempty"`
+	LastErrorAt        *time.Time `json:"last_error_at,omitempty"`
+	EOSESeenAt         *time.Time `json:"eose_seen_at,omitempty"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 func (s *adminService) GetRelays(ctx context.Context) ([]adminRelayState, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT relay_url, mode, filter_group, "since", "until", cursor, eose_seen_at, status, updated_at
+		SELECT relay_url, mode, filter_group, "since", "until", cursor, last_connected_at, last_disconnected_at,
+		       last_progress_at, eose_seen_at, status, last_error, last_error_at, updated_at
 		FROM ingest_checkpoints
 		ORDER BY relay_url ASC, mode ASC, filter_group ASC
 	`)
 	if err != nil {
 		if strings.Contains(err.Error(), `column "since" does not exist`) {
 			rows, err = s.pool.Query(ctx, `
-				SELECT relay_url, mode, filter_group, since_ts, until_ts, cursor_val, eose_seen_at, status, updated_at
+				SELECT relay_url, mode, filter_group, since_ts, until_ts, cursor_val, NULL::timestamptz AS last_connected_at,
+				       NULL::timestamptz AS last_disconnected_at, NULL::timestamptz AS last_progress_at, eose_seen_at,
+				       status, NULL::text AS last_error, NULL::timestamptz AS last_error_at, updated_at
 				FROM ingest_checkpoints
 				ORDER BY relay_url ASC, mode ASC, filter_group ASC
 			`)
@@ -267,8 +276,13 @@ func (s *adminService) GetRelays(ctx context.Context) ([]adminRelayState, error)
 			&checkpoint.Since,
 			&checkpoint.Until,
 			&checkpoint.Cursor,
+			&checkpoint.LastConnectedAt,
+			&checkpoint.LastDisconnectedAt,
+			&checkpoint.LastProgressAt,
 			&checkpoint.EOSESeenAt,
 			&checkpoint.Status,
+			&checkpoint.LastError,
+			&checkpoint.LastErrorAt,
 			&checkpoint.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan relay checkpoint: %w", err)
@@ -283,14 +297,20 @@ func (s *adminService) GetRelays(ctx context.Context) ([]adminRelayState, error)
 			relayByURL[relayURL] = entry
 		}
 		entry.Checkpoints = append(entry.Checkpoints, adminRelayCheckpoint{
-			Mode:        checkpoint.Mode,
-			FilterGroup: checkpoint.FilterGroup,
-			Status:      checkpoint.Status,
-			Since:       checkpoint.Since,
-			Until:       checkpoint.Until,
-			Cursor:      checkpoint.Cursor,
-			EOSESeenAt:  checkpoint.EOSESeenAt,
-			UpdatedAt:   checkpoint.UpdatedAt.UTC(),
+			Mode:               checkpoint.Mode,
+			FilterGroup:        checkpoint.FilterGroup,
+			State:              checkpoint.Status,
+			Status:             checkpoint.Status,
+			Since:              checkpoint.Since,
+			Until:              checkpoint.Until,
+			Cursor:             checkpoint.Cursor,
+			LastConnectedAt:    checkpoint.LastConnectedAt,
+			LastDisconnectedAt: checkpoint.LastDisconnectedAt,
+			LastProgressAt:     checkpoint.LastProgressAt,
+			LastError:          checkpoint.LastError,
+			LastErrorAt:        checkpoint.LastErrorAt,
+			EOSESeenAt:         checkpoint.EOSESeenAt,
+			UpdatedAt:          checkpoint.UpdatedAt.UTC(),
 		})
 		if entry.LatestCheckpointAt == nil || checkpoint.UpdatedAt.After(*entry.LatestCheckpointAt) {
 			latest := checkpoint.UpdatedAt.UTC()
@@ -437,19 +457,19 @@ func (s *adminService) GetJobs(ctx context.Context, limit int) (adminJobsRespons
 }
 
 type adminInvalidEventsResponse struct {
-	Total       int64                 `json:"total"`
-	Last24Hours int64                 `json:"last_24h"`
-	ByErrorCode map[string]int64      `json:"by_error_code"`
-	Items       []adminInvalidEvent   `json:"items"`
+	Total       int64               `json:"total"`
+	Last24Hours int64               `json:"last_24h"`
+	ByErrorCode map[string]int64    `json:"by_error_code"`
+	Items       []adminInvalidEvent `json:"items"`
 }
 
 type adminInvalidEvent struct {
-	ID           int64      `json:"id"`
-	SourceRelay  *string    `json:"source_relay,omitempty"`
-	ErrorCode    string     `json:"error_code"`
-	ErrorMessage string     `json:"error_message"`
+	ID           int64            `json:"id"`
+	SourceRelay  *string          `json:"source_relay,omitempty"`
+	ErrorCode    string           `json:"error_code"`
+	ErrorMessage string           `json:"error_message"`
 	RawPayload   *json.RawMessage `json:"raw_payload,omitempty"`
-	SeenAt       time.Time  `json:"seen_at"`
+	SeenAt       time.Time        `json:"seen_at"`
 }
 
 func (s *adminService) GetInvalidEvents(ctx context.Context, limit int) (adminInvalidEventsResponse, error) {
@@ -529,16 +549,16 @@ func (s *adminService) GetInvalidEvents(ctx context.Context, limit int) (adminIn
 }
 
 type adminRebuildRunResponse struct {
-	ID             int64                  `json:"id"`
-	DerivationName string                 `json:"derivation_name"`
-	TargetVersion  int                    `json:"target_version"`
+	ID             int64                             `json:"id"`
+	DerivationName string                            `json:"derivation_name"`
+	TargetVersion  int                               `json:"target_version"`
 	Scope          derivation.ProjectionRebuildScope `json:"scope"`
-	Status         string                 `json:"status"`
-	JobID          *int64                 `json:"job_id,omitempty"`
-	Attempts       int                    `json:"attempts"`
-	StartedAt      *time.Time             `json:"started_at,omitempty"`
-	FinishedAt     *time.Time             `json:"finished_at,omitempty"`
-	LastError      *string                `json:"last_error,omitempty"`
+	Status         string                            `json:"status"`
+	JobID          *int64                            `json:"job_id,omitempty"`
+	Attempts       int                               `json:"attempts"`
+	StartedAt      *time.Time                        `json:"started_at,omitempty"`
+	FinishedAt     *time.Time                        `json:"finished_at,omitempty"`
+	LastError      *string                           `json:"last_error,omitempty"`
 }
 
 func (s *adminService) GetRebuilds(ctx context.Context, limit int) ([]adminRebuildRunResponse, error) {
@@ -594,9 +614,9 @@ type adminStorageResponse struct {
 }
 
 type adminStorageTableDetails struct {
-	TableName  string `json:"table_name"`
-	RowCount   int64  `json:"row_count"`
-	StorageB   int64  `json:"storage_bytes"`
+	TableName string `json:"table_name"`
+	RowCount  int64  `json:"row_count"`
+	StorageB  int64  `json:"storage_bytes"`
 }
 
 var trackedStorageTables = []string{
@@ -661,11 +681,11 @@ type adminRuntimeDetails struct {
 }
 
 type adminDatabaseStatus struct {
-	Reachable    bool   `json:"reachable"`
-	PingMS       int64  `json:"ping_ms"`
-	MaxConns     int32  `json:"max_conns"`
-	TotalConns   int32  `json:"total_conns"`
-	IdleConns    int32  `json:"idle_conns"`
+	Reachable     bool  `json:"reachable"`
+	PingMS        int64 `json:"ping_ms"`
+	MaxConns      int32 `json:"max_conns"`
+	TotalConns    int32 `json:"total_conns"`
+	IdleConns     int32 `json:"idle_conns"`
 	AcquiredConns int32 `json:"acquired_conns"`
 }
 
@@ -699,13 +719,13 @@ func (s *adminService) GetSystem(ctx context.Context) (adminSystemResponse, erro
 }
 
 type adminDerivationVersionResponse struct {
-	DerivationName string    `json:"derivation_name"`
-	ActiveVersion  int       `json:"active_version"`
-	TargetVersion  int       `json:"target_version"`
-	CompiledVersion int      `json:"compiled_version"`
-	Description    string    `json:"description"`
-	Status         string    `json:"status"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	DerivationName  string    `json:"derivation_name"`
+	ActiveVersion   int       `json:"active_version"`
+	TargetVersion   int       `json:"target_version"`
+	CompiledVersion int       `json:"compiled_version"`
+	Description     string    `json:"description"`
+	Status          string    `json:"status"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 func (s *adminService) GetDerivationVersions(ctx context.Context) ([]adminDerivationVersionResponse, error) {

@@ -1,0 +1,8 @@
+{
+  "method": "POST",
+  "path": "/primal/v1/events/batch",
+  "body": {
+    "event_ids": ["evt_store_err"]
+  },
+  "request_id": "req-batch-500"
+}

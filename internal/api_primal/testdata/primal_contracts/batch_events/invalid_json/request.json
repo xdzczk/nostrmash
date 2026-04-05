@@ -1,0 +1,6 @@
+{
+  "method": "POST",
+  "path": "/primal/v1/events/batch",
+  "body_text": "{",
+  "request_id": "req-batch-invalid-json"
+}

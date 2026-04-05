@@ -1,0 +1,5 @@
+{
+  "method": "GET",
+  "path": "/primal/v1/events/evt_store_err",
+  "request_id": "req-event-500"
+}

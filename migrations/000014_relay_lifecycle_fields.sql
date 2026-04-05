@@ -1,0 +1,5 @@
+ALTER TABLE ingest_checkpoints
+    ADD COLUMN IF NOT EXISTS last_connected_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS last_disconnected_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS last_error_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS reconnect_count INTEGER NOT NULL DEFAULT 0;

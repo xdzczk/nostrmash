@@ -1,8 +1,8 @@
 package api
 
 import (
-	"crypto/subtle"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"log/slog"
 	"net/http"

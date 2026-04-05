@@ -27,6 +27,18 @@ type Config struct {
 	MetricsAddr string
 	// AdminBearerToken protects /admin endpoints with Bearer auth.
 	AdminBearerToken string
+	// PrimalWSMaxSubscriptions caps active REQ subscriptions per connection.
+	PrimalWSMaxSubscriptions int
+	// PrimalWSRequestTimeout bounds per-REQ processing time.
+	PrimalWSRequestTimeout time.Duration
+	// PrimalWSMaxMessageBytes caps inbound WS message payload size.
+	PrimalWSMaxMessageBytes int64
+	// PrimalWSMaxReqPerMinute caps REQ frames per connection per minute.
+	PrimalWSMaxReqPerMinute int
+	// PrimalWSAllowedOrigins is an exact origin allowlist (scheme://host[:port]).
+	PrimalWSAllowedOrigins []string
+	// PrimalWSAllowAnyOrigin disables origin enforcement when true.
+	PrimalWSAllowAnyOrigin bool
 
 	Relay    RelayConfig
 	Backfill BackfillConfig
@@ -113,6 +125,12 @@ func Load(serviceName string) (Config, error) {
 			200,
 		),
 		AdminBearerToken: strings.TrimSpace(os.Getenv("ADMIN_BEARER_TOKEN")),
+		PrimalWSMaxSubscriptions: getEnvInt("PRIMAL_WS_MAX_SUBSCRIPTIONS", 200),
+		PrimalWSRequestTimeout:   getEnvDuration("PRIMAL_WS_REQUEST_TIMEOUT", 10*time.Second),
+		PrimalWSMaxMessageBytes:  getEnvInt64("PRIMAL_WS_MAX_MESSAGE_BYTES", 1<<20),
+		PrimalWSMaxReqPerMinute:  getEnvInt("PRIMAL_WS_MAX_REQ_PER_MINUTE", 240),
+		PrimalWSAllowedOrigins:   parseCSVEnv("PRIMAL_WS_ALLOWED_ORIGINS"),
+		PrimalWSAllowAnyOrigin:   getEnvBool("PRIMAL_WS_ALLOW_ANY_ORIGIN", false),
 		Relay: RelayConfig{
 			URLs:           parseCSVEnv("INGESTOR_RELAY_URLS"),
 			Allowlist:      parseCSVEnv("INGESTOR_RELAY_ALLOWLIST"),
@@ -200,6 +218,18 @@ func getEnvInt(key string, def int) int {
 		return def
 	}
 	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		return def
+	}
+	return v
+}
+
+func getEnvInt64(key string, def int64) int64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || v <= 0 {
 		return def
 	}

@@ -1,0 +1,5 @@
+{
+  "method": "GET",
+  "path": "/primal/v1/profiles/pubkey_store_err",
+  "request_id": "req-profile-500"
+}

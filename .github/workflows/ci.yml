@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nostrmash
+          POSTGRES_PASSWORD: nostrmash
+          POSTGRES_DB: nostrmash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nostrmash -d nostrmash"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      GO_VERSION: "1.23"
+      TEST_DATABASE_URL: postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -U nostrmash -d nostrmash && exit 0
+            sleep 1
+          done
+          echo "Postgres did not become healthy in time"
+          exit 1
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v1.64.8
+          args: --config .golangci.yml
+
+      - name: Verify module dependencies
+        run: go mod verify
+
+      - name: Run vulnerability check
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+      - name: Run tests with coverage profile
+        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Summarize coverage
+        run: go tool cover -func=coverage.out | tee coverage-summary.txt
+
+      - name: Run race tests for concurrency-critical packages
+        run: go test -race ./internal/jobs ./internal/store ./internal/ingestor/...
+
+      - name: Build binaries
+        run: go build ./cmd/api ./cmd/ingestor ./cmd/worker
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage-summary.txt
+          retention-days: 30

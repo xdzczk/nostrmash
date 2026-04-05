@@ -1,0 +1,8 @@
+{
+  "method": "POST",
+  "path": "/primal/v1/events/batch",
+  "body": {
+    "event_ids": []
+  },
+  "request_id": "req-batch-empty"
+}

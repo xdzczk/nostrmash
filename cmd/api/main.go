@@ -50,6 +50,16 @@ func main() {
 	queryStore := store.NewPostgresStore(pool)
 	handlers := api.NewHandlers(queryStore, cfg.APIMaxBatchSize)
 	primalHandlers := api_primal.NewHandlers(queryStore, cfg.APIMaxBatchSize)
+	wsLog := logging.New("api_primal_ws")
+	primalWS := api_primal.NewWSGateway(queryStore, api_primal.WSGatewayOptions{
+		MaxSubscriptions: cfg.PrimalWSMaxSubscriptions,
+		RequestTimeout:   cfg.PrimalWSRequestTimeout,
+		MaxMessageBytes:  cfg.PrimalWSMaxMessageBytes,
+		MaxReqPerMinute:  cfg.PrimalWSMaxReqPerMinute,
+		AllowedOrigins:   cfg.PrimalWSAllowedOrigins,
+		AllowAnyOrigin:   cfg.PrimalWSAllowAnyOrigin,
+		Logger:           wsLog,
+	})
 	adminService := api.NewAdminService(pool, derivation.NewHandlers(pool), api.AdminServiceOptions{
 		ServiceName:      cfg.ServiceName,
 		Environment:      cfg.Environment,
@@ -76,9 +86,26 @@ func main() {
 	mux.HandleFunc("GET /api/v1/events/{id}/ancestors", handlers.GetEventAncestors)
 	mux.HandleFunc("GET /api/v1/threads/{eventId}", handlers.GetThread)
 	mux.HandleFunc("GET /api/v1/relays/health", handlers.GetRelaysHealth)
+	mux.HandleFunc("GET /api/v1/contact-lists/{pubkey}", handlers.GetContactList)
+	mux.HandleFunc("GET /api/v1/relay-lists/{pubkey}", handlers.GetRelayList)
+	mux.HandleFunc("GET /api/v1/search", handlers.Search)
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/bookmarks", handlers.GetBookmarks)
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/highlights", handlers.GetHighlights)
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/long-form", handlers.GetLongForm)
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/zaps", handlers.GetZaps)
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/dms", handlers.GetDirectMessages)
+	mux.HandleFunc("GET /api/v1/users/{pubkey}/followers", handlers.GetFollowers)
 	mux.HandleFunc("GET /primal/v1/events/{id}", primalHandlers.GetEventByID)
 	mux.HandleFunc("POST /primal/v1/events/batch", primalHandlers.BatchGetEvents)
 	mux.HandleFunc("GET /primal/v1/profiles/{pubkey}", primalHandlers.GetProfileByPubkey)
+	mux.HandleFunc("POST /primal/v1/user_infos", primalHandlers.BatchGetUserInfos)
+	mux.HandleFunc("GET /primal/v1/threads/{eventId}", primalHandlers.GetThreadView)
+	mux.HandleFunc("GET /primal/v1/authors/{pubkey}/events", primalHandlers.GetAuthorEvents)
+	mux.HandleFunc("GET /primal/v1/authors/{pubkey}/replies", primalHandlers.GetAuthorReplies)
+	mux.HandleFunc("GET /primal/v1/events/{id}/actions", primalHandlers.GetEventActions)
+	mux.HandleFunc("GET /primal/v1/contact-lists/{pubkey}", primalHandlers.GetContactList)
+	mux.HandleFunc("GET /primal/v1/relay-lists/{pubkey}", primalHandlers.GetRelayList)
+	mux.HandleFunc("GET /primal/ws", primalWS.Handle)
 
 	adminMux := http.NewServeMux()
 	adminMux.HandleFunc("GET /admin/v1/relays", adminHandlers.GetRelays)

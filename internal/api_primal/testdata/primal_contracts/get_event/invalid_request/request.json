@@ -1,0 +1,5 @@
+{
+  "method": "GET",
+  "path": "/primal/v1/events/%20",
+  "request_id": "req-event-400"
+}

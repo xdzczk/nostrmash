@@ -27,6 +27,12 @@ type fakeEventReader struct {
 	getEventRepliesFn  func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
 	getEventAncestors  func(context.Context, string, int) ([]json.RawMessage, []string, error)
 	listRelayHealthFn  func(context.Context) ([]model.IngestCheckpoint, error)
+	getContactListFn   func(context.Context, string) (store.ContactListProjection, error)
+	getRelayListFn     func(context.Context, string) (store.RelayListProjection, error)
+	searchEventsFn     func(context.Context, string, int) ([]json.RawMessage, error)
+	searchProfilesFn   func(context.Context, string, int) ([]store.ProfileProjection, error)
+	getByKindPubkeyFn  func(context.Context, int, string, int) ([]json.RawMessage, error)
+	getRefsPubkeyFn    func(context.Context, string, int) ([]json.RawMessage, error)
 }
 
 func (f fakeEventReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -116,6 +122,48 @@ func (f fakeEventReader) ListRelayHealth(ctx context.Context) ([]model.IngestChe
 		return nil, errors.New("not implemented")
 	}
 	return f.listRelayHealthFn(ctx)
+}
+
+func (f fakeEventReader) GetContactListByPubkey(ctx context.Context, pubkey string) (store.ContactListProjection, error) {
+	if f.getContactListFn == nil {
+		return store.ContactListProjection{}, errors.New("not implemented")
+	}
+	return f.getContactListFn(ctx, pubkey)
+}
+
+func (f fakeEventReader) GetRelayListByPubkey(ctx context.Context, pubkey string) (store.RelayListProjection, error) {
+	if f.getRelayListFn == nil {
+		return store.RelayListProjection{}, errors.New("not implemented")
+	}
+	return f.getRelayListFn(ctx, pubkey)
+}
+
+func (f fakeEventReader) SearchEventsByContent(ctx context.Context, query string, limit int) ([]json.RawMessage, error) {
+	if f.searchEventsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.searchEventsFn(ctx, query, limit)
+}
+
+func (f fakeEventReader) SearchProfiles(ctx context.Context, query string, limit int) ([]store.ProfileProjection, error) {
+	if f.searchProfilesFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.searchProfilesFn(ctx, query, limit)
+}
+
+func (f fakeEventReader) GetRecentEventsByKindAndPubkey(ctx context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error) {
+	if f.getByKindPubkeyFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getByKindPubkeyFn(ctx, kind, pubkey, limit)
+}
+
+func (f fakeEventReader) GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+	if f.getRefsPubkeyFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getRefsPubkeyFn(ctx, targetPubkey, limit)
 }
 
 func TestBatchGetEvents_SuccessWithExplicitMissingIDs(t *testing.T) {

@@ -1,0 +1,5 @@
+{
+  "method": "GET",
+  "path": "/primal/v1/profiles/%20",
+  "request_id": "req-profile-400"
+}

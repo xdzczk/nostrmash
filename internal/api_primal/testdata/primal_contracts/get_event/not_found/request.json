@@ -1,0 +1,5 @@
+{
+  "method": "GET",
+  "path": "/primal/v1/events/evt_missing",
+  "request_id": "req-event-404"
+}

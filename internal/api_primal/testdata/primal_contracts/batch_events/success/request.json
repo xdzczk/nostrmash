@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/primal/v1/events/batch",
+  "body": {
+    "event_ids": ["evt_1", "evt_2", "evt_3"]
+  }
+}

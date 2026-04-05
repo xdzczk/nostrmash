@@ -148,11 +148,11 @@ func TestAdminDerivationVersions_ReturnsProjectionVersionStatus(t *testing.T) {
 		getDerivationVersionsFn: func(_ context.Context) ([]adminDerivationVersionResponse, error) {
 			return []adminDerivationVersionResponse{
 				{
-					DerivationName: "reply_counts",
-					ActiveVersion:  1,
-					TargetVersion:  2,
+					DerivationName:  "reply_counts",
+					ActiveVersion:   1,
+					TargetVersion:   2,
 					CompiledVersion: 2,
-					Status:         "rebuild_pending",
+					Status:          "rebuild_pending",
 				},
 			}, nil
 		},
@@ -178,6 +178,63 @@ func TestAdminDerivationVersions_ReturnsProjectionVersionStatus(t *testing.T) {
 	}
 }
 
+func TestAdminRelays_IncludesDurableLifecycleFields(t *testing.T) {
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	connected := now.Add(-10 * time.Minute)
+	disconnected := now.Add(-5 * time.Minute)
+	progress := now.Add(-2 * time.Minute)
+	lastErr := "connection_lost"
+	errAt := now.Add(-4 * time.Minute)
+
+	mux := newAdminTestMux("token", fakeAdminService{
+		getRelaysFn: func(_ context.Context) ([]adminRelayState, error) {
+			return []adminRelayState{
+				{
+					RelayURL: "wss://relay.one",
+					Checkpoints: []adminRelayCheckpoint{
+						{
+							Mode:               "live",
+							FilterGroup:        "default_v1",
+							State:              "errored",
+							Status:             "errored",
+							Since:              ptrInt64(1700000100),
+							Cursor:             ptrString("1700000100"),
+							LastConnectedAt:    &connected,
+							LastDisconnectedAt: &disconnected,
+							LastProgressAt:     &progress,
+							LastError:          &lastErr,
+							LastErrorAt:        &errAt,
+							UpdatedAt:          now,
+						},
+					},
+				},
+			}, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/v1/relays", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, key := range []string{
+		`"state":"errored"`,
+		`"last_connected_at"`,
+		`"last_disconnected_at"`,
+		`"last_progress_at"`,
+		`"last_error":"connection_lost"`,
+		`"last_error_at"`,
+	} {
+		if !strings.Contains(body, key) {
+			t.Fatalf("expected response to include %s; body=%s", key, body)
+		}
+	}
+}
+
 func newAdminTestMux(token string, service AdminService) http.Handler {
 	handlers := NewAdminHandlers(service)
 	adminMux := http.NewServeMux()
@@ -190,4 +247,14 @@ func newAdminTestMux(token string, service AdminService) http.Handler {
 	adminMux.HandleFunc("GET /admin/v1/system", handlers.GetSystem)
 	adminMux.HandleFunc("GET /admin/v1/derivation-versions", handlers.GetDerivationVersions)
 	return WithRequestID(RequireBearerToken(token, adminMux))
+}
+
+func ptrString(v string) *string {
+	c := v
+	return &c
+}
+
+func ptrInt64(v int64) *int64 {
+	c := v
+	return &c
 }

@@ -1,0 +1,10 @@
+{
+  "status": 400,
+  "body": {
+    "error": {
+      "code": "batch_limit_exceeded",
+      "message": "requested ids exceed maximum batch size",
+      "request_id": "req-batch-limit"
+    }
+  }
+}

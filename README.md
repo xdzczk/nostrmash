@@ -1,8 +1,24 @@
 # NostrMash
 
-NostrMash is a Go-based, Docker-native Nostr ingestion and indexing platform. It connects to Nostr relays, validates and durably stores canonical raw events in Postgres, then builds derived read models asynchronously for profiles, replies, threads, counts, and native read APIs.
+Durable Nostr ingest and rebuildable read models in Go and Postgres.
+
+![Go 1.23+](https://img.shields.io/badge/go-1.23%2B-00ADD8?logo=go&logoColor=white)
+![Postgres Primary](https://img.shields.io/badge/postgres-primary-4169E1?logo=postgresql&logoColor=white)
+![Docker Native](https://img.shields.io/badge/docker-native-2496ED?logo=docker&logoColor=white)
+
+NostrMash is a Go-based, Docker-native Nostr ingestion and indexing platform. It connects to relays, validates and durably stores canonical raw events in Postgres, then builds derived read models asynchronously for profiles, replies, threads, counts, and native read APIs.
 
 It exists to keep one boundary uncompromised: raw Nostr truth should be durable, inspectable, and replayable; product-facing query state should be rebuildable, versioned, and operationally boring.
+
+## At A Glance
+
+| Area | Value |
+| --- | --- |
+| Runtime | Go `1.23+` |
+| Primary datastore | Postgres |
+| Services | `api`, `ingestor`, `worker` |
+| Default API address | `http://localhost:8080` |
+| Ingest modes | `live`, optional `backfill`, deterministic `replay` |
 
 ## Why This Exists
 
@@ -22,9 +38,9 @@ NostrMash is built as four simple pieces:
 - `worker` drains the Postgres-backed job queue and materializes derived state
 - `postgres` is the source of truth for raw events, relay provenance, invalid payloads, checkpoints, job state, derivation metadata, and projections
 
-In steady state the flow is:
-
-`relay -> validation -> canonical storage -> jobs -> derived projections -> API`
+```text
+relay -> validation -> canonical storage -> jobs -> derived projections -> API
+```
 
 ## Design Principles
 
@@ -35,18 +51,13 @@ In steady state the flow is:
 
 ## Quick Start
 
-### Docker Compose
-
 Bring up the full stack:
 
 ```bash
 docker compose up --build
 ```
 
-The API will be available at `http://localhost:8080`.
-The ingestor is configured for live mode with default relay URLs in Compose, so it should begin consuming events shortly after startup.
-
-Start by checking:
+Sanity-check the stack:
 
 ```bash
 curl http://localhost:8080/health
@@ -54,68 +65,82 @@ curl http://localhost:8080/ready
 curl http://localhost:8080/metrics
 ```
 
-Then read:
-
-- `docs/openapi.yaml` for request and response contracts
-- `docs/architecture.md` for system boundaries and layering
-
 Runtime notes:
 
 - Compose starts `postgres`, `api`, `ingestor`, and `worker`
 - Migrations are embedded and run automatically on service startup
-- Compose sets default ingestor relay config (`INGESTOR_MODE=live`, `INGESTOR_FILTER_GROUP=default_v1`) and relay URLs for local/dev bootstrap
+- Compose configures the ingestor for `live` mode with `default_v1` filtering and default relay URLs for local bootstrap
 - Override relay env vars if needed, for example: `INGESTOR_RELAY_URLS=... INGESTOR_RELAY_ALLOWLIST=... docker compose up --build`
 - Admin routes require `ADMIN_BEARER_TOKEN`; without it, `/admin/*` returns `503 admin_unavailable`
 
-### Local Run
+For a local multi-terminal workflow and replay mode, go straight to [docs/development.md](docs/development.md).
 
-Start Postgres only:
+## Quality Checks
+
+Use the local quality wrapper (mirrors CI):
+
+```bash
+make ci
+```
+
+Run individual checks:
+
+```bash
+make lint
+make test
+make test-race
+make cover
+make build
+make mod-verify
+make vulncheck
+```
+
+Integration test note:
+
+- DB-backed integration tests require `TEST_DATABASE_URL` or `DATABASE_URL`.
+- For CI parity, prefer setting `TEST_DATABASE_URL` explicitly.
+- Example local setup:
 
 ```bash
 docker compose up -d postgres
+export TEST_DATABASE_URL=postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+make ci
 ```
 
-Load environment from `.env.example`:
+Coverage output:
 
 ```bash
-cp .env.example .env
-set -a
-source .env
-set +a
+make cover
+# writes coverage.out and prints package summary
 ```
 
-Run each service in its own terminal:
+## Documentation Map
 
-```bash
-go run ./cmd/api
-go run ./cmd/ingestor
-go run ./cmd/worker
-```
+| If you are... | Start here | Then read |
+| --- | --- | --- |
+| New to the system | [docs/architecture.md](docs/architecture.md) | [docs/api.md](docs/api.md) |
+| Building locally | [docs/development.md](docs/development.md) | [docs/architecture.md](docs/architecture.md) |
+| Operating the stack | [docs/operations.md](docs/operations.md) | [docs/api.md](docs/api.md) |
+| Integrating with the API | [docs/api.md](docs/api.md) | [docs/openapi.yaml](docs/openapi.yaml) |
 
-The ingestor defaults to live relay mode. For deterministic replay instead:
-
-```bash
-INGESTOR_MODE=replay go run ./cmd/ingestor
-```
-
-Replay runs the same validation and canonical ingest path, then drains jobs deterministically without connecting to live relays.
+There is also a docs index at [docs/README.md](docs/README.md).
 
 ## Repository Layout
 
 - `cmd/api`, `cmd/ingestor`, `cmd/worker`: service entrypoints
 - `internal/api`: native read API and admin handlers
-- `internal/api_primal`: isolated compatibility adapter for a minimal `/primal/v1` surface
+- `internal/api_primal`: isolated compatibility adapter and WebSocket gateway for phased `/primal` support
 - `internal/ingestor`: live relay handling, backfill runner, relay lifecycle management
 - `internal/nostr`: parse and validate Nostr events before storage
 - `internal/store`: Postgres access, migrations, checkpoints, canonical read/write paths
 - `internal/derivation`: job dispatch, projections, derivation versioning, rebuild orchestration
 - `internal/jobs`: Postgres-backed worker queue
 - `migrations`: embedded schema migrations
-- `docs/openapi.yaml`: request/response contract details
 
-## Read Next
+## Status And Scope
 
-- `docs/architecture.md`: service boundaries, data flow, layering, and rebuild model
-- `docs/development.md`: local setup, commands, migrations, and safe projection changes
-- `docs/operations.md`: health, checkpoints, jobs, rebuilds, and troubleshooting
-- `docs/api.md`: API surfaces, consistency model, pagination, and error shape
+- Postgres is the only primary datastore in this repository today
+- Compatibility support is currently minimal and intentional
+- Compatibility rollout is phased; see `docs/primal_compatibility_matrix.md` and `docs/compatibility_rollout.md`
+- Trust/ranking layers are future work, not hidden present features
+- Migrations are embedded and run on service startup

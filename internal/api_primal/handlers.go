@@ -6,18 +6,16 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/logging"
+	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 // EventReader is the narrow query surface required by the compatibility adapter.
-type EventReader interface {
-	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
-	GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
-	GetProfileByPubkey(ctx context.Context, pubkey string) (store.ProfileProjection, error)
-}
+type EventReader = query.Reader
 
 // Handlers translates Primal-compatible requests/responses at the boundary only.
 type Handlers struct {
@@ -147,6 +145,213 @@ func (h Handlers) GetProfileByPubkey(w http.ResponseWriter, r *http.Request) {
 		MetadataCreatedAt: profile.MetadataCreatedAt,
 		Profile:           profile.ProfileJSON,
 	})
+}
+
+type primalUserInfosRequest struct {
+	Pubkeys []string `json:"pubkeys"`
+}
+
+type primalUserInfosResponse struct {
+	Profiles       []primalProfileResponse `json:"profiles"`
+	MissingPubkeys []string                `json:"missing_pubkeys"`
+}
+
+func (h Handlers) BatchGetUserInfos(w http.ResponseWriter, r *http.Request) {
+	var req primalUserInfosRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		return
+	}
+	if len(req.Pubkeys) == 0 {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkeys must not be empty")
+		return
+	}
+	if len(req.Pubkeys) > h.maxBatchSize {
+		writeError(r.Context(), w, http.StatusBadRequest, "batch_limit_exceeded", "requested pubkeys exceed maximum batch size")
+		return
+	}
+	pubkeys := normalizeUniqueValues(req.Pubkeys)
+	if len(pubkeys) == 0 {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkeys must include at least one non-empty value")
+		return
+	}
+	profilesByPubkey, err := h.store.GetProfilesByPubkeys(r.Context(), pubkeys)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	resp := primalUserInfosResponse{
+		Profiles:       make([]primalProfileResponse, 0, len(profilesByPubkey)),
+		MissingPubkeys: make([]string, 0),
+	}
+	for _, pubkey := range pubkeys {
+		profile, ok := profilesByPubkey[pubkey]
+		if !ok {
+			resp.MissingPubkeys = append(resp.MissingPubkeys, pubkey)
+			continue
+		}
+		resp.Profiles = append(resp.Profiles, primalProfileResponse{
+			Pubkey:            profile.Pubkey,
+			MetadataEventID:   profile.MetadataEventID,
+			MetadataCreatedAt: profile.MetadataCreatedAt,
+			Profile:           profile.ProfileJSON,
+		})
+	}
+	slices.Sort(resp.MissingPubkeys)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h Handlers) GetThreadView(w http.ResponseWriter, r *http.Request) {
+	eventID := strings.TrimSpace(r.PathValue("eventId"))
+	if eventID == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "event id is required")
+		return
+	}
+	limit := parseBoundedPositiveInt(r.URL.Query().Get("limit"), 20, 100)
+	maxDepth := parseBoundedPositiveInt(r.URL.Query().Get("max_depth"), 100, 100)
+
+	eventRaw, err := h.store.GetEventRawByID(r.Context(), eventID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	ancestors, missing, err := h.store.GetEventAncestors(r.Context(), eventID, maxDepth)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	replies, _, err := h.store.GetEventReplies(r.Context(), eventID, limit, nil)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"event_id":             eventID,
+		"event":                eventRaw,
+		"ancestors":            ancestors,
+		"missing_ancestor_ids": missing,
+		"replies":              replies,
+		"consistency":          "eventual",
+	})
+}
+
+func (h Handlers) GetAuthorEvents(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit := parseBoundedPositiveInt(r.URL.Query().Get("limit"), 20, 100)
+	items, err := h.store.GetAuthorRecentEvents(r.Context(), pubkey, limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pubkey": pubkey, "events": items})
+}
+
+func (h Handlers) GetAuthorReplies(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit := parseBoundedPositiveInt(r.URL.Query().Get("limit"), 20, 100)
+	items, err := h.store.GetAuthorReplies(r.Context(), pubkey, limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pubkey": pubkey, "items": items})
+}
+
+func (h Handlers) GetEventActions(w http.ResponseWriter, r *http.Request) {
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "event id is required")
+		return
+	}
+	counts, err := h.store.GetEventCounts(r.Context(), eventID)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"event_id":       counts.EventID,
+		"reply_count":    counts.ReplyCount,
+		"reaction_count": counts.ReactionCount,
+		"repost_count":   counts.RepostCount,
+		"consistency":    counts.Consistency,
+	})
+}
+
+func (h Handlers) GetContactList(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	entry, err := h.store.GetContactListByPubkey(r.Context(), pubkey)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(r.Context(), w, http.StatusNotFound, "not_found", "contact list not found")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":       entry.Pubkey,
+		"event_id":     entry.EventID,
+		"created_at":   entry.CreatedAt,
+		"contacts":     entry.ContactsJSONRaw,
+		"consistency":  "eventual",
+		"projection_v": entry.DerivationVer,
+	})
+}
+
+func (h Handlers) GetRelayList(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	entry, err := h.store.GetRelayListByPubkey(r.Context(), pubkey)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(r.Context(), w, http.StatusNotFound, "not_found", "relay list not found")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":       entry.Pubkey,
+		"event_id":     entry.EventID,
+		"created_at":   entry.CreatedAt,
+		"relays":       entry.RelaysJSONRaw,
+		"consistency":  "eventual",
+		"projection_v": entry.DerivationVer,
+	})
+}
+
+func parseBoundedPositiveInt(raw string, defaultValue int, maxValue int) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	if parsed > maxValue {
+		return maxValue
+	}
+	return parsed
 }
 
 type apiErrorEnvelope struct {

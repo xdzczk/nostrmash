@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/logging"
-	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
@@ -40,20 +40,7 @@ func Ready(pool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-type EventReader interface {
-	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
-	GetEventWithProvenance(ctx context.Context, id string) (store.EventWithProvenance, error)
-	GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
-	GetEventSeenOn(ctx context.Context, id string) ([]model.EventRelay, error)
-	GetProfileByPubkey(ctx context.Context, pubkey string) (store.ProfileProjection, error)
-	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
-	GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
-	GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
-	GetEventCounts(ctx context.Context, eventID string) (store.EventCounts, error)
-	GetEventReplies(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
-	GetEventAncestors(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error)
-	ListRelayHealth(ctx context.Context) ([]model.IngestCheckpoint, error)
-}
+type EventReader = query.Reader
 
 type Handlers struct {
 	store        EventReader
@@ -108,8 +95,8 @@ type batchEventsRequest struct {
 }
 
 type batchEventsResponse struct {
-	Events     []json.RawMessage `json:"events"`
-	Missing    []string          `json:"missing"`
+	Events  []json.RawMessage `json:"events"`
+	Missing []string          `json:"missing"`
 }
 
 func (h Handlers) BatchGetEvents(w http.ResponseWriter, r *http.Request) {
@@ -546,6 +533,165 @@ func (h Handlers) GetRelaysHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"relays":      relays,
+		"consistency": "eventual",
+	})
+}
+
+// GetContactList returns projected latest contact list (kind=3) for one pubkey.
+func (h Handlers) GetContactList(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	contactList, err := h.store.GetContactListByPubkey(r.Context(), pubkey)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(r.Context(), w, http.StatusNotFound, "not_found", "contact list not found")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":       contactList.Pubkey,
+		"event_id":     contactList.EventID,
+		"created_at":   contactList.CreatedAt,
+		"contacts":     contactList.ContactsJSONRaw,
+		"consistency":  "eventual",
+		"projection_v": contactList.DerivationVer,
+	})
+}
+
+// GetRelayList returns projected latest relay list (kind=10002) for one pubkey.
+func (h Handlers) GetRelayList(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	relayList, err := h.store.GetRelayListByPubkey(r.Context(), pubkey)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(r.Context(), w, http.StatusNotFound, "not_found", "relay list not found")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":       relayList.Pubkey,
+		"event_id":     relayList.EventID,
+		"created_at":   relayList.CreatedAt,
+		"relays":       relayList.RelaysJSONRaw,
+		"consistency":  "eventual",
+		"projection_v": relayList.DerivationVer,
+	})
+}
+
+// Search returns a best-effort combined event/profile search.
+func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
+	queryText := strings.TrimSpace(r.URL.Query().Get("q"))
+	if queryText == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "q is required")
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	events, err := h.store.SearchEventsByContent(r.Context(), queryText, limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	profiles, err := h.store.SearchProfiles(r.Context(), queryText, limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+
+	projectedProfiles := make([]profileResponse, 0, len(profiles))
+	for _, profile := range profiles {
+		projectedProfiles = append(projectedProfiles, profileResponse{
+			Pubkey:            profile.Pubkey,
+			MetadataEventID:   profile.MetadataEventID,
+			MetadataCreatedAt: profile.MetadataCreatedAt,
+			Profile:           profile.ProfileJSON,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"query":       queryText,
+		"events":      events,
+		"profiles":    projectedProfiles,
+		"consistency": "eventual",
+	})
+}
+
+func (h Handlers) GetBookmarks(w http.ResponseWriter, r *http.Request) {
+	h.getKindScopedEvents(w, r, 10003, "bookmarks")
+}
+
+func (h Handlers) GetHighlights(w http.ResponseWriter, r *http.Request) {
+	h.getKindScopedEvents(w, r, 9802, "highlights")
+}
+
+func (h Handlers) GetLongForm(w http.ResponseWriter, r *http.Request) {
+	h.getKindScopedEvents(w, r, 30023, "long_form")
+}
+
+func (h Handlers) GetZaps(w http.ResponseWriter, r *http.Request) {
+	h.getKindScopedEvents(w, r, 9735, "zaps")
+}
+
+func (h Handlers) GetDirectMessages(w http.ResponseWriter, r *http.Request) {
+	h.getKindScopedEvents(w, r, 4, "direct_messages")
+}
+
+// GetFollowers returns events referencing this pubkey via p-tags.
+func (h Handlers) GetFollowers(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	items, err := h.store.GetEventsReferencingPubkey(r.Context(), pubkey, limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":      pubkey,
+		"items":       items,
+		"consistency": "eventual",
+	})
+}
+
+func (h Handlers) getKindScopedEvents(w http.ResponseWriter, r *http.Request, kind int, responseKey string) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	items, err := h.store.GetRecentEventsByKindAndPubkey(r.Context(), kind, pubkey, limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":      pubkey,
+		responseKey:   items,
 		"consistency": "eventual",
 	})
 }
