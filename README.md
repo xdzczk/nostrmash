@@ -2,7 +2,7 @@
 
 Durable Nostr ingest and rebuildable read models in Go and Postgres.
 
-![Go 1.24+](https://img.shields.io/badge/go-1.24%2B-00ADD8?logo=go&logoColor=white)
+![Go 1.25+](https://img.shields.io/badge/go-1.25%2B-00ADD8?logo=go&logoColor=white)
 ![Postgres Primary](https://img.shields.io/badge/postgres-primary-4169E1?logo=postgresql&logoColor=white)
 ![Docker Native](https://img.shields.io/badge/docker-native-2496ED?logo=docker&logoColor=white)
 
@@ -14,8 +14,8 @@ It exists to keep one boundary uncompromised: raw Nostr truth should be durable,
 
 | Area | Value |
 | --- | --- |
-| Runtime | Go `1.24+` |
-| Primary datastore | Postgres |
+| Runtime | Go `1.25+` |
+| Primary datastore | Postgres (canonical) |
 | Services | `api`, `ingestor`, `worker` |
 | Default API address | `http://localhost:8080` |
 | Ingest modes | `live`, optional `backfill`, deterministic `replay` |
@@ -47,7 +47,7 @@ relay -> validation -> canonical storage -> jobs -> derived projections -> API
 - Raw truth is durable. Canonical event JSON, expanded tags, and relay provenance are stored first.
 - Derived state is rebuildable. Projections can be recomputed from canonical storage.
 - Derivations are versioned. The system tracks compiled, target, and active derivation versions.
-- Boring operations over cleverness. One primary datastore, transactional writes, explicit rebuilds, minimal moving parts.
+- Boring operations over cleverness. Postgres remains the primary canonical store; any additional ranking infrastructure must stay subordinate to durable ingest truth and explicit rebuilds.
 
 ## Quick Start
 
@@ -126,6 +126,7 @@ make cover
 | Contributing changes safely | [CONTRIBUTING.md](CONTRIBUTING.md) | [docs/testing.md](docs/testing.md) |
 | Operating the stack | [docs/operations.md](docs/operations.md) | [docs/api.md](docs/api.md) |
 | Planning performance work | [docs/performance.md](docs/performance.md) | [docs/observability.md](docs/observability.md) |
+| Planning trust/ranking work | [docs/architecture/trust-subsystem.md](docs/architecture/trust-subsystem.md) | [docs/architecture.md](docs/architecture.md) |
 | Integrating with the API | [docs/api.md](docs/api.md) | [docs/openapi.yaml](docs/openapi.yaml) |
 | Planning schema changes | [docs/migrations.md](docs/migrations.md) | [RELEASE.md](RELEASE.md) |
 | Changing compatibility behavior | [docs/compatibility.md](docs/compatibility.md) | [VERSIONING.md](VERSIONING.md) |
@@ -173,8 +174,8 @@ Maintainer-owned policy confirmations (security contact, release perf strictness
 
 ## Status And Scope
 
-- Postgres is the only primary datastore in this repository today
+- Postgres is the primary canonical datastore in this repository today
 - Compatibility support is still partial relative to full Primal product parity, but it now includes a substantial HTTP + WebSocket surface for events, profiles, threads, social graph, moderation, search, zaps, DMs, and curated parity reads
 - Compatibility rollout is phased; see `docs/primal_compatibility_matrix.md` and `docs/compatibility_rollout.md`
-- Trust/ranking layers are future work, not hidden present features
+- Trust/ranking is now an active architecture area; the target subsystem design is documented in `docs/architecture/trust-subsystem.md`
 - Migrations are embedded and run on service startup

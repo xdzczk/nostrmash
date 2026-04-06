@@ -1,6 +1,6 @@
 module github.com/xdzczk/nostrmash
 
-go 1.24.0
+go 1.25.8
 
 require (
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6

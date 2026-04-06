@@ -10,7 +10,7 @@ NostrMash separates durable ingest truth from rebuildable read models. Read this
 - [Layer Model](#layer-model)
 - [Versioned Derivations and Rebuilds](#versioned-derivations-and-rebuilds)
 - [Why Postgres Is Primary](#why-postgres-is-primary)
-- [Intentionally Deferred](#intentionally-deferred)
+- [Trust And Ranking Expansion](#trust-and-ranking-expansion)
 
 ## Purpose
 
@@ -115,15 +115,23 @@ Postgres is not just storage here. It is the consistency boundary:
 
 That design favors correctness and operability over distributed-system novelty.
 
-## Intentionally Deferred
+## Trust And Ranking Expansion
 
-The current repository does not implement separate trust or ranking subsystems, and it does not introduce Redis, ClickHouse, or another projection store. The compatibility layer is intentionally boundary-only: translation stays in `internal/api_primal` and is backed by the same canonical and derived Postgres data as the native API.
+Trust and ranking are now in scope for NostrMash, but they remain an expansion area rather than a fully implemented repository surface today.
 
-A few limits are explicit in the current code:
+The design direction is:
+
+- Postgres remains the canonical durability and versioning boundary for ingest truth and published derived outputs
+- a trust/ranking subsystem may introduce Redis as working state for graph traversal, walk maintenance, and fast score computation
+- compatibility translation remains boundary-only in `internal/api_primal`; trust outputs should be published through shared query surfaces rather than embedded into transport-specific logic
+
+A few limits are still explicit in the current code:
 
 - only the `default_v1` relay filter group is implemented
 - compatibility support is still partial relative to full product parity and is rolled out in phases
-- trust/ranking layers are future work, not hidden present features
+- trust/ranking architecture is now an intended subsystem, but the full scoring pipeline and query surfaces are still being introduced
+
+See [architecture/trust-subsystem.md](architecture/trust-subsystem.md) for the target design.
 
 ## Related Docs
 
@@ -132,3 +140,4 @@ A few limits are explicit in the current code:
 - [development.md](development.md)
 - [operations.md](operations.md)
 - [api.md](api.md)
+- [architecture/trust-subsystem.md](architecture/trust-subsystem.md)

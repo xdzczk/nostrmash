@@ -10,6 +10,7 @@ This directory is the working map for NostrMash. Use it when the top-level `READ
 | An operator | [operations.md](operations.md) | Health, checkpoints, jobs, rebuilds, and troubleshooting |
 | An API integrator | [api.md](api.md) | API surfaces, consistency model, pagination, and links to the contract |
 | Reviewing the system design | [architecture.md](architecture.md) | Service boundaries, data flow, layering, and rebuild philosophy |
+| Planning trust/ranking work | [architecture/trust-subsystem.md](architecture/trust-subsystem.md) | Target WoT/ranking subsystem shape, Redis role, and publication model |
 
 ## Recommended Reading Order
 
@@ -35,6 +36,7 @@ Use one canonical home for each topic:
 - Migration safety and rollback-aware schema guidance: [migrations.md](migrations.md)
 - Primal compatibility target and gaps: [primal_compatibility_matrix.md](primal_compatibility_matrix.md)
 - Compatibility migration staging: [compatibility_rollout.md](compatibility_rollout.md)
+- Trust/ranking target design: [architecture/trust-subsystem.md](architecture/trust-subsystem.md)
 - Request and response schema details: [openapi.yaml](openapi.yaml)
 - Release execution: [`../RELEASE.md`](../RELEASE.md)
 - Versioning and tag contract: [`../VERSIONING.md`](../VERSIONING.md)
@@ -44,6 +46,7 @@ Use one canonical home for each topic:
 - [`../README.md`](../README.md)
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
 - [architecture.md](architecture.md)
+- [architecture/trust-subsystem.md](architecture/trust-subsystem.md)
 - [development.md](development.md)
 - [configuration.md](configuration.md)
 - [testing.md](testing.md)
