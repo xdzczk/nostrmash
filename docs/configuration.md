@@ -9,9 +9,9 @@ Do not hand-edit this file.
 | --- | --- | --- | --- | --- |
 | `ADMIN_BEARER_TOKEN` | `api` | optional | `-` | Optional bearer token for admin HTTP endpoints. |
 | `API_MAX_BATCH_SIZE` | `api` | optional | `200` | Maximum IDs accepted by batch event/profile API requests. |
-| `DATABASE_URL` | `api, ingestor, worker` | required | `-` | PostgreSQL connection string. |
-| `DEBUG_ADDR` | `api, worker` | optional | `-` | Optional debug/pprof listen address. Leave empty by default; prefer localhost binding. |
-| `ENVIRONMENT` | `api, ingestor, worker` | optional | `development` | Deployment environment label. |
+| `DATABASE_URL` | `api, ingestor, trust_worker, worker` | required | `-` | PostgreSQL connection string. |
+| `DEBUG_ADDR` | `api, trust_worker, worker` | optional | `-` | Optional debug/pprof listen address. Leave empty by default; prefer localhost binding. |
+| `ENVIRONMENT` | `api, ingestor, trust_worker, worker` | optional | `development` | Deployment environment label. |
 | `HTTP_ADDR` | `api` | optional | `:8080` | HTTP listen address for the API server. |
 | `HTTP_BATCH_RATE_LIMIT_RPM` | `api` | optional | `40` | Per-IP requests per minute for HTTP batch endpoints. |
 | `HTTP_DM_COMPAT_RATE_LIMIT_RPM` | `api` | optional | `30` | Per-IP requests per minute for DM compatibility routes. |
@@ -40,11 +40,18 @@ Do not hand-edit this file.
 | `INGESTOR_RELAY_REQUIRE_TLS` | `ingestor` | optional | `true (non-local env), false (local env)` | Require wss:// relay URLs when enabled. |
 | `INGESTOR_RELAY_URLS` | `api, ingestor` | optional | `-` | CSV list of relay URLs (required for INGESTOR_MODE=live). |
 | `INGESTOR_REPLAY_FIXTURE_PATH` | `ingestor` | optional | `-` | Replay fixture path (required for INGESTOR_MODE=replay). |
-| `METRICS_ADDR` | `ingestor, worker` | optional | `:9090` | Prometheus metrics listen address for ingestor/worker. API exposes /metrics on HTTP_ADDR. |
+| `METRICS_ADDR` | `ingestor, trust_worker, worker` | optional | `:9090` | Prometheus metrics listen address for ingestor/worker. API exposes /metrics on HTTP_ADDR. |
 | `PRIMAL_WS_ALLOWED_ORIGINS` | `api` | optional | `-` | CSV allowlist of browser origins for Primal WS. |
 | `PRIMAL_WS_ALLOW_ANY_ORIGIN` | `api` | optional | `false` | Allow all WS origins, bypassing PRIMAL_WS_ALLOWED_ORIGINS validation. |
 | `PRIMAL_WS_MAX_MESSAGE_BYTES` | `api` | optional | `1048576` | Maximum inbound WebSocket message size in bytes. |
 | `PRIMAL_WS_MAX_REQ_PER_MINUTE` | `api` | optional | `240` | Per-IP request rate limit for Primal WebSocket calls. |
 | `PRIMAL_WS_MAX_SUBSCRIPTIONS` | `api` | optional | `200` | Maximum concurrent Primal WS subscriptions per connection. |
 | `PRIMAL_WS_REQUEST_TIMEOUT` | `api` | optional | `10s` | Timeout for individual Primal WS request handling. |
+| `TRUST_ENABLE_REDIS_SYNC` | `trust_worker` | optional | `false` | Enable Redis graph synchronization trust job phases. |
+| `TRUST_ENABLE_SCORE_COMPUTE` | `trust_worker` | optional | `true` | Enable trust score computation trust job phases. |
+| `TRUST_REDIS_URL` | `trust_worker` | required | `-` | Redis connection string used for trust graph working state. |
+| `TRUST_WORKER_CLAIM_BATCH_SIZE` | `trust_worker` | optional | `5` | Maximum trust jobs claimed per poll loop. |
+| `TRUST_WORKER_CONCURRENCY` | `trust_worker` | optional | `2` | Trust worker goroutine concurrency. |
+| `TRUST_WORKER_POLL_INTERVAL` | `trust_worker` | optional | `1s` | Polling interval for trust queue claims. |
+| `TRUST_WORKER_RETRY_DELAY` | `trust_worker` | optional | `5s` | Retry delay when trust jobs fail. |
 | `WORKER_CONCURRENCY` | `worker` | optional | `4` | Worker goroutine concurrency. |

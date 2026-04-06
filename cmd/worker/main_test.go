@@ -24,7 +24,7 @@ type fakeWorkerQueue struct {
 	failedIDs    []int64
 }
 
-func (f *fakeWorkerQueue) ClaimAvailable(ctx context.Context, _ string, _ int) ([]jobs.Job, error) {
+func (f *fakeWorkerQueue) ClaimAvailableForPool(ctx context.Context, _ string, _ string, _ int) ([]jobs.Job, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.claimCalls < len(f.claimBatches) {
@@ -75,6 +75,7 @@ func TestRunClaimLoop_ProcessesJobsConcurrently(t *testing.T) {
 		fakeWorkerLogger{},
 		queue,
 		"worker-a",
+		jobs.WorkerPoolDefault,
 		4,
 		2,
 		5*time.Millisecond,
@@ -125,6 +126,7 @@ func TestRunClaimLoop_DrainsQueuedJobsAfterShutdownSignal(t *testing.T) {
 		fakeWorkerLogger{},
 		queue,
 		"worker-a",
+		jobs.WorkerPoolDefault,
 		3,
 		1,
 		5*time.Millisecond,
@@ -159,6 +161,7 @@ func TestRunClaimLoop_RecoversFromPanicAndFailsJob(t *testing.T) {
 		fakeWorkerLogger{},
 		queue,
 		"worker-a",
+		jobs.WorkerPoolDefault,
 		1,
 		1,
 		5*time.Millisecond,

@@ -1,8 +1,8 @@
 # Operations
 
-This page is the runtime and incident-response reference for NostrMash. Use [../README.md](../README.md) for first boot; use this document for health, checkpoints, jobs, rebuilds, and what to inspect when the system is not behaving the way you expect.
+This page is the runtime and incident-response reference for NostrMash. Use [../README.md](../README.md) for first boot; use this document for health, checkpoints, jobs, rebuilds, trust runs, and what to inspect when the system is not behaving the way you expect.
 
-Environment-variable ownership is documented in [configuration.md](configuration.md). Runtime binaries load role-owned config via `LoadAPI`, `LoadWorker`, and `LoadIngestor`.
+Environment-variable ownership is documented in [configuration.md](configuration.md). Runtime binaries load role-owned config via `LoadAPI`, `LoadWorker`, `LoadTrustWorker`, and `LoadIngestor`.
 Migration safety and rollback-aware schema evolution rules are documented in [migrations.md](migrations.md). External compatibility and deprecation expectations are documented in [compatibility.md](compatibility.md).
 
 For hot-path performance ownership and benchmark/load-test planning, use [performance.md](performance.md).
@@ -60,6 +60,7 @@ This starts:
 - `api` on `:8080`
 - `ingestor`
 - `worker`
+- `trust_worker`
 
 All services run embedded migrations on startup. That means schema mistakes show up immediately during boot, not later.
 
@@ -261,6 +262,22 @@ Useful endpoints:
 - `GET /admin/v1/derivation-versions`
 
 Full rebuilds are the version-promotion path. Narrow rebuild scopes exist for single-event, pubkey, and time-range repair.
+
+### Trust Runs
+
+Trust computation is run by `trust_worker` and publishes durable global trust output into Postgres.
+
+Useful endpoints:
+
+- `POST /admin/v1/trust/runs` to trigger a run
+- `GET /admin/v1/trust/runs` and `GET /admin/v1/trust/runs/{runID}` for run status
+- `GET /admin/v1/trust/scores` and `GET /api/v1/trust/scores` for score visibility
+
+Trust incidents and recovery:
+
+- If trust jobs are not running, check `jobs.worker_pool='trust'` queue backlog and `trust_worker` process health.
+- If a run fails, inspect `trust_runs.last_error`, then retrigger with `POST /admin/v1/trust/runs` once corrected.
+- Redis state is disposable working state. If Redis is lost/corrupted, restart `trust_worker` and trigger a fresh trust run.
 
 ### Invalid Events
 

@@ -167,6 +167,54 @@ func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestClaimAvailableForPool_ClaimsOnlyTargetPool(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	queue := jobs.NewQueue(pool)
+	_, err := queue.Enqueue(ctx, jobs.EnqueueParams{
+		JobType:  jobs.JobTypeDeriveEventBundle,
+		Payload:  []byte(`{"event_id":"a"}`),
+		RunAfter: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("enqueue default job: %v", err)
+	}
+	_, err = queue.Enqueue(ctx, jobs.EnqueueParams{
+		JobType:  jobs.JobTypeTrustComputeGlobalScore,
+		Payload:  []byte(`{"run_id":1}`),
+		RunAfter: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("enqueue trust job: %v", err)
+	}
+
+	defaultJobs, err := queue.ClaimAvailableForPool(ctx, "worker-default", jobs.WorkerPoolDefault, 10)
+	if err != nil {
+		t.Fatalf("claim default pool: %v", err)
+	}
+	if len(defaultJobs) != 1 {
+		t.Fatalf("expected one default job, got %d", len(defaultJobs))
+	}
+	if defaultJobs[0].WorkerPool != jobs.WorkerPoolDefault {
+		t.Fatalf("expected default worker pool, got %q", defaultJobs[0].WorkerPool)
+	}
+
+	trustJobs, err := queue.ClaimAvailableForPool(ctx, "worker-trust", jobs.WorkerPoolTrust, 10)
+	if err != nil {
+		t.Fatalf("claim trust pool: %v", err)
+	}
+	if len(trustJobs) != 1 {
+		t.Fatalf("expected one trust job, got %d", len(trustJobs))
+	}
+	if trustJobs[0].WorkerPool != jobs.WorkerPoolTrust {
+		t.Fatalf("expected trust worker pool, got %q", trustJobs[0].WorkerPool)
+	}
+}
+
 func setupSchemaPool(t *testing.T, ctx context.Context, dbURL string) *pgxpool.Pool {
 	t.Helper()
 	return dbtest.SetupSchemaPool(t, ctx, dbURL, "jobs")

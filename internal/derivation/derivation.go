@@ -45,6 +45,7 @@ const (
 	DerivationDMUnreadCounts     = "dm_unread_counts"
 	DerivationZapReceipts        = "zap_receipts"
 	DerivationThreadProjection   = "thread_projection"
+	DerivationTrustScoresGlobal  = "trust_scores_global"
 )
 
 const (
@@ -64,6 +65,7 @@ const (
 	DMUnreadCountsVersion     = 1
 	ZapReceiptsVersion        = 1
 	ThreadProjectionVersion   = 1
+	TrustScoresGlobalVersion  = 1
 )
 
 const (

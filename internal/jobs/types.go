@@ -1,5 +1,7 @@
 package jobs
 
+import "strings"
+
 // Job type vocabulary for queue payload dispatch.
 const (
 	JobTypeDeriveEventBundle        = "derive_event_bundle"
@@ -20,9 +22,26 @@ const (
 	JobTypeUpdateThreadProjection   = "update_thread_projection"
 	JobTypeRepairUnresolvedRefs     = "repair_unresolved_references"
 	JobTypeRebuildProjectionScope   = "rebuild_projection_scope"
+
+	JobTypeTrustSyncGraphRedis     = "trust_sync_graph_redis"
+	JobTypeTrustComputeGlobalScore = "trust_compute_global_scores"
+	JobTypeTrustPromoteRun         = "trust_promote_run"
+)
+
+const (
+	WorkerPoolDefault = "default"
+	WorkerPoolTrust   = "trust"
 )
 
 // EventJobPayload is the common event-scoped job payload shape.
 type EventJobPayload struct {
 	EventID string `json:"event_id"`
+}
+
+func WorkerPoolForJobType(jobType string) string {
+	jobType = strings.TrimSpace(jobType)
+	if strings.HasPrefix(jobType, "trust_") {
+		return WorkerPoolTrust
+	}
+	return WorkerPoolDefault
 }

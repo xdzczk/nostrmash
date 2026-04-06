@@ -57,6 +57,9 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"replaceable_state",
 		"schema_migrations_audit",
 		"thread_edges",
+		"trust_runs",
+		"trust_scores_global",
+		"trust_seeds",
 		"unresolved_thread_references",
 		"zap_receipts",
 	}

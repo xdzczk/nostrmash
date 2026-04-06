@@ -180,6 +180,33 @@ func TestLoadWorker_DefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestLoadTrustWorker_DefaultsAndValidation(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUST_REDIS_URL", "redis://localhost:6379/0")
+	t.Setenv("TRUST_WORKER_CONCURRENCY", "")
+	t.Setenv("TRUST_WORKER_CLAIM_BATCH_SIZE", "")
+	t.Setenv("TRUST_WORKER_POLL_INTERVAL", "")
+	t.Setenv("TRUST_WORKER_RETRY_DELAY", "")
+	t.Setenv("TRUST_ENABLE_REDIS_SYNC", "")
+	t.Setenv("TRUST_ENABLE_SCORE_COMPUTE", "")
+
+	cfg, err := LoadTrustWorker()
+	if err != nil {
+		t.Fatalf("load trust worker defaults: %v", err)
+	}
+	if cfg.Concurrency != 2 || cfg.ClaimBatchSize != 5 {
+		t.Fatalf("unexpected trust worker defaults: %#v", cfg)
+	}
+	if cfg.Redis.URL != "redis://localhost:6379/0" {
+		t.Fatalf("unexpected redis url: %q", cfg.Redis.URL)
+	}
+
+	t.Setenv("TRUST_WORKER_CONCURRENCY", "0")
+	if _, err := LoadTrustWorker(); err == nil || !strings.Contains(err.Error(), "TRUST_WORKER_CONCURRENCY") {
+		t.Fatalf("expected actionable TRUST_WORKER_CONCURRENCY error, got %v", err)
+	}
+}
+
 func TestLoadAPI_InvalidDebugAddrFails(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("DEBUG_ADDR", "not-a-valid-addr")

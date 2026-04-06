@@ -21,6 +21,10 @@ type fakeAdminService struct {
 	getStorageFn            func(context.Context) (adminStorageResponse, error)
 	getSystemFn             func(context.Context) (adminSystemResponse, error)
 	getDerivationVersionsFn func(context.Context) ([]adminDerivationVersionResponse, error)
+	getTrustRunsFn          func(context.Context, int) ([]adminTrustRunResponse, error)
+	getTrustRunFn           func(context.Context, int64) (adminTrustRunResponse, error)
+	triggerTrustRunFn       func(context.Context) (adminTrustRunResponse, error)
+	getTopTrustScoresFn     func(context.Context, int) ([]adminTrustScoreResponse, error)
 }
 
 func (f fakeAdminService) GetRelays(ctx context.Context) ([]adminRelayState, error) {
@@ -46,6 +50,30 @@ func (f fakeAdminService) GetSystem(ctx context.Context) (adminSystemResponse, e
 }
 func (f fakeAdminService) GetDerivationVersions(ctx context.Context) ([]adminDerivationVersionResponse, error) {
 	return f.getDerivationVersionsFn(ctx)
+}
+func (f fakeAdminService) GetTrustRuns(ctx context.Context, limit int) ([]adminTrustRunResponse, error) {
+	if f.getTrustRunsFn == nil {
+		return []adminTrustRunResponse{}, nil
+	}
+	return f.getTrustRunsFn(ctx, limit)
+}
+func (f fakeAdminService) GetTrustRun(ctx context.Context, runID int64) (adminTrustRunResponse, error) {
+	if f.getTrustRunFn == nil {
+		return adminTrustRunResponse{}, nil
+	}
+	return f.getTrustRunFn(ctx, runID)
+}
+func (f fakeAdminService) TriggerTrustRun(ctx context.Context) (adminTrustRunResponse, error) {
+	if f.triggerTrustRunFn == nil {
+		return adminTrustRunResponse{}, nil
+	}
+	return f.triggerTrustRunFn(ctx)
+}
+func (f fakeAdminService) GetTopTrustScores(ctx context.Context, limit int) ([]adminTrustScoreResponse, error) {
+	if f.getTopTrustScoresFn == nil {
+		return []adminTrustScoreResponse{}, nil
+	}
+	return f.getTopTrustScoresFn(ctx, limit)
 }
 
 func TestAdminRoutes_RequireBearerToken(t *testing.T) {
@@ -262,6 +290,10 @@ func newAdminTestMux(token string, service AdminService) http.Handler {
 	adminMux.HandleFunc("GET /admin/v1/storage", handlers.GetStorage)
 	adminMux.HandleFunc("GET /admin/v1/system", handlers.GetSystem)
 	adminMux.HandleFunc("GET /admin/v1/derivation-versions", handlers.GetDerivationVersions)
+	adminMux.HandleFunc("GET /admin/v1/trust/runs", handlers.GetTrustRuns)
+	adminMux.HandleFunc("GET /admin/v1/trust/runs/{runID}", handlers.GetTrustRun)
+	adminMux.HandleFunc("POST /admin/v1/trust/runs", handlers.TriggerTrustRun)
+	adminMux.HandleFunc("GET /admin/v1/trust/scores", handlers.GetTopTrustScores)
 	return WithRequestID(RequireBearerToken(token, adminMux))
 }
 

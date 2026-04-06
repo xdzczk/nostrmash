@@ -11,6 +11,7 @@ BUILD_TIME ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS_API := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)'
 LDFLAGS_WORKER := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)'
 LDFLAGS_INGESTOR := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)'
+LDFLAGS_TRUST_WORKER := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)'
 
 lint:
 	$(GOLANGCI_LINT) run --config .golangci.yml
@@ -97,6 +98,7 @@ build:
 	go build -ldflags "$(LDFLAGS_API)" ./cmd/api
 	go build -ldflags "$(LDFLAGS_INGESTOR)" ./cmd/ingestor
 	go build -ldflags "$(LDFLAGS_WORKER)" ./cmd/worker
+	go build -ldflags "$(LDFLAGS_TRUST_WORKER)" ./cmd/trust_worker
 
 mod-verify:
 	go mod verify

@@ -71,6 +71,8 @@ func buildRouteDefinitions(
 		{Pattern: "GET /api/v1/users/{pubkey}/zaps", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetZaps)},
 		{Pattern: "GET /api/v1/users/{pubkey}/mentions", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetMentions)},
 		{Pattern: "GET /api/v1/users/{pubkey}/followers", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetFollowers)},
+		{Pattern: "GET /api/v1/trust/scores/{pubkey}", OwnsContract: false, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetTrustScore)},
+		{Pattern: "GET /api/v1/trust/scores", OwnsContract: false, Target: publicRoute, Handler: http.HandlerFunc(handlers.ListTopTrustScores)},
 
 		{Pattern: "GET /primal/v1/events/{id}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetEventByID)},
 		{Pattern: "POST /primal/v1/events/batch", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.BatchGetEvents)},
@@ -92,6 +94,10 @@ func buildRouteDefinitions(
 		{Pattern: "GET /admin/v1/storage", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetStorage)},
 		{Pattern: "GET /admin/v1/system", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetSystem)},
 		{Pattern: "GET /admin/v1/derivation-versions", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetDerivationVersions)},
+		{Pattern: "GET /admin/v1/trust/runs", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetTrustRuns)},
+		{Pattern: "GET /admin/v1/trust/runs/{runID}", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetTrustRun)},
+		{Pattern: "POST /admin/v1/trust/runs", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.TriggerTrustRun)},
+		{Pattern: "GET /admin/v1/trust/scores", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetTopTrustScores)},
 	}
 }
 

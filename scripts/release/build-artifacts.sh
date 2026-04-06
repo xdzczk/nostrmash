@@ -18,7 +18,7 @@ fi
 mkdir -p "${DIST_DIR}"
 rm -f "${DIST_DIR}"/*.tar.gz "${DIST_DIR}/sha256sums.txt"
 
-SERVICES=(api ingestor worker)
+SERVICES=(api ingestor worker trust_worker)
 GOOS_TARGET="linux"
 GOARCH_TARGET="amd64"
 

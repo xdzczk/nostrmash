@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/derivation"
+	"github.com/xdzczk/nostrmash/internal/trust"
 )
 
 type AdminService interface {
@@ -19,6 +21,10 @@ type AdminService interface {
 	GetStorage(context.Context) (adminStorageResponse, error)
 	GetSystem(context.Context) (adminSystemResponse, error)
 	GetDerivationVersions(context.Context) ([]adminDerivationVersionResponse, error)
+	GetTrustRuns(context.Context, int) ([]adminTrustRunResponse, error)
+	GetTrustRun(context.Context, int64) (adminTrustRunResponse, error)
+	TriggerTrustRun(context.Context) (adminTrustRunResponse, error)
+	GetTopTrustScores(context.Context, int) ([]adminTrustScoreResponse, error)
 }
 
 type AdminServiceOptions struct {
@@ -33,6 +39,7 @@ type AdminServiceOptions struct {
 type adminService struct {
 	pool       *pgxpool.Pool
 	derivation *derivation.Handlers
+	trust      *trust.Runtime
 
 	serviceName string
 	environment string
@@ -46,6 +53,7 @@ type adminService struct {
 func NewAdminService(
 	pool *pgxpool.Pool,
 	derivationHandlers *derivation.Handlers,
+	trustRuntime *trust.Runtime,
 	opts AdminServiceOptions,
 ) AdminService {
 	disabled := make(map[string]struct{}, len(opts.DisabledRelays))
@@ -63,6 +71,7 @@ func NewAdminService(
 	return &adminService{
 		pool:             pool,
 		derivation:       derivationHandlers,
+		trust:            trustRuntime,
 		serviceName:      strings.TrimSpace(opts.ServiceName),
 		environment:      strings.TrimSpace(opts.Environment),
 		appVersion:       strings.TrimSpace(opts.AppVersion),
@@ -183,6 +192,57 @@ func (h AdminHandlers) GetDerivationVersions(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{"versions": versions})
 }
 
+func (h AdminHandlers) GetTrustRuns(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseBoundedPositiveInt(r, "limit", 50, 500)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	runs, err := h.service.GetTrustRuns(r.Context(), limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"trust_runs": runs})
+}
+
+func (h AdminHandlers) GetTrustRun(w http.ResponseWriter, r *http.Request) {
+	runID, err := parsePathInt64(r, "runID")
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	run, err := h.service.GetTrustRun(r.Context(), runID)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusNotFound, "not_found", "trust run not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, run)
+}
+
+func (h AdminHandlers) TriggerTrustRun(w http.ResponseWriter, r *http.Request) {
+	run, err := h.service.TriggerTrustRun(r.Context())
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
+}
+
+func (h AdminHandlers) GetTopTrustScores(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseBoundedPositiveInt(r, "limit", 50, 500)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	scores, err := h.service.GetTopTrustScores(r.Context(), limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"scores": scores})
+}
+
 type triggerRebuildRequest struct {
 	DerivationName string                    `json:"derivation_name"`
 	TargetVersion  int                       `json:"target_version"`
@@ -195,4 +255,16 @@ type triggerRebuildScopeDetail struct {
 	Pubkey         string `json:"pubkey"`
 	StartCreatedAt *int64 `json:"start_created_at"`
 	EndCreatedAt   *int64 `json:"end_created_at"`
+}
+
+func parsePathInt64(r *http.Request, key string) (int64, error) {
+	raw := strings.TrimSpace(r.PathValue(key))
+	if raw == "" {
+		return 0, strconv.ErrSyntax
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v <= 0 {
+		return 0, strconv.ErrSyntax
+	}
+	return v, nil
 }

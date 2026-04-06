@@ -14,6 +14,11 @@ services:
       retries: 15
       start_period: 5s
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   api:
     build: .
     image: nostrmash:dev
@@ -57,3 +62,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  trust_worker:
+    image: nostrmash:dev
+    build: .
+    command: ["/app/trust_worker"]
+    environment:
+      DATABASE_URL: postgres://nostrmash:nostrmash@postgres:5432/nostrmash?sslmode=disable
+      TRUST_REDIS_URL: redis://redis:6379/0
+      TRUST_WORKER_CONCURRENCY: "2"
+      TRUST_WORKER_CLAIM_BATCH_SIZE: "5"
+      TRUST_ENABLE_SCORE_COMPUTE: "true"
+      TRUST_ENABLE_REDIS_SYNC: "false"
+      LOG_LEVEL: info
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started

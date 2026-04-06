@@ -32,6 +32,7 @@ type Queue struct {
 type Job struct {
 	ID             int64
 	JobType        string
+	WorkerPool     string
 	Payload        json.RawMessage
 	IdempotencyKey *string
 	Status         string
@@ -47,6 +48,7 @@ type Job struct {
 
 type EnqueueParams struct {
 	JobType        string
+	WorkerPool     string
 	Payload        json.RawMessage
 	IdempotencyKey string
 	MaxAttempts    int
@@ -97,15 +99,21 @@ func (q *Queue) Enqueue(ctx context.Context, params EnqueueParams) (job *Job, er
 		idempotencyKey = &key
 	}
 
+	workerPool := strings.TrimSpace(params.WorkerPool)
+	if workerPool == "" {
+		workerPool = WorkerPoolForJobType(jobType)
+	}
+
 	row := q.pool.QueryRow(ctx, `
-		INSERT INTO jobs (job_type, payload, idempotency_key, max_attempts, run_after)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO jobs (job_type, worker_pool, payload, idempotency_key, max_attempts, run_after)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
 		DO UPDATE SET updated_at = jobs.updated_at
-		RETURNING id, job_type, payload, idempotency_key, status, attempts, max_attempts,
+		RETURNING id, job_type, worker_pool, payload, idempotency_key, status, attempts, max_attempts,
 		          run_after, locked_at, locked_by, last_error, created_at, updated_at
 	`,
 		jobType,
+		workerPool,
 		payload,
 		idempotencyKey,
 		maxAttempts,
@@ -120,6 +128,10 @@ func (q *Queue) Enqueue(ctx context.Context, params EnqueueParams) (job *Job, er
 }
 
 func (q *Queue) ClaimAvailable(ctx context.Context, workerID string, limit int) (out []Job, err error) {
+	return q.ClaimAvailableForPool(ctx, workerID, WorkerPoolDefault, limit)
+}
+
+func (q *Queue) ClaimAvailableForPool(ctx context.Context, workerID string, workerPool string, limit int) (out []Job, err error) {
 	started := time.Now()
 	defer func() {
 		metrics.ObserveQueueOperation("claim_available", queueResultFromErr(err), time.Since(started))
@@ -130,6 +142,10 @@ func (q *Queue) ClaimAvailable(ctx context.Context, workerID string, limit int) 
 	workerID = strings.TrimSpace(workerID)
 	if workerID == "" {
 		return nil, fmt.Errorf("worker id is required")
+	}
+	workerPool = strings.TrimSpace(workerPool)
+	if workerPool == "" {
+		return nil, fmt.Errorf("worker pool is required")
 	}
 	if limit <= 0 {
 		limit = 1
@@ -146,28 +162,30 @@ func (q *Queue) ClaimAvailable(ctx context.Context, workerID string, limit int) 
 			SELECT id
 			FROM jobs
 			WHERE status = $1
+			  AND worker_pool = $2
 			  AND run_after <= now()
 			ORDER BY run_after ASC, id ASC
 			FOR UPDATE SKIP LOCKED
-			LIMIT $2
+			LIMIT $3
 		),
 		claimed AS (
 			UPDATE jobs j
-			SET status = $3,
+			SET status = $4,
 			    locked_at = now(),
-			    locked_by = $4,
+			    locked_by = $5,
 			    updated_at = now()
 			FROM claimable c
 			WHERE j.id = c.id
-			RETURNING j.id, j.job_type, j.payload, j.idempotency_key, j.status, j.attempts, j.max_attempts,
+			RETURNING j.id, j.job_type, j.worker_pool, j.payload, j.idempotency_key, j.status, j.attempts, j.max_attempts,
 			          j.run_after, j.locked_at, j.locked_by, j.last_error, j.created_at, j.updated_at
 		)
-		SELECT id, job_type, payload, idempotency_key, status, attempts, max_attempts,
+		SELECT id, job_type, worker_pool, payload, idempotency_key, status, attempts, max_attempts,
 		       run_after, locked_at, locked_by, last_error, created_at, updated_at
 		FROM claimed
 		ORDER BY run_after ASC, id ASC
 	`,
 		StatusPending,
+		workerPool,
 		limit,
 		StatusRunning,
 		workerID,
@@ -333,7 +351,7 @@ func (q *Queue) GetJobByID(ctx context.Context, jobID int64) (*Job, error) {
 	}
 
 	row := q.pool.QueryRow(ctx, `
-		SELECT id, job_type, payload, idempotency_key, status, attempts, max_attempts,
+		SELECT id, job_type, worker_pool, payload, idempotency_key, status, attempts, max_attempts,
 		       run_after, locked_at, locked_by, last_error, created_at, updated_at
 		FROM jobs
 		WHERE id = $1
@@ -368,6 +386,7 @@ func scanJob(row rowScanner) (Job, error) {
 	err := row.Scan(
 		&job.ID,
 		&job.JobType,
+		&job.WorkerPool,
 		&payloadBytes,
 		&job.IdempotencyKey,
 		&job.Status,

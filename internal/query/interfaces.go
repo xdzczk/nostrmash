@@ -26,9 +26,17 @@ type ProfileService interface {
 	GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error)
 }
 
+type TrustService interface {
+	GetTrustScore(ctx context.Context, pubkey string) (store.TrustGlobalScore, error)
+	ListTopTrustedPubkeys(ctx context.Context, limit int) ([]store.TrustGlobalScore, error)
+	GetTrustRun(ctx context.Context, runID int64) (store.TrustRun, error)
+	ListTrustRuns(ctx context.Context, limit int) ([]store.TrustRun, error)
+}
+
 // ReadOrchestration groups focused read-side service capabilities.
 type ReadOrchestration interface {
 	ThreadService
 	EventService
 	ProfileService
+	TrustService
 }

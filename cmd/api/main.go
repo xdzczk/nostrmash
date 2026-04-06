@@ -19,6 +19,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/trust"
 )
 
 var (
@@ -91,7 +92,7 @@ func main() {
 		AllowAnyOrigin:    cfg.PrimalWS.AllowAnyOrigin,
 		Logger:            wsLog,
 	})
-	adminService := api.NewAdminService(pool, derivation.NewHandlers(pool), api.AdminServiceOptions{
+	adminService := api.NewAdminService(pool, derivation.NewHandlers(pool), trust.NewRuntime(pool, false, true), api.AdminServiceOptions{
 		ServiceName:      cfg.Shared.ServiceName,
 		Environment:      cfg.Shared.Environment,
 		AppVersion:       appVersion,

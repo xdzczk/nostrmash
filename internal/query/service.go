@@ -64,6 +64,7 @@ var (
 	_ ThreadService     = Service{}
 	_ EventService      = Service{}
 	_ ProfileService    = Service{}
+	_ TrustService      = Service{}
 	_ ReadOrchestration = Service{}
 
 	// ErrThreadEventNotFound indicates the focal/root event for a thread was not found.

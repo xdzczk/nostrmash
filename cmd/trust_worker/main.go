@@ -14,14 +14,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/xdzczk/nostrmash/internal/config"
-	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/jobs"
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/store/failure"
 	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/trust"
 )
 
 var (
@@ -34,9 +35,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	log := logging.New("worker")
-
-	cfg, err := config.LoadWorker()
+	log := logging.New("trust_worker")
+	cfg, err := config.LoadTrustWorker()
 	if err != nil {
 		log.Error("config", "error", err)
 		os.Exit(1)
@@ -50,12 +50,24 @@ func main() {
 	defer pool.Close()
 	metrics.RegisterDBPool(pool)
 
+	redisOpts, err := redis.ParseURL(cfg.Redis.URL)
+	if err != nil {
+		log.Error("redis_parse_url", "error", err)
+		os.Exit(1)
+	}
+	redisClient := redis.NewClient(redisOpts)
+	defer func() { _ = redisClient.Close() }()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Error("redis_ping", "error", err)
+		os.Exit(1)
+	}
+
 	appVersion := os.Getenv("APP_VERSION")
 	if appVersion == "" {
 		appVersion = "dev"
 	}
 	version := resolveBuildVersion(appVersion)
-	if err := traceutil.Init(ctx, cfg.Shared.ServiceName, "worker", version, cfg.Shared.Environment); err != nil {
+	if err := traceutil.Init(ctx, cfg.Shared.ServiceName, "trust_worker", version, cfg.Shared.Environment); err != nil {
 		log.Error("tracing_init", "error", err)
 		os.Exit(1)
 	}
@@ -66,53 +78,34 @@ func main() {
 			log.Error("tracing_shutdown", "error", err)
 		}
 	}()
-	metrics.RegisterBuildInfo("worker", version, strings.TrimSpace(buildCommit), strings.TrimSpace(buildTime))
-	metrics.RegisterDeploymentInfo("worker", cfg.Shared.ServiceName, cfg.Shared.Environment)
-	log.Info("build_info",
-		"binary_role", "worker",
-		"version", version,
-		"commit", strings.TrimSpace(buildCommit),
-		"build_time", strings.TrimSpace(buildTime),
-		"environment", cfg.Shared.Environment,
-	)
+	metrics.RegisterBuildInfo("trust_worker", version, strings.TrimSpace(buildCommit), strings.TrimSpace(buildTime))
+	metrics.RegisterDeploymentInfo("trust_worker", cfg.Shared.ServiceName, cfg.Shared.Environment)
+
 	if err := store.Migrate(ctx, pool, appVersion); err != nil {
 		log.Error("migrate", "error", err)
 		os.Exit(1)
 	}
 
 	queue := jobs.NewQueue(pool)
-	handlers := derivation.NewHandlers(pool)
+	runtime := trust.NewRuntime(pool, cfg.EnableRedisSync, cfg.EnableScoreCompute)
 	workerID := resolveWorkerID()
+
 	runMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	runDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
-	go runQueueAndRebuildMetricsReporter(ctx, log, pool, 30*time.Second)
-	const (
-		claimBatchSize = 10
-		pollInterval   = 1 * time.Second
-		retryDelay     = 5 * time.Second
-	)
+	go runTrustMetricsReporter(ctx, log, pool, 30*time.Second)
 
-	log.Info("worker_started", "worker_id", workerID, "claim_batch_size", claimBatchSize)
 	runClaimLoop(
 		ctx,
 		log,
 		queue,
 		workerID,
-		jobs.WorkerPoolDefault,
-		claimBatchSize,
+		jobs.WorkerPoolTrust,
+		cfg.ClaimBatchSize,
 		cfg.Concurrency,
-		pollInterval,
-		retryDelay,
-		func(jobCtx context.Context, job jobs.Job) error {
-			return derivation.ProcessJob(jobCtx, handlers, derivation.Job{
-				JobType: job.JobType,
-				Payload: job.Payload,
-			})
-		},
+		cfg.PollInterval,
+		cfg.RetryDelay,
+		runtime.ProcessJob,
 	)
-
-	<-ctx.Done()
-	log.Info("shutdown_complete")
 }
 
 type workerQueue interface {
@@ -146,67 +139,32 @@ func runClaimLoop(
 		go func() {
 			defer wg.Done()
 			for job := range jobQueue {
-				// Drain in-flight jobs even after shutdown signal.
 				workerCtx := context.WithoutCancel(ctx)
-				spanCtx, span := traceutil.StartSpan(workerCtx, "worker.job.execute",
-					traceutil.KV("job.type", job.JobType),
-				)
 				started := time.Now()
-				err := runJobWithRecovery(spanCtx, job, processJob)
+				err := runJobWithRecovery(workerCtx, job, processJob)
 				if err == nil {
-					if completeErr := queue.CompleteJob(spanCtx, job.ID, workerID); completeErr != nil {
-						class := failure.ClassifyError(completeErr)
-						metrics.ObserveWorkerJobExecution(job.JobType, "complete_error", time.Since(started))
-						span.End(completeErr)
-						log.Error("job_complete_failed", "job_id", job.ID, "failure_class", class.Class, "failure_reason", class.Reason, "error", completeErr)
+					if completeErr := queue.CompleteJob(workerCtx, job.ID, workerID); completeErr != nil {
+						log.Error("job_complete_failed", "job_id", job.ID, "error", completeErr)
 						continue
 					}
 					metrics.IncWorkerJob(job.JobType, "succeeded")
 					metrics.ObserveWorkerJobExecution(job.JobType, "succeeded", time.Since(started))
-					span.End(nil)
-					log.Info("job_completed", "job_id", job.ID, "job_type", job.JobType)
 					continue
 				}
-
-				failState, failErr := queue.FailJob(spanCtx, job.ID, workerID, err.Error(), retryDelay)
+				failState, failErr := queue.FailJob(workerCtx, job.ID, workerID, err.Error(), retryDelay)
 				if failErr != nil {
-					class := failure.ClassifyError(failErr)
-					metrics.ObserveWorkerJobExecution(job.JobType, "fail_mark_error", time.Since(started))
-					span.End(failErr)
-					log.Error("job_fail_mark_failed", "job_id", job.ID, "failure_class", class.Class, "failure_reason", class.Reason, "error", failErr)
+					log.Error("job_fail_mark_failed", "job_id", job.ID, "error", failErr)
 					continue
 				}
-				errClass := failure.ClassifyError(err)
 				if failState.Status == jobs.StatusDead {
 					metrics.IncWorkerJob(job.JobType, "dead")
 					metrics.ObserveWorkerJobExecution(job.JobType, "dead", time.Since(started))
-					span.End(err)
-					log.Error(
-						"job_dead_lettered",
-						"job_id", job.ID,
-						"job_type", job.JobType,
-						"failure_class", errClass.Class,
-						"failure_reason", errClass.Reason,
-						"attempts", failState.Attempts,
-						"max_attempts", failState.MaxAttempts,
-						"error", err,
-					)
+					log.Error("job_dead_lettered", "job_id", job.ID, "job_type", job.JobType, "error", err)
 					continue
 				}
 				metrics.IncWorkerJob(job.JobType, "retry")
 				metrics.ObserveWorkerJobExecution(job.JobType, "retry", time.Since(started))
-				span.End(err)
-				log.Error(
-					"job_failed_retry_scheduled",
-					"job_id", job.ID,
-					"job_type", job.JobType,
-					"failure_class", errClass.Class,
-					"failure_reason", errClass.Reason,
-					"attempts", failState.Attempts,
-					"max_attempts", failState.MaxAttempts,
-					"retry_after", retryDelay.String(),
-					"error", err,
-				)
+				log.Error("job_failed_retry_scheduled", "job_id", job.ID, "job_type", job.JobType, "error", err)
 			}
 		}()
 	}
@@ -219,10 +177,7 @@ func runClaimLoop(
 		if ctx.Err() != nil {
 			return
 		}
-
-		claimCtx, claimSpan := traceutil.StartSpan(ctx, "worker.queue.claim_available")
-		claimed, err := queue.ClaimAvailableForPool(claimCtx, workerID, workerPool, batchSize)
-		claimSpan.End(err)
+		claimed, err := queue.ClaimAvailableForPool(ctx, workerID, workerPool, batchSize)
 		if err != nil {
 			log.Error("job_claim_failed", "error", err)
 			select {
@@ -240,12 +195,39 @@ func runClaimLoop(
 				continue
 			}
 		}
-
 		for _, job := range claimed {
 			select {
 			case <-ctx.Done():
 				return
 			case jobQueue <- job:
+			}
+		}
+	}
+}
+
+func runTrustMetricsReporter(ctx context.Context, log interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}, pool *pgxpool.Pool, every time.Duration) {
+	if every <= 0 {
+		return
+	}
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			var oldestPending *float64
+			if err := pool.QueryRow(ctx, `
+				SELECT EXTRACT(EPOCH FROM (now() - MIN(run_after)))
+				FROM jobs
+				WHERE status = 'pending' AND worker_pool = 'trust'
+			`).Scan(&oldestPending); err != nil {
+				log.Error("trust_queue_backlog_query_failed", "error", err)
+			} else if oldestPending != nil {
+				metrics.SetWorkerQueueBacklogOldestPendingAge(*oldestPending)
 			}
 		}
 	}
@@ -323,61 +305,6 @@ func resolveWorkerID() string {
 		host = "unknown-host"
 	}
 	return fmt.Sprintf("%s:%d", host, os.Getpid())
-}
-
-func runQueueAndRebuildMetricsReporter(ctx context.Context, log interface {
-	Info(msg string, args ...any)
-	Error(msg string, args ...any)
-}, pool *pgxpool.Pool, every time.Duration) {
-	if pool == nil || every <= 0 {
-		return
-	}
-	ticker := time.NewTicker(every)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			var oldestPending *float64
-			if err := pool.QueryRow(ctx, `
-				SELECT EXTRACT(EPOCH FROM (now() - MIN(run_after)))
-				FROM jobs
-				WHERE status = 'pending'
-				  AND worker_pool = 'default'
-			`).Scan(&oldestPending); err != nil {
-				log.Error("queue_backlog_metrics_query_failed", "error", err)
-			} else if oldestPending != nil {
-				metrics.SetWorkerQueueBacklogOldestPendingAge(*oldestPending)
-			} else {
-				metrics.SetWorkerQueueBacklogOldestPendingAge(0)
-			}
-
-			var rebuildCount float64
-			if err := pool.QueryRow(ctx, `
-				SELECT COUNT(*)
-				FROM projection_rebuild_runs
-				WHERE status = 'running'
-			`).Scan(&rebuildCount); err != nil {
-				log.Error("rebuild_active_count_query_failed", "error", err)
-			} else {
-				metrics.SetRebuildRunsActive(rebuildCount)
-			}
-
-			var oldestActive *float64
-			if err := pool.QueryRow(ctx, `
-				SELECT EXTRACT(EPOCH FROM (now() - MIN(COALESCE(started_at, created_at))))
-				FROM projection_rebuild_runs
-				WHERE status = 'running'
-			`).Scan(&oldestActive); err != nil {
-				log.Error("rebuild_active_age_query_failed", "error", err)
-			} else if oldestActive != nil {
-				metrics.SetRebuildActiveOldestAge(*oldestActive)
-			} else {
-				metrics.SetRebuildActiveOldestAge(0)
-			}
-		}
-	}
 }
 
 func runJobWithRecovery(ctx context.Context, job jobs.Job, processJob func(jobCtx context.Context, job jobs.Job) error) (err error) {

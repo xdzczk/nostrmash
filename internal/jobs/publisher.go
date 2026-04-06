@@ -69,12 +69,13 @@ func EnqueueEventJobTx(
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO jobs (job_type, payload, idempotency_key, max_attempts, run_after)
-		VALUES ($1, $2, $3, $4, now())
+		INSERT INTO jobs (job_type, worker_pool, payload, idempotency_key, max_attempts, run_after)
+		VALUES ($1, $2, $3, $4, $5, now())
 		ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
 		DO NOTHING
 	`,
 		jobType,
+		WorkerPoolForJobType(jobType),
 		json.RawMessage(payload),
 		idempotencyKey,
 		maxAttempts,
