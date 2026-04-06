@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 )
 
 type Reader interface {
@@ -33,6 +35,26 @@ type Reader interface {
 	GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error)
 }
 
+// ThreadReader is the minimal dependency needed for thread assembly orchestration.
+type ThreadReader interface {
+	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
+	GetEventReplies(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	GetEventAncestors(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error)
+}
+
+// EventReader is the minimal dependency needed for event lookup/count orchestration.
+type EventReader interface {
+	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
+	GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
+	GetEventCounts(ctx context.Context, eventID string) (store.EventCounts, error)
+}
+
+// ProfileReader is the minimal dependency needed for profile/user-info orchestration.
+type ProfileReader interface {
+	GetProfileByPubkey(ctx context.Context, pubkey string) (store.ProfileProjection, error)
+	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+}
+
 type Service struct {
 	reader Reader
 }
@@ -41,13 +63,277 @@ func NewService(reader Reader) Service {
 	return Service{reader: reader}
 }
 
-type ThreadView struct {
-	Event              json.RawMessage
-	Ancestors          []json.RawMessage
-	MissingAncestorIDs []string
-	Replies            []json.RawMessage
-	NextCursor         *store.EventOrderCursor
-	Consistency        string
+type threadService struct {
+	reader ThreadReader
+}
+
+type eventService struct {
+	reader EventReader
+}
+
+type profileService struct {
+	reader ProfileReader
+}
+
+// NewThreadService constructs a thread-only orchestration service from a narrow dependency.
+func NewThreadService(reader ThreadReader) ThreadService {
+	return threadService{reader: reader}
+}
+
+// NewEventService constructs an event-only orchestration service from a narrow dependency.
+func NewEventService(reader EventReader) EventService {
+	return eventService{reader: reader}
+}
+
+// NewProfileService constructs a profile-only orchestration service from a narrow dependency.
+func NewProfileService(reader ProfileReader) ProfileService {
+	return profileService{reader: reader}
+}
+
+var (
+	_ ThreadService     = Service{}
+	_ EventService      = Service{}
+	_ ProfileService    = Service{}
+	_ ReadOrchestration = Service{}
+
+	// ErrThreadEventNotFound indicates the focal/root event for a thread was not found.
+	// This is intentionally narrower than store.ErrNotFound so transports can preserve
+	// historical status code behavior for non-root thread fetch failures.
+	ErrThreadEventNotFound = errors.New("thread event not found")
+)
+
+func (s Service) GetThread(ctx context.Context, req ThreadRequest) (out ThreadView, err error) {
+	return threadService{reader: s.reader}.GetThread(ctx, req)
+}
+
+func (s threadService) GetThread(ctx context.Context, req ThreadRequest) (out ThreadView, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.get_thread")
+	defer func() { span.End(err) }()
+	out = ThreadView{Consistency: "eventual"}
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return out, fmt.Errorf("event id is required")
+	}
+	raw, err := s.reader.GetEventRawByID(ctx, eventID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return out, ErrThreadEventNotFound
+		}
+		return out, err
+	}
+	ancestors, missing, err := s.reader.GetEventAncestors(ctx, eventID, req.MaxDepth)
+	if err != nil {
+		return out, err
+	}
+	replies, next, err := s.reader.GetEventReplies(ctx, eventID, req.Limit, req.Cursor)
+	if err != nil {
+		return out, err
+	}
+	out.Event = raw
+	out.Ancestors = ancestors
+	out.MissingAncestorIDs = missing
+	out.Replies = replies
+	out.NextCursor = next
+	return out, nil
+}
+
+func (s Service) GetThreadWindow(ctx context.Context, req ThreadWindowRequest) (out ThreadView, err error) {
+	return threadService{reader: s.reader}.GetThreadWindow(ctx, req)
+}
+
+func (s threadService) GetThreadWindow(ctx context.Context, req ThreadWindowRequest) (out ThreadView, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.get_thread_window")
+	defer func() { span.End(err) }()
+	const fetchPageSize = 100
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return ThreadView{}, fmt.Errorf("event id is required")
+	}
+	raw, err := s.reader.GetEventRawByID(ctx, eventID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return ThreadView{}, ErrThreadEventNotFound
+		}
+		return ThreadView{}, err
+	}
+	ancestors, missing, err := s.reader.GetEventAncestors(ctx, eventID, req.MaxDepth)
+	if err != nil {
+		return ThreadView{}, err
+	}
+	var ascCursor *store.EventOrderCursor
+	collected := make([]json.RawMessage, 0, fetchPageSize)
+	type cursorKey struct {
+		createdAt int64
+		id        string
+	}
+	seenCursors := map[cursorKey]struct{}{}
+	for {
+		replies, nextCursor, err := s.reader.GetEventReplies(ctx, eventID, fetchPageSize, ascCursor)
+		if err != nil {
+			return ThreadView{}, err
+		}
+		collected = append(collected, replies...)
+		if nextCursor == nil || len(replies) == 0 {
+			break
+		}
+		key := cursorKey{
+			createdAt: nextCursor.CreatedAt,
+			id:        strings.TrimSpace(nextCursor.ID),
+		}
+		if _, seen := seenCursors[key]; seen {
+			break
+		}
+		seenCursors[key] = struct{}{}
+		ascCursor = nextCursor
+	}
+
+	out = ThreadView{
+		Event:              raw,
+		Ancestors:          ancestors,
+		MissingAncestorIDs: missing,
+		Consistency:        "eventual",
+	}
+	window, next := WindowDescendingReplies(collected, nil, req.Limit, req.Cursor, req.Offset)
+	out.Replies = window
+	out.NextCursor = next
+	return out, nil
+}
+
+type orderedReply struct {
+	raw       json.RawMessage
+	createdAt int64
+	id        string
+}
+
+func toDescendingReplies(values []json.RawMessage) []orderedReply {
+	out := make([]orderedReply, 0, len(values))
+	for i := len(values) - 1; i >= 0; i-- {
+		var payload struct {
+			ID        string `json:"id"`
+			CreatedAt int64  `json:"created_at"`
+		}
+		if err := json.Unmarshal(values[i], &payload); err != nil {
+			continue
+		}
+		payload.ID = strings.TrimSpace(payload.ID)
+		if payload.ID == "" {
+			continue
+		}
+		out = append(out, orderedReply{
+			raw:       values[i],
+			createdAt: payload.CreatedAt,
+			id:        payload.ID,
+		})
+	}
+	return out
+}
+
+func paginateReplies(
+	descReplies []orderedReply,
+	limit int,
+	cursor *store.EventOrderCursor,
+	offset int,
+) ([]json.RawMessage, *store.EventOrderCursor) {
+	start := offset
+	if cursor != nil {
+		start = len(descReplies)
+		for idx, reply := range descReplies {
+			if reply.id == cursor.ID && reply.createdAt == cursor.CreatedAt {
+				start = idx + 1
+				break
+			}
+		}
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start > len(descReplies) {
+		start = len(descReplies)
+	}
+	end := start + limit
+	if end > len(descReplies) {
+		end = len(descReplies)
+	}
+	window := descReplies[start:end]
+	out := make([]json.RawMessage, 0, len(window))
+	for _, reply := range window {
+		out = append(out, reply.raw)
+	}
+	var next *store.EventOrderCursor
+	if end < len(descReplies) && len(window) > 0 {
+		last := window[len(window)-1]
+		next = &store.EventOrderCursor{
+			CreatedAt: last.createdAt,
+			ID:        last.id,
+		}
+	}
+	return out, next
+}
+
+func toOrderedReplies(values []json.RawMessage) []orderedReply {
+	out := make([]orderedReply, 0, len(values))
+	for _, value := range values {
+		var payload struct {
+			ID        string `json:"id"`
+			CreatedAt int64  `json:"created_at"`
+		}
+		if err := json.Unmarshal(value, &payload); err != nil {
+			continue
+		}
+		payload.ID = strings.TrimSpace(payload.ID)
+		if payload.ID == "" {
+			continue
+		}
+		out = append(out, orderedReply{
+			raw:       value,
+			createdAt: payload.CreatedAt,
+			id:        payload.ID,
+		})
+	}
+	return out
+}
+
+func mergeOrderedReplies(base []orderedReply, extra []orderedReply) []orderedReply {
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	merged := make([]orderedReply, 0, len(base)+len(extra))
+	appendUnique := func(values []orderedReply) {
+		for _, value := range values {
+			if value.id == "" {
+				continue
+			}
+			if _, ok := seen[value.id]; ok {
+				continue
+			}
+			seen[value.id] = struct{}{}
+			merged = append(merged, value)
+		}
+	}
+	appendUnique(base)
+	appendUnique(extra)
+	sort.SliceStable(merged, func(i, j int) bool {
+		if merged[i].createdAt == merged[j].createdAt {
+			return merged[i].id > merged[j].id
+		}
+		return merged[i].createdAt > merged[j].createdAt
+	})
+	return merged
+}
+
+// WindowDescendingReplies merges descending reply collections and applies cursor/offset paging.
+func WindowDescendingReplies(
+	baseReplies []json.RawMessage,
+	extraReplies []json.RawMessage,
+	limit int,
+	cursor *store.EventOrderCursor,
+	offset int,
+) ([]json.RawMessage, *store.EventOrderCursor) {
+	baseOrdered := toDescendingReplies(baseReplies)
+	if len(extraReplies) == 0 {
+		return paginateReplies(baseOrdered, limit, cursor, offset)
+	}
+	extraOrdered := toOrderedReplies(extraReplies)
+	merged := mergeOrderedReplies(baseOrdered, extraOrdered)
+	return paginateReplies(merged, limit, cursor, offset)
 }
 
 func (s Service) GetThreadView(
@@ -56,8 +342,10 @@ func (s Service) GetThreadView(
 	limit int,
 	maxDepth int,
 	cursor *store.EventOrderCursor,
-) (ThreadView, error) {
-	out := ThreadView{Consistency: "eventual"}
+) (out ThreadView, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.get_thread_view")
+	defer func() { span.End(err) }()
+	out = ThreadView{Consistency: "eventual"}
 	eventID = strings.TrimSpace(eventID)
 	if eventID == "" {
 		return out, fmt.Errorf("event id is required")
@@ -82,15 +370,11 @@ func (s Service) GetThreadView(
 	return out, nil
 }
 
-type ActionCounts struct {
-	EventID       string `json:"event_id"`
-	ReplyCount    int64  `json:"reply_count"`
-	ReactionCount int64  `json:"reaction_count"`
-	RepostCount   int64  `json:"repost_count"`
-	Consistency   string `json:"consistency"`
+func (s Service) GetActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
+	return eventService{reader: s.reader}.GetEventActionCounts(ctx, eventID)
 }
 
-func (s Service) GetActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
+func (s eventService) GetEventActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
 	eventID = strings.TrimSpace(eventID)
 	if eventID == "" {
 		return ActionCounts{}, fmt.Errorf("event id is required")
@@ -108,9 +392,24 @@ func (s Service) GetActionCounts(ctx context.Context, eventID string) (ActionCou
 	}, nil
 }
 
-type UserInfosResult struct {
-	Profiles       []store.ProfileProjection
-	MissingPubkeys []string
+func (s Service) GetEvent(ctx context.Context, id string) (json.RawMessage, error) {
+	return s.GetEventByID(ctx, id)
+}
+
+func (s eventService) GetEvent(ctx context.Context, id string) (json.RawMessage, error) {
+	return s.reader.GetEventRawByID(ctx, id)
+}
+
+func (s Service) GetEvents(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
+	return s.GetEventBatch(ctx, ids)
+}
+
+func (s eventService) GetEvents(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
+	return s.reader.GetEventRawsByIDs(ctx, ids)
+}
+
+func (s Service) GetEventActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
+	return s.GetActionCounts(ctx, eventID)
 }
 
 func (s Service) GetUserInfos(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
@@ -137,12 +436,41 @@ func (s Service) GetUserInfos(ctx context.Context, pubkeys []string) (UserInfosR
 	return out, nil
 }
 
-type SearchResult struct {
-	Events   []json.RawMessage         `json:"events"`
-	Profiles []store.ProfileProjection `json:"profiles"`
+func (s Service) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
+	return s.GetUserInfos(ctx, pubkeys)
 }
 
-func (s Service) Search(ctx context.Context, text string, limit int) (SearchResult, error) {
+func (s profileService) GetProfile(ctx context.Context, pubkey string) (store.ProfileProjection, error) {
+	return s.reader.GetProfileByPubkey(ctx, pubkey)
+}
+
+func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
+	normalized := normalizeUniqueStrings(pubkeys)
+	if len(normalized) == 0 {
+		return UserInfosResult{}, fmt.Errorf("pubkeys must include at least one non-empty value")
+	}
+	profilesByPubkey, err := s.reader.GetProfilesByPubkeys(ctx, normalized)
+	if err != nil {
+		return UserInfosResult{}, err
+	}
+	out := UserInfosResult{
+		Profiles:       make([]store.ProfileProjection, 0, len(profilesByPubkey)),
+		MissingPubkeys: make([]string, 0),
+	}
+	for _, pubkey := range normalized {
+		profile, ok := profilesByPubkey[pubkey]
+		if !ok {
+			out.MissingPubkeys = append(out.MissingPubkeys, pubkey)
+			continue
+		}
+		out.Profiles = append(out.Profiles, profile)
+	}
+	return out, nil
+}
+
+func (s Service) Search(ctx context.Context, text string, limit int) (out SearchResult, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.search")
+	defer func() { span.End(err) }()
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return SearchResult{Events: []json.RawMessage{}, Profiles: []store.ProfileProjection{}}, nil
@@ -250,15 +578,21 @@ func (s Service) GetFollowers(ctx context.Context, pubkey string, limit int) ([]
 	return s.reader.GetFollowersByPubkey(ctx, pubkey, limit)
 }
 
-func (s Service) GetEventByID(ctx context.Context, id string) (json.RawMessage, error) {
+func (s Service) GetEventByID(ctx context.Context, id string) (raw json.RawMessage, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.get_event_by_id")
+	defer func() { span.End(err) }()
 	return s.reader.GetEventRawByID(ctx, id)
 }
 
-func (s Service) GetEventBatch(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
+func (s Service) GetEventBatch(ctx context.Context, ids []string) (out map[string]json.RawMessage, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.get_event_batch")
+	defer func() { span.End(err) }()
 	return s.reader.GetEventRawsByIDs(ctx, ids)
 }
 
-func (s Service) GetProfile(ctx context.Context, pubkey string) (store.ProfileProjection, error) {
+func (s Service) GetProfile(ctx context.Context, pubkey string) (out store.ProfileProjection, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.get_profile")
+	defer func() { span.End(err) }()
 	return s.reader.GetProfileByPubkey(ctx, pubkey)
 }
 

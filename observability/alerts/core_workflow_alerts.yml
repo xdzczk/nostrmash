@@ -1,0 +1,102 @@
+groups:
+  - name: nostrmash-core-workflows
+    interval: 30s
+    rules:
+      - alert: NostrMashAPIHighErrorRate
+        expr: nostrmash:api:error_ratio5m > 0.01
+        for: 15m
+        labels:
+          severity: warning
+          slo: api-availability
+        annotations:
+          summary: "API 5xx error ratio is above 1%"
+          description: "Sustained 5xx error ratio (5m) is above 1% for 15m. Follow API availability SLO triage in docs/operations.md."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashAPICriticalPathLatencyHigh
+        expr: nostrmash:api:critical_path_latency_p95_seconds:5m > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          slo: api-latency
+        annotations:
+          summary: "API critical-path p95 latency is high"
+          description: "Critical-route p95 latency exceeds 1.5s for 10m. Check DB pool pressure and query/store trace spans."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashDBPoolSaturation
+        expr: nostrmash:db_pool:max_open_usage_ratio > 0.90 and nostrmash:db_pool:wait_rate5m > 0.20
+        for: 10m
+        labels:
+          severity: warning
+          slo: api-latency
+        annotations:
+          summary: "DB pool saturation is sustained"
+          description: "Pool usage ratio > 0.90 with non-trivial wait rate for 10m. Investigate slow queries and pool tuning."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashWorkerDeadLetterRateHigh
+        expr: nostrmash:worker:dead_ratio30m > 0.01 and nostrmash:worker:terminal_jobs_total:increase30m > 20
+        for: 30m
+        labels:
+          severity: warning
+          slo: worker-throughput
+        annotations:
+          summary: "Worker dead-letter ratio exceeds SLO threshold"
+          description: "Dead-letter ratio over 30m is above 1% with meaningful volume. Inspect derivation failures and queue transitions."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashWorkerRetryStorm
+        expr: nostrmash:worker:retry_ratio15m > 0.30 and sum(increase(nostrmash_worker_jobs_total{outcome=~"succeeded|dead|retry"}[15m])) > 30
+        for: 15m
+        labels:
+          severity: warning
+          slo: worker-throughput
+        annotations:
+          summary: "Worker retries dominate recent job outcomes"
+          description: "Retry ratio >30% in 15m. Look for derivation regressions, dependency errors, or queue contention."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashQueueClaimErrorsHigh
+        expr: nostrmash:queue:claim_errors_rate5m > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          slo: worker-throughput
+        annotations:
+          summary: "Queue claim operation is erroring"
+          description: "Claim operation errors are sustained. Check DB connectivity, lock contention, and queue table health."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashIngestLikelyStalled
+        expr: nostrmash:ingest:checkpoint_freshness_seconds:max > 600
+        for: 10m
+        labels:
+          severity: warning
+          slo: ingest-freshness
+        annotations:
+          summary: "Ingest checkpoint freshness is stale"
+          description: "Live checkpoint freshness exceeded 10 minutes for 10m. Investigate relay connectivity and ingest loop health."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashRebuildProcessingSlow
+        expr: nostrmash:rebuild:active_runs > 0 and nostrmash:rebuild:active_oldest_age_seconds > 1800
+        for: 15m
+        labels:
+          severity: warning
+          slo: rebuild-completion
+        annotations:
+          summary: "Active rebuild age is elevated"
+          description: "At least one rebuild run has been active for over 30 minutes. Investigate rebuild state and queue pressure."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashRebuildJobsDead
+        expr: increase(nostrmash_worker_jobs_total{job_type="rebuild_projection_scope",outcome="dead"}[30m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          slo: rebuild-completion
+        annotations:
+          summary: "Rebuild jobs are dead-lettering"
+          description: "At least one rebuild projection-scope job dead-lettered in 30m. Treat as rebuild recovery incident."
+          runbook: "docs/operations.md#alert-response-playbook"

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/ingestor/backfill"
 	"github.com/xdzczk/nostrmash/internal/ingestor/live"
@@ -21,6 +22,13 @@ import (
 	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/replay"
 	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+)
+
+var (
+	buildVersion = ""
+	buildCommit  = "unknown"
+	buildTime    = "unknown"
 )
 
 func main() {
@@ -29,23 +37,45 @@ func main() {
 
 	log := logging.New("ingestor")
 
-	cfg, err := config.Load("ingestor")
+	cfg, err := config.LoadIngestor()
 	if err != nil {
 		log.Error("config", "error", err)
 		os.Exit(1)
 	}
 
-	pool, err := store.OpenPool(ctx, cfg.DatabaseURL)
+	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL)
 	if err != nil {
 		log.Error("db_connect", "error", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
+	metrics.RegisterDBPool(pool)
 
 	appVersion := os.Getenv("APP_VERSION")
 	if appVersion == "" {
 		appVersion = "dev"
 	}
+	version := resolveBuildVersion(appVersion)
+	if err := traceutil.Init(ctx, cfg.Shared.ServiceName, "ingestor", version, cfg.Shared.Environment); err != nil {
+		log.Error("tracing_init", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := traceutil.Shutdown(shutdownCtx); err != nil {
+			log.Error("tracing_shutdown", "error", err)
+		}
+	}()
+	metrics.RegisterBuildInfo("ingestor", version, strings.TrimSpace(buildCommit), strings.TrimSpace(buildTime))
+	metrics.RegisterDeploymentInfo("ingestor", cfg.Shared.ServiceName, cfg.Shared.Environment)
+	log.Info("build_info",
+		"binary_role", "ingestor",
+		"version", version,
+		"commit", strings.TrimSpace(buildCommit),
+		"build_time", strings.TrimSpace(buildTime),
+		"environment", cfg.Shared.Environment,
+	)
 	if err := store.Migrate(ctx, pool, appVersion); err != nil {
 		log.Error("migrate", "error", err)
 		os.Exit(1)
@@ -65,11 +95,11 @@ func main() {
 	}
 	var checkpointTracker *live.CheckpointTracker
 	var sinceResolver relay.SinceResolver
-	runMetricsEndpoint(ctx, log, cfg.MetricsAddr)
+	runMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 
 	go runMetricsLogger(ctx, log, processor, 30*time.Second)
 
-	if cfg.Mode == "replay" {
+	if cfg.Runtime.Mode == "replay" {
 		replayRunner, err := replay.NewRunner(log, pool, nostr.Options{})
 		if err != nil {
 			log.Error("replay_runner_init", "error", err)
@@ -115,7 +145,7 @@ func main() {
 	}
 	log.Info(
 		"ingestor_live_startup",
-		"mode", cfg.Mode,
+		"mode", cfg.Runtime.Mode,
 		"filter_group", cfg.Relay.ActiveFilterGroup,
 		"relay_count", len(cfg.Relay.URLs),
 		"relay_urls", cfg.Relay.URLs,
@@ -123,6 +153,7 @@ func main() {
 		"bootstrap_lookback_seconds", cfg.Relay.LiveBootstrapLookbackSeconds,
 		"resume_overlap_seconds", cfg.Relay.LiveResumeOverlapSeconds,
 	)
+	go runCheckpointFreshnessReporter(ctx, log, pool, cfg.Relay.ActiveFilterGroup, 30*time.Second)
 
 	if cfg.Backfill.Enabled {
 		backfillRunner, err := backfill.NewRunner(
@@ -265,4 +296,43 @@ func runMetricsEndpoint(ctx context.Context, log *slog.Logger, addr string) {
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
+}
+
+func runCheckpointFreshnessReporter(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, filterGroup string, every time.Duration) {
+	if pool == nil || every <= 0 {
+		return
+	}
+	filterGroup = strings.TrimSpace(filterGroup)
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			var latest *time.Time
+			err := pool.QueryRow(ctx, `
+				SELECT MAX(updated_at)
+				FROM ingest_checkpoints
+				WHERE mode = 'live' AND filter_group = $1
+			`, filterGroup).Scan(&latest)
+			if err != nil {
+				log.Warn("ingest_checkpoint_freshness_query_failed", "error", err, "filter_group", filterGroup)
+				continue
+			}
+			if latest == nil {
+				metrics.SetIngestCheckpointFreshness("live", filterGroup, 1e9)
+				continue
+			}
+			seconds := time.Since(latest.UTC()).Seconds()
+			metrics.SetIngestCheckpointFreshness("live", filterGroup, seconds)
+		}
+	}
+}
+
+func resolveBuildVersion(appVersion string) string {
+	if v := strings.TrimSpace(buildVersion); v != "" {
+		return v
+	}
+	return strings.TrimSpace(appVersion)
 }

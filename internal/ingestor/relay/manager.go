@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/store/failure"
 )
 
 type relayRuntime struct {
@@ -198,7 +200,7 @@ func (m *Manager) monitorConnection(ctx context.Context, relayURL string, conn C
 			}
 			m.MarkProgress(relayURL)
 			if m.handler != nil {
-				if err := m.handler(ctx, relayURL, payload); err != nil {
+				if err := m.safeHandleRelayMessage(ctx, relayURL, payload); err != nil {
 					m.log.Warn(
 						"relay_message_handler_failed",
 						"relay_url", relayURL,
@@ -228,6 +230,23 @@ func (m *Manager) monitorConnection(ctx context.Context, relayURL string, conn C
 			m.checkLagging(relayURL)
 		}
 	}
+}
+
+func (m *Manager) safeHandleRelayMessage(ctx context.Context, relayURL string, payload []byte) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = failure.FromPanic(recovered)
+			class := failure.ClassifyError(err)
+			m.log.Error(
+				"relay_message_handler_panic_recovered",
+				"relay_url", relayURL,
+				"failure_class", class.Class,
+				"failure_reason", class.Reason,
+				"error", err,
+			)
+		}
+	}()
+	return m.handler(ctx, relayURL, payload)
 }
 
 func (m *Manager) checkLagging(relayURL string) {

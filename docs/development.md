@@ -89,6 +89,8 @@ Rules:
 
 Because all services call `store.Migrate()` on startup, migration changes should be treated as part of the deploy surface, not a side step.
 
+For rollback-aware migration practices, staged rollout expectations, and migration PR checklist guidance, see [migrations.md](migrations.md).
+
 ## Running Tests
 
 The repository already has focused unit and integration-style tests around:
@@ -196,7 +198,10 @@ Automated boundary checks:
 ## Related Docs
 
 - [../README.md](../README.md)
-- [docs/README.md](README.md)
+- [README.md](README.md)
 - [architecture.md](architecture.md)
 - [operations.md](operations.md)
+- [migrations.md](migrations.md)
+- [compatibility.md](compatibility.md)
+- [testing.md](testing.md)
 - [api.md](api.md)

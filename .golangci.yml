@@ -1,5 +1,5 @@
 run:
-  timeout: 5m
+  timeout: 7m
 
 linters-settings:
   revive:
@@ -12,14 +12,61 @@ linters-settings:
     excludes:
       - G306
       - G115
+  depguard:
+    rules:
+      store-no-derivation:
+        files:
+          - internal/store/**/*.go
+          - '!**/*_test.go'
+        deny:
+          - pkg: github.com/xdzczk/nostrmash/internal/derivation
+            desc: store must remain independent from derivation
+      query-no-transport:
+        files:
+          - internal/query/**/*.go
+          - '!**/*_test.go'
+        deny:
+          - pkg: github.com/xdzczk/nostrmash/internal/api
+            desc: query must stay transport-agnostic
+          - pkg: github.com/xdzczk/nostrmash/internal/api_primal
+            desc: query must stay transport-agnostic
+          - pkg: github.com/xdzczk/nostrmash/internal/transport
+            desc: query must stay transport-agnostic
+      api-no-primal:
+        files:
+          - internal/api/**/*.go
+          - '!**/*_test.go'
+        deny:
+          - pkg: github.com/xdzczk/nostrmash/internal/api_primal
+            desc: native API transport must not depend on primal transport
+      primal-no-api:
+        files:
+          - internal/api_primal/**/*.go
+          - '!**/*_test.go'
+        deny:
+          - pkg: github.com/xdzczk/nostrmash/internal/api
+            desc: primal transport must not depend on native API transport
 
 linters:
   disable-all: true
   enable:
     - errcheck
+    - depguard
     - gosec
     - govet
     - ineffassign
+    - misspell
     - revive
     - staticcheck
     - unused
+
+issues:
+  exclude-rules:
+    - linters:
+        - unused
+      path: internal/config/config\.go
+      text: "func `getEnvInt64` is unused"
+    - linters:
+        - unused
+      path: internal/api_primal/ws_gateway\.go
+      text: "func `WSGateway\\.resolveThreadViewDescending` is unused"

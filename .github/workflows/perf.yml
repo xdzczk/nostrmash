@@ -1,0 +1,131 @@
+name: Performance Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      bench_count:
+        description: "go test benchmark count per suite"
+        required: false
+        default: "5"
+      enforcement_mode:
+        description: "advisory or release_candidate"
+        required: false
+        default: "advisory"
+      baseline_run_id:
+        description: "Optional prior workflow run ID to compare against"
+        required: false
+        default: ""
+      baseline_artifact_name:
+        description: "Artifact name from baseline run (e.g. perf-snapshot-123)"
+        required: false
+        default: ""
+      regression_threshold_pct:
+        description: "Regression threshold percent for protected benchmarks"
+        required: false
+        default: "15"
+      fail_on_regression:
+        description: "Fail this run when regressions exceed threshold"
+        required: false
+        default: "false"
+
+jobs:
+  collect:
+    name: Collect and compare perf snapshot
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Collect benchmark snapshot
+        run: make perf-collect
+        env:
+          PERF_BENCH_COUNT: ${{ inputs.bench_count }}
+          PERF_COLLECT_SCOPE: protected
+          PERF_OUTPUT_BASE: benchmarks/history/ci/current
+          PERF_RUN_ID: current-${{ github.run_number }}-${{ github.sha }}
+
+      - name: Upload performance artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-snapshot-${{ github.run_number }}
+          path: benchmarks/history/ci/current/
+          retention-days: 30
+
+      - name: Download baseline artifact
+        if: ${{ inputs.baseline_run_id != '' && inputs.baseline_artifact_name != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.baseline_run_id }}
+          name: ${{ inputs.baseline_artifact_name }}
+          path: benchmarks/history/ci/baseline
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Compare protected benchmarks
+        id: compare
+        if: ${{ inputs.baseline_run_id != '' && inputs.baseline_artifact_name != '' }}
+        env:
+          REGRESSION_THRESHOLD_PCT: ${{ inputs.regression_threshold_pct }}
+          ENFORCEMENT_MODE: ${{ inputs.enforcement_mode }}
+          FAIL_ON_REGRESSION: 0
+        run: |
+          set -euo pipefail
+          BASELINE_DIR="$(python3 - <<'PY'
+          import pathlib
+          base = pathlib.Path("benchmarks/history/ci/baseline")
+          selected = None
+          for path in sorted(base.rglob("metadata.json")):
+              if path.parent.joinpath("benchmarks").is_dir():
+                  selected = path.parent
+                  break
+          print(selected if selected else "")
+          PY
+          )"
+          CURRENT_DIR="$(python3 - <<'PY'
+          import pathlib
+          base = pathlib.Path("benchmarks/history/ci/current")
+          selected = None
+          for path in sorted(base.rglob("metadata.json")):
+              if path.parent.joinpath("benchmarks").is_dir():
+                  selected = path.parent
+                  break
+          print(selected if selected else "")
+          PY
+          )"
+          if [ -z "${BASELINE_DIR}" ] || [ -z "${CURRENT_DIR}" ]; then
+            mkdir -p benchmarks/compare
+            cat > benchmarks/compare/protected-summary.md <<'EOF'
+          # Protected Benchmark Comparison
+
+          Baseline comparison was requested but baseline/current snapshot could not be resolved.
+          Run remains advisory unless explicit enforcement is configured and a valid baseline is provided.
+          EOF
+            cat > benchmarks/compare/protected-summary.json <<'EOF'
+          {"error":"missing baseline or current snapshot"}
+          EOF
+            echo "comparison_ready=false" >> "${GITHUB_OUTPUT}"
+            echo "regression_count=0" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          bash ./scripts/perf_protect_compare.sh "${BASELINE_DIR}" "${CURRENT_DIR}" benchmarks/compare
+
+      - name: Upload comparison report
+        if: ${{ inputs.baseline_run_id != '' && inputs.baseline_artifact_name != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-compare-${{ github.run_number }}
+          path: benchmarks/compare/
+          retention-days: 30
+
+      - name: Enforce regression threshold
+        if: ${{ inputs.enforcement_mode == 'release_candidate' && inputs.fail_on_regression == 'true' && steps.compare.outputs.comparison_ready == 'true' && steps.compare.outputs.regression_count != '0' }}
+        run: |
+          echo "Protected benchmark regressions exceeded threshold."
+          echo "See perf-compare artifact for details."
+          exit 1

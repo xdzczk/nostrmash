@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 )
 
 // CheckpointStore persists per-relay backfill progress.
@@ -124,7 +125,9 @@ func NewRunner(
 }
 
 // Run blocks until all configured relays complete or one fails.
-func (r *Runner) Run(ctx context.Context) error {
+func (r *Runner) Run(ctx context.Context) (err error) {
+	ctx, span := traceutil.StartSpan(ctx, "ingest.backfill.run")
+	defer func() { span.End(err) }()
 	for _, relayURL := range r.cfg.Relays {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -136,7 +139,9 @@ func (r *Runner) Run(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) runRelay(ctx context.Context, relayURL string) error {
+func (r *Runner) runRelay(ctx context.Context, relayURL string) (err error) {
+	ctx, span := traceutil.StartSpan(ctx, "ingest.backfill.run_relay", traceutil.KV("relay.url", relayURL))
+	defer func() { span.End(err) }()
 	checkpoint, err := r.ensureRunningCheckpoint(ctx, relayURL)
 	if err != nil {
 		return err
@@ -155,12 +160,14 @@ func (r *Runner) runRelay(ctx context.Context, relayURL string) error {
 			return r.markCompleted(ctx, checkpoint, cursor)
 		}
 
-		page, err := r.fetcher.FetchPage(ctx, relayURL, PageRequest{
+		fetchCtx, fetchSpan := traceutil.StartSpan(ctx, "ingest.backfill.fetch_page", traceutil.KV("relay.url", relayURL))
+		page, err := r.fetcher.FetchPage(fetchCtx, relayURL, PageRequest{
 			Kinds: r.cfg.Kinds,
 			Since: requestSince,
 			Until: r.cfg.Until,
 			Limit: r.cfg.PageLimit,
 		})
+		fetchSpan.End(err)
 		if err != nil {
 			_ = r.markFailed(ctx, checkpoint, cursor)
 			return fmt.Errorf("fetch page relay %s: %w", relayURL, err)

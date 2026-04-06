@@ -77,23 +77,23 @@ For a local multi-terminal workflow and replay mode, go straight to [docs/develo
 
 ## Quality Checks
 
-Use the local quality wrapper (mirrors CI):
+Contributor workflow (what to run before opening a PR) is documented in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Run the local CI-parity wrapper:
 
 ```bash
 make ci
 ```
 
-Run individual checks:
+Apply formatting/import-order fixes:
 
 ```bash
-make lint
-make test
-make test-race
-make cover
-make build
-make mod-verify
-make vulncheck
+make format
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the exact CI gate list and [docs/testing.md](docs/testing.md) for targeted fuzz/benchmark/coverage/race guidance.
+
+For repeatable load scenarios on API/worker/ingest/replay pressure paths, see [loadtest/README.md](loadtest/README.md).
 
 Integration test note:
 
@@ -121,10 +121,39 @@ make cover
 | --- | --- | --- |
 | New to the system | [docs/architecture.md](docs/architecture.md) | [docs/api.md](docs/api.md) |
 | Building locally | [docs/development.md](docs/development.md) | [docs/architecture.md](docs/architecture.md) |
+| Contributing changes safely | [CONTRIBUTING.md](CONTRIBUTING.md) | [docs/testing.md](docs/testing.md) |
 | Operating the stack | [docs/operations.md](docs/operations.md) | [docs/api.md](docs/api.md) |
+| Planning performance work | [docs/performance.md](docs/performance.md) | [docs/observability.md](docs/observability.md) |
 | Integrating with the API | [docs/api.md](docs/api.md) | [docs/openapi.yaml](docs/openapi.yaml) |
+| Planning schema changes | [docs/migrations.md](docs/migrations.md) | [RELEASE.md](RELEASE.md) |
+| Changing compatibility behavior | [docs/compatibility.md](docs/compatibility.md) | [VERSIONING.md](VERSIONING.md) |
 
 There is also a docs index at [docs/README.md](docs/README.md).
+
+## Contributor Journey
+
+If you are new and want the safest path from change to rollout:
+
+1. Start contribution workflow expectations in [CONTRIBUTING.md](CONTRIBUTING.md).
+2. Confirm architecture boundaries in [docs/architecture.md](docs/architecture.md) and [docs/architecture/orchestration-surfaces.md](docs/architecture/orchestration-surfaces.md).
+3. Validate locally using [docs/testing.md](docs/testing.md) (quality gates, race/coverage policy, contract drift).
+4. Check runtime/incident expectations in [docs/operations.md](docs/operations.md) and telemetry in [docs/observability.md](docs/observability.md).
+5. For perf-sensitive changes, use [docs/performance.md](docs/performance.md) and run benchmark/load-test evidence paths.
+6. For schema or external-behavior changes, follow [docs/migrations.md](docs/migrations.md), [docs/compatibility.md](docs/compatibility.md), [VERSIONING.md](VERSIONING.md), and [RELEASE.md](RELEASE.md).
+
+## Project Policies
+
+- Contributor workflow: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Security reporting: [SECURITY.md](SECURITY.md)
+- Dependency hygiene and update policy: [docs/security-dependencies.md](docs/security-dependencies.md)
+- Release flow: [RELEASE.md](RELEASE.md)
+- Release artifact security and verification: [docs/release-security.md](docs/release-security.md)
+- Versioning and tag contract: [VERSIONING.md](VERSIONING.md)
+- Migration safety guidance: [docs/migrations.md](docs/migrations.md)
+- Compatibility and deprecation policy: [docs/compatibility.md](docs/compatibility.md)
+- Changelog policy and generation: [CHANGELOG.md](CHANGELOG.md)
+
+Maintainer-owned policy confirmations (security contact, release perf strictness, compatibility-versioning edge rules) are called out inside `SECURITY.md`, `RELEASE.md`, and `VERSIONING.md`.
 
 ## Repository Layout
 

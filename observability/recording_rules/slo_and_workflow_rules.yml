@@ -1,0 +1,51 @@
+groups:
+  - name: nostrmash-slo-recording
+    interval: 30s
+    rules:
+      - record: nostrmash:api:requests:rate5m
+        expr: sum(rate(nostrmash_api_requests_total{path_template=~"/api/v1/.*|/primal/v1/.*"}[5m]))
+
+      - record: nostrmash:api:errors_5xx:rate5m
+        expr: sum(rate(nostrmash_api_requests_total{path_template=~"/api/v1/.*|/primal/v1/.*",status_code=~"5.."}[5m]))
+
+      - record: nostrmash:api:error_ratio5m
+        expr: nostrmash:api:errors_5xx:rate5m / clamp_min(nostrmash:api:requests:rate5m, 0.001)
+
+      - record: nostrmash:api:critical_path_latency_p95_seconds:5m
+        expr: histogram_quantile(0.95, sum by (le) (rate(nostrmash_api_request_duration_seconds_bucket{path_template=~"/api/v1/events/\\{id\\}|/api/v1/threads/\\{eventId\\}|/api/v1/profiles/\\{pubkey\\}|/api/v1/search"}[5m])))
+
+      - record: nostrmash:db_pool:max_open_usage_ratio
+        expr: max(nostrmash_db_pool_max_open_usage_ratio)
+
+      - record: nostrmash:db_pool:wait_rate5m
+        expr: sum(rate(nostrmash_db_pool_wait_count_total[5m]))
+
+      - record: nostrmash:worker:terminal_jobs_total:increase30m
+        expr: sum(increase(nostrmash_worker_jobs_total{outcome=~"succeeded|dead"}[30m]))
+
+      - record: nostrmash:worker:dead_ratio30m
+        expr: sum(increase(nostrmash_worker_jobs_total{outcome="dead"}[30m])) / clamp_min(nostrmash:worker:terminal_jobs_total:increase30m, 1)
+
+      - record: nostrmash:worker:retry_ratio15m
+        expr: sum(increase(nostrmash_worker_jobs_total{outcome="retry"}[15m])) / clamp_min(sum(increase(nostrmash_worker_jobs_total{outcome=~"succeeded|dead|retry"}[15m])), 1)
+
+      - record: nostrmash:queue:claim_errors_rate5m
+        expr: sum(rate(nostrmash_queue_operation_errors_total{operation="claim_available"}[5m]))
+
+      - record: nostrmash:ingest:valid_or_duplicate_rate30m
+        expr: sum(rate(nostrmash_ingest_events_total{outcome=~"valid|duplicate"}[30m]))
+
+      - record: nostrmash:ingest:checkpoint_freshness_seconds:max
+        expr: max(nostrmash_ingest_checkpoint_freshness_seconds{mode="live"})
+
+      - record: nostrmash:worker:queue_backlog_oldest_pending_age_seconds
+        expr: max(nostrmash_worker_queue_backlog_oldest_pending_age_seconds)
+
+      - record: nostrmash:rebuild:active_runs
+        expr: max(nostrmash_rebuild_runs_active)
+
+      - record: nostrmash:rebuild:active_oldest_age_seconds
+        expr: max(nostrmash_rebuild_active_oldest_age_seconds)
+
+      - record: nostrmash:rebuild:job_latency_p95_seconds:30m
+        expr: histogram_quantile(0.95, sum by (le) (rate(nostrmash_worker_job_execution_duration_seconds_bucket{job_type="rebuild_projection_scope"}[30m])))

@@ -126,3 +126,33 @@ func TestWithHTTPRateLimit_ExemptsHealthAndLimitsSearch(t *testing.T) {
 		t.Fatalf("unexpected second search status: got %d want %d", searchRec2.Code, http.StatusTooManyRequests)
 	}
 }
+
+func TestWithPanicRecovery_ReturnsInternalErrorEnvelope(t *testing.T) {
+	handler := WithRequestID(WithPanicRecovery(nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("boom")
+	})))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/1", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusInternalServerError)
+	}
+	var envelope struct {
+		Error struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if envelope.Error.Code != "internal_error" {
+		t.Fatalf("unexpected code: got %q", envelope.Error.Code)
+	}
+	if envelope.Error.RequestID == "" {
+		t.Fatalf("expected request id in error envelope")
+	}
+}

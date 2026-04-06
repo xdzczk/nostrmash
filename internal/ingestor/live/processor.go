@@ -12,6 +12,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 )
 
 // EventStore contains only the persistence methods needed by live ingest.
@@ -71,7 +72,13 @@ func (p *Processor) SetCheckpointWriter(writer CheckpointWriter) {
 	p.checkpointWriter = writer
 }
 
-func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte) error {
+func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte) (err error) {
+	ctx, span := traceutil.StartSpan(ctx, "ingest.live.handle_event",
+		traceutil.KV("relay.url", relayURL),
+	)
+	defer func() {
+		span.End(err)
+	}()
 	seenAt := time.Now().UTC()
 	result := nostr.ParseAndValidate(payload, p.validateOpts)
 	if result.Valid() {

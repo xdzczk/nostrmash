@@ -8,84 +8,125 @@ import (
 	"testing"
 )
 
-type expectedRoute struct {
-	Method string
-	Path   string
-}
-
-func TestOpenAPIAndRouterStayInSync(t *testing.T) {
+func TestOpenAPIContainsAllContractOwnedRoutes_OneWayPolicy(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve current test file path")
 	}
 	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
-	routerFile := filepath.Join(root, "cmd", "api", "main.go")
 	openapiFile := filepath.Join(root, "docs", "openapi.yaml")
-
-	routerSource, err := os.ReadFile(routerFile)
-	if err != nil {
-		t.Fatalf("read router source: %v", err)
-	}
 	openapiSource, err := os.ReadFile(openapiFile)
 	if err != nil {
 		t.Fatalf("read openapi source: %v", err)
 	}
 
-	expect := []expectedRoute{
-		{Method: "GET", Path: "/health"},
-		{Method: "GET", Path: "/ready"},
-		{Method: "GET", Path: "/metrics"},
-		{Method: "GET", Path: "/api/v1/events/{id}"},
-		{Method: "POST", Path: "/api/v1/events/batch"},
-		{Method: "GET", Path: "/api/v1/events/{id}/seen-on"},
-		{Method: "GET", Path: "/api/v1/profiles/{pubkey}"},
-		{Method: "POST", Path: "/api/v1/profiles/batch"},
-		{Method: "GET", Path: "/api/v1/authors/{pubkey}/events"},
-		{Method: "GET", Path: "/api/v1/authors/{pubkey}/replies"},
-		{Method: "GET", Path: "/api/v1/events/{id}/counts"},
-		{Method: "GET", Path: "/api/v1/events/{id}/replies"},
-		{Method: "GET", Path: "/api/v1/events/{id}/ancestors"},
-		{Method: "GET", Path: "/api/v1/threads/{eventId}"},
-		{Method: "GET", Path: "/api/v1/relays/health"},
-		{Method: "GET", Path: "/api/v1/contact-lists/{pubkey}"},
-		{Method: "GET", Path: "/api/v1/relay-lists/{pubkey}"},
-		{Method: "GET", Path: "/api/v1/search"},
-		{Method: "GET", Path: "/api/v1/users/{pubkey}/bookmarks"},
-		{Method: "GET", Path: "/api/v1/users/{pubkey}/highlights"},
-		{Method: "GET", Path: "/api/v1/users/{pubkey}/long-form"},
-		{Method: "GET", Path: "/api/v1/users/{pubkey}/zaps"},
-		{Method: "GET", Path: "/api/v1/users/{pubkey}/mentions"},
-		{Method: "GET", Path: "/api/v1/users/{pubkey}/followers"},
-		{Method: "GET", Path: "/primal/v1/events/{id}"},
-		{Method: "POST", Path: "/primal/v1/events/batch"},
-		{Method: "GET", Path: "/primal/v1/profiles/{pubkey}"},
-		{Method: "POST", Path: "/primal/v1/user_infos"},
-		{Method: "GET", Path: "/primal/v1/threads/{eventId}"},
-		{Method: "GET", Path: "/primal/v1/authors/{pubkey}/events"},
-		{Method: "GET", Path: "/primal/v1/authors/{pubkey}/replies"},
-		{Method: "GET", Path: "/primal/v1/events/{id}/actions"},
-		{Method: "GET", Path: "/primal/v1/contact-lists/{pubkey}"},
-		{Method: "GET", Path: "/primal/v1/relay-lists/{pubkey}"},
-		{Method: "GET", Path: "/primal/ws"},
-		{Method: "GET", Path: "/admin/v1/relays"},
-		{Method: "GET", Path: "/admin/v1/jobs"},
-		{Method: "GET", Path: "/admin/v1/invalid-events"},
-		{Method: "GET", Path: "/admin/v1/rebuilds"},
-		{Method: "POST", Path: "/admin/v1/rebuilds"},
-		{Method: "GET", Path: "/admin/v1/storage"},
-		{Method: "GET", Path: "/admin/v1/system"},
-		{Method: "GET", Path: "/admin/v1/derivation-versions"},
-	}
+	openapiMethods := parseOpenAPIPathMethods(string(openapiSource))
+	defs := contractOwnedRoutes()
+	seen := map[string]struct{}{}
+	for _, def := range defs {
+		if !def.OwnsContract {
+			continue
+		}
+		pattern := strings.TrimSpace(def.Pattern)
+		if _, ok := seen[pattern]; ok {
+			t.Fatalf("duplicate route definition: %s", pattern)
+		}
+		seen[pattern] = struct{}{}
 
-	routerText := string(routerSource)
-	openapiText := string(openapiSource)
-	for _, route := range expect {
-		routerNeedle := `"` + route.Method + " " + route.Path + `"`
-		if !strings.Contains(routerText, routerNeedle) {
-			t.Fatalf("router missing route registration %s %s", route.Method, route.Path)
+		method, path, ok := strings.Cut(pattern, " ")
+		if !ok || strings.TrimSpace(path) == "" {
+			t.Fatalf("invalid route pattern %q", pattern)
 		}
-		if !strings.Contains(openapiText, "\n  "+route.Path+":") {
-			t.Fatalf("openapi missing path %s", route.Path)
+		if !openAPIHasPathMethod(openapiMethods, path, method) {
+			t.Fatalf("openapi missing %s %s", method, path)
 		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("no contract-owned routes declared")
+	}
+}
+
+func TestParseOpenAPIPathMethods_ExtractsPathMethods(t *testing.T) {
+	source := `openapi: 3.0.3
+paths:
+  /alpha:
+    get:
+      summary: alpha
+  /beta:
+    post:
+      summary: beta
+components:
+  schemas: {}
+`
+	got := parseOpenAPIPathMethods(source)
+	if !openAPIHasPathMethod(got, "/alpha", "GET") {
+		t.Fatal("expected /alpha GET to be present")
+	}
+	if !openAPIHasPathMethod(got, "/beta", "POST") {
+		t.Fatal("expected /beta POST to be present")
+	}
+	if openAPIHasPathMethod(got, "/beta", "GET") {
+		t.Fatal("did not expect /beta GET")
+	}
+}
+
+func openAPIHasPathMethod(methodsByPath map[string]map[string]struct{}, path, method string) bool {
+	methods, ok := methodsByPath[path]
+	if !ok {
+		return false
+	}
+	_, ok = methods[strings.ToLower(strings.TrimSpace(method))]
+	return ok
+}
+
+func parseOpenAPIPathMethods(source string) map[string]map[string]struct{} {
+	lines := strings.Split(source, "\n")
+	methodsByPath := make(map[string]map[string]struct{})
+
+	inPaths := false
+	currentPath := ""
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		if !inPaths {
+			if trimmed == "paths:" {
+				inPaths = true
+			}
+			continue
+		}
+
+		if !strings.HasPrefix(line, "  ") {
+			break
+		}
+
+		if strings.HasPrefix(line, "  /") && strings.HasSuffix(trimmed, ":") {
+			currentPath = strings.TrimSuffix(trimmed, ":")
+			if _, ok := methodsByPath[currentPath]; !ok {
+				methodsByPath[currentPath] = make(map[string]struct{})
+			}
+			continue
+		}
+
+		if currentPath == "" || !strings.HasPrefix(line, "    ") || !strings.HasSuffix(trimmed, ":") {
+			continue
+		}
+
+		maybeMethod := strings.ToLower(strings.TrimSuffix(trimmed, ":"))
+		if isHTTPMethod(maybeMethod) {
+			methodsByPath[currentPath][maybeMethod] = struct{}{}
+		}
+	}
+	return methodsByPath
+}
+
+func isHTTPMethod(value string) bool {
+	switch value {
+	case "get", "post", "put", "patch", "delete", "head", "options", "trace":
+		return true
+	default:
+		return false
 	}
 }

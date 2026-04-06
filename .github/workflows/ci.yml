@@ -25,7 +25,6 @@ jobs:
           --health-retries 10
 
     env:
-      GO_VERSION: "1.23"
       TEST_DATABASE_URL: postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
 
     steps:
@@ -35,7 +34,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - name: Wait for Postgres
@@ -47,17 +46,17 @@ jobs:
           echo "Postgres did not become healthy in time"
           exit 1
 
+      - name: Verify gofmt and import ordering
+        run: make fmt-check imports-check
+
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: v1.64.8
-          args: --config .golangci.yml
+        run: make lint
 
       - name: Verify module dependencies
         run: go mod verify
 
       - name: Run vulnerability check
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: make vulncheck
 
       - name: Run tests with coverage profile
         run: go test -covermode=atomic -coverprofile=coverage.out ./...
@@ -65,11 +64,23 @@ jobs:
       - name: Summarize coverage
         run: go tool cover -func=coverage.out | tee coverage-summary.txt
 
-      - name: Run race tests for concurrency-critical packages
-        run: go test -race ./internal/jobs ./internal/store ./internal/ingestor/...
+      - name: Enforce risk-focused coverage policy
+        run: make coverage-policy
+
+      - name: Run race policy suite
+        run: make test-race-policy
+
+      - name: Verify route contract drift
+        run: make contract-drift
+
+      - name: Validate Prometheus rules
+        run: make rules-check
+
+      - name: Verify configuration docs are up to date
+        run: make configdoc-check
 
       - name: Build binaries
-        run: go build ./cmd/api ./cmd/ingestor ./cmd/worker
+        run: make build
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4

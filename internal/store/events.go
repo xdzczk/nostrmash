@@ -12,13 +12,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/xdzczk/nostrmash/internal/derivation"
+	"github.com/xdzczk/nostrmash/internal/jobs"
+	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 )
 
 // PostgresStore persists Layer 1 ingest records into Postgres.
 type PostgresStore struct {
-	pool *pgxpool.Pool
+	pool         *pgxpool.Pool
+	jobPublisher jobs.CanonicalEventPublisher
 }
 
 // CanonicalInsertResult exposes idempotent upsert outcomes for metrics.
@@ -29,7 +32,18 @@ type CanonicalInsertResult struct {
 var ErrNotFound = errors.New("not found")
 
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
-	return &PostgresStore{pool: pool}
+	return &PostgresStore{
+		pool:         pool,
+		jobPublisher: jobs.NewQueuePublisher(5),
+	}
+}
+
+// SetCanonicalEventJobPublisher overrides canonical-event downstream publication.
+func (s *PostgresStore) SetCanonicalEventJobPublisher(publisher jobs.CanonicalEventPublisher) {
+	if s == nil {
+		return
+	}
+	s.jobPublisher = publisher
 }
 
 // InsertCanonicalEvent stores a canonical event, its expanded tags, and relay provenance.
@@ -52,8 +66,13 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 	tags [][]string,
 	relayURL string,
 	relaySeenAt time.Time,
-) (CanonicalInsertResult, error) {
-	outcome := CanonicalInsertResult{}
+) (outcome CanonicalInsertResult, err error) {
+	started := time.Now()
+	ctx, span := traceutil.StartSpan(ctx, "store.insert_canonical_event")
+	defer func() {
+		span.End(err)
+		metrics.ObserveDBOperation("insert_canonical_event", dbResultFromErr(err), time.Since(started))
+	}()
 	if s == nil || s.pool == nil {
 		return outcome, fmt.Errorf("store is not initialized")
 	}
@@ -143,13 +162,10 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 	}
 
 	if outcome.EventInserted {
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeDeriveEventBundle, event.ID); err != nil {
-			return outcome, err
+		if s.jobPublisher == nil {
+			return outcome, fmt.Errorf("canonical event job publisher is not configured")
 		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeUpdateThreadProjection, event.ID); err != nil {
-			return outcome, err
-		}
-		if err := enqueueDerivationJobTx(ctx, tx, derivation.JobTypeRepairUnresolvedRefs, event.ID); err != nil {
+		if err := s.jobPublisher.PublishCanonicalEventJobsTx(ctx, tx, event.ID); err != nil {
 			return outcome, err
 		}
 	}
@@ -160,34 +176,14 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 	return outcome, nil
 }
 
-func enqueueDerivationJobTx(ctx context.Context, tx pgx.Tx, jobType, eventID string) error {
-	payload, err := json.Marshal(map[string]string{
-		"event_id": eventID,
-	})
-	if err != nil {
-		return fmt.Errorf("encode %s payload for event %s: %w", jobType, eventID, err)
-	}
-	idempotencyKey := fmt.Sprintf("%s:%s", jobType, eventID)
-
-	_, err = tx.Exec(ctx, `
-		INSERT INTO jobs (job_type, payload, idempotency_key, max_attempts, run_after)
-		VALUES ($1, $2, $3, $4, now())
-		ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
-		DO NOTHING
-	`,
-		jobType,
-		json.RawMessage(payload),
-		idempotencyKey,
-		5,
-	)
-	if err != nil {
-		return fmt.Errorf("enqueue %s for event %s: %w", jobType, eventID, err)
-	}
-	return nil
-}
-
 // GetEventRawByID returns the canonical Layer 1 event JSON by id.
-func (s *PostgresStore) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
+func (s *PostgresStore) GetEventRawByID(ctx context.Context, id string) (rawJSON json.RawMessage, err error) {
+	started := time.Now()
+	ctx, span := traceutil.StartSpan(ctx, "store.get_event_raw_by_id")
+	defer func() {
+		span.End(err)
+		metrics.ObserveDBOperation("get_event_raw_by_id", dbResultFromErr(err), time.Since(started))
+	}()
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -197,7 +193,7 @@ func (s *PostgresStore) GetEventRawByID(ctx context.Context, id string) (json.Ra
 	}
 
 	var raw string
-	err := s.pool.QueryRow(ctx, `
+	err = s.pool.QueryRow(ctx, `
 		SELECT raw_json::text
 		FROM events
 		WHERE id = $1
@@ -338,8 +334,13 @@ type EventOrderCursor struct {
 }
 
 // GetProfileByPubkey fetches the latest projected profile for one pubkey.
-func (s *PostgresStore) GetProfileByPubkey(ctx context.Context, pubkey string) (ProfileProjection, error) {
-	out := ProfileProjection{}
+func (s *PostgresStore) GetProfileByPubkey(ctx context.Context, pubkey string) (out ProfileProjection, err error) {
+	started := time.Now()
+	ctx, span := traceutil.StartSpan(ctx, "store.get_profile_by_pubkey")
+	defer func() {
+		span.End(err)
+		metrics.ObserveDBOperation("get_profile_by_pubkey", dbResultFromErr(err), time.Since(started))
+	}()
 	if s == nil || s.pool == nil {
 		return out, fmt.Errorf("store is not initialized")
 	}
@@ -349,7 +350,7 @@ func (s *PostgresStore) GetProfileByPubkey(ctx context.Context, pubkey string) (
 	}
 
 	var profileText string
-	err := s.pool.QueryRow(ctx, `
+	err = s.pool.QueryRow(ctx, `
 		SELECT pubkey, metadata_event_id, metadata_created_at, profile_json::text
 		FROM profiles_latest
 		WHERE pubkey = $1
@@ -548,7 +549,13 @@ func (s *PostgresStore) GetEventReplies(
 	eventID string,
 	limit int,
 	cursor *EventOrderCursor,
-) ([]json.RawMessage, *EventOrderCursor, error) {
+) (events []json.RawMessage, nextCursor *EventOrderCursor, err error) {
+	started := time.Now()
+	ctx, span := traceutil.StartSpan(ctx, "store.get_event_replies")
+	defer func() {
+		span.End(err)
+		metrics.ObserveDBOperation("get_event_replies", dbResultFromErr(err), time.Since(started))
+	}()
 	if s == nil || s.pool == nil {
 		return nil, nil, fmt.Errorf("store is not initialized")
 	}
@@ -619,12 +626,12 @@ func (s *PostgresStore) GetEventReplies(
 	if hasMore {
 		rowsOut = rowsOut[:limit]
 	}
-	events := make([]json.RawMessage, 0, len(rowsOut))
+	events = make([]json.RawMessage, 0, len(rowsOut))
 	for _, row := range rowsOut {
 		events = append(events, json.RawMessage(row.raw))
 	}
 
-	var nextCursor *EventOrderCursor
+	nextCursor = nil
 	if hasMore && len(rowsOut) > 0 {
 		last := rowsOut[len(rowsOut)-1]
 		nextCursor = &EventOrderCursor{
@@ -640,7 +647,13 @@ func (s *PostgresStore) GetEventAncestors(
 	ctx context.Context,
 	eventID string,
 	maxDepth int,
-) ([]json.RawMessage, []string, error) {
+) (ancestors []json.RawMessage, missingIDs []string, err error) {
+	started := time.Now()
+	ctx, span := traceutil.StartSpan(ctx, "store.get_event_ancestors")
+	defer func() {
+		span.End(err)
+		metrics.ObserveDBOperation("get_event_ancestors", dbResultFromErr(err), time.Since(started))
+	}()
 	if s == nil || s.pool == nil {
 		return nil, nil, fmt.Errorf("store is not initialized")
 	}
@@ -705,7 +718,7 @@ func (s *PostgresStore) GetEventAncestors(
 		return nil, nil, err
 	}
 
-	ancestors := make([]json.RawMessage, 0, len(ancestorIDs))
+	ancestors = make([]json.RawMessage, 0, len(ancestorIDs))
 	for i := len(ancestorIDs) - 1; i >= 0; i-- {
 		ancestorID := ancestorIDs[i]
 		raw, ok := foundByID[ancestorID]
@@ -715,7 +728,7 @@ func (s *PostgresStore) GetEventAncestors(
 		}
 		ancestors = append(ancestors, raw)
 	}
-	missingIDs := make([]string, 0, len(missingSet))
+	missingIDs = make([]string, 0, len(missingSet))
 	for id := range missingSet {
 		missingIDs = append(missingIDs, id)
 	}
@@ -765,6 +778,23 @@ func (s *PostgresStore) eventExists(ctx context.Context, eventID string) (bool, 
 		return false, fmt.Errorf("check event existence: %w", err)
 	}
 	return exists, nil
+}
+
+func dbResultFromErr(err error) string {
+	if err == nil {
+		return "ok"
+	}
+	if errors.Is(err, ErrNotFound) {
+		return "not_found"
+	}
+	return "error"
+}
+
+func queueResultFromErr(err error) string {
+	if err == nil {
+		return "ok"
+	}
+	return "error"
 }
 
 // ListRelayHealth returns the latest persisted checkpoint rows per relay/mode/filter_group.
@@ -817,7 +847,13 @@ func (s *PostgresStore) ListRelayHealth(ctx context.Context) ([]model.IngestChec
 
 // ExpandEventTags deterministically expands raw Nostr tags into event_tags rows.
 func ExpandEventTags(eventID string, tags [][]string) []model.EventTag {
-	out := make([]model.EventTag, 0)
+	totalValues := 0
+	for _, tag := range tags {
+		if len(tag) > 1 {
+			totalValues += len(tag) - 1
+		}
+	}
+	out := make([]model.EventTag, 0, totalValues)
 	for tagIndex, tag := range tags {
 		if len(tag) == 0 {
 			continue

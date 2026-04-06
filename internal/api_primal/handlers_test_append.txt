@@ -1,0 +1,66 @@
+func TestPrimalBatchUserInfosEndpoint(t *testing.T) {
+	handlers := NewHandlers(fakeEventReader{
+		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+			return map[string]store.ProfileProjection{
+				pubkeys[0]: {
+					Pubkey:            pubkeys[0],
+					MetadataEventID:   "evt_meta",
+					MetadataCreatedAt: 1700000001,
+					ProfileJSON:       json.RawMessage(`{"name":"alice"}`),
+				},
+			}, nil
+		},
+	}, 10)
+	req := httptest.NewRequest(http.MethodPost, "/primal/v1/user_infos", strings.NewReader(`{"pubkeys":["pk1","pk2"]}`))
+	rec := httptest.NewRecorder()
+	handlers.BatchGetUserInfos(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got=%d want=%d", rec.Code, http.StatusOK)
+	}
+	var resp struct {
+		Profiles       []any    `json:"profiles"`
+		MissingPubkeys []string `json:"missing_pubkeys"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Profiles) != 1 || len(resp.MissingPubkeys) != 1 || resp.MissingPubkeys[0] != "pk2" {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+}
+
+func buildSignedAuthEvent(t *testing.T) map[string]any {
+	return buildSignedAuthEventAt(t, time.Now().Unix())
+}
+
+func buildSignedAuthEventAt(t *testing.T, createdAt int64) map[string]any {
+	t.Helper()
+	priv, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("new private key: %v", err)
+	}
+	pubkey := hex.EncodeToString(schnorr.SerializePubKey(priv.PubKey()))
+	kind := 27235
+	tags := [][]string{{"t", "dm_reset"}}
+	content := "reset dm counters"
+	canonical, err := json.Marshal([]any{0, pubkey, createdAt, kind, tags, content})
+	if err != nil {
+		t.Fatalf("marshal canonical auth event: %v", err)
+	}
+	sum := sha256.Sum256(canonical)
+	id := hex.EncodeToString(sum[:])
+	sig, err := schnorr.Sign(priv, sum[:])
+	if err != nil {
+		t.Fatalf("sign auth event: %v", err)
+	}
+	return map[string]any{
+		"id":         id,
+		"pubkey":     pubkey,
+		"created_at": createdAt,
+		"kind":       kind,
+		"tags":       tags,
+		"content":    content,
+		"sig":        hex.EncodeToString(sig.Serialize()),
+	}
+}
+

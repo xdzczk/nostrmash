@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,6 +14,9 @@ import (
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/store/failure"
+	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/transport/httpx"
 )
 
 // Health is a liveness probe: process is up; no dependency checks.
@@ -44,14 +46,21 @@ type EventReader = query.Reader
 
 type Handlers struct {
 	store        EventReader
+	service      query.Service
 	maxBatchSize int
 }
+
+var apiErrLog = logging.New("api")
 
 func NewHandlers(store EventReader, maxBatchSize int) Handlers {
 	if maxBatchSize <= 0 {
 		maxBatchSize = 200
 	}
-	return Handlers{store: store, maxBatchSize: maxBatchSize}
+	return Handlers{
+		store:        store,
+		service:      query.NewService(store),
+		maxBatchSize: maxBatchSize,
+	}
 }
 
 func (h Handlers) GetEventByID(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +147,7 @@ func (h Handlers) BatchGetEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	foundByID, err := h.store.GetEventRawsByIDs(r.Context(), normalizedIDs)
+	foundByID, err := h.service.GetEvents(r.Context(), normalizedIDs)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
@@ -212,7 +221,7 @@ func (h Handlers) GetProfileByPubkey(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
 	}
-	profile, err := h.store.GetProfileByPubkey(r.Context(), pubkey)
+	profile, err := h.service.GetProfile(r.Context(), pubkey)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "profile not found")
@@ -276,22 +285,17 @@ func (h Handlers) BatchGetProfiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	foundByPubkey, err := h.store.GetProfilesByPubkeys(r.Context(), normalizedPubkeys)
+	profiles, err := h.service.GetProfiles(r.Context(), normalizedPubkeys)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 
 	resp := batchProfilesResponse{
-		Profiles:       make([]profileResponse, 0, len(foundByPubkey)),
-		MissingPubkeys: make([]string, 0),
+		Profiles:       make([]profileResponse, 0, len(profiles.Profiles)),
+		MissingPubkeys: append([]string(nil), profiles.MissingPubkeys...),
 	}
-	for _, pubkey := range normalizedPubkeys {
-		profile, ok := foundByPubkey[pubkey]
-		if !ok {
-			resp.MissingPubkeys = append(resp.MissingPubkeys, pubkey)
-			continue
-		}
+	for _, profile := range profiles.Profiles {
 		resp.Profiles = append(resp.Profiles, profileResponse{
 			Pubkey:            profile.Pubkey,
 			MetadataEventID:   profile.MetadataEventID,
@@ -315,7 +319,7 @@ func (h Handlers) GetAuthorEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	events, err := h.store.GetAuthorRecentEvents(r.Context(), pubkey, limit)
+	events, err := h.service.GetAuthorEvents(r.Context(), pubkey, limit)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
@@ -338,7 +342,7 @@ func (h Handlers) GetAuthorReplies(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	replies, err := h.store.GetAuthorReplies(r.Context(), pubkey, limit)
+	replies, err := h.service.GetAuthorReplies(r.Context(), pubkey, limit)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
@@ -449,16 +453,6 @@ func (h Handlers) GetThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, err := h.store.GetEventRawByID(r.Context(), eventID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
-			return
-		}
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -474,31 +468,33 @@ func (h Handlers) GetThread(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_cursor", "cursor is malformed")
 		return
 	}
-
-	ancestors, missing, err := h.store.GetEventAncestors(r.Context(), eventID, maxDepth)
+	thread, err := h.service.GetThread(r.Context(), query.ThreadRequest{
+		EventID:  eventID,
+		Limit:    limit,
+		MaxDepth: maxDepth,
+		Cursor:   cursor,
+	})
+	if err != nil {
+		if errors.Is(err, query.ErrThreadEventNotFound) {
+			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	nextCursor, err := encodeEventCursor(thread.NextCursor)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	replies, next, err := h.store.GetEventReplies(r.Context(), eventID, limit, cursor)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-	nextCursor, err := encodeEventCursor(next)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-
 	writeJSON(w, http.StatusOK, map[string]any{
 		"event_id":             eventID,
-		"event":                raw,
-		"ancestors":            ancestors,
-		"missing_ancestor_ids": missing,
-		"replies":              replies,
+		"event":                thread.Event,
+		"ancestors":            thread.Ancestors,
+		"missing_ancestor_ids": thread.MissingAncestorIDs,
+		"replies":              thread.Replies,
 		"next_cursor":          nextCursor,
-		"consistency":          "eventual",
+		"consistency":          thread.Consistency,
 	})
 }
 
@@ -542,7 +538,7 @@ func (h Handlers) GetContactList(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
 	}
-	contactList, err := h.store.GetContactListByPubkey(r.Context(), pubkey)
+	contactList, err := h.service.GetContactList(r.Context(), pubkey)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "contact list not found")
@@ -568,7 +564,7 @@ func (h Handlers) GetRelayList(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
 	}
-	relayList, err := h.store.GetRelayListByPubkey(r.Context(), pubkey)
+	relayList, err := h.service.GetRelayList(r.Context(), pubkey)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "relay list not found")
@@ -751,7 +747,7 @@ func (h Handlers) getKindScopedEvents(w http.ResponseWriter, r *http.Request, ki
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	items, err := h.store.GetRecentEventsByKindAndPubkey(r.Context(), kind, pubkey, limit)
+	items, err := h.service.GetRecentEventsByKindAndPubkey(r.Context(), kind, pubkey, limit)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
@@ -774,6 +770,15 @@ type apiErrorBody struct {
 }
 
 func writeError(ctx context.Context, w http.ResponseWriter, status int, code, message string) {
+	class := failure.ClassifyHTTP(status, code)
+	logging.WithRequestID(ctx, apiErrLog).Info("api_error_response",
+		"failure_class", class.Class,
+		"failure_reason", class.Reason,
+		"status", status,
+		"code", code,
+		"request_id", logging.RequestIDFromContext(ctx),
+		"trace_id", traceutil.TraceID(ctx),
+	)
 	writeJSON(w, status, apiErrorEnvelope{
 		Error: apiErrorBody{
 			Code:      code,
@@ -808,34 +813,19 @@ func encodeEventCursor(cursor *store.EventOrderCursor) (string, error) {
 	if cursor == nil {
 		return "", nil
 	}
-	payload, err := json.Marshal(map[string]any{
-		"created_at": cursor.CreatedAt,
-		"id":         cursor.ID,
+	return httpx.EncodeEventCursorPayload(httpx.EventCursorPayload{
+		CreatedAt: cursor.CreatedAt,
+		ID:        cursor.ID,
 	})
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
 func decodeEventCursor(value string) (*store.EventOrderCursor, error) {
-	if strings.TrimSpace(value) == "" {
-		return nil, nil
-	}
-	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	payload, err := httpx.DecodeEventCursorPayload(value)
 	if err != nil {
 		return nil, err
 	}
-	var payload struct {
-		CreatedAt int64  `json:"created_at"`
-		ID        string `json:"id"`
-	}
-	if err := json.Unmarshal(decoded, &payload); err != nil {
-		return nil, err
-	}
-	payload.ID = strings.TrimSpace(payload.ID)
-	if payload.ID == "" {
-		return nil, errors.New("cursor id is required")
+	if payload == nil {
+		return nil, nil
 	}
 	return &store.EventOrderCursor{
 		CreatedAt: payload.CreatedAt,

@@ -79,7 +79,7 @@ func TestRunClaimLoop_ProcessesJobsConcurrently(t *testing.T) {
 		2,
 		5*time.Millisecond,
 		5*time.Millisecond,
-		func(job jobs.Job) error {
+		func(_ context.Context, job jobs.Job) error {
 			_ = job
 			current := atomic.AddInt64(&active, 1)
 			for {
@@ -129,7 +129,7 @@ func TestRunClaimLoop_DrainsQueuedJobsAfterShutdownSignal(t *testing.T) {
 		1,
 		5*time.Millisecond,
 		5*time.Millisecond,
-		func(job jobs.Job) error {
+		func(_ context.Context, job jobs.Job) error {
 			_ = job
 			time.Sleep(15 * time.Millisecond)
 			return nil
@@ -140,5 +140,37 @@ func TestRunClaimLoop_DrainsQueuedJobsAfterShutdownSignal(t *testing.T) {
 	defer queue.mu.Unlock()
 	if len(queue.completedIDs) != 3 {
 		t.Fatalf("expected queued jobs to drain after shutdown, got %d completed", len(queue.completedIDs))
+	}
+}
+
+func TestRunClaimLoop_RecoversFromPanicAndFailsJob(t *testing.T) {
+	queue := &fakeWorkerQueue{
+		claimBatches: [][]jobs.Job{
+			{
+				{ID: 99, JobType: "derive", Payload: json.RawMessage(`{}`)},
+			},
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+
+	runClaimLoop(
+		ctx,
+		fakeWorkerLogger{},
+		queue,
+		"worker-a",
+		1,
+		1,
+		5*time.Millisecond,
+		5*time.Millisecond,
+		func(_ context.Context, _ jobs.Job) error {
+			panic("job panic")
+		},
+	)
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	if len(queue.failedIDs) != 1 || queue.failedIDs[0] != 99 {
+		t.Fatalf("expected panicing job to be failed, failed ids=%v", queue.failedIDs)
 	}
 }

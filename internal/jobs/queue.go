@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 const (
@@ -62,7 +63,11 @@ func NewQueue(pool *pgxpool.Pool) *Queue {
 	return &Queue{pool: pool}
 }
 
-func (q *Queue) Enqueue(ctx context.Context, params EnqueueParams) (*Job, error) {
+func (q *Queue) Enqueue(ctx context.Context, params EnqueueParams) (job *Job, err error) {
+	started := time.Now()
+	defer func() {
+		metrics.ObserveQueueOperation("enqueue", queueResultFromErr(err), time.Since(started))
+	}()
 	if q == nil || q.pool == nil {
 		return nil, fmt.Errorf("queue is not initialized")
 	}
@@ -107,14 +112,18 @@ func (q *Queue) Enqueue(ctx context.Context, params EnqueueParams) (*Job, error)
 		runAfter,
 	)
 
-	job, err := scanJobRow(row)
+	job, err = scanJobRow(row)
 	if err != nil {
 		return nil, fmt.Errorf("enqueue job: %w", err)
 	}
 	return job, nil
 }
 
-func (q *Queue) ClaimAvailable(ctx context.Context, workerID string, limit int) ([]Job, error) {
+func (q *Queue) ClaimAvailable(ctx context.Context, workerID string, limit int) (out []Job, err error) {
+	started := time.Now()
+	defer func() {
+		metrics.ObserveQueueOperation("claim_available", queueResultFromErr(err), time.Since(started))
+	}()
 	if q == nil || q.pool == nil {
 		return nil, fmt.Errorf("queue is not initialized")
 	}
@@ -168,7 +177,7 @@ func (q *Queue) ClaimAvailable(ctx context.Context, workerID string, limit int) 
 	}
 	defer rows.Close()
 
-	out := make([]Job, 0, limit)
+	out = make([]Job, 0, limit)
 	for rows.Next() {
 		job, err := scanJob(rows)
 		if err != nil {
@@ -186,7 +195,11 @@ func (q *Queue) ClaimAvailable(ctx context.Context, workerID string, limit int) 
 	return out, nil
 }
 
-func (q *Queue) CompleteJob(ctx context.Context, jobID int64, workerID string) error {
+func (q *Queue) CompleteJob(ctx context.Context, jobID int64, workerID string) (err error) {
+	started := time.Now()
+	defer func() {
+		metrics.ObserveQueueOperation("complete_job", queueResultFromErr(err), time.Since(started))
+	}()
 	if q == nil || q.pool == nil {
 		return fmt.Errorf("queue is not initialized")
 	}
@@ -226,8 +239,12 @@ func (q *Queue) FailJob(
 	workerID string,
 	lastError string,
 	retryAfter time.Duration,
-) (FailureResult, error) {
-	result := FailureResult{}
+) (result FailureResult, err error) {
+	result = FailureResult{}
+	started := time.Now()
+	defer func() {
+		metrics.ObserveQueueOperation("fail_job", queueResultFromErr(err), time.Since(started))
+	}()
 	if q == nil || q.pool == nil {
 		return result, fmt.Errorf("queue is not initialized")
 	}
@@ -368,4 +385,17 @@ func scanJob(row rowScanner) (Job, error) {
 	}
 	job.Payload = append(json.RawMessage(nil), payloadBytes...)
 	return job, nil
+}
+
+func queueResultFromErr(err error) string {
+	if err == nil {
+		return "ok"
+	}
+	if errors.Is(err, ErrJobNotOwned) {
+		return "not_owned"
+	}
+	if errors.Is(err, ErrNotFound) {
+		return "not_found"
+	}
+	return "error"
 }

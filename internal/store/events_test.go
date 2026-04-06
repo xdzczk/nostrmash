@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/derivation"
+	"github.com/xdzczk/nostrmash/internal/jobs"
 	"github.com/xdzczk/nostrmash/internal/model"
 )
 
@@ -392,9 +393,9 @@ func TestInsertCanonicalEventEnqueuesDerivationJobsOnce(t *testing.T) {
 		t.Fatalf("expected 3 derivation jobs, got %d", len(got))
 	}
 	expected := map[string]string{
-		"derive_event_bundle":          "derive_event_bundle:event_enqueue_1",
-		"repair_unresolved_references": "repair_unresolved_references:event_enqueue_1",
-		"update_thread_projection":     "update_thread_projection:event_enqueue_1",
+		jobs.JobTypeDeriveEventBundle:      jobs.JobTypeDeriveEventBundle + ":event_enqueue_1",
+		jobs.JobTypeRepairUnresolvedRefs:   jobs.JobTypeRepairUnresolvedRefs + ":event_enqueue_1",
+		jobs.JobTypeUpdateThreadProjection: jobs.JobTypeUpdateThreadProjection + ":event_enqueue_1",
 	}
 	for _, row := range got {
 		key, ok := expected[row.jobType]

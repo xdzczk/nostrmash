@@ -1,0 +1,9 @@
+{
+  "run_id": "20260406T052232Z-main-cb0bd18",
+  "collected_at_utc": "20260406T052232Z",
+  "git_sha": "cb0bd18",
+  "ref_name": "main",
+  "bench_count": 5,
+  "skip_benchmarks": 1,
+  "include_loadtest": 0
+}

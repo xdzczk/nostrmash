@@ -1,4 +1,4 @@
-package jobs
+package jobs_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/xdzczk/nostrmash/internal/jobs"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/testutil/dbtest"
 )
@@ -19,10 +20,10 @@ func TestClaimAvailableConcurrentWorkersNoDoubleClaim(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	queue := NewQueue(pool)
+	queue := jobs.NewQueue(pool)
 	now := time.Now().UTC()
 	for i := 0; i < 3; i++ {
-		_, err := queue.Enqueue(ctx, EnqueueParams{
+		_, err := queue.Enqueue(ctx, jobs.EnqueueParams{
 			JobType:     "derive_profile",
 			Payload:     []byte(`{"event_id":"abc"}`),
 			RunAfter:    now,
@@ -34,7 +35,7 @@ func TestClaimAvailableConcurrentWorkersNoDoubleClaim(t *testing.T) {
 	}
 
 	type claimResult struct {
-		jobs []Job
+		jobs []jobs.Job
 		err  error
 	}
 	results := make(chan claimResult, 2)
@@ -90,8 +91,8 @@ func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	queue := NewQueue(pool)
-	job, err := queue.Enqueue(ctx, EnqueueParams{
+	queue := jobs.NewQueue(pool)
+	job, err := queue.Enqueue(ctx, jobs.EnqueueParams{
 		JobType:     "derive_profile",
 		Payload:     []byte(`{"event_id":"abc"}`),
 		MaxAttempts: 2,
@@ -113,7 +114,7 @@ func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first failure mark: %v", err)
 	}
-	if firstFailure.Status != StatusPending || firstFailure.Attempts != 1 {
+	if firstFailure.Status != jobs.StatusPending || firstFailure.Attempts != 1 {
 		t.Fatalf("unexpected first failure result: %+v", firstFailure)
 	}
 
@@ -139,8 +140,8 @@ func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second failure mark: %v", err)
 	}
-	if secondFailure.Status != StatusDead {
-		t.Fatalf("expected dead-letter status %q, got %q", StatusDead, secondFailure.Status)
+	if secondFailure.Status != jobs.StatusDead {
+		t.Fatalf("expected dead-letter status %q, got %q", jobs.StatusDead, secondFailure.Status)
 	}
 	if secondFailure.Attempts != 2 {
 		t.Fatalf("expected attempts=2 after dead-letter, got %d", secondFailure.Attempts)
@@ -158,8 +159,8 @@ func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load dead-lettered job: %v", err)
 	}
-	if stored.Status != StatusDead {
-		t.Fatalf("expected stored status %q, got %q", StatusDead, stored.Status)
+	if stored.Status != jobs.StatusDead {
+		t.Fatalf("expected stored status %q, got %q", jobs.StatusDead, stored.Status)
 	}
 	if stored.LastError == nil || *stored.LastError != "permanent failure" {
 		t.Fatalf("expected last_error to persist permanent failure, got %v", stored.LastError)

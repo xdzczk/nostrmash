@@ -12,15 +12,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xdzczk/nostrmash/internal/jobs"
 )
 
 type Handlers struct {
 	pool *pgxpool.Pool
 }
 
-type EventJobPayload struct {
-	EventID string `json:"event_id"`
-}
+type EventJobPayload = jobs.EventJobPayload
 
 func NewHandlers(pool *pgxpool.Pool) *Handlers {
 	return &Handlers{pool: pool}
@@ -1663,29 +1662,7 @@ func eventExistsTx(ctx context.Context, tx pgx.Tx, eventID string) (bool, error)
 }
 
 func enqueueDerivationJobTx(ctx context.Context, tx pgx.Tx, jobType, eventID, idempotencySuffix string) error {
-	payload, err := json.Marshal(EventJobPayload{EventID: eventID})
-	if err != nil {
-		return fmt.Errorf("encode %s payload for event %s: %w", jobType, eventID, err)
-	}
-	idempotencyKey := fmt.Sprintf("%s:%s", jobType, eventID)
-	if trimmed := strings.TrimSpace(idempotencySuffix); trimmed != "" {
-		idempotencyKey = fmt.Sprintf("%s:%s", idempotencyKey, trimmed)
-	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO jobs (job_type, payload, idempotency_key, max_attempts, run_after)
-		VALUES ($1, $2, $3, $4, now())
-		ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
-		DO NOTHING
-	`,
-		jobType,
-		json.RawMessage(payload),
-		idempotencyKey,
-		5,
-	)
-	if err != nil {
-		return fmt.Errorf("enqueue %s for event %s: %w", jobType, eventID, err)
-	}
-	return nil
+	return jobs.EnqueueEventJobTx(ctx, tx, jobType, eventID, idempotencySuffix, 5)
 }
 
 type derivedReference struct {

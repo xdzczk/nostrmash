@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/store/failure"
+	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 )
 
 const defaultRouteTemplate = "/_unmatched"
@@ -45,18 +48,64 @@ func WithRequestID(next http.Handler) http.Handler {
 // LogRequests emits one structured log line per request.
 func LogRequests(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := traceutil.ExtractHTTPContext(r.Context(), r.Header)
+		pathTemplate := requestPathTemplate(r)
+		spanCtx, span := traceutil.StartSpan(ctx, "http.request",
+			traceutil.KV("http.method", r.Method),
+			traceutil.KV("http.route", pathTemplate),
+		)
+		r = r.WithContext(spanCtx)
+		if traceID := traceutil.TraceID(spanCtx); traceID != "" {
+			w.Header().Set("X-Trace-ID", traceID)
+		}
+
 		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 		start := time.Now()
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				span.End(failure.FromPanic(recovered))
+				panic(recovered)
+			}
+			var spanErr error
+			if sw.code >= http.StatusInternalServerError {
+				spanErr = errors.New("http status " + strings.TrimSpace(http.StatusText(sw.code)))
+			}
+			span.End(spanErr)
+			metrics.ObserveAPI(r.Method, pathTemplate, sw.code, time.Since(start))
+			logging.WithRequestID(r.Context(), log).Info("http_request",
+				"method", r.Method,
+				"path_actual", r.URL.Path,
+				"path_template", pathTemplate,
+				"status", sw.code,
+				"duration_ms", time.Since(start).Milliseconds(),
+			)
+		}()
 		next.ServeHTTP(sw, r)
-		pathTemplate := requestPathTemplate(r)
-		metrics.ObserveAPI(r.Method, pathTemplate, sw.code, time.Since(start))
-		logging.WithRequestID(r.Context(), log).Info("http_request",
-			"method", r.Method,
-			"path_actual", r.URL.Path,
-			"path_template", pathTemplate,
-			"status", sw.code,
-			"duration_ms", time.Since(start).Milliseconds(),
-		)
+	})
+}
+
+// WithPanicRecovery converts unexpected panics into API-safe 500 responses.
+func WithPanicRecovery(log *slog.Logger, next http.Handler) http.Handler {
+	if log == nil {
+		log = slog.Default()
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				err := failure.FromPanic(recovered)
+				class := failure.ClassifyError(err)
+				logging.WithRequestID(r.Context(), log).Error("http_panic_recovered",
+					"failure_class", class.Class,
+					"failure_reason", class.Reason,
+					"path", r.URL.Path,
+					"method", r.Method,
+					"trace_id", traceutil.TraceID(r.Context()),
+					"error", err,
+				)
+				writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+		}()
+		next.ServeHTTP(w, r)
 	})
 }
 

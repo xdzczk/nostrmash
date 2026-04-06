@@ -19,38 +19,8 @@ type Config struct {
 	DatabaseURL string
 	Environment string
 
-	// HTTPAddr is the listen address for the API (e.g. ":8080").
-	HTTPAddr string
-	// APIMaxBatchSize caps number of event IDs in /api/v1/events/batch.
-	APIMaxBatchSize int
-	// HTTPRateLimitRPM controls default per-IP request rate for public HTTP APIs.
-	HTTPRateLimitRPM int
-	// HTTPRateLimitBurst controls token burst allowance for HTTP rate limiting.
-	HTTPRateLimitBurst int
-	// HTTPSearchRateLimitRPM overrides default rate for search endpoints.
-	HTTPSearchRateLimitRPM int
-	// HTTPBatchRateLimitRPM overrides default rate for batch endpoints.
-	HTTPBatchRateLimitRPM int
 	// MetricsAddr is optional HTTP address for Prometheus metrics exposition.
 	MetricsAddr string
-	// AdminBearerToken protects /admin endpoints with Bearer auth.
-	AdminBearerToken string
-	// PrimalWSMaxSubscriptions caps active REQ subscriptions per connection.
-	PrimalWSMaxSubscriptions int
-	// PrimalWSRequestTimeout bounds per-REQ processing time.
-	PrimalWSRequestTimeout time.Duration
-	// PrimalWSMaxMessageBytes caps inbound WS message payload size.
-	PrimalWSMaxMessageBytes int64
-	// PrimalWSMaxReqPerMinute caps REQ frames per connection per minute.
-	PrimalWSMaxReqPerMinute int
-	// PrimalWSDMCompatRateLimitRPM caps get_directmsgs compatibility requests per connection per minute.
-	PrimalWSDMCompatRateLimitRPM int
-	// PrimalWSAllowedOrigins is an exact origin allowlist (scheme://host[:port]).
-	PrimalWSAllowedOrigins []string
-	// PrimalWSAllowAnyOrigin disables origin enforcement when true.
-	PrimalWSAllowAnyOrigin bool
-	// WorkerConcurrency controls concurrent in-process worker job execution.
-	WorkerConcurrency int
 
 	Relay    RelayConfig
 	Backfill BackfillConfig
@@ -105,101 +75,26 @@ type FilterGroup struct {
 
 const defaultFilterGroupName = "default_v1"
 
-// Load reads configuration from environment variables.
+// Load reads ingestor configuration from environment variables.
+// API and worker binaries should use LoadAPI and LoadWorker.
 func Load(serviceName string) (Config, error) {
-	environment := getEnv("ENVIRONMENT", "development")
-	localDev := isLocalDevEnvironment(environment)
-	requireTLS := getEnvBool("INGESTOR_RELAY_REQUIRE_TLS", !localDev)
-	liveBootstrapLookbackSeconds, err := getEnvNonNegativeInt64(
-		"INGESTOR_LIVE_BOOTSTRAP_LOOKBACK_SECONDS",
-		300,
-	)
+	if strings.TrimSpace(serviceName) != "ingestor" {
+		return Config{}, fmt.Errorf("Load(%q) is unsupported; use LoadAPI or LoadWorker for non-ingestor binaries", serviceName)
+	}
+	ingestorCfg, err := LoadIngestor()
 	if err != nil {
 		return Config{}, err
 	}
-	liveResumeOverlapSeconds, err := getEnvNonNegativeInt64(
-		"INGESTOR_LIVE_RESUME_OVERLAP_SECONDS",
-		60,
-	)
-	if err != nil {
-		return Config{}, err
-	}
-
-	c := Config{
-		ServiceName: serviceName,
-		Mode:        strings.ToLower(strings.TrimSpace(getEnv("INGESTOR_MODE", "live"))),
-		DatabaseURL: strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		Environment: environment,
-		HTTPAddr:    getEnv("HTTP_ADDR", ":8080"),
-		MetricsAddr: strings.TrimSpace(getEnv("METRICS_ADDR", ":9090")),
-		APIMaxBatchSize: getEnvInt(
-			"API_MAX_BATCH_SIZE",
-			200,
-		),
-		HTTPRateLimitRPM:         getEnvInt("HTTP_RATE_LIMIT_RPM", 240),
-		HTTPRateLimitBurst:       getEnvInt("HTTP_RATE_LIMIT_BURST", 60),
-		HTTPSearchRateLimitRPM:   getEnvInt("HTTP_SEARCH_RATE_LIMIT_RPM", 60),
-		HTTPBatchRateLimitRPM:    getEnvInt("HTTP_BATCH_RATE_LIMIT_RPM", 40),
-		AdminBearerToken:         strings.TrimSpace(os.Getenv("ADMIN_BEARER_TOKEN")),
-		PrimalWSMaxSubscriptions: getEnvInt("PRIMAL_WS_MAX_SUBSCRIPTIONS", 200),
-		PrimalWSRequestTimeout:   getEnvDuration("PRIMAL_WS_REQUEST_TIMEOUT", 10*time.Second),
-		PrimalWSMaxMessageBytes:  getEnvInt64("PRIMAL_WS_MAX_MESSAGE_BYTES", 1<<20),
-		PrimalWSMaxReqPerMinute:  getEnvInt("PRIMAL_WS_MAX_REQ_PER_MINUTE", 240),
-		PrimalWSDMCompatRateLimitRPM: getEnvInt(
-			"HTTP_DM_COMPAT_RATE_LIMIT_RPM",
-			30,
-		),
-		PrimalWSAllowedOrigins: parseCSVEnv("PRIMAL_WS_ALLOWED_ORIGINS"),
-		PrimalWSAllowAnyOrigin: getEnvBool("PRIMAL_WS_ALLOW_ANY_ORIGIN", false),
-		WorkerConcurrency:      getEnvInt("WORKER_CONCURRENCY", 4),
-		Relay: RelayConfig{
-			URLs:           parseCSVEnv("INGESTOR_RELAY_URLS"),
-			Allowlist:      parseCSVEnv("INGESTOR_RELAY_ALLOWLIST"),
-			Disabled:       parseCSVEnv("INGESTOR_RELAY_DISABLED"),
-			RequireTLS:     requireTLS,
-			ConnectTimeout: getEnvDuration("INGESTOR_RELAY_CONNECT_TIMEOUT", 10*time.Second),
-			InitialBackoff: getEnvDuration("INGESTOR_RELAY_BACKOFF_INITIAL", 1*time.Second),
-			MaxBackoff:     getEnvDuration("INGESTOR_RELAY_BACKOFF_MAX", 30*time.Second),
-			LagThreshold:   getEnvDuration("INGESTOR_RELAY_LAG_THRESHOLD", 45*time.Second),
-			FilterGroups:   defaultFilterGroups(),
-			ActiveFilterGroup: strings.TrimSpace(
-				getEnv("INGESTOR_FILTER_GROUP", defaultFilterGroupName),
-			),
-			LiveBootstrapLookbackSeconds: liveBootstrapLookbackSeconds,
-			LiveResumeOverlapSeconds:     liveResumeOverlapSeconds,
-		},
-		Backfill: BackfillConfig{
-			Enabled:        getEnvBool("INGESTOR_BACKFILL_ENABLED", false),
-			Mode:           strings.TrimSpace(getEnv("INGESTOR_BACKFILL_MODE", "backfill")),
-			Since:          getEnvOptionalUnix("INGESTOR_BACKFILL_SINCE"),
-			Until:          getEnvOptionalUnix("INGESTOR_BACKFILL_UNTIL"),
-			PageLimit:      getEnvInt("INGESTOR_BACKFILL_PAGE_LIMIT", 500),
-			IdleTimeout:    getEnvDuration("INGESTOR_BACKFILL_IDLE_TIMEOUT", 3*time.Second),
-			EmptyPageMax:   getEnvInt("INGESTOR_BACKFILL_EMPTY_PAGE_MAX", 2),
-			ConnectTimeout: getEnvDuration("INGESTOR_BACKFILL_CONNECT_TIMEOUT", 10*time.Second),
-		},
-		Replay: ReplayConfig{
-			FixturePath: strings.TrimSpace(os.Getenv("INGESTOR_REPLAY_FIXTURE_PATH")),
-		},
-	}
-	if err := applyConfiguredFilterGroups(&c.Relay); err != nil {
-		return c, err
-	}
-
-	if c.DatabaseURL == "" {
-		return c, fmt.Errorf("DATABASE_URL is required")
-	}
-	if err := validateRelayConfig(c.Relay); err != nil {
-		return c, err
-	}
-	if err := validateBackfillConfig(c.Backfill); err != nil {
-		return c, err
-	}
-	if err := validateIngestorMode(c.ServiceName, c.Mode, c.Replay, c.Relay); err != nil {
-		return c, err
-	}
-
-	return c, nil
+	return Config{
+		ServiceName: ingestorCfg.Shared.ServiceName,
+		Mode:        ingestorCfg.Runtime.Mode,
+		DatabaseURL: ingestorCfg.Shared.Database.URL,
+		Environment: ingestorCfg.Shared.Environment,
+		MetricsAddr: ingestorCfg.Shared.Observability.MetricsAddr,
+		Relay:       ingestorCfg.Relay,
+		Backfill:    ingestorCfg.Backfill,
+		Replay:      ingestorCfg.Replay,
+	}, nil
 }
 
 func getEnv(key, def string) string {
