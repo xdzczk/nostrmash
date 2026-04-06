@@ -27,22 +27,22 @@ const (
 type ErrorCode string
 
 const (
-	ErrPayloadEmpty             ErrorCode = "payload_empty"
-	ErrPayloadTooLarge          ErrorCode = "payload_too_large"
-	ErrInvalidJSON              ErrorCode = "invalid_json"
-	ErrJSONNotObject            ErrorCode = "json_not_object"
-	ErrMissingField             ErrorCode = "missing_field"
-	ErrFieldTypeInvalid         ErrorCode = "field_type_invalid"
-	ErrIDFormatInvalid          ErrorCode = "id_format_invalid"
-	ErrPubkeyFormatInvalid      ErrorCode = "pubkey_format_invalid"
-	ErrSigFormatInvalid         ErrorCode = "sig_format_invalid"
-	ErrCreatedAtInvalid         ErrorCode = "created_at_invalid"
-	ErrKindInvalid              ErrorCode = "kind_invalid"
-	ErrTagsInvalid              ErrorCode = "tags_invalid"
-	ErrCanonicalIDMismatch      ErrorCode = "canonical_id_mismatch"
-	ErrSignatureInvalid         ErrorCode = "signature_invalid"
-	ErrContentControlChars      ErrorCode = "content_control_chars"
-	ErrContentTooLarge          ErrorCode = "content_too_large"
+	ErrPayloadEmpty        ErrorCode = "payload_empty"
+	ErrPayloadTooLarge     ErrorCode = "payload_too_large"
+	ErrInvalidJSON         ErrorCode = "invalid_json"
+	ErrJSONNotObject       ErrorCode = "json_not_object"
+	ErrMissingField        ErrorCode = "missing_field"
+	ErrFieldTypeInvalid    ErrorCode = "field_type_invalid"
+	ErrIDFormatInvalid     ErrorCode = "id_format_invalid"
+	ErrPubkeyFormatInvalid ErrorCode = "pubkey_format_invalid"
+	ErrSigFormatInvalid    ErrorCode = "sig_format_invalid"
+	ErrCreatedAtInvalid    ErrorCode = "created_at_invalid"
+	ErrKindInvalid         ErrorCode = "kind_invalid"
+	ErrTagsInvalid         ErrorCode = "tags_invalid"
+	ErrCanonicalIDMismatch ErrorCode = "canonical_id_mismatch"
+	ErrSignatureInvalid    ErrorCode = "signature_invalid"
+	ErrContentControlChars ErrorCode = "content_control_chars"
+	ErrContentTooLarge     ErrorCode = "content_too_large"
 )
 
 // ValidationError is suitable for invalid_events error_code/error_message fields.

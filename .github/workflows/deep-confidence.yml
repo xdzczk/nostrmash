@@ -1,0 +1,79 @@
+name: deep-confidence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  advisory:
+    name: Advisory deep confidence checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nostrmash
+          POSTGRES_PASSWORD: nostrmash
+          POSTGRES_DB: nostrmash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nostrmash -d nostrmash"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -U nostrmash -d nostrmash && exit 0
+            sleep 1
+          done
+          echo "Postgres did not become healthy in time"
+          exit 1
+
+      - name: Broad race sweep (advisory)
+        id: race
+        continue-on-error: true
+        run: go test -race ./...
+
+      - name: Full coverage profile (advisory)
+        id: cover
+        continue-on-error: true
+        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Coverage policy from profile (advisory)
+        id: policy
+        continue-on-error: true
+        run: COVERAGE_PROFILE=coverage.out bash ./scripts/coverage_check.sh
+
+      - name: Summarize advisory status
+        run: |
+          echo "race_result=${{ steps.race.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "cover_result=${{ steps.cover.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "policy_result=${{ steps.policy.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This workflow is advisory and does not block pull requests." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload advisory artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-confidence-${{ github.run_number }}
+          path: |
+            coverage.out
+          retention-days: 14

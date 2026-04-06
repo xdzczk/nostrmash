@@ -1,0 +1,110 @@
+package derivation
+
+import (
+	"context"
+	"fmt"
+	"strings"
+)
+
+func (h *Handlers) projectionDefinition(derivationName string) (projectionDefinition, error) {
+	normalized := strings.TrimSpace(derivationName)
+	switch normalized {
+	case DerivationProfilesLatest:
+		return projectionDefinition{
+			name:           DerivationProfilesLatest,
+			compiled:       ProfilesLatestVersion,
+			description:    "Project latest effective replaceable metadata (kind 0) per pubkey",
+			rebuildProject: h.projectProfilesLatestWithVersion,
+		}, nil
+	case DerivationAuthorRecentEvents:
+		return projectionDefinition{
+			name:           DerivationAuthorRecentEvents,
+			compiled:       AuthorRecentEventsVersion,
+			description:    "Project author recent events ordered by created_at desc, id desc",
+			rebuildProject: h.projectAuthorRecentEventWithVersion,
+		}, nil
+	case DerivationReplyCounts:
+		return projectionDefinition{
+			name:           DerivationReplyCounts,
+			compiled:       ReplyCountsVersion,
+			description:    "Project eventually-consistent reply counts from relation=reply references",
+			rebuildProject: h.projectReplyCountsWithVersion,
+		}, nil
+	case DerivationReactionCounts:
+		return projectionDefinition{
+			name:           DerivationReactionCounts,
+			compiled:       ReactionCountsVersion,
+			description:    "Project eventually-consistent reaction counts from kind=7 e references",
+			rebuildProject: h.projectReactionCountsWithVersion,
+		}, nil
+	case DerivationRepostCounts:
+		return projectionDefinition{
+			name:           DerivationRepostCounts,
+			compiled:       RepostCountsVersion,
+			description:    "Project eventually-consistent repost counts from kind=6 e references",
+			rebuildProject: h.projectRepostCountsWithVersion,
+		}, nil
+	case DerivationReactionEvents:
+		return projectionDefinition{
+			name:           DerivationReactionEvents,
+			compiled:       ReactionEventsVersion,
+			description:    "Project reaction_events records from kind=7 references",
+			rebuildProject: h.projectReactionEventsWithVersion,
+		}, nil
+	case DerivationRepostEvents:
+		return projectionDefinition{
+			name:           DerivationRepostEvents,
+			compiled:       RepostEventsVersion,
+			description:    "Project repost_events records from kind=6 references",
+			rebuildProject: h.projectRepostEventsWithVersion,
+		}, nil
+	case DerivationDeletionEvents:
+		return projectionDefinition{
+			name:           DerivationDeletionEvents,
+			compiled:       DeletionEventsVersion,
+			description:    "Project deletion_events records from kind=5 references",
+			rebuildProject: h.projectDeletionEventsWithVersion,
+		}, nil
+	case DerivationContactListsLatest:
+		return projectionDefinition{
+			name:        DerivationContactListsLatest,
+			compiled:    ContactListsLatestVersion,
+			description: "Project contact_lists_latest from kind=3 replaceables",
+			rebuildProject: func(ctx context.Context, eventID string, version *int) error {
+				return h.projectContactListsLatestWithVersion(ctx, eventID, version)
+			},
+		}, nil
+	case DerivationRelayListsLatest:
+		return projectionDefinition{
+			name:        DerivationRelayListsLatest,
+			compiled:    RelayListsLatestVersion,
+			description: "Project relay_lists_latest from kind=10002 replaceables",
+			rebuildProject: func(ctx context.Context, eventID string, version *int) error {
+				return h.projectRelayListsLatestWithVersion(ctx, eventID, version)
+			},
+		}, nil
+	case DerivationThreadProjection:
+		return projectionDefinition{
+			name:           DerivationThreadProjection,
+			compiled:       ThreadProjectionVersion,
+			description:    "Project reply parent/root edges with unresolved reference tracking",
+			rebuildProject: h.updateThreadProjectionWithVersion,
+		}, nil
+	case DerivationDMUnreadCounts:
+		return projectionDefinition{
+			name:           DerivationDMUnreadCounts,
+			compiled:       DMUnreadCountsVersion,
+			description:    "Track unread DM counters by receiver and sender",
+			rebuildProject: h.projectDMUnreadCountsWithVersion,
+		}, nil
+	case DerivationZapReceipts:
+		return projectionDefinition{
+			name:           DerivationZapReceipts,
+			compiled:       ZapReceiptsVersion,
+			description:    "Project zap receipts by sender, receiver, target event, and sats",
+			rebuildProject: h.projectZapReceiptsWithVersion,
+		}, nil
+	default:
+		return projectionDefinition{}, fmt.Errorf("projection rebuild is not supported for derivation %q", normalized)
+	}
+}

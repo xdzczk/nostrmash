@@ -21,13 +21,16 @@ CI runs `make test-race-policy`, which executes:
 - `./internal/store`
 - `./internal/ingestor/...`
 - `./internal/api_primal`
+- `./cmd/worker`
+- `./internal/api`
 
 ### Why this scope
 
-- `internal/jobs` and `internal/ingestor` coordinate concurrent workers, relay sessions, and lifecycle flows.
+- `internal/jobs`, `cmd/worker`, and `internal/ingestor` coordinate concurrent workers, relay sessions, and lifecycle flows.
 - `internal/store` is shared by concurrent writers/readers and sits on the correctness boundary for persisted state.
 - `internal/api_primal` includes WebSocket compatibility paths where concurrent request/session behavior is easy to regress.
-- `internal/api` and `internal/query` are intentionally excluded from the blocking race suite today to keep CI cost bounded; they are still covered by unit tests and can be race-tested ad hoc when needed.
+- `internal/api` includes mutex-backed request-rate limiting and now participates in blocking race checks.
+- `internal/query` remains excluded from blocking `-race` to keep CI cost bounded; it currently has low in-package concurrency and is still covered by unit tests.
 
 This is intentionally targeted instead of full-repo `-race` to keep CI cost reasonable while still covering concurrency-sensitive paths.
 
@@ -35,15 +38,19 @@ This is intentionally targeted instead of full-repo `-race` to keep CI cost reas
 
 CI runs `make coverage-policy`, which executes `scripts/coverage_check.sh` and enforces minimum coverage for:
 
+- `./internal/api` >= `35%`
 - `./internal/query` >= `25%`
 - `./internal/store` >= `20%`
 - `./internal/api_primal` >= `60%`
+
+When `coverage.out` is present (for example after `make cover` or in CI), the policy check consumes that profile directly instead of re-running package tests.
 
 ## Why This Policy
 
 - `internal/query` owns read orchestration logic and is a high-leverage failure point.
 - `internal/store` owns data correctness and persistence behavior.
 - `internal/api_primal` is a compatibility-heavy transport surface where regressions are easy to introduce.
+- `internal/api` owns the native HTTP boundary and central request validation/error mapping.
 
 This keeps the signal high by enforcing coverage where regressions are costly, without pushing contributors to write low-value tests just to raise a global number.
 
@@ -205,6 +212,12 @@ The current CI workflow enforces:
 - `make rules-check`
 - `make configdoc-check`
 - `make build`
+
+## Advisory Deep Confidence Workflow
+
+For broader, higher-cost confidence checks that should not block normal PR flow, use the `Deep Confidence` GitHub workflow.
+
+It runs a broad race sweep and a full coverage profile + policy check as an advisory signal, and uploads artifacts for inspection.
 
 Contributor workflow and PR expectations are in [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 

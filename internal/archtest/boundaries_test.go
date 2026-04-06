@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -196,7 +197,7 @@ func TestMigratedThreadPathsStayQueryOrchestrated(t *testing.T) {
 		funcName string
 		receiver string
 	}{
-		{file: "internal/api/handlers.go", funcName: "GetThread", receiver: "h"},
+		{file: "internal/api/handlers_threads.go", funcName: "GetThread", receiver: "h"},
 		{file: "internal/api_primal/handlers.go", funcName: "GetThreadView", receiver: "h"},
 	} {
 		parsed := parseFile(t, fset, filepath.Join(root, tc.file))
@@ -209,33 +210,55 @@ func TestMigratedThreadPathsStayQueryOrchestrated(t *testing.T) {
 		}
 	}
 
-	wsFile := parseFile(t, fset, filepath.Join(root, "internal/api_primal/ws_gateway.go"))
+	wsFile := parseFile(t, fset, filepath.Join(root, "internal/api_primal/primal_cache_dispatch.go"))
 	dispatchCacheCall := mustFindFunc(t, wsFile, "dispatchCacheCall")
 	for _, wsCase := range []struct {
-		name         string
-		queryMethod  string
-		failStoreMsg string
-		failQueryMsg string
+		name               string
+		queryMethod        string
+		helperMethod       string
+		failStoreMsg       string
+		failQueryMsg       string
+		failHelperRouteMsg string
+		failHelperStoreMsg string
+		failHelperQueryMsg string
 	}{
 		{
-			name:         "thread_view",
-			queryMethod:  "GetThreadWindow",
-			failStoreMsg: "internal/api_primal/ws_gateway.go thread_view case must not call g.store methods directly; keep migrated thread assembly in internal/query",
-			failQueryMsg: "internal/api_primal/ws_gateway.go thread_view case must call g.query.GetThreadWindow",
+			name:               "thread_view",
+			queryMethod:        "GetThreadWindow",
+			helperMethod:       "cacheDispatchThreadView",
+			failStoreMsg:       "internal/api_primal/primal_cache_dispatch.go thread_view case must not call g.store methods directly; keep migrated thread assembly in internal/query",
+			failQueryMsg:       "internal/api_primal/primal_cache_dispatch.go thread_view case must call g.query.GetThreadWindow or route to cacheDispatchThreadView",
+			failHelperRouteMsg: "internal/api_primal/primal_cache_dispatch.go thread_view case must route to cacheDispatchThreadView when query call is delegated",
+			failHelperStoreMsg: "internal/api_primal/cacheDispatchThreadView must not call g.store methods directly; keep migrated thread assembly in internal/query",
+			failHelperQueryMsg: "internal/api_primal/cacheDispatchThreadView must call g.query.GetThreadWindow",
 		},
 		{
-			name:         "user_infos",
-			queryMethod:  "GetUserInfos",
-			failStoreMsg: "internal/api_primal/ws_gateway.go user_infos case must not call g.store methods directly; keep profile batch orchestration in internal/query",
-			failQueryMsg: "internal/api_primal/ws_gateway.go user_infos case must call g.query.GetUserInfos",
+			name:               "user_infos",
+			queryMethod:        "GetUserInfos",
+			helperMethod:       "cacheDispatchUserInfos",
+			failStoreMsg:       "internal/api_primal/primal_cache_dispatch.go user_infos case must not call g.store methods directly; keep profile batch orchestration in internal/query",
+			failQueryMsg:       "internal/api_primal/primal_cache_dispatch.go user_infos case must call g.query.GetUserInfos or route to cacheDispatchUserInfos",
+			failHelperRouteMsg: "internal/api_primal/primal_cache_dispatch.go user_infos case must route to cacheDispatchUserInfos when query call is delegated",
+			failHelperStoreMsg: "internal/api_primal/cacheDispatchUserInfos must not call g.store methods directly; keep profile batch orchestration in internal/query",
+			failHelperQueryMsg: "internal/api_primal/cacheDispatchUserInfos must call g.query.GetUserInfos",
 		},
 	} {
 		caseBody := mustFindSwitchCaseBody(t, dispatchCacheCall, wsCase.name)
 		if hasFieldMethodCallInStmts(caseBody, "g", "store", "") {
 			t.Fatal(wsCase.failStoreMsg)
 		}
-		if !hasFieldMethodCallInStmts(caseBody, "g", "query", wsCase.queryMethod) {
-			t.Fatal(wsCase.failQueryMsg)
+		if hasFieldMethodCallInStmts(caseBody, "g", "query", wsCase.queryMethod) {
+			continue
+		}
+		if !hasReceiverMethodCallInStmts(caseBody, "g", wsCase.helperMethod) {
+			t.Fatal(wsCase.failHelperRouteMsg)
+		}
+		helperFn := mustFindFuncInDir(t, root, filepath.ToSlash("internal/api_primal"), wsCase.helperMethod)
+		if hasFieldMethodCall(helperFn.Body, "g", "store", "") {
+			t.Fatal(wsCase.failHelperStoreMsg)
+		}
+		if !hasFieldMethodCall(helperFn.Body, "g", "query", wsCase.queryMethod) {
+			t.Fatal(wsCase.failHelperQueryMsg)
 		}
 	}
 }
@@ -286,6 +309,40 @@ func mustFindFunc(t *testing.T, file *ast.File, funcName string) *ast.FuncDecl {
 	return nil
 }
 
+func mustFindFuncInDir(t *testing.T, root, relDir, funcName string) *ast.FuncDecl {
+	t.Helper()
+	fset := token.NewFileSet()
+	dir := filepath.Join(root, filepath.FromSlash(relDir))
+	var found *ast.FuncDecl
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file := parseFile(t, fset, path)
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Name == nil {
+				continue
+			}
+			if fn.Name.Name == funcName {
+				found = fn
+				return fs.SkipAll
+			}
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, fs.SkipAll) {
+		t.Fatalf("walk %s: %v", relDir, err)
+	}
+	if found == nil {
+		t.Fatalf("function %s not found in %s", funcName, relDir)
+	}
+	return found
+}
+
 func mustFindSwitchCaseBody(t *testing.T, fn *ast.FuncDecl, caseValue string) []ast.Stmt {
 	t.Helper()
 	for _, stmt := range fn.Body.List {
@@ -315,30 +372,6 @@ func mustFindSwitchCaseBody(t *testing.T, fn *ast.FuncDecl, caseValue string) []
 	}
 	t.Fatalf("switch case %q not found in %s", caseValue, fn.Name.Name)
 	return nil
-}
-
-func hasPackageCall(node ast.Node, packageName, funcName string) bool {
-	found := false
-	ast.Inspect(node, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		pkg, ok := sel.X.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		if pkg.Name == packageName && sel.Sel.Name == funcName {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
 }
 
 func hasFieldMethodCall(node ast.Node, receiverName, fieldName, methodName string) bool {
@@ -375,6 +408,39 @@ func hasFieldMethodCall(node ast.Node, receiverName, fieldName, methodName strin
 func hasFieldMethodCallInStmts(stmts []ast.Stmt, receiverName, fieldName, methodName string) bool {
 	for _, stmt := range stmts {
 		if hasFieldMethodCall(stmt, receiverName, fieldName, methodName) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasReceiverMethodCall(node ast.Node, receiverName, methodName string) bool {
+	found := false
+	ast.Inspect(node, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		receiver, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if receiver.Name == receiverName && sel.Sel.Name == methodName {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func hasReceiverMethodCallInStmts(stmts []ast.Stmt, receiverName, methodName string) bool {
+	for _, stmt := range stmts {
+		if hasReceiverMethodCall(stmt, receiverName, methodName) {
 			return true
 		}
 	}

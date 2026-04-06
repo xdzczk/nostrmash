@@ -529,4 +529,3 @@ func TestThreadView_HTTPAndWSMemberParity(t *testing.T) {
 		t.Fatalf("next_cursor mismatch: ws=%v http=%v", gotWS, httpPayload["next_cursor"])
 	}
 }
-

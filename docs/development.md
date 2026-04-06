@@ -16,9 +16,9 @@ This page is the contributor workflow reference for NostrMash. Use the top-level
 
 Prerequisites:
 
-- Go `1.23`
+- Go `1.24`
 - Docker and Docker Compose
-- Either a host-reachable Postgres for local `go run` / `go test`, or the full container stack via `docker compose up --build`
+- Either the Compose-managed Postgres on `localhost:5432` for local `go run` / `go test`, or the full container stack via `docker compose up --build`
 
 Fast path:
 
@@ -31,8 +31,8 @@ set +a
 
 Important local DB note:
 
-- `.env.example` points at `localhost:5432`, which is correct for a host-reachable Postgres.
-- The checked-in `docker-compose.yml` does not publish the `postgres` service to the host, so `docker compose up -d postgres` by itself is not enough for local `go run` commands unless you expose a port separately or provide another host Postgres instance.
+- `.env.example` points at `localhost:5432`, which matches the checked-in Compose Postgres service.
+- The checked-in `docker-compose.yml` publishes the `postgres` service to the host, so `docker compose up -d postgres` is enough for local `go run`, `go test`, and `make ci` commands.
 - If you want the simplest boot path, run the full stack in containers with `docker compose up --build`.
 
 Run services in separate terminals:
@@ -112,7 +112,7 @@ Note on integration coverage:
 
 - Several integration tests require Postgres and will skip when neither `TEST_DATABASE_URL` nor `DATABASE_URL` is set.
 - CI sets `TEST_DATABASE_URL` so DB-backed integration tests run on every push/PR.
-- For local parity with CI, point `TEST_DATABASE_URL` at a host-reachable Postgres before testing.
+- For local parity with CI, point `TEST_DATABASE_URL` at the Compose-managed Postgres on `localhost:5432` before testing.
 
 When changing derivation behavior, also run the most relevant targeted packages:
 

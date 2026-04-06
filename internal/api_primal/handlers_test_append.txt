@@ -63,4 +63,3 @@ func buildSignedAuthEventAt(t *testing.T, createdAt int64) map[string]any {
 		"sig":        hex.EncodeToString(sig.Serialize()),
 	}
 }
-

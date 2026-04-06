@@ -331,4 +331,3 @@ func TestWSGateway_IsHiddenByContentModerationSupportsTagAwarePubkeysAndReasons(
 		t.Fatalf("read hidden moderation eose: %v", err)
 	}
 }
-

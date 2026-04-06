@@ -1,6 +1,6 @@
 .PHONY: lint lint-ci test test-race test-race-policy cover coverage-policy contract-drift rules-check benchmark-hot benchmark-query benchmark-ws benchmark-replay-derivation benchmark-protected perf-collect perf-protect-collect perf-protect-compare loadtest loadtest-api loadtest-worker loadtest-ingest loadtest-replay-rebuild build mod-verify vulncheck configdoc configdoc-check fmt fmt-check imports imports-check format ci
 
-RACE_POLICY_PKGS := ./internal/jobs ./internal/store ./internal/ingestor/... ./internal/api_primal
+RACE_POLICY_PKGS := ./internal/jobs ./internal/store ./internal/ingestor/... ./internal/api_primal ./cmd/worker ./internal/api
 BENCH_HOT_PKGS := ./internal/query ./internal/store ./internal/replay ./internal/derivation ./internal/api_primal
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -32,7 +32,7 @@ cover:
 	go tool cover -func=coverage.out
 
 coverage-policy:
-	bash ./scripts/coverage_check.sh
+	COVERAGE_PROFILE=coverage.out bash ./scripts/coverage_check.sh
 
 contract-drift:
 	go test ./cmd/api -run TestOpenAPIContainsAllContractOwnedRoutes_OneWayPolicy -count=1

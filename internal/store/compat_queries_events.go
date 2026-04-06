@@ -1,0 +1,142 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+func (s *PostgresStore) GetRecentEventsByKindAndPubkey(
+	ctx context.Context,
+	kind int,
+	pubkey string,
+	limit int,
+) ([]json.RawMessage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	if kind < 0 {
+		return nil, fmt.Errorf("kind must be >= 0")
+	}
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return nil, fmt.Errorf("pubkey is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT raw_json::text
+		FROM events
+		WHERE kind = $1 AND pubkey = $2
+		ORDER BY created_at DESC, id DESC
+		LIMIT $3
+	`, kind, pubkey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get recent events by kind and pubkey: %w", err)
+	}
+	defer rows.Close()
+	out := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan recent events by kind row: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read recent events by kind rows: %w", err)
+	}
+	return out, nil
+}
+
+// GetEventsReferencingPubkey returns events that mention target pubkey in p-tags.
+func (s *PostgresStore) GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	targetPubkey = strings.TrimSpace(targetPubkey)
+	if targetPubkey == "" {
+		return nil, fmt.Errorf("target pubkey is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT e.raw_json::text
+		FROM pubkey_references pr
+		INNER JOIN events e ON e.id = pr.source_event_id
+		WHERE pr.referenced_pubkey = $1
+		ORDER BY e.created_at DESC, e.id DESC
+		LIMIT $2
+	`, targetPubkey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get events referencing pubkey: %w", err)
+	}
+	defer rows.Close()
+	out := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan events referencing pubkey row: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read events referencing pubkey rows: %w", err)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) GetEventsByATagAndKind(ctx context.Context, kind int, aTagValue string, limit int) ([]json.RawMessage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	if kind <= 0 {
+		return nil, fmt.Errorf("kind must be positive")
+	}
+	aTagValue = strings.TrimSpace(aTagValue)
+	if aTagValue == "" {
+		return nil, fmt.Errorf("a tag value is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT e.raw_json::text
+		FROM event_tags et
+		INNER JOIN events e ON e.id = et.event_id
+		WHERE et.tag_name = 'a'
+		  AND et.value_index = 0
+		  AND et.value = $1
+		  AND e.kind = $2
+		ORDER BY e.created_at DESC, e.id DESC
+		LIMIT $3
+	`, aTagValue, kind, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get events by a tag and kind: %w", err)
+	}
+	defer rows.Close()
+	out := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan events by a tag and kind row: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read events by a tag and kind rows: %w", err)
+	}
+	return out, nil
+}

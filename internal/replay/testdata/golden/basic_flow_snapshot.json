@@ -43,35 +43,11 @@
     "pending_jobs": [],
     "succeeded_jobs": [
       {
-        "job_type": "derive_event_relationships",
-        "attempts": 0
-      },
-      {
-        "job_type": "project_author_recent_event",
-        "attempts": 0
-      },
-      {
-        "job_type": "project_profiles_latest",
-        "attempts": 0
-      },
-      {
-        "job_type": "project_reaction_counts",
-        "attempts": 0
-      },
-      {
-        "job_type": "project_reply_counts",
-        "attempts": 0
-      },
-      {
-        "job_type": "project_repost_counts",
+        "job_type": "derive_event_bundle",
         "attempts": 0
       },
       {
         "job_type": "repair_unresolved_references",
-        "attempts": 0
-      },
-      {
-        "job_type": "update_replaceable_state",
         "attempts": 0
       },
       {
@@ -99,6 +75,13 @@
     ],
     "reply_counts": [],
     "reaction_counts": [],
-    "repost_counts": []
+    "repost_counts": [],
+    "follower_edges": [],
+    "dm_unread_counts": [],
+    "zap_receipts": [],
+    "curated_recommended_reads": [],
+    "curated_reads_topics": [],
+    "curated_featured_authors": [],
+    "curated_creator_paid_tiers": []
   }
 }

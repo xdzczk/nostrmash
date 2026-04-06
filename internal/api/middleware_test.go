@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/xdzczk/nostrmash/internal/logging"
@@ -124,6 +126,49 @@ func TestWithHTTPRateLimit_ExemptsHealthAndLimitsSearch(t *testing.T) {
 	limited.ServeHTTP(searchRec2, searchReq2)
 	if searchRec2.Code != http.StatusTooManyRequests {
 		t.Fatalf("unexpected second search status: got %d want %d", searchRec2.Code, http.StatusTooManyRequests)
+	}
+}
+
+func TestWithHTTPRateLimit_ConcurrentRequestsShareBucket(t *testing.T) {
+	limited := WithHTTPRateLimit(HTTPRateLimitOptions{
+		DefaultRPM:   1,
+		DefaultBurst: 1,
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	const total = 24
+	var allowed int32
+	var denied int32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(total)
+	for i := 0; i < total; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/events/abc", nil)
+			req.RemoteAddr = "127.0.0.1:9999"
+			rec := httptest.NewRecorder()
+			limited.ServeHTTP(rec, req)
+			switch rec.Code {
+			case http.StatusNoContent:
+				atomic.AddInt32(&allowed, 1)
+			case http.StatusTooManyRequests:
+				atomic.AddInt32(&denied, 1)
+			default:
+				t.Errorf("unexpected status code: %d", rec.Code)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if allowed < 1 {
+		t.Fatalf("expected at least one allowed request, got %d", allowed)
+	}
+	if denied < 1 {
+		t.Fatalf("expected at least one denied request, got %d", denied)
 	}
 }
 

@@ -2,7 +2,7 @@
 
 Durable Nostr ingest and rebuildable read models in Go and Postgres.
 
-![Go 1.23+](https://img.shields.io/badge/go-1.23%2B-00ADD8?logo=go&logoColor=white)
+![Go 1.24+](https://img.shields.io/badge/go-1.24%2B-00ADD8?logo=go&logoColor=white)
 ![Postgres Primary](https://img.shields.io/badge/postgres-primary-4169E1?logo=postgresql&logoColor=white)
 ![Docker Native](https://img.shields.io/badge/docker-native-2496ED?logo=docker&logoColor=white)
 
@@ -14,7 +14,7 @@ It exists to keep one boundary uncompromised: raw Nostr truth should be durable,
 
 | Area | Value |
 | --- | --- |
-| Runtime | Go `1.23+` |
+| Runtime | Go `1.24+` |
 | Primary datastore | Postgres |
 | Services | `api`, `ingestor`, `worker` |
 | Default API address | `http://localhost:8080` |
@@ -93,6 +93,8 @@ make format
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the exact CI gate list and [docs/testing.md](docs/testing.md) for targeted fuzz/benchmark/coverage/race guidance.
 
+For optional high-cost confidence runs (for example broad race sweeps that are not PR-blocking), use the `Deep Confidence` GitHub workflow.
+
 For repeatable load scenarios on API/worker/ingest/replay pressure paths, see [loadtest/README.md](loadtest/README.md).
 
 Integration test note:
@@ -100,8 +102,8 @@ Integration test note:
 - DB-backed integration tests require `TEST_DATABASE_URL` or `DATABASE_URL`.
 - For CI parity, prefer setting `TEST_DATABASE_URL` explicitly.
 - Local `make ci` and `go test` runs need a Postgres instance reachable from the host.
-- The checked-in `docker-compose.yml` does not publish Postgres on `localhost:5432`, so `docker compose up -d postgres` alone is only enough for container-to-container traffic.
-- Example local setup against a host-reachable Postgres:
+- The checked-in `docker-compose.yml` now publishes Postgres on `localhost:5432`, so `docker compose up -d postgres` is enough for local host-based test runs.
+- Example local setup against the Compose-managed Postgres:
 
 ```bash
 export TEST_DATABASE_URL=postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable

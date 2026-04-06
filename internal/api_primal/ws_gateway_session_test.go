@@ -125,4 +125,3 @@ func TestWSGateway_OriginPolicy(t *testing.T) {
 	}
 	_ = conn.Close()
 }
-

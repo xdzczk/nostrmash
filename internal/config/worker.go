@@ -32,4 +32,3 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 	}
 	return nil
 }
-

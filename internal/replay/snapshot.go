@@ -25,26 +25,26 @@ type Layer1Snapshot struct {
 }
 
 type Layer2Snapshot struct {
-	EventReferences  []EventReferenceRow  `json:"event_references"`
-	PubkeyReferences []PubkeyReferenceRow `json:"pubkey_references"`
+	EventReferences  []EventReferenceRow   `json:"event_references"`
+	PubkeyReferences []PubkeyReferenceRow  `json:"pubkey_references"`
 	ReplaceableState []ReplaceableStateRow `json:"replaceable_state"`
-	ThreadEdges      []ThreadEdgeRow      `json:"thread_edges"`
+	ThreadEdges      []ThreadEdgeRow       `json:"thread_edges"`
 	UnresolvedThread []UnresolvedThreadRow `json:"unresolved_thread_references"`
 }
 
 type Layer3Snapshot struct {
-	ProfilesLatest    []ProfileLatestRow    `json:"profiles_latest"`
-	AuthorRecent      []AuthorRecentRow     `json:"author_recent_events"`
-	ReplyCounts       []CountRow            `json:"reply_counts"`
-	ReactionCounts    []CountRow            `json:"reaction_counts"`
-	RepostCounts      []CountRow            `json:"repost_counts"`
-	FollowerEdges     []FollowerEdgeRow     `json:"follower_edges"`
-	DMUnreadCounts    []DMUnreadCountRow    `json:"dm_unread_counts"`
-	ZapReceipts       []ZapReceiptRow       `json:"zap_receipts"`
-	CuratedReads      []CuratedReadRow      `json:"curated_recommended_reads"`
-	CuratedTopics     []CuratedTopicRow     `json:"curated_reads_topics"`
-	CuratedAuthors    []CuratedAuthorRow    `json:"curated_featured_authors"`
-	CuratedPaidTiers  []CuratedPaidTierRow  `json:"curated_creator_paid_tiers"`
+	ProfilesLatest   []ProfileLatestRow   `json:"profiles_latest"`
+	AuthorRecent     []AuthorRecentRow    `json:"author_recent_events"`
+	ReplyCounts      []CountRow           `json:"reply_counts"`
+	ReactionCounts   []CountRow           `json:"reaction_counts"`
+	RepostCounts     []CountRow           `json:"repost_counts"`
+	FollowerEdges    []FollowerEdgeRow    `json:"follower_edges"`
+	DMUnreadCounts   []DMUnreadCountRow   `json:"dm_unread_counts"`
+	ZapReceipts      []ZapReceiptRow      `json:"zap_receipts"`
+	CuratedReads     []CuratedReadRow     `json:"curated_recommended_reads"`
+	CuratedTopics    []CuratedTopicRow    `json:"curated_reads_topics"`
+	CuratedAuthors   []CuratedAuthorRow   `json:"curated_featured_authors"`
+	CuratedPaidTiers []CuratedPaidTierRow `json:"curated_creator_paid_tiers"`
 }
 
 type Layer1Event struct {
@@ -100,13 +100,13 @@ type ReplaceableStateRow struct {
 }
 
 type ThreadEdgeRow struct {
-	ChildEventID string `json:"child_event_id"`
+	ChildEventID  string `json:"child_event_id"`
 	ParentEventID string `json:"parent_event_id"`
 	ParentMissing bool   `json:"parent_missing"`
 }
 
 type UnresolvedThreadRow struct {
-	SourceEventID string `json:"source_event_id"`
+	SourceEventID  string `json:"source_event_id"`
 	MissingEventID string `json:"missing_event_id"`
 }
 

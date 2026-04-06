@@ -43,6 +43,8 @@ make ci
 
 `make ci` runs the same blocking gates as CI (`fmt-check`, `imports-check`, `lint`, `mod-verify`, `vulncheck`, `test-race-policy`, `cover`, `coverage-policy`, `contract-drift`, `configdoc-check`, `build`).
 
+Blocking race policy currently covers `internal/jobs`, `internal/store`, `internal/ingestor/...`, `internal/api_primal`, `cmd/worker`, and `internal/api`.
+
 If formatting/import checks fail:
 
 ```bash
@@ -109,6 +111,8 @@ CI blocks on:
 - `make build`
 
 Detailed rationale and local variants (fuzz, benchmarks, load tests) are in `docs/testing.md`.
+
+For higher-cost confidence checks (for example broad `-race` sweeps), use the advisory `Deep Confidence` workflow. It is intentionally non-blocking for normal PR flow.
 
 ## Useful Optional Checks
 
