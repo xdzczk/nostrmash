@@ -21,7 +21,7 @@ func TestClaimAvailableConcurrentWorkersNoDoubleClaim(t *testing.T) {
 	}
 
 	queue := jobs.NewQueue(pool)
-	now := time.Now().UTC()
+	now := time.Now().UTC().Add(-1 * time.Second)
 	for i := 0; i < 3; i++ {
 		_, err := queue.Enqueue(ctx, jobs.EnqueueParams{
 			JobType:     "derive_profile",
@@ -96,7 +96,7 @@ func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 		JobType:     "derive_profile",
 		Payload:     []byte(`{"event_id":"abc"}`),
 		MaxAttempts: 2,
-		RunAfter:    time.Now().UTC(),
+		RunAfter:    time.Now().UTC().Add(-1 * time.Second),
 	})
 	if err != nil {
 		t.Fatalf("enqueue job: %v", err)

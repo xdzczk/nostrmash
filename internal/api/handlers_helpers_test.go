@@ -29,6 +29,10 @@ type fakeEventReader struct {
 	getByKindPubkeyFn  func(context.Context, int, string, int) ([]json.RawMessage, error)
 	getRefsPubkeyFn    func(context.Context, string, int) ([]json.RawMessage, error)
 	getFollowersFn     func(context.Context, string, int) ([]json.RawMessage, error)
+	getTrustScoreFn    func(context.Context, string) (store.TrustGlobalScore, error)
+	listTopTrustFn     func(context.Context, int) ([]store.TrustGlobalScore, error)
+	getTrustRunFn      func(context.Context, int64) (store.TrustRun, error)
+	listTrustRunsFn    func(context.Context, int) ([]store.TrustRun, error)
 }
 
 func (f fakeEventReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -167,4 +171,32 @@ func (f fakeEventReader) GetFollowersByPubkey(ctx context.Context, targetPubkey 
 		return nil, errors.New("not implemented")
 	}
 	return f.getFollowersFn(ctx, targetPubkey, limit)
+}
+
+func (f fakeEventReader) GetTrustScore(ctx context.Context, pubkey string) (store.TrustGlobalScore, error) {
+	if f.getTrustScoreFn == nil {
+		return store.TrustGlobalScore{}, errors.New("not implemented")
+	}
+	return f.getTrustScoreFn(ctx, pubkey)
+}
+
+func (f fakeEventReader) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]store.TrustGlobalScore, error) {
+	if f.listTopTrustFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.listTopTrustFn(ctx, limit)
+}
+
+func (f fakeEventReader) GetTrustRun(ctx context.Context, runID int64) (store.TrustRun, error) {
+	if f.getTrustRunFn == nil {
+		return store.TrustRun{}, errors.New("not implemented")
+	}
+	return f.getTrustRunFn(ctx, runID)
+}
+
+func (f fakeEventReader) ListTrustRuns(ctx context.Context, limit int) ([]store.TrustRun, error) {
+	if f.listTrustRunsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.listTrustRunsFn(ctx, limit)
 }

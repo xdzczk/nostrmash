@@ -279,6 +279,61 @@ func TestAdminRelays_IncludesDurableLifecycleFields(t *testing.T) {
 	}
 }
 
+func TestAdminTrustRoutes_BasicFlow(t *testing.T) {
+	mux := newAdminTestMux("token", fakeAdminService{
+		getTrustRunsFn: func(_ context.Context, limit int) ([]adminTrustRunResponse, error) {
+			if limit != 2 {
+				t.Fatalf("unexpected limit: %d", limit)
+			}
+			return []adminTrustRunResponse{{ID: 101, Status: "pending"}}, nil
+		},
+		getTrustRunFn: func(_ context.Context, runID int64) (adminTrustRunResponse, error) {
+			return adminTrustRunResponse{ID: runID, Status: "succeeded"}, nil
+		},
+		triggerTrustRunFn: func(_ context.Context) (adminTrustRunResponse, error) {
+			return adminTrustRunResponse{ID: 202, Status: "pending"}, nil
+		},
+		getTopTrustScoresFn: func(_ context.Context, limit int) ([]adminTrustScoreResponse, error) {
+			if limit != 3 {
+				t.Fatalf("unexpected score limit: %d", limit)
+			}
+			return []adminTrustScoreResponse{{Pubkey: "a", Rank: 1, Score: 10}}, nil
+		},
+	})
+
+	reqRuns := httptest.NewRequest(http.MethodGet, "/admin/v1/trust/runs?limit=2", nil)
+	reqRuns.Header.Set("Authorization", "Bearer token")
+	recRuns := httptest.NewRecorder()
+	mux.ServeHTTP(recRuns, reqRuns)
+	if recRuns.Code != http.StatusOK {
+		t.Fatalf("unexpected runs status: got %d want %d", recRuns.Code, http.StatusOK)
+	}
+
+	reqRun := httptest.NewRequest(http.MethodGet, "/admin/v1/trust/runs/17", nil)
+	reqRun.Header.Set("Authorization", "Bearer token")
+	recRun := httptest.NewRecorder()
+	mux.ServeHTTP(recRun, reqRun)
+	if recRun.Code != http.StatusOK {
+		t.Fatalf("unexpected run status: got %d want %d", recRun.Code, http.StatusOK)
+	}
+
+	reqTrigger := httptest.NewRequest(http.MethodPost, "/admin/v1/trust/runs", nil)
+	reqTrigger.Header.Set("Authorization", "Bearer token")
+	recTrigger := httptest.NewRecorder()
+	mux.ServeHTTP(recTrigger, reqTrigger)
+	if recTrigger.Code != http.StatusAccepted {
+		t.Fatalf("unexpected trigger status: got %d want %d", recTrigger.Code, http.StatusAccepted)
+	}
+
+	reqScores := httptest.NewRequest(http.MethodGet, "/admin/v1/trust/scores?limit=3", nil)
+	reqScores.Header.Set("Authorization", "Bearer token")
+	recScores := httptest.NewRecorder()
+	mux.ServeHTTP(recScores, reqScores)
+	if recScores.Code != http.StatusOK {
+		t.Fatalf("unexpected scores status: got %d want %d", recScores.Code, http.StatusOK)
+	}
+}
+
 func newAdminTestMux(token string, service AdminService) http.Handler {
 	handlers := NewAdminHandlers(service)
 	adminMux := http.NewServeMux()
