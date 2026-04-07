@@ -25,13 +25,23 @@ type Handlers struct {
 	maxBatchSize int
 }
 
+type HandlersOptions struct {
+	MaxBatchSize int
+	QueryOptions query.ServiceOptions
+}
+
 func NewHandlers(store EventReader, maxBatchSize int) Handlers {
+	return NewHandlersWithOptions(store, HandlersOptions{MaxBatchSize: maxBatchSize})
+}
+
+func NewHandlersWithOptions(store EventReader, options HandlersOptions) Handlers {
+	maxBatchSize := options.MaxBatchSize
 	if maxBatchSize <= 0 {
 		maxBatchSize = 200
 	}
 	return Handlers{
 		store:        store,
-		service:      query.NewService(store),
+		service:      query.NewServiceWithOptions(store, options.QueryOptions),
 		maxBatchSize: maxBatchSize,
 	}
 }
@@ -47,7 +57,7 @@ func (h Handlers) GetEventByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, err := h.store.GetEventRawByID(r.Context(), eventID)
+	raw, err := h.service.GetEvent(r.Context(), eventID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")

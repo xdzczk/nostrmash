@@ -84,3 +84,22 @@ func makeRepliesRange(start, end int) []json.RawMessage {
 	}
 	return out
 }
+
+type fakeFallbackReader struct {
+	fetchEventsByIDsFn       func(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
+	fetchProfilesByPubkeysFn func(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+}
+
+func (f fakeFallbackReader) FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
+	if f.fetchEventsByIDsFn == nil {
+		return map[string]json.RawMessage{}, nil
+	}
+	return f.fetchEventsByIDsFn(ctx, ids)
+}
+
+func (f fakeFallbackReader) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+	if f.fetchProfilesByPubkeysFn == nil {
+		return map[string]store.ProfileProjection{}, nil
+	}
+	return f.fetchProfilesByPubkeysFn(ctx, pubkeys)
+}

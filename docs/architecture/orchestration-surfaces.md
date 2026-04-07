@@ -1,6 +1,6 @@
 # Orchestration Surfaces
 
-This document maps the current read-side assembly paths exposed through native HTTP, Primal-compatible HTTP, and Primal-compatible WebSocket surfaces.
+Use this page when a change crosses transport boundaries. It maps the current read-side assembly paths exposed through native HTTP, Primal-compatible HTTP, and Primal-compatible WebSocket surfaces so you can see where orchestration actually lives today.
 
 For performance prioritization and benchmark/load-test targets tied to these surfaces, see [../performance.md](../performance.md).
 For compatibility/deprecation expectations on these external surfaces, see [../compatibility.md](../compatibility.md).
@@ -15,7 +15,7 @@ Scope is limited to the code currently wired from `cmd/api/main.go` into:
 
 No redesign is proposed here. The goal is to describe what runs today.
 
-## How Contributors Should Use This Document
+## How contributors should use this document
 
 Use this page as a map before changing handlers/gateway/query code:
 
@@ -26,7 +26,7 @@ Use this page as a map before changing handlers/gateway/query code:
 
 High-risk edits are those that change shared thread/event/profile assembly semantics across multiple surfaces. Treat those as compatibility-sensitive changes and stage validation accordingly.
 
-## Route-Level Entry Points
+## Route-level entry points
 
 `cmd/api/routes.go` is the route source of truth. `cmd/api/main.go` registers from it, and `cmd/api/contract_drift_test.go` validates contract-owned routes against `docs/openapi.yaml`:
 
@@ -49,7 +49,7 @@ High-risk edits are those that change shared thread/event/profile assembly seman
   - `GET /primal/ws` -> `internal/api_primal.WSGateway.Handle`
   - Request dispatch inside the socket is driven by `internal/api_primal.WSGateway.resolveFilter` and `internal/api_primal.WSGateway.dispatchCacheCall`
 
-## Current Authority Boundary
+## Current authority boundary
 
 - `internal/query/service.go` is the shared application-service layer for migrated read orchestration paths.
 - Native HTTP and Primal HTTP are mixed:
@@ -58,7 +58,7 @@ High-risk edits are those that change shared thread/event/profile assembly seman
 - Primal WebSocket constructs `query.Service` in `NewWSGateway` and delegates cache-call reads through `g.query`.
 - WebSocket still owns compatibility-only stream shaping (metadata injection, synthetic range markers, moderation/DM response shaping), so transport-specific composition remains in gateway code.
 
-## Thread Assembly
+## Thread assembly
 
 ### Native HTTP thread
 
@@ -117,7 +117,7 @@ High-risk edits are those that change shared thread/event/profile assembly seman
   - Primal HTTP uses it for `GET /primal/v1/threads/{eventId}`
   - Primal WebSocket uses `GetThreadWindow` for descending lookup assembly, but still owns stream framing/metadata/range shaping
 
-## Event Lookup And Event Assembly
+## Event lookup and event assembly
 
 ### Single event lookup: native HTTP
 
@@ -194,7 +194,7 @@ High-risk edits are those that change shared thread/event/profile assembly seman
   - Duplicates the same underlying batch lookup capability, but in stream form.
   - Unlike HTTP, there is no missing-id payload; absent ids simply do not emit an event frame.
 
-## Profile And User-Info Assembly
+## Profile and user-info assembly
 
 ### Single profile: native HTTP
 
@@ -273,7 +273,7 @@ High-risk edits are those that change shared thread/event/profile assembly seman
 - Duplication status:
   - `user_profile` and `user_infos` reuse `query.Service`, but the metadata-event enrichment path is WS-only and bypasses any native/HTTP shared representation.
 
-## Compatibility-Specific Response Shaping Paths
+## Compatibility-specific response shaping paths
 
 These paths are not just alternate transports; they reshape data specifically for Primal-compatible clients.
 
@@ -308,7 +308,7 @@ The WebSocket gateway contains the densest compatibility-only assembly:
 - `resolveUnifiedSearch`
   - combines search events with profile payload objects shaped as kind-0-like compatibility items
 
-## Explicit Duplication Between `internal/api` And `internal/api_primal`
+## Explicit duplication between `internal/api` and `internal/api_primal`
 
 The clearest duplicated orchestration today is in HTTP handlers:
 
@@ -330,7 +330,7 @@ The clearest duplicated orchestration today is in HTTP handlers:
   - both normalize pubkeys, call `query.Service.GetProfiles`, preserve input order, and compute missing pubkeys
 - Author event/reply and contact/relay list reads also mirror each other structurally and now call shared `query.Service` methods.
 
-## WebSocket Paths That Bypass Shared Service Logic
+## WebSocket paths that bypass shared service logic
 
 The main bypasses in `internal/api_primal/ws_gateway.go` are:
 
@@ -345,7 +345,7 @@ The main bypasses in `internal/api_primal/ws_gateway.go` are:
 - long-form thread compatibility
   - `resolveLongFormContentThreadView` does not use `query.Service.GetLongFormThreadView`; it fetches the parameterized event, collects base replies, fetches extra a-tag replies via `g.query.GetLongFormThreadATagReplies`, then applies shared `query.WindowDescendingReplies` before WS stream shaping
 
-## What Is Canonical Today
+## What is canonical today
 
 - There is **no single canonical read assembly path across all surfaces** today.
 - For migrated HTTP reads, the canonical pattern is handler -> `query.Service` -> transport response shaping.
@@ -362,7 +362,7 @@ The main bypasses in `internal/api_primal/ws_gateway.go` are:
   - WS `thread_view` delegates to `query.Service.GetThreadWindow`
   - WS still owns compatibility stream shaping (metadata/range events and ordering)
 
-## Shared HTTP Transport Helper (Chunk 6)
+## Shared HTTP transport helper
 
 - Generic HTTP JSON body limiting/decoding logic is now centralized in `internal/transport/httpx/body_limit.go`.
 - Both `internal/api/body_limit.go` and `internal/api_primal/body_limit.go` now use the shared helper and only keep transport-surface-specific error envelope mapping.
@@ -372,14 +372,14 @@ The main bypasses in `internal/api_primal/ws_gateway.go` are:
   - single-object enforcement (reject trailing JSON payloads)
 - API/Primal wrappers remain intentionally thin so business/query code is not moved into transport helpers.
 
-## Store To Job Vocabulary Boundary (Chunk 7)
+## Store to job vocabulary boundary
 
 - Canonical event persistence in `internal/store/events.go` no longer imports derivation-owned job constants.
 - Job type vocabulary used for queue publication is now owned by `internal/jobs` (`internal/jobs/types.go`).
 - Canonical-event downstream publication now routes through `internal/jobs.QueuePublisher` (via `internal/jobs.CanonicalEventPublisher`) and remains invoked only when a new event row is inserted.
 - `internal/derivation` still consumes the same job types, but now aliases `internal/jobs` constants, so dependency direction is `derivation -> jobs` rather than `store -> derivation`.
 
-## Target Application-Service Shape (Chunk 2)
+## Target application-service shape
 
 The `internal/query` package now exposes focused, transport-agnostic interfaces intended to become the common read-orchestration boundary:
 

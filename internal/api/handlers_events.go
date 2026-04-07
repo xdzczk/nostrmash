@@ -19,11 +19,27 @@ func (h Handlers) GetEventByID(w http.ResponseWriter, r *http.Request) {
 	}
 	event, err := h.store.GetEventWithProvenance(r.Context(), eventID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if !errors.Is(err, store.ErrNotFound) {
+			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+		raw, fallbackErr := h.service.GetEvent(r.Context(), eventID)
+		if fallbackErr != nil {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
 			return
 		}
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		var payload any
+		if unmarshalErr := json.Unmarshal(raw, &payload); unmarshalErr != nil {
+			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "stored event payload is invalid")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"event": payload,
+			"provenance": map[string]any{
+				"relays": []seenOnEntry{},
+			},
+			"consistency": "eventual",
+		})
 		return
 	}
 	var payload any

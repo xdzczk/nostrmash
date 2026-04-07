@@ -1,6 +1,6 @@
 # Compatibility and Deprecation Policy
 
-This document defines practical backward-compatibility expectations for NostrMash external behavior surfaces:
+Use this page for policy, not feature inventory. It defines how compatibility-sensitive behavior should evolve across native HTTP, Primal-compatible HTTP, and Primal-compatible WebSocket surfaces.
 
 - native HTTP API (`/api/v1/...`)
 - Primal-compatible HTTP surface (`/primal/v1/...`)
@@ -9,7 +9,16 @@ This document defines practical backward-compatibility expectations for NostrMas
 It complements [../VERSIONING.md](../VERSIONING.md) and release guidance in [../RELEASE.md](../RELEASE.md).
 Operational rollout/triage context lives in [operations.md](operations.md), and surface-level ownership context lives in [architecture/orchestration-surfaces.md](architecture/orchestration-surfaces.md).
 
-## Compatibility Expectations
+## Which compatibility doc owns what
+
+| Need | Canonical doc |
+| --- | --- |
+| Policy and deprecation rules | this page |
+| What is implemented today | [primal_compatibility_matrix.md](primal_compatibility_matrix.md) |
+| How to roll it out safely | [compatibility_rollout.md](compatibility_rollout.md) |
+| Route and response contracts | [api.md](api.md) and [openapi.yaml](openapi.yaml) |
+
+## Compatibility expectations
 
 ### Native API
 
@@ -17,17 +26,17 @@ Operational rollout/triage context lives in [operations.md](operations.md), and 
 - Additive evolution is preferred (new optional fields, new endpoints, broader filters).
 - Behavior or shape changes that can break existing clients should be treated as major-version material.
 
-### Primal-Compatible Surfaces
+### Primal-compatible surfaces
 
 - Compatibility coverage is intentionally phased and may expand incrementally.
 - Existing implemented compatibility routes/events should not change in breaking ways without explicit release communication.
 - For `/primal/ws`, maintain frame-type and request/response semantics for currently supported flows unless a major-version change is declared.
 
-### Operator-Facing Compatibility
+### Operator-facing compatibility
 
 - Changes to env var meaning/defaults, operational endpoint behavior, or admin workflows require explicit release notes and docs updates.
 
-## Deprecation Policy
+## Deprecation policy
 
 When behavior needs to change incompatibly, use a deprecation path unless there is an urgent safety/security reason.
 
@@ -44,7 +53,7 @@ Minimum deprecation communication should include:
 - earliest removal target release
 - migration steps for clients/operators
 
-## Contributor Checklist For Compatibility-Sensitive Changes
+## Contributor checklist for compatibility-sensitive changes
 
 When touching `/api/v1`, `/primal/v1`, or `/primal/ws` behavior:
 
@@ -53,7 +62,7 @@ When touching `/api/v1`, `/primal/v1`, or `/primal/ws` behavior:
 3. Run contract/testing checks from `testing.md` plus targeted compatibility tests.
 4. If deprecating behavior, include overlap window and removal target.
 
-## Changes Requiring Staged Rollout Thinking
+## Changes requiring staged rollout thinking
 
 - response schema changes for high-traffic endpoints
 - compatibility WS behavior changes (filtering, framing, limits, timeout semantics)
@@ -62,7 +71,7 @@ When touching `/api/v1`, `/primal/v1`, or `/primal/ws` behavior:
 
 Use staged rollout and verify client/operator impact before broad promotion.
 
-## Explicitly Limited Guarantees
+## Explicitly limited guarantees
 
 - NostrMash does not claim full, frozen parity with every external ecosystem surface.
 - Compatibility routes may be partial and are expanded iteratively.

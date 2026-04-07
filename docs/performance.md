@@ -1,8 +1,8 @@
 # Performance Hot Paths
 
-This page defines the highest-value performance paths in NostrMash so benchmark and load-test work is anchored to explicit ownership and scenarios, not intuition.
+Use this page to decide where performance work belongs and what evidence should accompany it. The goal is not generic tuning; it is repeatable measurement on the paths that actually matter.
 
-No hard numeric latency/throughput targets are set in this file yet. Where baselines are not established, the immediate target is to create repeatable measurement coverage first, then set concrete budgets from observed data.
+No hard numeric latency or throughput budgets are set here yet. Where baselines are missing, the immediate target is repeatable evidence first, then tighter budgets later.
 
 Contributor flow:
 
@@ -12,16 +12,26 @@ Contributor flow:
 
 For command details, see [testing.md](testing.md). For rollout expectations when regressions are found, see [../RELEASE.md](../RELEASE.md).
 
-## Performance Principles
+## Hot-path map
+
+| Hot path | Why it matters most | First evidence to reach for |
+| --- | --- | --- |
+| Thread views | core interactive read path across native HTTP, Primal HTTP, and WS | route latency, thread benchmarks, query/store traces |
+| Batch reads | bursty fan-in path that can dominate tail latency | batch benchmarks, API latency, DB pressure |
+| User-info/profile aggregation | high-frequency fan-out path with shaping overhead | profile benchmarks, request latency, metadata-enrichment traces |
+| Replay/rebuild execution | recovery speed and rollout safety | worker queue metrics, rebuild timings, replay benchmarks |
+| Derivation fan-out | sustained background throughput and staleness control | worker execution metrics, queue pressure, derivation benchmarks |
+
+## Performance principles
 
 - Benchmark before tuning.
 - Profile before changing query or index shape.
 - Keep perf telemetry low-cardinality and deployment-stable.
 - Prefer representative scenarios (realistic thread depth, batch sizes, replay volume) over synthetic trivia.
 
-## Top Hot Paths
+## Top hot paths
 
-### 1) Thread Views (native + Primal HTTP + Primal WS)
+### 1) Thread views (native + Primal HTTP + Primal WS)
 
 Why it matters:
 - Thread reads are a user-facing critical path and combine multiple dependent reads (focal event, ancestors, replies, pagination).
@@ -49,7 +59,7 @@ Desired future benchmark/load-test coverage:
 - Mixed-surface concurrency tests (native HTTP + Primal HTTP + WS together).
 - Memory-allocation tracking for large descendant windows and metadata enrichment.
 
-### 2) Batch Reads (event + profile batch endpoints)
+### 2) Batch reads (event + profile batch endpoints)
 
 Why it matters:
 - Batch reads amortize client round trips but can create large bursty DB and allocation pressure.
@@ -78,7 +88,7 @@ Desired future benchmark/load-test coverage:
 - Mixed hit/miss ratio scenarios to capture missing-id handling costs.
 - Sustained load tests with realistic client burst patterns and body-size ceilings.
 
-### 3) User-Info/Profile Aggregation (including metadata enrichment)
+### 3) User-info/profile aggregation (including metadata enrichment)
 
 Why it matters:
 - Profile and user-info reads are high-frequency and frequently chained into other responses (threads, feeds, compatibility payloads).
@@ -106,7 +116,7 @@ Desired future benchmark/load-test coverage:
 - Cache-hit vs cache-miss style scenarios (when projection rows are present vs sparse).
 - Transport-specific profile shaping cost comparison (native vs Primal HTTP vs WS).
 
-### 4) Replay/Rebuild Execution
+### 4) Replay/rebuild execution
 
 Why it matters:
 - Rebuildability is a core system contract; replay/rebuild speed determines recovery time and rollout safety for projection changes.
@@ -135,7 +145,7 @@ Desired future benchmark/load-test coverage:
 - Replay+worker concurrency tests to expose contention between rebuild and normal processing.
 - Repeatable timing baselines for rebuild phases (queueing, execution, completion).
 
-### 5) Derivation Fan-Out (worker-heavy canonical-event path)
+### 5) Derivation fan-out (worker-heavy canonical-event path)
 
 Why it matters:
 - Canonical ingest can fan one event into multiple downstream derivation actions; this defines sustained background throughput.
@@ -163,7 +173,7 @@ Desired future benchmark/load-test coverage:
 - Mixed job-type load with controlled failure/retry injections.
 - Queue-depth growth/recovery characterization under sustained ingest pressure.
 
-## Measurement Ownership Notes
+## Measurement ownership notes
 
 - `internal/query` owns shared read-orchestration benchmark scenarios (thread window, batch profile assembly).
 - `internal/api_primal` owns WS compatibility shaping benchmarks where transport-specific fan-out is significant.
@@ -172,7 +182,16 @@ Desired future benchmark/load-test coverage:
 
 Future performance changes should cite which hot path is being optimized and include before/after evidence from the relevant benchmark or load-test scenario listed above.
 
-## Repeatable Load-Test Suite
+### Example: choosing evidence for a thread-path change
+
+If a change touches thread assembly or reply pagination:
+
+1. Start with the thread hot path section on this page.
+2. Run the relevant thread benchmark before and after.
+3. Check API route latency or WS request timing if the change affects transport shaping.
+4. Use traces to separate store time from query assembly time before concluding where the regression lives.
+
+## Repeatable load-test suite
 
 The repo now includes a small repeatable load-test suite in [`../loadtest`](../loadtest) with scenario wrappers in `make`:
 
@@ -183,7 +202,7 @@ The repo now includes a small repeatable load-test suite in [`../loadtest`](../l
 
 Use [`../loadtest/README.md`](../loadtest/README.md) for prerequisites, environment knobs, captured outputs, and high-level interpretation guidance.
 
-## Baseline Storage Over Time
+## Baseline storage over time
 
 Performance outputs are now preservable as lightweight snapshots under `benchmarks/history/<run-id>/`.
 
@@ -214,7 +233,7 @@ Why this is not a hard gate yet:
 - Load-test scenarios are currently operator-driven and not yet normalized enough for strict pass/fail thresholds.
 - The current design is evidence-preserving first; gating can be added later once variance and baseline stability are proven.
 
-## Regression Protection (Chunk 31)
+## Regression protection
 
 Protected surfaces:
 
@@ -247,7 +266,7 @@ Why this level of strictness now:
 - Compatibility/load surfaces are valuable as directional signals but not universally deterministic gates yet.
 - This mechanism preserves evidence and introduces optional strictness only when a release manager explicitly opts in.
 
-## Evidence-Backed Tuning Log
+## Evidence-backed tuning log
 
 ### 2026-04: Thread window assembly repeated work
 

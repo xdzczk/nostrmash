@@ -1,8 +1,6 @@
 # Migration Safety Guide
 
-This guide defines practical safety expectations for schema evolution in NostrMash.
-
-NostrMash runs embedded migrations on service startup. That is convenient, but it also means unsafe migrations can break boot and recovery paths quickly. Treat migration design as production-impacting work.
+Use this page when a change affects schema, rebuild posture, startup safety, or rollback assumptions. NostrMash runs embedded migrations on service startup, so migration design is part of the production surface, not a side task.
 
 Use this guide with:
 
@@ -10,7 +8,16 @@ Use this guide with:
 - `operations.md` for runtime validation and incident triage
 - `../VERSIONING.md` and `compatibility.md` when schema changes alter external behavior
 
-## Safety Rules
+## Choosing the right rollout posture
+
+| Change shape | Default posture |
+| --- | --- |
+| Additive table/column/index | normal release, still verify boot and runtime health |
+| Hot-table rewrite or large index build | staged rollout plus rehearsal when feasible |
+| Queue/checkpoint/rebuild-state change | treat as high risk and pair with explicit rollback notes |
+| Irreversible data transformation | require operator communication and a deliberate cutover plan |
+
+## Safety rules
 
 - **Append-only migration history**: never edit or reorder old migration files once applied in any environment.
 - **Prefer additive changes first**: add new tables/columns/indexes before removing old structures.
@@ -18,7 +25,7 @@ Use this guide with:
 - **Keep rollout reversible at release level**: if full DB rollback is not realistic, make application rollout/rollback safe by avoiding immediate destructive schema changes.
 - **Document operational impact** in release notes when migrations can change boot time, lock behavior, storage growth, or rebuild/job throughput.
 
-## Rollback-Aware Practices
+## Rollback-aware practices
 
 Schema rollback is often harder than binary rollback. Plan for this explicitly:
 
@@ -28,7 +35,12 @@ Schema rollback is often harder than binary rollback. Plan for this explicitly:
 
 For changes that cannot be expanded/contracted cleanly (for example, major table rewrites), use staged rollout and explicit operator communication before cutover.
 
-## Changes Requiring Extra Scrutiny
+Example mental model:
+
+- if old and new binaries can safely coexist, prefer expand/contract
+- if they cannot, treat the migration as a release event, not just a schema patch
+
+## Changes requiring extra scrutiny
 
 - large index builds or table rewrites on hot tables
 - changes to queue/job state tables
@@ -42,7 +54,7 @@ For these changes, require:
 - explicit rollback notes in `RELEASE.md` output
 - post-release monitoring focus via `docs/operations.md`
 
-## Operational Validation Checklist
+## Operational validation checklist
 
 After deploying schema changes:
 
@@ -51,7 +63,7 @@ After deploying schema changes:
 - inspect derivation/rebuild state (`GET /admin/v1/derivation-versions`, `GET /admin/v1/rebuilds`)
 - watch DB/pool saturation and operation error metrics for regressions
 
-## Contributor Checklist For Migration PRs
+## Contributor checklist for migration PRs
 
 For migration-related changes, include in PR description:
 
@@ -60,7 +72,7 @@ For migration-related changes, include in PR description:
 3. Rollback posture (binary-only vs requires operator action).
 4. Validation evidence from staging-like environment when change is high risk.
 
-## Scope Limits
+## Scope limits
 
 - This project does **not** promise instant reversible down-migrations for every change.
 - Safety is achieved through phased schema design, staged rollout, and operational readiness rather than aggressive automatic rollback tooling.

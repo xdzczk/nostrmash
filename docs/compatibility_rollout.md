@@ -1,8 +1,18 @@
 # Compatibility Rollout Plan
 
-This runbook defines staged rollout and exit criteria for replacing Primal Cache with NostrMash compatibility surfaces.
+Use this page when you are planning adoption, not when you are checking current support. For current availability, use [primal_compatibility_matrix.md](primal_compatibility_matrix.md). This document is the staged rollout runbook for replacing Primal Cache with NostrMash compatibility surfaces.
 
-## Stage 1: HTTP Compatibility Subset
+## Stage summary
+
+| Stage | Purpose | Main question |
+| --- | --- | --- |
+| Stage 1 | establish HTTP subset | do the core routes behave correctly and predictably? |
+| Stage 2 | establish WS gateway subset | is protocol behavior stable under realistic load? |
+| Stage 3 | mirror real traffic | do supported flows still match production expectations? |
+| Stage 4 | migrate selected clients | can we hold SLOs with live user traffic? |
+| Stage 5 | make it the default | are the remaining gaps either closed or explicitly non-blocking? |
+
+## Stage 1: HTTP compatibility subset
 
 Enable the first compatibility subset over HTTP:
 
@@ -18,7 +28,7 @@ Exit criteria:
 - native API behavior remains unchanged
 - compatibility error budget is defined and monitored
 
-## Stage 2: WebSocket Gateway (Subset)
+## Stage 2: WebSocket gateway subset
 
 Enable `GET /primal/ws` gateway for:
 
@@ -32,7 +42,7 @@ Exit criteria:
 - bounded subscriptions per connection
 - per-function latency and error metrics visible
 
-## Stage 3: Shadow Traffic
+## Stage 3: Shadow traffic
 
 Mirror a representative slice of cache traffic:
 
@@ -45,7 +55,7 @@ Exit criteria:
 - no unknown regressions in supported functions
 - unsupported surface is explicitly acknowledged by clients
 
-## Stage 4: Partial Production Migration
+## Stage 4: Partial production migration
 
 Move selected clients or routes to NostrMash compatibility:
 
@@ -58,7 +68,7 @@ Exit criteria:
 - no recurring protocol failures
 - operational runbooks validated by on-call
 
-## Stage 5: Full Migration
+## Stage 5: Full migration
 
 Promote NostrMash compatibility as the default path after:
 

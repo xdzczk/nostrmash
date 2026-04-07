@@ -1,10 +1,16 @@
 # Primal Compatibility Matrix
 
-This document defines the explicit compatibility target for replacing Primal Cache in phases.
+Use this page as the current compatibility inventory. If you need rollout sequencing, use [compatibility_rollout.md](compatibility_rollout.md); if you need policy, use [compatibility.md](compatibility.md).
 
-The matrix below describes what NostrMash implements in the repository today, what is planned next, and what is intentionally deferred. The later "Frozen Cutover Scope (V1)" section is narrower on purpose: it captures the first production migration bundle, not the full currently implemented surface.
+The matrix below describes what NostrMash implements today, what is planned next, and what is intentionally deferred. The later "Frozen cutover scope (V1)" section is narrower on purpose: it captures the first production migration bundle, not the full currently implemented surface.
 
-## Classification Legend
+## How to read this matrix
+
+- Use `supported_now` as the present-tense repository truth.
+- Use the "Frozen cutover scope (V1)" section when deciding what must block the first production migration.
+- Use [compatibility_rollout.md](compatibility_rollout.md) when the question is sequencing rather than availability.
+
+## Classification legend
 
 - `supported_now`: implemented and covered by tests in this repository.
 - `phase1_http`: targeted first via HTTP compatibility endpoints.
@@ -12,7 +18,7 @@ The matrix below describes what NostrMash implements in the repository today, wh
 - `deferred`: planned, but not required for initial cutover.
 - `unsupported`: intentionally out of scope for now.
 
-## Function-Level Matrix
+## Function-level matrix
 
 | Primal capability | Status | NostrMash surface | Notes |
 | --- | --- | --- | --- |
@@ -40,7 +46,7 @@ The matrix below describes what NostrMash implements in the repository today, wh
 | curated/external parity subset | supported_now | `network_stats`, `server_name`, `get_recommended_reads`, `get_reads_topics`, `get_featured_authors`, `creator_paid_tiers`, `user_of_ln_address` | Reads/topics/authors/LN lookup use compatibility kind envelopes (`10000145`/`146`/`148`/`138`); `creator_paid_tiers` prefers event-native kind-`17000` + referenced tier events with curated (`10000147`) fallback; featured-authors and LN lookup include profile metadata events when available. |
 | DMs over native HTTP | unsupported | none | Separate security/privacy scope from public reads. |
 
-## Required Behavior Contract
+## Required behavior contract
 
 For all `supported_now`, `phase1_http`, and `phase2_ws` capabilities:
 
@@ -50,7 +56,7 @@ For all `supported_now`, `phase1_http`, and `phase2_ws` capabilities:
 - request-id propagation in all error responses
 - fixture/golden test coverage for response shape
 
-## Initial Cutover Gate
+## Initial cutover gate
 
 Initial Primal cutover can proceed only when all are true:
 
@@ -59,7 +65,7 @@ Initial Primal cutover can proceed only when all are true:
 3. Compatibility metrics and error rates are observable in production.
 4. Unknown cache functions fail with explicit `unsupported` notices, not silent drops.
 
-## Frozen Cutover Scope (V1)
+## Frozen cutover scope (V1)
 
 The first production cutover is explicitly limited to this smaller deployment bundle, even though the repository implements additional compatibility functions today:
 

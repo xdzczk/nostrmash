@@ -54,6 +54,10 @@ func (f *fakeWorkerQueue) FailJob(_ context.Context, jobID int64, _ string, _ st
 	return jobs.FailureResult{Status: jobs.StatusPending, Attempts: 1, MaxAttempts: 5}, nil
 }
 
+func (f *fakeWorkerQueue) PurgeTerminalJobs(_ context.Context, _ time.Time, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+
 func TestRunClaimLoop_ProcessesJobsConcurrently(t *testing.T) {
 	queue := &fakeWorkerQueue{
 		claimBatches: [][]jobs.Job{

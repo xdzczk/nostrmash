@@ -1,31 +1,52 @@
 # Architecture
 
-NostrMash separates durable ingest truth from rebuildable read models. Read this page first if you need the system shape, service boundaries, or the reasoning behind the Layer 1 / 2 / 3 model.
+Read this page when you want the system shape before diving into code. It explains what each runtime owns, how data moves through the stack, and why NostrMash keeps canonical ingest truth separate from rebuildable read models.
 
-## On This Page
+## On this page
 
 - [Purpose](#purpose)
-- [Service Boundaries](#service-boundaries)
-- [Data Flow](#data-flow)
-- [Layer Model](#layer-model)
-- [Versioned Derivations and Rebuilds](#versioned-derivations-and-rebuilds)
-- [Why Postgres Is Primary](#why-postgres-is-primary)
-- [Trust And Ranking Expansion](#trust-and-ranking-expansion)
+- [Service boundaries](#service-boundaries)
+- [Data flow](#data-flow)
+- [Layer model](#layer-model)
+- [Versioned derivations and rebuilds](#versioned-derivations-and-rebuilds)
+- [Why Postgres is primary](#why-postgres-is-primary)
+- [Trust and ranking expansion](#trust-and-ranking-expansion)
 
 ## Purpose
 
-NostrMash turns relay traffic into a durable, queryable system without collapsing raw ingest and product-facing read models into the same thing. It stores canonical event truth first, then derives higher-level state asynchronously.
+NostrMash turns relay traffic into a durable, queryable system without collapsing raw ingest and product-facing read models into the same layer. It stores canonical event truth first, then derives higher-level state asynchronously.
 
-That split is the point: raw history must survive schema changes and bad projection ideas; read models must be cheap to rebuild and easy to version.
+That split is the point: raw history must survive schema changes and bad projection ideas, while read models stay cheap to rebuild and easy to version.
 
-## Service Boundaries
+## Service boundaries
 
-- `ingestor`: receives relay payloads in `live`, optional `backfill`, or deterministic `replay` mode; validates events; writes canonical data; records invalid payloads; persists relay checkpoints; enqueues derivation jobs.
-- `worker`: claims jobs from Postgres and materializes derivations and projections.
-- `api`: serves native read endpoints, a focused but substantial `/primal/v1` and `/primal/ws` compatibility surface, and admin inspection/rebuild endpoints.
-- `postgres`: primary datastore for canonical storage, checkpoints, queue state, derivation metadata, and projections.
+| Runtime | What it owns | Why it exists |
+| --- | --- | --- |
+| `ingestor` | Relay sessions, validation, canonical writes, invalid-event quarantine, checkpoints, and job enqueue | Keeps durable ingest truth on the front edge of the system |
+| `worker` | Default queue consumption, derivations, projections, and rebuild execution | Turns canonical truth into rebuildable read models |
+| `trust_worker` | Trust-specific job execution, Redis graph sync, trust score computation, and trust publication | Keeps heavier trust/ranking work isolated from normal projection flow |
+| `api` | Native reads, Primal compatibility, admin inspection endpoints, and API-facing metrics | Exposes product and operator surfaces without owning canonical truth |
+| `postgres` | Canonical storage, checkpoints, queue state, derivation metadata, projections, and published trust outputs | Remains the durability and consistency boundary |
+| `redis` | Disposable trust working state | Speeds graph-oriented trust computation without becoming canonical state |
 
-## Data Flow
+## Data flow
+
+```mermaid
+flowchart TD
+    Relays[Relays] --> Ingestor[Ingestor]
+    Ingestor --> Canonical[CanonicalStorage]
+    Ingestor --> Invalid[InvalidEvents]
+    Canonical --> Jobs[Jobs]
+    Jobs --> Worker[Worker]
+    Worker --> Projections[DerivationsAndProjections]
+    Projections --> API[APIAndCompatibility]
+    Canonical --> TrustInputs[TrustInputs]
+    TrustInputs --> TrustWorker[TrustWorker]
+    TrustWorker --> Redis[RedisWorkingState]
+    TrustWorker --> TrustOutputs[PublishedTrustOutputs]
+    TrustOutputs --> API
+
+```
 
 ```text
 relays
@@ -49,9 +70,17 @@ ingestor
                                api
 ```
 
-The canonical path is synchronous and durable. Derived state is asynchronous and may lag behind raw ingest.
+The canonical path is synchronous and durable. Derived state is asynchronous by design and may lag behind raw ingest.
 
-## Layer Model
+Read the diagram as two cooperating paths: the default ingest-to-projection flow that serves most read surfaces, and the trust-specific path that uses Redis as working state but still publishes durable outputs back through shared query surfaces.
+
+## Layer model
+
+| Layer | What it is for | Operational stance |
+| --- | --- | --- |
+| Layer 1 | Canonical truth and provenance | Durable, inspectable, never shaped for product convenience |
+| Layer 2 | Reusable interpreted state and rebuild control | Durable enough to coordinate rebuildable behavior |
+| Layer 3 | Read-optimized projections and published outputs | Rebuildable, replaceable, and safe to evolve |
 
 ### Layer 1: Canonical Truth
 
@@ -91,9 +120,9 @@ Layer 3 is read-optimized projection state consumed by APIs:
 - `zap_receipts`
 - curated parity tables such as `curated_reads_topics`, `curated_featured_authors`, `curated_recommended_reads`, and `curated_creator_paid_tiers`
 
-Layer 3 is disposable in principle. If a projection is wrong or changes shape, rebuild it from lower layers.
+Layer 3 is disposable in principle. If a projection is wrong or needs to change shape, rebuild it from lower layers.
 
-## Versioned Derivations and Rebuilds
+## Versioned derivations and rebuilds
 
 Every projection is tied to an explicit derivation name and version. The code tracks:
 
@@ -105,7 +134,7 @@ Full rebuilds promote a derivation's active version after successful completion.
 
 This is the core contract: derived state can evolve without rewriting raw history.
 
-## Why Postgres Is Primary
+## Why Postgres is primary
 
 Postgres is not just storage here. It is the consistency boundary:
 
@@ -115,29 +144,21 @@ Postgres is not just storage here. It is the consistency boundary:
 
 That design favors correctness and operability over distributed-system novelty.
 
-## Trust And Ranking Expansion
+## Trust and ranking expansion
 
-Trust and ranking are now in scope for NostrMash, but they remain an expansion area rather than a fully implemented repository surface today.
+Trust and ranking are now live repository surfaces in NostrMash, while still remaining active expansion areas.
 
 The design direction is:
 
 - Postgres remains the canonical durability and versioning boundary for ingest truth and published derived outputs
-- a trust/ranking subsystem may introduce Redis as working state for graph traversal, walk maintenance, and fast score computation
+- Redis is now used as disposable working state for trust graph synchronization and score computation
+- trust-specific jobs run in a dedicated `trust_worker`, while published trust outputs flow back through shared query and admin surfaces
 - compatibility translation remains boundary-only in `internal/api_primal`; trust outputs should be published through shared query surfaces rather than embedded into transport-specific logic
 
 A few limits are still explicit in the current code:
 
 - only the `default_v1` relay filter group is implemented
 - compatibility support is still partial relative to full product parity and is rolled out in phases
-- trust/ranking architecture is now an intended subsystem, but the full scoring pipeline and query surfaces are still being introduced
+- trust/ranking continues to expand beyond the currently shipped trust worker, scores, relay suggestions, and trust-targeted ingest scheduling
 
-See [architecture/trust-subsystem.md](architecture/trust-subsystem.md) for the target design.
-
-## Related Docs
-
-- [README.md](../README.md)
-- [docs/README.md](README.md)
-- [development.md](development.md)
-- [operations.md](operations.md)
-- [api.md](api.md)
-- [architecture/trust-subsystem.md](architecture/trust-subsystem.md)
+Use [architecture/trust-subsystem.md](architecture/trust-subsystem.md) for the deeper trust design and [architecture/orchestration-surfaces.md](architecture/orchestration-surfaces.md) for transport/query ownership on the read side.

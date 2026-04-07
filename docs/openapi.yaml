@@ -402,6 +402,35 @@ paths:
       responses:
         '200':
           description: Follower edge rows
+  /api/v1/trust/scores/{pubkey}:
+    get:
+      tags: [public]
+      summary: Published trust score for a single pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Trust score row
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/trust/scores:
+    get:
+      tags: [public]
+      summary: Top published trust scores
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      responses:
+        '200':
+          description: Ranked trust score rows
+        '400':
+          $ref: '#/components/responses/Error'
 
   /primal/v1/events/{id}:
     get:
@@ -616,6 +645,18 @@ paths:
                               last_error_at: { type: string, format: date-time, nullable: true }
                               eose_seen_at: { type: string, format: date-time, nullable: true }
                               updated_at: { type: string, format: date-time }
+  /admin/v1/relays/suggestions:
+    get:
+      tags: [admin]
+      summary: Trust-informed relay suggestion state
+      security: [{ BearerToken: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        '200':
+          description: Relay recommendation rows
   /admin/v1/jobs:
     get:
       tags: [admin]
@@ -706,6 +747,56 @@ paths:
       responses:
         '200':
           description: Derivation version status list
+  /admin/v1/trust/runs:
+    get:
+      tags: [admin]
+      summary: Trust run history and current phase metadata
+      security: [{ BearerToken: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        '200':
+          description: Trust runs
+    post:
+      tags: [admin]
+      summary: Enqueue a new trust run
+      security: [{ BearerToken: [] }]
+      responses:
+        '202':
+          description: Trust run accepted and enqueued
+  /admin/v1/trust/runs/{runID}:
+    get:
+      tags: [admin]
+      summary: Trust run detail by run id
+      security: [{ BearerToken: [] }]
+      parameters:
+        - in: path
+          name: runID
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Trust run detail
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /admin/v1/trust/scores:
+    get:
+      tags: [admin]
+      summary: Top published trust scores for operator inspection
+      security: [{ BearerToken: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      responses:
+        '200':
+          description: Ranked trust score rows
+        '400':
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     BearerToken:

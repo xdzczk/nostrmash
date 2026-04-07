@@ -100,3 +100,102 @@ groups:
           summary: "Rebuild jobs are dead-lettering"
           description: "At least one rebuild projection-scope job dead-lettered in 30m. Treat as rebuild recovery incident."
           runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashTrustRunStuck
+        expr: nostrmash:trust:active_runs > 0 and nostrmash:trust:active_oldest_run_age_seconds > 1800
+        for: 15m
+        labels:
+          severity: warning
+          slo: worker-throughput
+        annotations:
+          summary: "Trust run appears stuck"
+          description: "At least one trust run has remained active for over 30 minutes. Inspect trust phase metadata and trust queue health."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashTrustSnapshotStale
+        expr: nostrmash:trust:active_snapshot_age_seconds > 21600
+        for: 30m
+        labels:
+          severity: warning
+          slo: worker-throughput
+        annotations:
+          summary: "Trust snapshot is stale"
+          description: "Most recent succeeded trust run is older than 6 hours. Trigger a trust run and verify trust_worker health."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashTrustRetryStorm
+        expr: nostrmash:trust:phase_retry_ratio15m > 0.30 and sum(increase(nostrmash_worker_jobs_total{job_type=~"trust_.*",outcome=~"succeeded|dead|retry"}[15m])) > 20
+        for: 15m
+        labels:
+          severity: warning
+          slo: worker-throughput
+        annotations:
+          summary: "Trust phase retries dominate recent outcomes"
+          description: "Trust retry ratio exceeded 30% over 15m with meaningful volume. Inspect sync/compute/promote errors by phase."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashFallbackFailureRatioHigh
+        expr: nostrmash:lookup:fallback_failure_or_miss_ratio5m_by_surface > 0.30 and nostrmash:lookup:fallback_attempt_rate5m_by_surface > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          slo: api-latency
+        annotations:
+          summary: "Relay fallback failures/misses are sustained"
+          description: "Fallback failure+miss ratio exceeds 30% with meaningful traffic for 15m. Inspect relay health, fallback timeout/fanout, and local miss behavior."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashFallbackLatencyHigh
+        expr: nostrmash:lookup:fallback_latency_p95_seconds:5m_by_surface > 1.5 and nostrmash:lookup:fallback_attempt_rate5m_by_surface > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          slo: api-latency
+        annotations:
+          summary: "Relay fallback latency p95 is elevated"
+          description: "Fallback lookup p95 latency exceeds 1.5s with sustained volume. Check relay response behavior and fallback timeout budget."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashLocalMissRatioHigh
+        expr: nostrmash:lookup:local_miss_ratio5m_by_surface > 0.50 and nostrmash:lookup:local_total_rate5m_by_surface > 0.05
+        for: 20m
+        labels:
+          severity: warning
+          slo: api-availability
+        annotations:
+          summary: "Local lookup miss ratio is elevated"
+          description: "More than half of fallback-enabled lookups are local misses for 20m. Investigate ingest freshness and hot-data locality."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashRetentionPurgeFailing
+        expr: nostrmash:retention:purge_error_rate5m > 0
+        for: 15m
+        labels:
+          severity: warning
+          slo: worker-throughput
+        annotations:
+          summary: "Retention purge loop is failing"
+          description: "Retention purge runs are erroring over 15m. Inspect worker logs and retention configuration for jobs/invalid_events."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashDatabaseGrowthSustained
+        expr: nostrmash:storage:database_growth_bytes_per_hour:6h > 52428800
+        for: 6h
+        labels:
+          severity: warning
+          slo: capacity-planning
+        annotations:
+          summary: "Database storage growth is sustained"
+          description: "Database size growth exceeds 50 MiB/hour over a 6h derivative window. Review high-growth tables and retention posture."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashInvalidEventsGrowthHigh
+        expr: nostrmash:storage:heavy_table_growth_bytes_per_hour:6h{table="invalid_events"} > 10485760
+        for: 6h
+        labels:
+          severity: warning
+          slo: capacity-planning
+        annotations:
+          summary: "invalid_events table growth is elevated"
+          description: "invalid_events growth exceeds 10 MiB/hour over 6h. Check malformed traffic/relays and invalid_events retention effectiveness."
+          runbook: "docs/operations.md#alert-response-playbook"

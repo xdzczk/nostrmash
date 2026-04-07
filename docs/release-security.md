@@ -1,8 +1,8 @@
 # Release Security Foundations
 
-This document describes the practical release hardening that NostrMash currently applies for published artifacts.
+Use this page when you want to verify what release security metadata NostrMash publishes and how consumers can validate it.
 
-## What Is Generated
+## What is generated
 
 Release workflows generate:
 
@@ -19,14 +19,14 @@ Release workflow trigger notes:
 - Tag pushes matching `v*` produce published release assets and GHCR image tags.
 - Manual `workflow_dispatch` runs still build/sign/attest and upload workflow artifacts, but do not publish GitHub Release assets or push GHCR tags unless the run is on a `v*` tag ref.
 
-## What Is Signed / Attested
+## What is signed and attested
 
 - **Signed**: checksum manifest and SBOM (`cosign sign-blob`, keyless OIDC identity from GitHub Actions).
 - **Attested**: release artifacts/checksum/SBOM using `actions/attest-build-provenance`.
 
 This gives consumers integrity metadata (checksums + signature), package inventory (SBOM), and build provenance foundations (artifact attestations).
 
-## How To Verify Artifacts
+## How to verify artifacts
 
 ### 1) Verify checksums
 
@@ -72,7 +72,7 @@ gh attestation verify ./api_v1.2.3_linux_amd64.tar.gz --owner <github-org-or-use
 
 You can run the same command for other downloaded release assets (for example checksum manifest or SBOM).
 
-## Scope And Current Limits
+## Scope and current limits
 
 - This is a foundation: useful integrity and provenance metadata without adding heavy compliance overhead.
 - Signing is currently focused on checksum/SBOM rather than every individual tarball blob.

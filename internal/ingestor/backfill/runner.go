@@ -29,10 +29,11 @@ type MessageHandler func(ctx context.Context, relayURL string, payload []byte) e
 
 // PageRequest defines one relay history request.
 type PageRequest struct {
-	Kinds []int
-	Since *int64
-	Until *int64
-	Limit int
+	Kinds   []int
+	Authors []string
+	Since   *int64
+	Until   *int64
+	Limit   int
 }
 
 // PageResult is one relay history response.

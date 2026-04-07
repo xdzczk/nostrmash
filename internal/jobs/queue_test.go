@@ -215,6 +215,44 @@ func TestClaimAvailableForPool_ClaimsOnlyTargetPool(t *testing.T) {
 	}
 }
 
+func TestPurgeTerminalJobs_DeletesOnlyOldTerminalRows(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+
+	oldSucceeded := insertTerminalJobForTest(t, ctx, pool, jobs.StatusSucceeded, time.Now().UTC().Add(-40*24*time.Hour))
+	oldDead := insertTerminalJobForTest(t, ctx, pool, jobs.StatusDead, time.Now().UTC().Add(-220*24*time.Hour))
+	_ = insertTerminalJobForTest(t, ctx, pool, jobs.StatusSucceeded, time.Now().UTC().Add(-5*24*time.Hour))
+	_ = insertTerminalJobForTest(t, ctx, pool, jobs.StatusPending, time.Now().UTC().Add(-60*24*time.Hour))
+
+	deleted, err := queue.PurgeTerminalJobs(
+		ctx,
+		time.Now().UTC().Add(-30*24*time.Hour),
+		time.Now().UTC().Add(-180*24*time.Hour),
+		100,
+	)
+	if err != nil {
+		t.Fatalf("purge terminal jobs: %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("expected two terminal jobs to be deleted, got %d", deleted)
+	}
+
+	assertJobMissing(t, ctx, pool, oldSucceeded)
+	assertJobMissing(t, ctx, pool, oldDead)
+
+	var remaining int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs`).Scan(&remaining); err != nil {
+		t.Fatalf("count remaining jobs: %v", err)
+	}
+	if remaining != 2 {
+		t.Fatalf("expected two remaining jobs, got %d", remaining)
+	}
+}
+
 func setupSchemaPool(t *testing.T, ctx context.Context, dbURL string) *pgxpool.Pool {
 	t.Helper()
 	return dbtest.SetupSchemaPool(t, ctx, dbURL, "jobs")
@@ -230,4 +268,29 @@ func derefString(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func insertTerminalJobForTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string, updatedAt time.Time) int64 {
+	t.Helper()
+	var id int64
+	err := pool.QueryRow(ctx, `
+		INSERT INTO jobs (job_type, worker_pool, payload, status, attempts, max_attempts, run_after, updated_at)
+		VALUES ('derive_profile', 'default', '{}'::jsonb, $1, 1, 5, now(), $2)
+		RETURNING id
+	`, status, updatedAt.UTC()).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert test job: %v", err)
+	}
+	return id
+}
+
+func assertJobMissing(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id int64) {
+	t.Helper()
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs WHERE id = $1`, id).Scan(&count); err != nil {
+		t.Fatalf("count job %d: %v", id, err)
+	}
+	if count != 0 {
+		t.Fatalf("expected job %d to be deleted", id)
+	}
 }

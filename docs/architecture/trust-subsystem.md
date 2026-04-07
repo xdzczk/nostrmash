@@ -1,11 +1,11 @@
 # Trust Subsystem
 
-This document describes the target architecture for a NostrMash trust and ranking subsystem inspired by Vertex-style Web of Trust, while preserving NostrMash's core contract: canonical ingest truth stays durable in Postgres, and published trust outputs remain rebuildable and versioned.
+Use this page when you are working on trust, ranking, relay suggestions, or trust-driven ingest behavior. It describes the deeper trust architecture: Redis-backed working state, staged score computation, and published outputs that still remain rebuildable from Postgres-backed inputs.
 
 ## Goals
 
 - Add trust-aware ranking and filtering without creating a second canonical event pipeline
-- Support graph-derived scores such as global rank, seed-based trust, and eventually personalized trust neighborhoods
+- Support graph-derived scores such as global rank now, with seeded/personalized trust deferred until a concrete product need exists
 - Keep fast graph computation and walk maintenance off the critical canonical ingest path
 - Publish trust outputs back into the same durable derivation and query model used elsewhere in NostrMash
 
@@ -15,14 +15,14 @@ This document describes the target architecture for a NostrMash trust and rankin
 - Running a second independent crawler that competes with `cmd/ingestor`
 - Making Redis the only home of trust outputs that APIs depend on
 
-## Design Summary
+## Design summary
 
 - Postgres remains the system of record for canonical events, replaceable latest state, checkpoints, jobs, derivation versions, and published trust outputs.
 - Redis is allowed as working state for graph adjacency, random walks, score computation, and cache-friendly trust neighborhoods.
 - Trust computation should be driven from NostrMash-derived graph inputs such as `contact_lists_latest`, `follower_edges`, and `relay_lists_latest`, not from a parallel ingest path.
 - Published trust/ranking results should flow back into Postgres through explicit derivations so they are rebuildable, inspectable, and versioned.
 
-## Existing Inputs In NostrMash
+## Existing inputs in NostrMash
 
 NostrMash already derives graph-relevant inputs from canonical events:
 
@@ -33,7 +33,7 @@ NostrMash already derives graph-relevant inputs from canonical events:
 
 These inputs are sufficient to build an initial WoT graph without importing an external SQLite/Redis ingest layer.
 
-## Target Data Flow
+## Target data flow
 
 ```mermaid
 flowchart TD
@@ -59,9 +59,11 @@ flowchart TD
     postgresTrust --> api
 ```
 
-## Subsystem Components
+Read this diagram left to right: canonical relay data still enters through the normal ingest path, graph-oriented trust work happens off to the side in Redis-backed working state, and only the published outputs flow back into the shared API/query world.
 
-### 1. Graph Inputs In Postgres
+## Subsystem components
+
+### 1. Graph inputs in Postgres
 
 These remain derived and durable:
 
@@ -75,32 +77,26 @@ Optional later inputs:
 - moderation allow/mute lists
 - relay trust or relay-quality signals
 
-### 2. Trust Publisher
+### 2. Trust Publisher (Implemented in `trust_worker`)
 
-A new worker-driven component should publish graph changes from Postgres into Redis. This should be incremental when possible and rebuildable when needed.
+A dedicated trust worker publishes graph changes from Postgres into Redis. Rehydration from Postgres is first-class and expected when Redis is cold.
 
 Responsibilities:
 
 - read current graph derivations from Postgres
-- project adjacency lists, reverse adjacency, and seed metadata into Redis
+- project adjacency lists and reverse adjacency into Redis
 - support scoped rebuilds and full rebuilds
 - stamp version/run metadata so Redis state can be correlated with Postgres derivation state
 
-This can be implemented either:
+Current deployment uses a dedicated `trust_worker` binary and `jobs.worker_pool='trust'` routing so trust phases are isolated from default projection workers.
 
-- as new derivation jobs handled by the existing `worker`, or
-- as a dedicated trust worker binary consuming the same Postgres-backed job queue
-
-The second option is preferable if trust computation becomes materially heavier than existing projections.
-
-### 3. Redis Graph State
+### 3. Redis graph state
 
 Redis is working state, not canonical truth.
 
 Suggested contents:
 
 - adjacency and reverse adjacency sets
-- trust seed sets
 - precomputed global scores
 - optional personalized or neighborhood score materialization
 - walk state if Monte Carlo / random-walk methods are adopted
@@ -115,19 +111,19 @@ The trust runner owns graph algorithms and score production.
 Expected responsibilities:
 
 - compute global trust/rank scores
-- compute seed-based trust neighborhoods
+- keep seeded trust logic deferred until explicitly required
 - optionally maintain incremental walk-based state
 - optionally compute per-request or cached personalized scores
 - publish finalized scores back into Postgres
 
 Algorithm progression should be staged:
 
-1. simple seed expansion and qualified-follower counts
-2. global iterative rank
-3. seeded trust neighborhoods
-4. optional random-walk or Monte Carlo personalized rank
+1. global iterative rank
+2. trust-driven operational prioritization
+3. optional seeded trust neighborhoods (deferred)
+4. optional random-walk or Monte Carlo personalized rank (deferred)
 
-### 5. Published Trust Outputs In Postgres
+### 5. Published trust outputs in Postgres
 
 Trust outputs should be stored as Layer 3 read models or Layer 2/3 hybrid derivations, not left Redis-only.
 
@@ -135,10 +131,11 @@ Candidate tables:
 
 - `trust_runs`
 - `trust_scores_global`
-- `trust_scores_seeded`
-- `trust_neighborhood_members`
-- `trust_pubkeys_latest`
-- `relay_trust_scores`
+- `ingest_pubkey_frontier` (implemented, bounded trust-targeted fetch frontier)
+- `trust_relay_suggestions` (implemented, operator-facing recommendation state)
+- `trust_neighborhood_members` (deferred)
+- `trust_pubkeys_latest` (deferred)
+- `relay_trust_scores` (deferred materialization; current implementation uses on-demand aggregation + suggestion state)
 
 Candidate properties:
 
@@ -147,7 +144,7 @@ Candidate properties:
 - optionally promoteable through active-version switching like other projections
 - queryable from `internal/store` and surfaced via `internal/query`
 
-## Query And API Integration
+## Query and API integration
 
 Trust should be exposed through shared application/query surfaces, not embedded directly into `internal/api_primal`.
 
@@ -156,18 +153,16 @@ Recommended layering:
 - `internal/store`: read/write trust tables and rebuild metadata
 - `internal/query`: expose trust-aware orchestration such as:
   - `GetTrustScore(pubkey)`
-  - `GetTrustedNeighborhood(seed, limit)`
-  - `GetTrustedFollowers(pubkey, seed, limit)`
   - trust-aware variants of feed/search/profile assembly when needed
 - `internal/api` and `internal/api_primal`: remain transport adapters over shared trust-aware query paths
 
-## Relay Discovery And Crawl Prioritization
+## Relay discovery and crawl prioritization
 
 Vertex-style ideas are still useful, but should attach to NostrMash's pipeline:
 
-- use `relay_lists_latest` to influence relay discovery and allowlist suggestions
-- use trust scores to prioritize backfill or targeted fetch work
-- use trusted seeds/neighborhoods to shape which pubkeys receive more aggressive crawl effort
+- use `relay_lists_latest` + `trust_scores_global` to produce operator-visible relay suggestions
+- use trust scores to prioritize bounded, author-scoped targeted fetch work
+- apply smoothing/hysteresis to avoid high-churn operational reordering
 
 Important constraint:
 
@@ -175,7 +170,7 @@ Important constraint:
 
 That means trust should bias scheduling and query behavior before it becomes a hard gate on whether raw events are durably written.
 
-## Versioning And Rebuild Model
+## Versioning and rebuild model
 
 Trust/ranking should follow the same derivation discipline as the rest of NostrMash:
 
@@ -190,7 +185,7 @@ Redis rebuilds should be associated with a trust run identifier so operators can
 - whether Redis and published Postgres outputs are in sync
 - whether a failed trust run should be retried or rolled back
 
-## Deployment Shape
+## Deployment shape
 
 Two viable deployment shapes:
 
@@ -209,7 +204,7 @@ Cons:
 - heavy trust workloads may compete with projection jobs
 - harder to isolate Redis/ranking failures from normal projection work
 
-### Option B: Dedicated trust worker
+### Option B: Dedicated trust worker (Current)
 
 Add a dedicated trust service consuming trust-specific jobs.
 
@@ -223,12 +218,16 @@ Cons:
 
 - one more service to operate
 
-Recommended path:
+Current path:
 
-- start with the existing worker if trust publishing is lightweight
-- move to a dedicated trust worker once graph/ranking computation becomes materially expensive
+- dedicated `trust_worker` runs `trust_sync_graph_redis -> trust_compute_global_scores -> trust_promote_run`
+- each run is correlated with `trust_runs.redis_snapshot_ref`
+- ingest/backfill relay ordering can be biased from `trust_scores_global` + `relay_lists_latest` while remaining bounded by configured allowlists
+- ingestor can maintain `ingest_pubkey_frontier` and perform bounded trust-targeted author fetches from configured relays
+- operator-facing relay recommendations are exposed via persisted `trust_relay_suggestions`
+- `trust_scores_global` should stay seed-free and semantically stable across operator seed changes
 
-## Suggested Rollout Phases
+## Suggested rollout phases
 
 ### Phase 1: Postgres-Native Trust Foundation
 
@@ -254,7 +253,7 @@ Recommended path:
 - Monte Carlo / personalized rank
 - richer interaction graph weighting
 
-## Decision Rules
+## Decision rules
 
 When choosing where a trust feature belongs:
 
@@ -263,7 +262,7 @@ When choosing where a trust feature belongs:
 - If an API depends on it for stable product behavior: publish the output back into Postgres.
 - If it is transport-specific translation: it belongs in `internal/api` or `internal/api_primal`, but only after shared query/store support exists.
 
-## Recommended Default
+## Recommended default
 
 The default target architecture for NostrMash trust/ranking is:
 

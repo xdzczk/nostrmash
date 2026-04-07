@@ -14,6 +14,7 @@ import (
 
 type fakeAdminService struct {
 	getRelaysFn             func(context.Context) ([]adminRelayState, error)
+	getRelaySuggestionsFn   func(context.Context, int, bool) ([]adminRelaySuggestion, error)
 	getJobsFn               func(context.Context, int) (adminJobsResponse, error)
 	getInvalidEventsFn      func(context.Context, int) (adminInvalidEventsResponse, error)
 	getRebuildsFn           func(context.Context, int) ([]adminRebuildRunResponse, error)
@@ -29,6 +30,12 @@ type fakeAdminService struct {
 
 func (f fakeAdminService) GetRelays(ctx context.Context) ([]adminRelayState, error) {
 	return f.getRelaysFn(ctx)
+}
+func (f fakeAdminService) GetRelaySuggestions(ctx context.Context, limit int, recommendedOnly bool) ([]adminRelaySuggestion, error) {
+	if f.getRelaySuggestionsFn == nil {
+		return []adminRelaySuggestion{}, nil
+	}
+	return f.getRelaySuggestionsFn(ctx, limit, recommendedOnly)
 }
 func (f fakeAdminService) GetJobs(ctx context.Context, limit int) (adminJobsResponse, error) {
 	return f.getJobsFn(ctx, limit)
@@ -125,6 +132,43 @@ func TestAdminJobs_AuthorizedAndReturnsQueueData(t *testing.T) {
 	}
 	if body.DueNow != 1 || len(body.Recent) != 1 || body.Recent[0].ID != 101 {
 		t.Fatalf("unexpected body: %+v", body)
+	}
+}
+
+func TestAdminRelaySuggestions_AuthorizedAndReturnsSuggestions(t *testing.T) {
+	mux := newAdminTestMux("token", fakeAdminService{
+		getRelaySuggestionsFn: func(_ context.Context, limit int, recommendedOnly bool) ([]adminRelaySuggestion, error) {
+			if limit != 2 {
+				t.Fatalf("unexpected limit: %d", limit)
+			}
+			if !recommendedOnly {
+				t.Fatal("expected recommended_only=true")
+			}
+			return []adminRelaySuggestion{
+				{
+					RelayURL:               "wss://relay.example",
+					WeightedScore:          12.5,
+					SupportingPubkeysCount: 3,
+					Recommended:            true,
+				},
+			}, nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/admin/v1/relays/suggestions?limit=2&recommended_only=true", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+	var body struct {
+		Suggestions []adminRelaySuggestion `json:"suggestions"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode suggestions body: %v", err)
+	}
+	if len(body.Suggestions) != 1 || body.Suggestions[0].RelayURL != "wss://relay.example" {
+		t.Fatalf("unexpected suggestions body: %#v", body.Suggestions)
 	}
 }
 
@@ -338,6 +382,7 @@ func newAdminTestMux(token string, service AdminService) http.Handler {
 	handlers := NewAdminHandlers(service)
 	adminMux := http.NewServeMux()
 	adminMux.HandleFunc("GET /admin/v1/relays", handlers.GetRelays)
+	adminMux.HandleFunc("GET /admin/v1/relays/suggestions", handlers.GetRelaySuggestions)
 	adminMux.HandleFunc("GET /admin/v1/jobs", handlers.GetJobs)
 	adminMux.HandleFunc("GET /admin/v1/invalid-events", handlers.GetInvalidEvents)
 	adminMux.HandleFunc("GET /admin/v1/rebuilds", handlers.GetRebuilds)

@@ -1,11 +1,24 @@
 # Observability
 
-This page summarizes the low-cardinality metrics currently exposed by NostrMash and how to interpret them during operations.
+Use this page when you need the telemetry catalog. Metrics, tracing, debug endpoints, rule files, and signal interpretation all live here. Use [operations.md](operations.md) for first-response playbooks and [slo.md](slo.md) for the service-level objective layer built on top of these signals.
 
-For reliability objectives and targets mapped to this telemetry, see [slo.md](slo.md).
-For operational triage flow and alert response steps, see [operations.md](operations.md).
+Quick orientation:
 
-## Contributor Observability Expectations
+- `operations.md` answers "what should I check first?"
+- this page answers "what exactly is emitted, and how should I read it?"
+- `slo.md` answers "which signals define reliability targets?"
+
+## Reading guide
+
+| If you need to... | Start here |
+| --- | --- |
+| find the right metrics endpoint | [Metrics endpoints](#metrics-endpoints) |
+| inspect runtime pressure or DB saturation | [Runtime and process signals](#runtime-and-process-signals) and [DB pool saturation signals (API and worker)](#db-pool-saturation-signals-api-and-worker) |
+| understand queue, fallback, or storage signals | [Critical DB and queue/job operations](#critical-db-and-queuejob-operations) |
+| follow latency or failure across layers | [Tracing](#tracing) |
+| understand alert intent and recording rules | [Alerting and recording rules](#alerting-and-recording-rules) |
+
+## Contributor observability expectations
 
 When changing high-risk paths (API contracts, queue/job flow, replay/rebuild, compatibility WS behavior):
 
@@ -13,7 +26,7 @@ When changing high-risk paths (API contracts, queue/job flow, replay/rebuild, co
 - ensure traces/log fields still allow request/job correlation
 - document any new or changed operator interpretation guidance in this file and `operations.md`
 
-If behavior changes but observability semantics are not updated, operators lose incident-response context.
+If behavior changes but observability semantics do not, operators lose incident-response context.
 
 Prometheus rule files (first pass) live in:
 
@@ -25,18 +38,22 @@ Build and deployment metadata now also expose:
 - `nostrmash_build_info{binary_role,version,commit,build_time}`
 - `nostrmash_deployment_info{binary_role,service_name,environment}`
 
-## Metrics Endpoints
+## Metrics endpoints
 
-- API: `GET /metrics` on the API address.
-- Worker: `GET /metrics` on `METRICS_ADDR` when configured.
-- Ingestor: `GET /metrics` on `METRICS_ADDR` when configured.
+| Runtime | Endpoint |
+| --- | --- |
+| API | `GET /metrics` on the API address |
+| Worker | `GET /metrics` on `METRICS_ADDR` when configured |
+| Ingestor | `GET /metrics` on `METRICS_ADDR` when configured |
+| Trust worker | `GET /metrics` on `METRICS_ADDR` when configured |
 
-## Debug/Incident Tooling
+## Debug and incident tooling
 
 Optional pprof debug surfaces are available:
 
 - API: `DEBUG_ADDR` (requires configured `ADMIN_BEARER_TOKEN`; otherwise API debug server stays disabled)
 - Worker: `DEBUG_ADDR` (no auth layer; bind to private/localhost address only)
+- Trust worker: `DEBUG_ADDR` (no auth layer; bind to private/localhost address only)
 
 Exposed endpoints (when debug server is enabled):
 
@@ -52,7 +69,7 @@ Operational caveats:
 - Prefer `127.0.0.1:<port>` with SSH tunnel or private network access.
 - CPU/profile endpoints can add overhead during capture; use targeted windows during incidents.
 
-## Runtime and Process Signals
+## Runtime and process signals
 
 Each process exports standard Go runtime and process collectors.
 
@@ -74,7 +91,7 @@ Operator guidance:
 - Rising `go_memstats_heap_alloc_bytes` and `process_resident_memory_bytes` without recovery after GC may indicate memory pressure.
 - A sharp increase in `process_cpu_seconds_total` slope with flat throughput can indicate inefficient queries or retries.
 
-## DB Pool Saturation Signals (API and Worker)
+## DB pool saturation signals (API and worker)
 
 API and worker register DB pool metrics from the shared pgx pool.
 
@@ -101,9 +118,19 @@ Operator guidance:
 - If waits rise while `nostrmash_db_pool_in_use_connections` sits near `nostrmash_db_pool_max_open_connections`, investigate slow queries and pool size.
 - If waits rise while `nostrmash_db_pool_in_use_connections` is low, investigate connection churn, transient DB reachability, or acquire cancellations.
 
-## Critical DB and Queue/Job Operations
+### Example: slow API request with DB pressure
 
-Focused latency/error telemetry is emitted at stable operation boundaries.
+When a read path feels slow in production:
+
+1. Start with request latency on the API route template.
+2. Check whether `nostrmash_db_pool_max_open_usage_ratio` and `nostrmash_db_pool_wait_count_total` are rising at the same time.
+3. If they are, follow the matching `trace_id` through `http.request -> query.* -> store.*`.
+4. If store spans dominate, treat it as a DB/query-path problem first.
+5. If store spans stay short while request time stays high, move up a layer and inspect query orchestration or transport-specific shaping.
+
+## Critical DB and queue/job operations
+
+Focused latency and error telemetry is emitted at stable operation boundaries.
 
 DB operation metrics:
 
@@ -118,10 +145,39 @@ Current DB operations instrumented:
 - `get_event_replies`
 - `get_event_ancestors`
 
+Fallback lookup metrics:
+
+- `nostrmash_lookup_local_total{surface,result}` where `result` is `hit` or `miss`
+- `nostrmash_lookup_fallback_total{surface,outcome}` where `outcome` is one of `attempt`, `success`, `partial_success`, `miss`, `failure`
+- `nostrmash_lookup_fallback_latency_seconds{surface}`
+- fallback sub-step spans under query orchestration:
+  - `query.get_event_by_id.fallback`
+  - `query.get_event_batch.fallback`
+  - `query.get_profile.fallback`
+  - `query.get_profile_batch.fallback`
+
+Current fallback-enabled surfaces:
+
+- `event_by_id`
+- `event_batch`
+- `profile_by_pubkey`
+- `profile_batch`
+
+Storage growth metrics:
+
+- `nostrmash_storage_database_bytes`
+- `nostrmash_storage_table_bytes{table}`
+- `nostrmash_storage_table_rows{table}`
+- emitted by the API process via periodic Postgres catalog snapshots
+
 Queue/job operation metrics:
 
 - `nostrmash_queue_operation_duration_seconds{operation,result}`
 - `nostrmash_queue_operation_errors_total{operation}`
+- `nostrmash_retention_purge_runs_total{target,result}`
+- `nostrmash_retention_purged_rows_total{target}`
+- retention counters are emitted by the worker process retention loops
+- current retention targets include `jobs_terminal`, `invalid_events`, and optional `invalid_events_payload`
 
 Current queue/job operations instrumented:
 
@@ -143,14 +199,14 @@ Result classes used:
 
 Operator guidance:
 
-- Rising `*_errors_total` on one `operation` localizes breakage to that boundary without path-level labels.
+- Rising `*_errors_total` on one `operation` localizes breakage to that boundary without relying on path-level labels.
 - If `get_event_replies`/`get_event_ancestors` latency grows while DB pool pressure also grows, prioritize query-plan/index and pool-capacity checks.
 - If `claim_available` or `fail_job` latency grows with rising worker retries/dead outcomes, inspect Postgres lock/wait pressure and job backlog.
 - If worker `complete_error` or `fail_mark_error` outcomes appear, worker derivation execution may succeed/fail but queue state transitions are failing and need immediate DB path inspection.
 
 ## Tracing
 
-NostrMash now uses OpenTelemetry tracing plumbing with W3C trace-context propagation. Traces are no-op by default and become export-capable when OTLP env is configured (`OTEL_TRACES_EXPORTER=otlp` and/or `OTEL_EXPORTER_OTLP_ENDPOINT`).
+NostrMash uses OpenTelemetry tracing with W3C trace-context propagation. Traces are no-op by default and become export-capable when OTLP env is configured (`OTEL_TRACES_EXPORTER=otlp` and/or `OTEL_EXPORTER_OTLP_ENDPOINT`).
 
 Span naming conventions:
 
@@ -179,7 +235,7 @@ How to use traces operationally:
 - For job incidents, inspect `worker.job.execute` and related queue/store spans to separate handler failures from queue state-transition failures.
 - For ingest incidents, inspect `ingest.live.handle_event` and `ingest.backfill.*` spans to see whether failures are in fetch, validation, checkpointing, or canonical writes.
 
-## Failure Taxonomy
+## Failure taxonomy
 
 NostrMash logs now classify operational failures into a small shared taxonomy:
 
@@ -191,13 +247,13 @@ NostrMash logs now classify operational failures into a small shared taxonomy:
 
 Classification fields appear in structured logs as `failure_class` and `failure_reason` on key HTTP and worker failure paths.
 
-## Panic Recovery Behavior
+## Panic recovery behavior
 
 - HTTP path: `WithPanicRecovery` catches panics, logs `http_panic_recovered` with failure classification, and returns a standard `500` `internal_error` envelope.
 - Worker path: job execution panics are recovered and converted into job failures/retries/dead-letter transitions instead of crashing the worker goroutine.
 - Panic details are kept in logs/traces while API responses remain generic and safe.
 
-## Alerting And Recording Rules
+## Alerting and recording rules
 
 This first pass is intentionally conservative and SLO-aligned. The intent is actionable operator paging, not vanity alert volume.
 
@@ -208,6 +264,8 @@ Recording rules provide reusable series for SLO/dashboards, including:
 - DB pool saturation helpers (`nostrmash:db_pool:max_open_usage_ratio`, `nostrmash:db_pool:wait_rate5m`)
 - Worker dead/retry ratios (`nostrmash:worker:dead_ratio30m`, `nostrmash:worker:retry_ratio15m`)
 - Ingest/checkpoint/backlog/rebuild helpers (`nostrmash:ingest:checkpoint_freshness_seconds:max`, `nostrmash:worker:queue_backlog_oldest_pending_age_seconds`, `nostrmash:rebuild:active_oldest_age_seconds`)
+- Fallback health helpers (`nostrmash:lookup:fallback_failure_or_miss_ratio5m_by_surface`, `nostrmash:lookup:fallback_partial_ratio5m_by_surface`, `nostrmash:lookup:fallback_latency_p95_seconds:5m_by_surface`, `nostrmash:lookup:local_miss_ratio5m_by_surface`)
+- Storage and retention helpers (`nostrmash:storage:database_growth_bytes_per_hour:6h`, `nostrmash:storage:heavy_table_growth_bytes_per_hour:6h`, `nostrmash:retention:purge_error_rate5m`, `nostrmash:retention:purged_rows_rate1h_by_target`)
 
 Alert rules cover:
 
@@ -216,10 +274,18 @@ Alert rules cover:
 - Worker dead-letter/retry storms and queue-claim errors
 - Ingest likely stall (checkpoint freshness stale)
 - Rebuild slowdown (active rebuild age) and rebuild dead-letter failures
+- Fallback failure ratio/latency and elevated local miss ratio on fallback-enabled lookup surfaces
+- Retention purge failures and sustained storage growth (global DB and `invalid_events` early warning)
+
+Interpreting storage growth safely:
+
+- Step increases after migrations/rebuilds can be one-off changes; confirm whether growth slope returns toward baseline.
+- Sustained positive growth rates over multiple hours indicate ongoing write pressure and should drive retention/capacity action.
+- Use global DB growth first, then table-level growth on fixed heavy-table allowlist to avoid high-cardinality alerting.
 
 Operator response guidance for each alert is in [operations.md](operations.md#alert-response-playbook).
 
-## Existing Application Metrics
+## Existing application metrics
 
 HTTP API:
 

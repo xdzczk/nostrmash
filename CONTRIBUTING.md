@@ -1,19 +1,19 @@
 # Contributing
 
-Practical contributor workflow for NostrMash: start locally, keep changes reviewable, and preserve the raw-truth/rebuildable-read-model boundary.
+Use this page as the contributor entrypoint. It is the shortest path from local boot to safe PR, and it tells you which deeper docs to open next based on the kind of change you are making.
 
-Use this page as the contributor entrypoint, then jump to deep docs by change type:
+## Start here
 
-- architecture and ownership: `docs/architecture.md`, `docs/architecture/orchestration-surfaces.md`
-- config/env behavior: `docs/configuration.md`
-- quality/testing gates: `docs/testing.md`
-- operations/triage expectations: `docs/operations.md`, `docs/observability.md`
-- performance validation: `docs/performance.md`
-- compatibility/deprecations: `docs/compatibility.md`
-- migration safety: `docs/migrations.md`
-- release/versioning process: `RELEASE.md`, `VERSIONING.md`
+| If your change touches... | Read this first | Then use |
+| --- | --- | --- |
+| architecture or ownership boundaries | `docs/architecture.md` | `docs/architecture/orchestration-surfaces.md` |
+| config or operator behavior | `docs/configuration.md` | `docs/operations.md` |
+| API or compatibility behavior | `docs/api.md` | `docs/testing.md`, `docs/compatibility.md` |
+| performance-sensitive paths | `docs/performance.md` | `docs/testing.md` |
+| schema or rollout posture | `docs/migrations.md` | `RELEASE.md`, `VERSIONING.md` |
+| release and policy work | `RELEASE.md` | `SECURITY.md`, `VERSIONING.md` |
 
-## Local Start
+## Local start
 
 Use either full containers or host `go run` workflow:
 
@@ -33,7 +33,7 @@ go run ./cmd/worker
 
 For details and replay mode, see `docs/development.md`.
 
-## Before Opening A PR
+## Before opening a PR
 
 Run this baseline sequence locally for CI parity:
 
@@ -53,7 +53,18 @@ make format
 
 If your change is focused and not all checks are needed initially, use targeted guidance in `docs/testing.md` and finish with `make ci` before PR review.
 
-## Architecture Change Expectations
+### Example workflow: shipping an API change safely
+
+If you add or change an API behavior, a safe path usually looks like this:
+
+1. Boot locally with `docker compose up --build` or your normal `go run` workflow.
+2. Make the change and update `docs/api.md` plus `docs/openapi.yaml` in the same branch.
+3. Run the relevant handler or compatibility tests first for fast feedback.
+4. Run `make contract-drift` to ensure route and OpenAPI ownership still line up.
+5. Finish with `make ci` before opening the PR.
+6. If the change affects operators, also update `docs/operations.md` and call that out in the PR description.
+
+## Architecture change expectations
 
 - Keep ingest truth durable first; do not move product-shaping logic into canonical storage paths.
 - Keep read orchestration in `internal/query` and data access in `internal/store`.
@@ -62,7 +73,7 @@ If your change is focused and not all checks are needed initially, use targeted 
 
 If your change affects boundaries or orchestration ownership, update `docs/architecture.md` and `docs/architecture/orchestration-surfaces.md`.
 
-## Change-Type Playbook
+## Change-type playbook
 
 Use this as a safe default for what to update and validate:
 
@@ -79,7 +90,7 @@ Use this as a safe default for what to update and validate:
   - update evidence notes as needed: `docs/performance.md`
   - run benchmarks/load tests relevant to touched hot paths
 
-## Documentation Expectations
+## Documentation expectations
 
 When behavior or operator workflows change, update docs in the same PR:
 
@@ -93,7 +104,7 @@ For migration/compatibility behavior changes, also update:
 - `docs/migrations.md`
 - `docs/compatibility.md`
 
-## CI Gates
+## CI gates
 
 CI blocks on:
 
@@ -114,7 +125,7 @@ Detailed rationale and local variants (fuzz, benchmarks, load tests) are in `doc
 
 For higher-cost confidence checks (for example broad `-race` sweeps), use the advisory `Deep Confidence` workflow. It is intentionally non-blocking for normal PR flow.
 
-## Useful Optional Checks
+## Useful optional checks
 
 - Targeted fuzzing and benchmark commands: `docs/testing.md`
 - Load/perf snapshots and regression checks: `docs/performance.md`

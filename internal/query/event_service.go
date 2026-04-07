@@ -3,15 +3,19 @@ package query
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 )
 
 type eventService struct {
-	reader EventReader
+	reader   EventReader
+	fallback FallbackReader
 }
 
 // NewEventService constructs an event-only orchestration service from a narrow dependency.
@@ -46,7 +50,40 @@ func (s Service) GetEvent(ctx context.Context, id string) (json.RawMessage, erro
 }
 
 func (s eventService) GetEvent(ctx context.Context, id string) (json.RawMessage, error) {
-	return s.reader.GetEventRawByID(ctx, id)
+	trimmedID := strings.TrimSpace(id)
+	if trimmedID == "" {
+		return nil, fmt.Errorf("event id is required")
+	}
+	raw, err := s.reader.GetEventRawByID(ctx, trimmedID)
+	if err == nil {
+		metrics.ObserveLookupLocal("event_by_id", true)
+		return raw, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	metrics.ObserveLookupLocal("event_by_id", false)
+	if s.fallback == nil {
+		return nil, err
+	}
+
+	started := time.Now()
+	metrics.IncLookupFallbackAttempt("event_by_id")
+	fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_event_by_id.fallback", traceutil.KV("fallback.surface", "event_by_id"))
+	foundByID, fallbackErr := s.fallback.FetchEventsByIDs(fallbackCtx, []string{trimmedID})
+	fallbackSpan.End(fallbackErr)
+	metrics.ObserveLookupFallbackLatency("event_by_id", time.Since(started))
+	if fallbackErr != nil {
+		metrics.IncLookupFallbackFailure("event_by_id")
+		return nil, err
+	}
+	raw, ok := foundByID[trimmedID]
+	if !ok {
+		metrics.IncLookupFallbackMiss("event_by_id")
+		return nil, err
+	}
+	metrics.IncLookupFallbackSuccess("event_by_id")
+	return raw, nil
 }
 
 func (s Service) GetEvents(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
@@ -54,7 +91,64 @@ func (s Service) GetEvents(ctx context.Context, ids []string) (map[string]json.R
 }
 
 func (s eventService) GetEvents(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
-	return s.reader.GetEventRawsByIDs(ctx, ids)
+	normalized := normalizeUniqueStrings(ids)
+	if len(normalized) == 0 {
+		return map[string]json.RawMessage{}, nil
+	}
+	found, err := s.reader.GetEventRawsByIDs(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
+
+	missing := make([]string, 0)
+	for _, id := range normalized {
+		if _, ok := found[id]; ok {
+			continue
+		}
+		missing = append(missing, id)
+	}
+	if len(missing) == 0 {
+		metrics.ObserveLookupLocal("event_batch", true)
+		return found, nil
+	}
+	metrics.ObserveLookupLocal("event_batch", false)
+	if s.fallback == nil {
+		return found, nil
+	}
+
+	started := time.Now()
+	metrics.IncLookupFallbackAttempt("event_batch")
+	fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_event_batch.fallback", traceutil.KV("fallback.surface", "event_batch"))
+	fallbackFound, fallbackErr := s.fallback.FetchEventsByIDs(fallbackCtx, missing)
+	fallbackSpan.End(fallbackErr)
+	metrics.ObserveLookupFallbackLatency("event_batch", time.Since(started))
+	if fallbackErr != nil {
+		metrics.IncLookupFallbackFailure("event_batch")
+		return found, nil
+	}
+	if len(fallbackFound) == 0 {
+		metrics.IncLookupFallbackMiss("event_batch")
+		return found, nil
+	}
+	recovered := 0
+	for _, id := range missing {
+		if _, ok := fallbackFound[id]; ok {
+			recovered++
+		}
+	}
+	if recovered == 0 {
+		metrics.IncLookupFallbackMiss("event_batch")
+		return found, nil
+	}
+	if recovered < len(missing) {
+		metrics.IncLookupFallbackPartialSuccess("event_batch")
+	} else {
+		metrics.IncLookupFallbackSuccess("event_batch")
+	}
+	for id, raw := range fallbackFound {
+		found[id] = raw
+	}
+	return found, nil
 }
 
 func (s Service) GetEventActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
@@ -64,13 +158,13 @@ func (s Service) GetEventActionCounts(ctx context.Context, eventID string) (Acti
 func (s Service) GetEventByID(ctx context.Context, id string) (raw json.RawMessage, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_event_by_id")
 	defer func() { span.End(err) }()
-	return s.reader.GetEventRawByID(ctx, id)
+	return eventService{reader: s.reader, fallback: s.fallback}.GetEvent(ctx, id)
 }
 
 func (s Service) GetEventBatch(ctx context.Context, ids []string) (out map[string]json.RawMessage, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_event_batch")
 	defer func() { span.End(err) }()
-	return s.reader.GetEventRawsByIDs(ctx, ids)
+	return eventService{reader: s.reader, fallback: s.fallback}.GetEvents(ctx, ids)
 }
 
 func (s Service) Search(ctx context.Context, text string, limit int) (out SearchResult, err error) {

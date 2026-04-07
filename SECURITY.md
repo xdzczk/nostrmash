@@ -1,6 +1,8 @@
 # Security Policy
 
-## Reporting A Security Issue
+Use this page for security reporting and handling posture. It is intentionally short: where to report, what belongs in a report, and how the project responds.
+
+## Reporting a security issue
 
 Please do **not** open public GitHub issues for suspected vulnerabilities.
 
@@ -21,7 +23,7 @@ Maintainer confirmation item:
 
 - confirm `security@nostrmash.dev` is actively monitored before each release; if ownership changes, update this policy in the same release cycle.
 
-## What Belongs In Security Reporting
+## What belongs in security reporting
 
 Examples:
 
@@ -33,7 +35,7 @@ Examples:
 
 Non-security bugs (correctness/performance regressions without security impact) should go through normal issue/PR flow.
 
-## Handling Posture
+## Handling posture
 
 - prioritize fixes that reduce exploitability quickly
 - prefer minimally risky patches for initial response

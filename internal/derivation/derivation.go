@@ -65,7 +65,7 @@ const (
 	DMUnreadCountsVersion     = 1
 	ZapReceiptsVersion        = 1
 	ThreadProjectionVersion   = 1
-	TrustScoresGlobalVersion  = 1
+	TrustScoresGlobalVersion  = 3
 )
 
 const (

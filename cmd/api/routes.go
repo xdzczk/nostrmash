@@ -87,6 +87,7 @@ func buildRouteDefinitions(
 		{Pattern: "GET /primal/ws", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalWS.Handle)},
 
 		{Pattern: "GET /admin/v1/relays", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetRelays)},
+		{Pattern: "GET /admin/v1/relays/suggestions", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetRelaySuggestions)},
 		{Pattern: "GET /admin/v1/jobs", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetJobs)},
 		{Pattern: "GET /admin/v1/invalid-events", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetInvalidEvents)},
 		{Pattern: "GET /admin/v1/rebuilds", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetRebuilds)},

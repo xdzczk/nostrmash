@@ -27,6 +27,7 @@ type WSGatewayOptions struct {
 	AllowedOrigins    []string
 	AllowAnyOrigin    bool
 	Logger            *slog.Logger
+	QueryOptions      query.ServiceOptions
 }
 
 type dmLiveSubscription struct {
@@ -72,7 +73,7 @@ func NewWSGateway(reader EventReader, opts WSGatewayOptions) WSGateway {
 		wsLog = logging.New("api_primal_ws")
 	}
 	return WSGateway{
-		query: query.NewService(reader),
+		query: query.NewServiceWithOptions(reader, opts.QueryOptions),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return checkOrigin(r, opts) },
 		},

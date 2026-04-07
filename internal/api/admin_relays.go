@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 type adminRelayState struct {
@@ -33,6 +34,22 @@ type adminRelayCheckpoint struct {
 	LastErrorAt        *time.Time `json:"last_error_at,omitempty"`
 	EOSESeenAt         *time.Time `json:"eose_seen_at,omitempty"`
 	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+type adminRelaySuggestion struct {
+	RelayURL                string     `json:"relay_url"`
+	WeightedScore           float64    `json:"weighted_score"`
+	SupportingPubkeysCount  int        `json:"supporting_pubkeys_count"`
+	SupportingPubkeysSample []string   `json:"supporting_pubkeys_sample,omitempty"`
+	AlreadyConfigured       bool       `json:"already_configured"`
+	Disabled                bool       `json:"disabled"`
+	Recommended             bool       `json:"recommended"`
+	SourceRunID             *int64     `json:"source_run_id,omitempty"`
+	SourceComputedAt        *time.Time `json:"source_computed_at,omitempty"`
+	FirstSeenAt             time.Time  `json:"first_seen_at"`
+	LastSeenAt              time.Time  `json:"last_seen_at"`
+	LastPromotedAt          *time.Time `json:"last_promoted_at,omitempty"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 func (s *adminService) GetRelays(ctx context.Context) ([]adminRelayState, error) {
@@ -145,4 +162,62 @@ func (s *adminService) GetRelays(ctx context.Context) ([]adminRelayState, error)
 func (s *adminService) isDisabledRelay(relayURL string) bool {
 	_, ok := s.disabledRelays[relayURL]
 	return ok
+}
+
+func (s *adminService) GetRelaySuggestions(
+	ctx context.Context,
+	limit int,
+	recommendedOnly bool,
+) ([]adminRelaySuggestion, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	storeReader := store.NewPostgresStore(s.pool)
+	candidates, err := storeReader.ListTrustRelayCandidates(ctx, store.TrustRelayCandidateQuery{
+		TopPubkeys: 2000,
+		Limit:      max(limit*2, 200),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list trust relay candidates: %w", err)
+	}
+	_, _ = storeReader.RefreshTrustRelaySuggestions(ctx, candidates, 10*time.Minute, 25)
+	suggestions, err := storeReader.ListTrustRelaySuggestions(ctx, limit, recommendedOnly)
+	if err != nil {
+		return nil, fmt.Errorf("list trust relay suggestions: %w", err)
+	}
+	configured := make(map[string]struct{}, len(s.configuredRelays))
+	for _, relayURL := range s.configuredRelays {
+		normalized := strings.TrimSpace(strings.ToLower(relayURL))
+		if normalized == "" {
+			continue
+		}
+		configured[normalized] = struct{}{}
+	}
+	out := make([]adminRelaySuggestion, 0, len(suggestions))
+	for _, suggestion := range suggestions {
+		_, alreadyConfigured := configured[suggestion.RelayURL]
+		out = append(out, adminRelaySuggestion{
+			RelayURL:                suggestion.RelayURL,
+			WeightedScore:           suggestion.WeightedScore,
+			SupportingPubkeysCount:  suggestion.SupportingPubkeysCount,
+			SupportingPubkeysSample: append([]string(nil), suggestion.SupportingPubkeysSample...),
+			AlreadyConfigured:       alreadyConfigured,
+			Disabled:                s.isDisabledRelay(suggestion.RelayURL),
+			Recommended:             suggestion.IsRecommended,
+			SourceRunID:             suggestion.SourceRunID,
+			SourceComputedAt:        suggestion.SourceComputedAt,
+			FirstSeenAt:             suggestion.FirstSeenAt,
+			LastSeenAt:              suggestion.LastSeenAt,
+			LastPromotedAt:          suggestion.LastPromotedAt,
+			UpdatedAt:               suggestion.UpdatedAt,
+		})
+	}
+	return out, nil
+}
+
+func max(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }

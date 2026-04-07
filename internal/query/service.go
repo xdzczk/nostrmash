@@ -53,11 +53,29 @@ type ProfileReader interface {
 }
 
 type Service struct {
-	reader Reader
+	reader   Reader
+	fallback FallbackReader
+}
+
+// FallbackReader fetches entity-shaped data from configured relays on local miss.
+type FallbackReader interface {
+	FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
+	FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+}
+
+type ServiceOptions struct {
+	FallbackReader FallbackReader
 }
 
 func NewService(reader Reader) Service {
-	return Service{reader: reader}
+	return NewServiceWithOptions(reader, ServiceOptions{})
+}
+
+func NewServiceWithOptions(reader Reader, options ServiceOptions) Service {
+	return Service{
+		reader:   reader,
+		fallback: options.FallbackReader,
+	}
 }
 
 var (

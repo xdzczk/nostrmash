@@ -33,6 +33,34 @@ func ConfigEnvDocs() []EnvVarDoc {
 			Description:  "Maximum IDs accepted by batch event/profile API requests.",
 		},
 		{
+			Name:         "API_RELAY_FALLBACK_ENABLED",
+			Runtimes:     []string{"api"},
+			Required:     false,
+			DefaultValue: "false",
+			Description:  "Enable best-effort relay fallback for local event/profile misses.",
+		},
+		{
+			Name:         "API_RELAY_FALLBACK_MAX_FANOUT",
+			Runtimes:     []string{"api"},
+			Required:     false,
+			DefaultValue: "3",
+			Description:  "Maximum number of fallback relays queried per lookup.",
+		},
+		{
+			Name:         "API_RELAY_FALLBACK_TIMEOUT",
+			Runtimes:     []string{"api"},
+			Required:     false,
+			DefaultValue: "2s",
+			Description:  "Per-relay timeout budget for fallback lookups.",
+		},
+		{
+			Name:         "API_RELAY_FALLBACK_URLS",
+			Runtimes:     []string{"api"},
+			Required:     false,
+			DefaultValue: "",
+			Description:  "CSV fallback relay URLs. If empty, API falls back to INGESTOR_RELAY_URLS.",
+		},
+		{
 			Name:         "DATABASE_URL",
 			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
 			Required:     true,
@@ -72,7 +100,7 @@ func ConfigEnvDocs() []EnvVarDoc {
 			Runtimes:     []string{"api"},
 			Required:     false,
 			DefaultValue: "30",
-			Description:  "Per-IP requests per minute for DM compatibility routes.",
+			Description:  "Per-connection requests per minute for DM compatibility calls on the Primal WebSocket gateway.",
 		},
 		{
 			Name:         "HTTP_RATE_LIMIT_BURST",
@@ -163,7 +191,7 @@ func ConfigEnvDocs() []EnvVarDoc {
 			Runtimes:     []string{"ingestor"},
 			Required:     false,
 			DefaultValue: "",
-			Description:  "Optional JSON map of additional relay filter groups.",
+			Description:  "Optional JSON map of relay filter groups; only `default_v1` is currently implemented for live ingest.",
 		},
 		{
 			Name:         "INGESTOR_LIVE_BOOTSTRAP_LOOKBACK_SECONDS",
@@ -250,6 +278,90 @@ func ConfigEnvDocs() []EnvVarDoc {
 			Description:  "Replay fixture path (required for INGESTOR_MODE=replay).",
 		},
 		{
+			Name:         "INGESTOR_TRUST_FETCH_COOLDOWN",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "30m",
+			Description:  "Cooldown between successful trust-targeted fetches for the same pubkey.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_FETCH_ENABLED",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "false",
+			Description:  "Enable bounded trust-targeted pubkey fetch scheduling.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_FETCH_MAX_PROMOTIONS_PER_CYCLE",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "50",
+			Description:  "Maximum frontier/suggestion promotions allowed per scheduler cycle.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_FETCH_MAX_SELECTED_PER_CYCLE",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "100",
+			Description:  "Maximum trust frontier pubkeys selected for targeted fetch per cycle.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_FETCH_MAX_TRACKED_PUBKEYS",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "5000",
+			Description:  "Maximum trust-ranked pubkeys maintained in the ingest frontier.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_FETCH_PAGE_LIMIT_PER_RELAY",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "200",
+			Description:  "Per-relay page size for trust-targeted pubkey fetch requests.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "86400",
+			Description:  "Recent history lookback window in seconds for targeted pubkey fetches.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_FETCH_REFRESH_INTERVAL",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "2m",
+			Description:  "Scheduler interval for trust frontier refresh and targeted fetch cycles.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_FETCH_RETRY_DELAY",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "10m",
+			Description:  "Delay before retrying a pubkey after targeted fetch errors.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_FETCH_STABLE_WINDOW",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "10m",
+			Description:  "Minimum stability window before newly seen trust candidates become active.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_PRIORITIZATION_ENABLED",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable trust-driven relay ordering for ingestor startup ordering.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "2000",
+			Description:  "Maximum top trust pubkeys considered for relay ordering.",
+		},
+		{
 			Name:         "METRICS_ADDR",
 			Runtimes:     []string{"ingestor", "trust_worker", "worker"},
 			Required:     false,
@@ -282,7 +394,7 @@ func ConfigEnvDocs() []EnvVarDoc {
 			Runtimes:     []string{"api"},
 			Required:     false,
 			DefaultValue: "240",
-			Description:  "Per-IP request rate limit for Primal WebSocket calls.",
+			Description:  "Per-connection request rate limit for Primal WebSocket REQ calls.",
 		},
 		{
 			Name:         "PRIMAL_WS_MAX_SUBSCRIPTIONS",
@@ -306,6 +418,90 @@ func ConfigEnvDocs() []EnvVarDoc {
 			Description:  "Worker goroutine concurrency.",
 		},
 		{
+			Name:         "WORKER_JOB_RETENTION_DEAD_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "4320h0m0s",
+			Description:  "Max age for dead jobs before retention purges terminal history.",
+		},
+		{
+			Name:         "WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "500",
+			Description:  "Maximum terminal jobs deleted per retention purge run.",
+		},
+		{
+			Name:         "WORKER_JOB_RETENTION_ENABLED",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable periodic retention purge of terminal job history.",
+		},
+		{
+			Name:         "WORKER_JOB_RETENTION_RUN_INTERVAL",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "1h0m0s",
+			Description:  "Interval between terminal job retention purge runs.",
+		},
+		{
+			Name:         "WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "720h0m0s",
+			Description:  "Max age for succeeded jobs before retention purges terminal history.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "500",
+			Description:  "Maximum invalid_events rows with raw_payload trimmed to NULL per retention run when payload trimming is enabled.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_PAYLOAD_TRIM_ENABLED",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable optional second-stage invalid_events payload trimming (raw_payload set to NULL before full-row retention purge).",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "168h0m0s",
+			Description:  "Max age for invalid_events rows before payload-only trimming (must be smaller than WORKER_INVALID_EVENTS_RETENTION_MAX_AGE).",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_RETENTION_DELETE_BATCH_LIMIT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "500",
+			Description:  "Maximum invalid_events rows deleted per retention purge run.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_RETENTION_ENABLED",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable periodic invalid_events retention purge.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_RETENTION_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "720h0m0s",
+			Description:  "Max age for invalid_events rows before retention purge.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_RETENTION_RUN_INTERVAL",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "1h0m0s",
+			Description:  "Interval between invalid_events retention purge runs.",
+		},
+		{
 			Name:         "TRUST_ENABLE_REDIS_SYNC",
 			Runtimes:     []string{"trust_worker"},
 			Required:     false,
@@ -325,6 +521,13 @@ func ConfigEnvDocs() []EnvVarDoc {
 			Required:     true,
 			DefaultValue: "",
 			Description:  "Redis connection string used for trust graph working state.",
+		},
+		{
+			Name:         "TRUST_REDIS_KEY_PREFIX",
+			Runtimes:     []string{"trust_worker"},
+			Required:     false,
+			DefaultValue: "nostrmash",
+			Description:  "Prefix namespace for trust-worker Redis graph/snapshot keys.",
 		},
 		{
 			Name:         "TRUST_WORKER_CLAIM_BATCH_SIZE",
@@ -371,8 +574,9 @@ func GenerateConfigurationMarkdown() string {
 
 	var b strings.Builder
 	b.WriteString("# Configuration\n\n")
-	b.WriteString("This file is generated by `go run ./cmd/configdoc` from `internal/config` metadata.\n")
-	b.WriteString("It documents environment variables parsed by runtime config loaders in this package.\n")
+	b.WriteString("Use this page as the environment-variable reference for NostrMash runtimes.\n")
+	b.WriteString("It is generated by `go run ./cmd/configdoc` from `internal/config` metadata.\n")
+	b.WriteString("Read [docs/operations.md](operations.md) for operator workflow and tuning context; use this page as the lookup layer for exact variable names, defaults, and runtime ownership.\n")
 	b.WriteString("Operational values like `APP_VERSION` and test-only knobs like `TEST_DATABASE_URL` are intentionally out of scope.\n")
 	b.WriteString("Do not hand-edit this file.\n\n")
 	b.WriteString("| Env var | Runtime(s) | Required | Default | Description |\n")

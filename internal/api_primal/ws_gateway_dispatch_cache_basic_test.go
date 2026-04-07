@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
@@ -61,6 +62,61 @@ func TestWSGateway_REQCacheEventsThenEOSE(t *testing.T) {
 		t.Fatalf("decode second frame: %v", err)
 	}
 	if len(second) < 2 || second[0] != "EOSE" || second[1] != "sub1" {
+		t.Fatalf("unexpected second frame: %s", string(secondRaw))
+	}
+}
+
+func TestWSGateway_REQIDsUsesRelayFallbackOnLocalMiss(t *testing.T) {
+	gateway := NewWSGateway(fakeEventReader{
+		getEventRawsByIDs: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
+			return map[string]json.RawMessage{}, nil
+		},
+	}, WSGatewayOptions{
+		QueryOptions: query.ServiceOptions{
+			FallbackReader: primalFakeFallbackReader{
+				fetchEventsByIDsFn: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
+					return map[string]json.RawMessage{
+						"evt_fallback": json.RawMessage(`{"id":"evt_fallback","kind":1}`),
+					}, nil
+				},
+			},
+		},
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /primal/ws", gateway.Handle)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON([]any{"REQ", "sub_fallback", map[string]any{"ids": []any{"evt_fallback"}}}); err != nil {
+		t.Fatalf("write req: %v", err)
+	}
+	_, firstRaw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read first frame: %v", err)
+	}
+	var first []any
+	if err := json.Unmarshal(firstRaw, &first); err != nil {
+		t.Fatalf("decode first frame: %v", err)
+	}
+	if len(first) < 3 || first[0] != "EVENT" || first[1] != "sub_fallback" {
+		t.Fatalf("unexpected first frame: %s", string(firstRaw))
+	}
+	_, secondRaw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read second frame: %v", err)
+	}
+	var second []any
+	if err := json.Unmarshal(secondRaw, &second); err != nil {
+		t.Fatalf("decode second frame: %v", err)
+	}
+	if len(second) < 2 || second[0] != "EOSE" || second[1] != "sub_fallback" {
 		t.Fatalf("unexpected second frame: %s", string(secondRaw))
 	}
 }
@@ -129,6 +185,122 @@ func TestWSGateway_CacheUserProfile(t *testing.T) {
 	}
 	if len(first) < 3 || first[0] != "EVENT" || first[1] != "sub_profile" {
 		t.Fatalf("unexpected first frame: %s", string(firstRaw))
+	}
+}
+
+func TestWSGateway_CacheUserProfileUsesRelayFallbackOnLocalMiss(t *testing.T) {
+	gateway := NewWSGateway(fakeEventReader{
+		getProfileByPubkey: func(_ context.Context, pubkey string) (store.ProfileProjection, error) {
+			return store.ProfileProjection{}, store.ErrNotFound
+		},
+	}, WSGatewayOptions{
+		QueryOptions: query.ServiceOptions{
+			FallbackReader: primalFakeFallbackReader{
+				fetchProfilesByPubkeysFn: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+					return map[string]store.ProfileProjection{
+						"pk1": {
+							Pubkey:            "pk1",
+							MetadataEventID:   "evt_meta_fallback",
+							MetadataCreatedAt: 1700000002,
+							ProfileJSON:       json.RawMessage(`{"name":"fallback"}`),
+						},
+					}, nil
+				},
+			},
+		},
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /primal/ws", gateway.Handle)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer conn.Close()
+	if err := conn.WriteJSON([]any{"REQ", "sub_profile_fallback", map[string]any{"cache": []any{"user_profile", map[string]any{"pubkey": "pk1"}}}}); err != nil {
+		t.Fatalf("write req: %v", err)
+	}
+	_, firstRaw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read first frame: %v", err)
+	}
+	var first []any
+	if err := json.Unmarshal(firstRaw, &first); err != nil {
+		t.Fatalf("decode first frame: %v", err)
+	}
+	if len(first) < 3 || first[0] != "EVENT" || first[1] != "sub_profile_fallback" {
+		t.Fatalf("unexpected first frame: %s", string(firstRaw))
+	}
+	_, secondRaw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read second frame: %v", err)
+	}
+	var second []any
+	if err := json.Unmarshal(secondRaw, &second); err != nil {
+		t.Fatalf("decode second frame: %v", err)
+	}
+	if len(second) < 2 || second[0] != "EOSE" || second[1] != "sub_profile_fallback" {
+		t.Fatalf("unexpected second frame: %s", string(secondRaw))
+	}
+}
+
+func TestWSGateway_CacheUserInfosUsesRelayFallbackOnLocalMiss(t *testing.T) {
+	gateway := NewWSGateway(fakeEventReader{
+		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+			return map[string]store.ProfileProjection{}, nil
+		},
+	}, WSGatewayOptions{
+		QueryOptions: query.ServiceOptions{
+			FallbackReader: primalFakeFallbackReader{
+				fetchProfilesByPubkeysFn: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+					return map[string]store.ProfileProjection{
+						"pk1": {
+							Pubkey:            "pk1",
+							MetadataEventID:   "evt_meta_fallback",
+							MetadataCreatedAt: 1700000003,
+							ProfileJSON:       json.RawMessage(`{"name":"fallback_batch"}`),
+						},
+					}, nil
+				},
+			},
+		},
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /primal/ws", gateway.Handle)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer conn.Close()
+	if err := conn.WriteJSON([]any{"REQ", "sub_profile_batch_fallback", map[string]any{"cache": []any{"user_infos", map[string]any{"pubkeys": []any{"pk1", "pk2"}}}}}); err != nil {
+		t.Fatalf("write req: %v", err)
+	}
+	_, firstRaw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read first frame: %v", err)
+	}
+	var first []any
+	if err := json.Unmarshal(firstRaw, &first); err != nil {
+		t.Fatalf("decode first frame: %v", err)
+	}
+	if len(first) < 3 || first[0] != "EVENT" || first[1] != "sub_profile_batch_fallback" {
+		t.Fatalf("unexpected first frame: %s", string(firstRaw))
+	}
+	_, secondRaw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read second frame: %v", err)
+	}
+	var second []any
+	if err := json.Unmarshal(secondRaw, &second); err != nil {
+		t.Fatalf("decode second frame: %v", err)
+	}
+	if len(second) < 2 || second[0] != "EOSE" || second[1] != "sub_profile_batch_fallback" {
+		t.Fatalf("unexpected second frame: %s", string(secondRaw))
 	}
 }
 

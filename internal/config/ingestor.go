@@ -14,11 +14,31 @@ type IngestorRuntimeConfig struct {
 
 // IngestorConfig owns ingestor runtime configuration plus shared settings.
 type IngestorConfig struct {
-	Shared   SharedConfig
-	Runtime  IngestorRuntimeConfig
-	Relay    RelayConfig
-	Backfill BackfillConfig
-	Replay   ReplayConfig
+	Shared              SharedConfig
+	Runtime             IngestorRuntimeConfig
+	Relay               RelayConfig
+	Backfill            BackfillConfig
+	Replay              ReplayConfig
+	TrustPrioritization IngestorTrustPrioritizationConfig
+	TrustFetch          IngestorTrustFetchConfig
+}
+
+type IngestorTrustPrioritizationConfig struct {
+	Enabled    bool
+	TopPubkeys int
+}
+
+type IngestorTrustFetchConfig struct {
+	Enabled               bool
+	MaxTrackedPubkeys     int
+	MaxSelectedPerCycle   int
+	RefreshInterval       time.Duration
+	FetchCooldown         time.Duration
+	StableWindow          time.Duration
+	MaxPromotionsPerCycle int
+	RecentLookbackSeconds int64
+	PageLimitPerRelay     int
+	RetryDelay            time.Duration
 }
 
 // LoadIngestor reads ingestor configuration from environment variables.
@@ -79,6 +99,22 @@ func LoadIngestor() (IngestorConfig, error) {
 		Replay: ReplayConfig{
 			FixturePath: strings.TrimSpace(os.Getenv("INGESTOR_REPLAY_FIXTURE_PATH")),
 		},
+		TrustPrioritization: IngestorTrustPrioritizationConfig{
+			Enabled:    getEnvBool("INGESTOR_TRUST_PRIORITIZATION_ENABLED", true),
+			TopPubkeys: getEnvInt("INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS", 2000),
+		},
+		TrustFetch: IngestorTrustFetchConfig{
+			Enabled:               getEnvBool("INGESTOR_TRUST_FETCH_ENABLED", false),
+			MaxTrackedPubkeys:     getEnvInt("INGESTOR_TRUST_FETCH_MAX_TRACKED_PUBKEYS", 5000),
+			MaxSelectedPerCycle:   getEnvInt("INGESTOR_TRUST_FETCH_MAX_SELECTED_PER_CYCLE", 100),
+			RefreshInterval:       getEnvDuration("INGESTOR_TRUST_FETCH_REFRESH_INTERVAL", 2*time.Minute),
+			FetchCooldown:         getEnvDuration("INGESTOR_TRUST_FETCH_COOLDOWN", 30*time.Minute),
+			StableWindow:          getEnvDuration("INGESTOR_TRUST_FETCH_STABLE_WINDOW", 10*time.Minute),
+			MaxPromotionsPerCycle: getEnvInt("INGESTOR_TRUST_FETCH_MAX_PROMOTIONS_PER_CYCLE", 50),
+			RecentLookbackSeconds: getEnvInt64("INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS", 86400),
+			PageLimitPerRelay:     getEnvInt("INGESTOR_TRUST_FETCH_PAGE_LIMIT_PER_RELAY", 200),
+			RetryDelay:            getEnvDuration("INGESTOR_TRUST_FETCH_RETRY_DELAY", 10*time.Minute),
+		},
 	}
 
 	if err := applyConfiguredFilterGroups(&cfg.Relay); err != nil {
@@ -95,6 +131,38 @@ func LoadIngestor() (IngestorConfig, error) {
 	}
 	if strings.TrimSpace(cfg.Shared.Database.URL) == "" {
 		return IngestorConfig{}, fmt.Errorf("DATABASE_URL is required")
+	}
+	if cfg.TrustPrioritization.Enabled && cfg.TrustPrioritization.TopPubkeys <= 0 {
+		return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS must be > 0 when trust prioritization is enabled")
+	}
+	if cfg.TrustFetch.Enabled {
+		if cfg.TrustFetch.MaxTrackedPubkeys <= 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_MAX_TRACKED_PUBKEYS must be > 0 when trust fetch is enabled")
+		}
+		if cfg.TrustFetch.MaxSelectedPerCycle <= 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_MAX_SELECTED_PER_CYCLE must be > 0 when trust fetch is enabled")
+		}
+		if cfg.TrustFetch.RefreshInterval <= 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_REFRESH_INTERVAL must be > 0 when trust fetch is enabled")
+		}
+		if cfg.TrustFetch.FetchCooldown < 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_COOLDOWN must be >= 0 when trust fetch is enabled")
+		}
+		if cfg.TrustFetch.StableWindow < 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_STABLE_WINDOW must be >= 0 when trust fetch is enabled")
+		}
+		if cfg.TrustFetch.MaxPromotionsPerCycle <= 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_MAX_PROMOTIONS_PER_CYCLE must be > 0 when trust fetch is enabled")
+		}
+		if cfg.TrustFetch.RecentLookbackSeconds < 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS must be >= 0 when trust fetch is enabled")
+		}
+		if cfg.TrustFetch.PageLimitPerRelay <= 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_PAGE_LIMIT_PER_RELAY must be > 0 when trust fetch is enabled")
+		}
+		if cfg.TrustFetch.RetryDelay < 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_RETRY_DELAY must be >= 0 when trust fetch is enabled")
+		}
 	}
 	return cfg, nil
 }

@@ -11,12 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/api"
 	"github.com/xdzczk/nostrmash/internal/api_primal"
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/query"
+	"github.com/xdzczk/nostrmash/internal/relaylookup"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 	"github.com/xdzczk/nostrmash/internal/trust"
@@ -79,8 +82,27 @@ func main() {
 	}
 
 	queryStore := store.NewPostgresStore(pool)
-	handlers := api.NewHandlers(queryStore, cfg.HTTP.MaxBatchSize)
-	primalHandlers := api_primal.NewHandlers(queryStore, cfg.HTTP.MaxBatchSize)
+	var fallbackReader query.FallbackReader
+	if cfg.RelayFallback.Enabled {
+		fallbackReader = relaylookup.NewClient(cfg.RelayFallback.URLs, cfg.RelayFallback.Timeout, cfg.RelayFallback.MaxFanout)
+		log.Info(
+			"relay_fallback_enabled",
+			"relay_count", len(cfg.RelayFallback.URLs),
+			"timeout", cfg.RelayFallback.Timeout.String(),
+			"max_fanout", cfg.RelayFallback.MaxFanout,
+		)
+	}
+	queryOptions := query.ServiceOptions{
+		FallbackReader: fallbackReader,
+	}
+	handlers := api.NewHandlersWithOptions(queryStore, api.HandlersOptions{
+		MaxBatchSize: cfg.HTTP.MaxBatchSize,
+		QueryOptions: queryOptions,
+	})
+	primalHandlers := api_primal.NewHandlersWithOptions(queryStore, api_primal.HandlersOptions{
+		MaxBatchSize: cfg.HTTP.MaxBatchSize,
+		QueryOptions: queryOptions,
+	})
 	wsLog := logging.New("api_primal_ws")
 	primalWS := api_primal.NewWSGateway(queryStore, api_primal.WSGatewayOptions{
 		MaxSubscriptions:  cfg.PrimalWS.MaxSubscriptions,
@@ -91,6 +113,7 @@ func main() {
 		AllowedOrigins:    cfg.PrimalWS.AllowedOrigins,
 		AllowAnyOrigin:    cfg.PrimalWS.AllowAnyOrigin,
 		Logger:            wsLog,
+		QueryOptions:      queryOptions,
 	})
 	adminService := api.NewAdminService(pool, derivation.NewHandlers(pool), trust.NewRuntime(pool, false, true), api.AdminServiceOptions{
 		ServiceName:      cfg.Shared.ServiceName,
@@ -133,6 +156,7 @@ func main() {
 			stop()
 		}
 	}()
+	go runStorageMetricsReporter(ctx, log, pool, 2*time.Minute, api.TrackedStorageTables())
 	runDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr, cfg.HTTP.AdminBearerToken)
 
 	<-ctx.Done()
@@ -202,4 +226,40 @@ func resolveBuildVersion(appVersion string) string {
 		return v
 	}
 	return strings.TrimSpace(appVersion)
+}
+
+func runStorageMetricsReporter(
+	ctx context.Context,
+	log interface {
+		Info(msg string, args ...any)
+		Error(msg string, args ...any)
+	},
+	pool *pgxpool.Pool,
+	every time.Duration,
+	tables []string,
+) {
+	if every <= 0 || len(tables) == 0 {
+		return
+	}
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			snapshot, err := store.CollectStorageStats(ctx, pool, tables, store.StorageStatsOptions{
+				ExactRowCountMaxBytes: 0, // metrics path stays cheap on large tables
+			})
+			if err != nil {
+				log.Error("storage_metrics_collect_failed", "error", err)
+				continue
+			}
+			metrics.SetStorageDatabaseBytes(float64(snapshot.DatabaseBytes))
+			for _, table := range snapshot.Tables {
+				metrics.SetStorageTableRows(table.TableName, float64(table.RowCount))
+				metrics.SetStorageTableBytes(table.TableName, float64(table.StorageBytes))
+			}
+		}
+	}
 }

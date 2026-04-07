@@ -2,12 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/gorilla/websocket"
 	"github.com/xdzczk/nostrmash/internal/logging"
 )
 
@@ -200,4 +203,28 @@ func TestWithPanicRecovery_ReturnsInternalErrorEnvelope(t *testing.T) {
 	if envelope.Error.RequestID == "" {
 		t.Fatalf("expected request id in error envelope")
 	}
+}
+
+func TestLogRequests_PreservesWebsocketHijacker(t *testing.T) {
+	mux := http.NewServeMux()
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(*http.Request) bool { return true },
+	}
+	mux.HandleFunc("GET /primal/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade websocket: %v", err)
+			return
+		}
+		_ = conn.Close()
+	})
+	server := httptest.NewServer(LogRequests(slog.Default(), mux))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	_ = conn.Close()
 }

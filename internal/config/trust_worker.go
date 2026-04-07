@@ -7,7 +7,8 @@ import (
 )
 
 type RedisConfig struct {
-	URL string
+	URL       string
+	KeyPrefix string
 }
 
 type TrustWorkerConfig struct {
@@ -46,7 +47,8 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 	cfg := TrustWorkerConfig{
 		Shared: shared,
 		Redis: RedisConfig{
-			URL: strings.TrimSpace(getEnv("TRUST_REDIS_URL", "")),
+			URL:       strings.TrimSpace(getEnv("TRUST_REDIS_URL", "")),
+			KeyPrefix: strings.TrimSpace(getEnv("TRUST_REDIS_KEY_PREFIX", "nostrmash")),
 		},
 		Concurrency:        concurrency,
 		ClaimBatchSize:     claimBatchSize,
@@ -76,6 +78,9 @@ func validateTrustWorkerConfig(cfg TrustWorkerConfig) error {
 	}
 	if strings.TrimSpace(cfg.Redis.URL) == "" {
 		return fmt.Errorf("TRUST_REDIS_URL is required")
+	}
+	if strings.TrimSpace(cfg.Redis.KeyPrefix) == "" {
+		return fmt.Errorf("TRUST_REDIS_KEY_PREFIX must not be empty")
 	}
 	if !cfg.EnableRedisSync && !cfg.EnableScoreCompute {
 		return fmt.Errorf("at least one of TRUST_ENABLE_REDIS_SYNC or TRUST_ENABLE_SCORE_COMPUTE must be true")

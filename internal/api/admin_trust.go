@@ -18,6 +18,13 @@ type adminTrustRunResponse struct {
 	InputFollowerEdges int64      `json:"input_follower_edges_count"`
 	ScoreRowsPublished int64      `json:"score_rows_published"`
 	RedisSnapshotRef   *string    `json:"redis_snapshot_ref,omitempty"`
+	CurrentPhase       *string    `json:"current_phase,omitempty"`
+	SyncJobID          *int64     `json:"sync_job_id,omitempty"`
+	ComputeJobID       *int64     `json:"compute_job_id,omitempty"`
+	PromoteJobID       *int64     `json:"promote_job_id,omitempty"`
+	PhaseStartedAt     *time.Time `json:"phase_started_at,omitempty"`
+	PhaseFinishedAt    *time.Time `json:"phase_finished_at,omitempty"`
+	PhaseLastError     *string    `json:"phase_last_error,omitempty"`
 	StartedAt          *time.Time `json:"started_at,omitempty"`
 	FinishedAt         *time.Time `json:"finished_at,omitempty"`
 	LastError          *string    `json:"last_error,omitempty"`
@@ -39,6 +46,8 @@ func (s *adminService) GetTrustRuns(ctx context.Context, limit int) ([]adminTrus
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, derivation_name, target_version, status, job_id, attempts,
 		       input_follower_edges_count, score_rows_published, redis_snapshot_ref,
+		       current_phase, sync_job_id, compute_job_id, promote_job_id,
+		       phase_started_at, phase_finished_at, phase_last_error,
 		       started_at, finished_at, last_error, created_at, updated_at
 		FROM trust_runs
 		ORDER BY created_at DESC, id DESC
@@ -61,6 +70,13 @@ func (s *adminService) GetTrustRuns(ctx context.Context, limit int) ([]adminTrus
 			&row.InputFollowerEdges,
 			&row.ScoreRowsPublished,
 			&row.RedisSnapshotRef,
+			&row.CurrentPhase,
+			&row.SyncJobID,
+			&row.ComputeJobID,
+			&row.PromoteJobID,
+			&row.PhaseStartedAt,
+			&row.PhaseFinishedAt,
+			&row.PhaseLastError,
 			&row.StartedAt,
 			&row.FinishedAt,
 			&row.LastError,
@@ -81,6 +97,8 @@ func (s *adminService) GetTrustRun(ctx context.Context, runID int64) (adminTrust
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, derivation_name, target_version, status, job_id, attempts,
 		       input_follower_edges_count, score_rows_published, redis_snapshot_ref,
+		       current_phase, sync_job_id, compute_job_id, promote_job_id,
+		       phase_started_at, phase_finished_at, phase_last_error,
 		       started_at, finished_at, last_error, created_at, updated_at
 		FROM trust_runs
 		WHERE id = $1
@@ -96,6 +114,13 @@ func (s *adminService) GetTrustRun(ctx context.Context, runID int64) (adminTrust
 		&out.InputFollowerEdges,
 		&out.ScoreRowsPublished,
 		&out.RedisSnapshotRef,
+		&out.CurrentPhase,
+		&out.SyncJobID,
+		&out.ComputeJobID,
+		&out.PromoteJobID,
+		&out.PhaseStartedAt,
+		&out.PhaseFinishedAt,
+		&out.PhaseLastError,
 		&out.StartedAt,
 		&out.FinishedAt,
 		&out.LastError,
@@ -174,6 +199,16 @@ func asAdminTrustRun(in store.TrustRun) adminTrustRunResponse {
 		ts := in.FinishedAt.UTC()
 		finishedAt = &ts
 	}
+	var phaseStartedAt *time.Time
+	if in.PhaseStartedAt != nil {
+		ts := in.PhaseStartedAt.UTC()
+		phaseStartedAt = &ts
+	}
+	var phaseFinishedAt *time.Time
+	if in.PhaseFinishedAt != nil {
+		ts := in.PhaseFinishedAt.UTC()
+		phaseFinishedAt = &ts
+	}
 	return adminTrustRunResponse{
 		ID:                 in.ID,
 		DerivationName:     in.DerivationName,
@@ -184,6 +219,13 @@ func asAdminTrustRun(in store.TrustRun) adminTrustRunResponse {
 		InputFollowerEdges: in.InputFollowerEdges,
 		ScoreRowsPublished: in.ScoreRowsPublished,
 		RedisSnapshotRef:   in.RedisSnapshotRef,
+		CurrentPhase:       in.CurrentPhase,
+		SyncJobID:          in.SyncJobID,
+		ComputeJobID:       in.ComputeJobID,
+		PromoteJobID:       in.PromoteJobID,
+		PhaseStartedAt:     phaseStartedAt,
+		PhaseFinishedAt:    phaseFinishedAt,
+		PhaseLastError:     in.PhaseLastError,
 		StartedAt:          startedAt,
 		FinishedAt:         finishedAt,
 		LastError:          in.LastError,

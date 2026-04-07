@@ -1,10 +1,8 @@
 # Service-Level Objectives
 
-This page defines the initial SLO model for NostrMash using telemetry that already exists today.
+Use this page to understand the reliability model built on top of NostrMash telemetry. These are practical starter objectives, not final long-term promises, and they should be read alongside [observability.md](observability.md) and [operations.md](operations.md).
 
-These are practical starter objectives, not final long-term promises.
-
-## How To Use This Page
+## How to use this page
 
 - Treat each SLO as an operator-facing reliability contract.
 - Use `30d` windows for formal objective tracking unless noted.
@@ -12,7 +10,7 @@ These are practical starter objectives, not final long-term promises.
 - Use recording rules in `observability/recording_rules/slo_and_workflow_rules.yml` for consistent SLO queries.
 - Use alert rules in `observability/alerts/core_workflow_alerts.yml` for first-pass detection.
 
-## SLO 1: API Availability
+## SLO 1: API availability
 
 - **Objective**: `>= 99.5%` successful API requests over `30d` for public read routes.
 - **Why it matters**: API availability is the primary user-facing reliability signal.
@@ -28,7 +26,7 @@ These are practical starter objectives, not final long-term promises.
   - Identify failing `path_template` first.
   - Then follow trace path `http.request -> query.* -> store.*` to isolate where failures propagate.
 
-## SLO 2: API Latency
+## SLO 2: API latency
 
 - **Objective**: `p95 <= 750ms` over `30d` for key read routes (`/api/v1/events/{id}`, `/api/v1/threads/{eventId}`, `/api/v1/profiles/{pubkey}`, `/api/v1/search`).
 - **Why it matters**: These routes represent core interactive read performance.
@@ -43,7 +41,7 @@ These are practical starter objectives, not final long-term promises.
   - If API latency rises with DB pool pressure (`nostrmash_db_pool_max_open_usage_ratio`, `nostrmash_db_pool_wait_count_total`), prioritize DB/pool tuning.
   - If API latency rises without DB pressure, inspect query orchestration and worker-side dependency load.
 
-## SLO 3: Ingest Freshness
+## SLO 3: Ingest freshness
 
 - **Objective**: enabled relays should show fresh progress (`updated_at`) within `<= 5m` for `99%` of 10m windows.
 - **Why it matters**: stale ingest means user-facing reads lag behind relay reality.
@@ -61,7 +59,7 @@ These are practical starter objectives, not final long-term promises.
   - If fetch spans dominate (`ingest.backfill.fetch_page`), prioritize relay/network issues.
   - If store spans dominate, prioritize DB write path and pool saturation.
 
-## SLO 4: Worker Throughput And Queue Health
+## SLO 4: Worker throughput and queue health
 
 - **Objective**: keep derived-work pipeline stable:
   - dead-letter rate `< 1%` of terminal outcomes over `30d`
@@ -82,7 +80,7 @@ These are practical starter objectives, not final long-term promises.
   - If `worker.job.execute` spans are slow but queue ops are healthy, focus derivation logic.
   - If queue operation errors rise (`claim_available`, `complete_job`, `fail_job`), focus DB/locking and queue table path.
 
-## SLO 5: Rebuild/Replay Completion
+## SLO 5: Rebuild/replay completion
 
 - **Objective**: operational rebuild actions should complete successfully and predictably:
   - scoped rebuilds: normally `< 30m`
@@ -100,7 +98,7 @@ These are practical starter objectives, not final long-term promises.
 - **Breach interpretation**:
   - Determine whether slowdown is queue acquisition, worker execution, or store writes via traces and queue/store metrics.
 
-## Deferred SLOs (Not Yet Backed Well Enough)
+## Deferred SLOs (not yet backed well enough)
 
 - End-to-end ingest-to-query freshness percentile (needs stronger event timestamp correlation in telemetry).
 - Per-relay or per-tenant SLOs (would risk high-cardinality and require richer segmentation).

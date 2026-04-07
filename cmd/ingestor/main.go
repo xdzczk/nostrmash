@@ -155,11 +155,26 @@ func main() {
 	)
 	go runCheckpointFreshnessReporter(ctx, log, pool, cfg.Relay.ActiveFilterGroup, 30*time.Second)
 
+	prioritizedRelays := append([]string(nil), cfg.Relay.URLs...)
+	if cfg.TrustPrioritization.Enabled {
+		prioritizedRelays, err = prioritizeRelaysByTrust(ctx, pool, cfg.Relay.URLs, cfg.TrustPrioritization.TopPubkeys)
+		if err != nil {
+			log.Warn("trust_relay_prioritization_failed", "error", err)
+			prioritizedRelays = append([]string(nil), cfg.Relay.URLs...)
+			metrics.IncIngestRelayPriorityDecision("fallback_error")
+		} else {
+			metrics.IncIngestRelayPriorityDecision("applied")
+		}
+	} else {
+		metrics.IncIngestRelayPriorityDecision("disabled")
+		log.Info("trust_relay_prioritization_disabled")
+	}
+
 	if cfg.Backfill.Enabled {
 		backfillRunner, err := backfill.NewRunner(
 			log,
 			backfill.Config{
-				Relays:       cfg.Relay.URLs,
+				Relays:       prioritizedRelays,
 				FilterGroup:  cfg.Relay.ActiveFilterGroup,
 				Kinds:        kinds,
 				Mode:         cfg.Backfill.Mode,
@@ -184,12 +199,35 @@ func main() {
 			log.Error("backfill_runner", "error", err)
 			os.Exit(1)
 		}
-		log.Info("backfill_completed", "relay_count", len(cfg.Relay.URLs))
+		log.Info("backfill_completed", "relay_count", len(prioritizedRelays))
+	}
+
+	if cfg.TrustFetch.Enabled {
+		go runTrustTargetedFetchLoop(
+			ctx,
+			log,
+			eventStore,
+			cfg.TrustPrioritization,
+			cfg.TrustFetch,
+			prioritizedRelays,
+			backfill.WebsocketFetcher{
+				Log:            log,
+				ConnectTimeout: cfg.Backfill.ConnectTimeout,
+				IdleTimeout:    cfg.Backfill.IdleTimeout,
+			},
+			processor.Handle,
+		)
+		log.Info(
+			"trust_fetch_started",
+			"max_tracked_pubkeys", cfg.TrustFetch.MaxTrackedPubkeys,
+			"max_selected_per_cycle", cfg.TrustFetch.MaxSelectedPerCycle,
+			"refresh_interval", cfg.TrustFetch.RefreshInterval.String(),
+		)
 	}
 
 	relayManager, err := relay.NewManager(
 		relay.Config{
-			Relays:         cfg.Relay.URLs,
+			Relays:         prioritizedRelays,
 			Allowlist:      cfg.Relay.Allowlist,
 			DisabledRelays: cfg.Relay.Disabled,
 			ConnectTimeout: cfg.Relay.ConnectTimeout,
@@ -212,7 +250,7 @@ func main() {
 		os.Exit(1)
 	}
 	go relayManager.Start(ctx)
-	log.Info("relay_manager_started", "relay_count", len(cfg.Relay.URLs))
+	log.Info("relay_manager_started", "relay_count", len(prioritizedRelays))
 
 	<-ctx.Done()
 	if checkpointTracker != nil {
@@ -233,6 +271,22 @@ func main() {
 		"invalid_total", final.Invalid,
 	)
 	log.Info("shutdown_complete")
+}
+
+func prioritizeRelaysByTrust(ctx context.Context, pool *pgxpool.Pool, relays []string, topPubkeys int) ([]string, error) {
+	if pool == nil || len(relays) == 0 {
+		return append([]string(nil), relays...), nil
+	}
+	eventStore := store.NewPostgresStore(pool)
+	sorted, err := eventStore.PrioritizeConfiguredRelaysByTrust(ctx, relays, topPubkeys)
+	if err != nil {
+		return nil, fmt.Errorf("prioritize relays by trust: %w", err)
+	}
+	return sorted, nil
+}
+
+func sortRelaysByWeights(normalized []string, baseOrder map[string]int, weights map[string]float64) []string {
+	return store.SortRelaysByWeights(normalized, baseOrder, weights)
 }
 
 func resolveLiveKinds(cfg config.RelayConfig) ([]int, error) {

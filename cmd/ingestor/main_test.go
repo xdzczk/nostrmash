@@ -61,3 +61,23 @@ func TestResolveBuildVersion(t *testing.T) {
 		t.Fatalf("expected fallback to app version, got %q", got)
 	}
 }
+
+func TestSortRelaysByWeights(t *testing.T) {
+	normalized := []string{"wss://a", "wss://b", "wss://c"}
+	baseOrder := map[string]int{
+		"wss://a": 0,
+		"wss://b": 1,
+		"wss://c": 2,
+	}
+	weights := map[string]float64{
+		"wss://c": 3.0,
+		"wss://a": 1.0,
+	}
+	sorted := sortRelaysByWeights(normalized, baseOrder, weights)
+	if len(sorted) != 3 {
+		t.Fatalf("unexpected sorted length: %d", len(sorted))
+	}
+	if sorted[0] != "wss://c" || sorted[1] != "wss://a" || sorted[2] != "wss://b" {
+		t.Fatalf("unexpected sorted order: %#v", sorted)
+	}
+}

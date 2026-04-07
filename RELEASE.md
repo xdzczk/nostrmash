@@ -1,12 +1,12 @@
 # Release Guide
 
-This is the lightweight release flow for NostrMash. Keep it predictable; avoid ceremony.
+Use this page when you are preparing, validating, or rolling back a release. It is intentionally lightweight: predictable release flow, clear validation expectations, and explicit rollback posture.
 
 Release artifact security metadata (SBOM, signatures, attestation foundations, and verification commands) is documented in [docs/release-security.md](docs/release-security.md).
 Migration safety expectations are documented in [docs/migrations.md](docs/migrations.md), and external behavior compatibility/deprecation expectations are documented in [docs/compatibility.md](docs/compatibility.md).
 Operational rollout and alert-response references are in [docs/operations.md](docs/operations.md) and [docs/observability.md](docs/observability.md).
 
-## High-Level Flow
+## High-level flow
 
 1. Cut a release candidate from `main`.
 2. Run quality + operational validation (below).
@@ -27,7 +27,7 @@ Manual release workflow runs:
 - Manual runs still build/sign/attest and upload workflow artifacts.
 - Publishing GitHub Release assets and pushing GHCR image tags remains tag-gated (`refs/tags/v*`).
 
-## Validation Expectations Before Release
+## Validation expectations before release
 
 Minimum checks:
 
@@ -52,7 +52,7 @@ If release includes schema migrations or compatibility-surface changes, include 
 - rollback posture (binary-only vs requires DB/operator actions)
 - deprecation window (if behavior is being phased out)
 
-## Rollback Expectations
+## Rollback expectations
 
 Release notes should include:
 

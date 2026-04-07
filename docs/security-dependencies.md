@@ -1,8 +1,8 @@
 # Security Dependency Hygiene
 
-This repository uses dependency automation for the dependency surfaces that are first-class and machine-updatable in this codebase.
+Use this page for dependency update posture: what is automated, what stays manual, and what validation is expected before merge or promotion.
 
-## Automatically Updated
+## Automatically updated
 
 - **Go modules (`go.mod`, `go.sum`)** via Dependabot `gomod` updates.
 - **GitHub Actions** versions referenced in workflow `uses:` steps via Dependabot `github-actions` updates.
@@ -10,7 +10,7 @@ This repository uses dependency automation for the dependency surfaces that are 
 
 Dependabot runs weekly and opens grouped PRs so update volume stays reviewable.
 
-## Intentionally Manual (By Design)
+## Intentionally manual by design
 
 - **Workflow service/container images** declared directly in workflow YAML `services.image` (for example CI Postgres) are reviewed manually.
 - **Compose service images** (for example `postgres:16-alpine` in `docker-compose.yml`) are reviewed manually.
@@ -18,7 +18,7 @@ Dependabot runs weekly and opens grouped PRs so update volume stays reviewable.
 - **Risk-significant major version upgrades** are never auto-merged; they require explicit reviewer sign-off.
 - **Transitive runtime behavior changes** (database engine behavior, libc/openssl changes in base images, runner environment drift) still require human validation even when the version bump is automated.
 
-## Validation Expectations For Dependency PRs
+## Validation expectations for dependency PRs
 
 For every dependency update PR:
 

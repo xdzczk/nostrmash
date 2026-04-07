@@ -87,7 +87,13 @@ func main() {
 	}
 
 	queue := jobs.NewQueue(pool)
-	runtime := trust.NewRuntime(pool, cfg.EnableRedisSync, cfg.EnableScoreCompute)
+	runtime := trust.NewRuntimeWithRedis(
+		pool,
+		redisClient,
+		cfg.Redis.KeyPrefix,
+		cfg.EnableRedisSync,
+		cfg.EnableScoreCompute,
+	)
 	workerID := resolveWorkerID()
 
 	runMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
@@ -227,7 +233,40 @@ func runTrustMetricsReporter(ctx context.Context, log interface {
 			`).Scan(&oldestPending); err != nil {
 				log.Error("trust_queue_backlog_query_failed", "error", err)
 			} else if oldestPending != nil {
-				metrics.SetWorkerQueueBacklogOldestPendingAge(*oldestPending)
+				metrics.SetTrustQueueBacklogOldestPendingAge(*oldestPending)
+			}
+
+			var activeRuns float64
+			if err := pool.QueryRow(ctx, `
+				SELECT COUNT(*)
+				FROM trust_runs
+				WHERE status = 'running'
+			`).Scan(&activeRuns); err != nil {
+				log.Error("trust_active_runs_query_failed", "error", err)
+			} else {
+				metrics.SetTrustRunsActive(activeRuns)
+			}
+
+			var oldestActiveAge *float64
+			if err := pool.QueryRow(ctx, `
+				SELECT EXTRACT(EPOCH FROM (now() - MIN(started_at)))
+				FROM trust_runs
+				WHERE status = 'running' AND started_at IS NOT NULL
+			`).Scan(&oldestActiveAge); err != nil {
+				log.Error("trust_active_run_age_query_failed", "error", err)
+			} else if oldestActiveAge != nil {
+				metrics.SetTrustActiveOldestRunAge(*oldestActiveAge)
+			}
+
+			var snapshotAge *float64
+			if err := pool.QueryRow(ctx, `
+				SELECT EXTRACT(EPOCH FROM (now() - MAX(finished_at)))
+				FROM trust_runs
+				WHERE status = 'succeeded' AND finished_at IS NOT NULL
+			`).Scan(&snapshotAge); err != nil {
+				log.Error("trust_snapshot_age_query_failed", "error", err)
+			} else if snapshotAge != nil {
+				metrics.SetTrustActiveSnapshotAge(*snapshotAge)
 			}
 		}
 	}

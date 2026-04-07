@@ -26,6 +26,7 @@ var (
 	workerJobExecDuration            *prometheus.HistogramVec
 	ingestEventsTotal                *prometheus.CounterVec
 	ingestSnapshot                   *prometheus.GaugeVec
+	ingestRelayPriorityDecisions     *prometheus.CounterVec
 	workerJobsTotal                  *prometheus.CounterVec
 	primalWSConnections              prometheus.Gauge
 	primalWSFramesTotal              *prometheus.CounterVec
@@ -35,8 +36,26 @@ var (
 	workerQueueBacklogAgeSeconds     prometheus.Gauge
 	rebuildActiveAgeSeconds          prometheus.Gauge
 	rebuildRunsActive                prometheus.Gauge
+	trustQueueBacklogAgeSeconds      prometheus.Gauge
+	trustRunsActive                  prometheus.Gauge
+	trustRunActiveOldestAgeSeconds   prometheus.Gauge
+	trustSnapshotActiveAgeSeconds    prometheus.Gauge
+	trustScoreRowsPublishedTotal     prometheus.Counter
+	trustPhaseDuration               *prometheus.HistogramVec
+	trustFetchFrontierCount          *prometheus.GaugeVec
+	trustFetchCyclesTotal            *prometheus.CounterVec
+	trustFetchPubkeysTotal           *prometheus.CounterVec
+	trustFetchPubkeysSelectedTotal   prometheus.Counter
 	buildInfo                        *prometheus.GaugeVec
 	deploymentInfo                   *prometheus.GaugeVec
+	lookupLocalTotal                 *prometheus.CounterVec
+	lookupFallbackTotal              *prometheus.CounterVec
+	lookupFallbackLatency            *prometheus.HistogramVec
+	storageDatabaseBytes             prometheus.Gauge
+	storageTableBytes                *prometheus.GaugeVec
+	storageTableRows                 *prometheus.GaugeVec
+	retentionPurgeRunsTotal          *prometheus.CounterVec
+	retentionPurgedRowsTotal         *prometheus.CounterVec
 
 	dbPoolStatsMu        sync.Mutex
 	dbPoolStatsCollector prometheus.Collector
@@ -142,6 +161,13 @@ func ensureRegistered() {
 		},
 		[]string{"outcome"},
 	)
+	ingestRelayPriorityDecisions = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_ingest_relay_priority_decisions_total",
+			Help: "Relay prioritization decisions by source outcome.",
+		},
+		[]string{"outcome"},
+	)
 	workerJobsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "nostrmash_worker_jobs_total",
@@ -202,6 +228,71 @@ func ensureRegistered() {
 			Help: "Current number of active projection rebuild runs.",
 		},
 	)
+	trustQueueBacklogAgeSeconds = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_trust_queue_backlog_oldest_pending_age_seconds",
+			Help: "Age in seconds of the oldest pending trust queue job.",
+		},
+	)
+	trustRunsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_trust_runs_active",
+			Help: "Current number of active trust runs.",
+		},
+	)
+	trustRunActiveOldestAgeSeconds = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_trust_active_oldest_run_age_seconds",
+			Help: "Age in seconds of the oldest active trust run.",
+		},
+	)
+	trustSnapshotActiveAgeSeconds = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_trust_active_snapshot_age_seconds",
+			Help: "Age in seconds since the most recently succeeded trust run finished.",
+		},
+	)
+	trustScoreRowsPublishedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "nostrmash_trust_score_rows_published_total",
+			Help: "Total trust score rows published during promote phases.",
+		},
+	)
+	trustPhaseDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "nostrmash_trust_phase_duration_seconds",
+			Help:    "Trust run phase duration by phase and outcome.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"phase", "outcome"},
+	)
+	trustFetchFrontierCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_trust_fetch_frontier_count",
+			Help: "Current trust pubkey frontier entries by state.",
+		},
+		[]string{"state"},
+	)
+	trustFetchCyclesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_trust_fetch_cycles_total",
+			Help: "Trust fetch scheduler cycles by outcome.",
+		},
+		[]string{"outcome"},
+	)
+	trustFetchPubkeysTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_trust_fetch_pubkeys_total",
+			Help: "Trust fetch pubkey outcomes.",
+		},
+		[]string{"outcome"},
+	)
+	trustFetchPubkeysSelectedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "nostrmash_trust_fetch_pubkeys_selected_total",
+			Help: "Total number of pubkeys selected for trust fetch cycles.",
+		},
+	)
 	buildInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "nostrmash_build_info",
@@ -216,6 +307,62 @@ func ensureRegistered() {
 		},
 		[]string{"binary_role", "service_name", "environment"},
 	)
+	lookupLocalTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_lookup_local_total",
+			Help: "Local lookup outcomes for fallback-enabled surfaces.",
+		},
+		[]string{"surface", "result"},
+	)
+	lookupFallbackTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_lookup_fallback_total",
+			Help: "Fallback lookup outcomes for fallback-enabled surfaces.",
+		},
+		[]string{"surface", "outcome"},
+	)
+	lookupFallbackLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "nostrmash_lookup_fallback_latency_seconds",
+			Help:    "Fallback lookup latency in seconds by surface.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"surface"},
+	)
+	storageDatabaseBytes = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_storage_database_bytes",
+			Help: "Current size in bytes of the active PostgreSQL database.",
+		},
+	)
+	storageTableBytes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_storage_table_bytes",
+			Help: "Current size in bytes for tracked tables.",
+		},
+		[]string{"table"},
+	)
+	storageTableRows = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_storage_table_rows",
+			Help: "Current row count for tracked tables.",
+		},
+		[]string{"table"},
+	)
+	retentionPurgeRunsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_retention_purge_runs_total",
+			Help: "Retention purge runs by target and result.",
+		},
+		[]string{"target", "result"},
+	)
+	retentionPurgedRowsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_retention_purged_rows_total",
+			Help: "Rows deleted by retention purges, by target table class.",
+		},
+		[]string{"target"},
+	)
 
 	registry.MustRegister(
 		apiRequestsTotal,
@@ -227,6 +374,7 @@ func ensureRegistered() {
 		workerJobExecDuration,
 		ingestEventsTotal,
 		ingestSnapshot,
+		ingestRelayPriorityDecisions,
 		workerJobsTotal,
 		primalWSConnections,
 		primalWSFramesTotal,
@@ -236,8 +384,26 @@ func ensureRegistered() {
 		workerQueueBacklogAgeSeconds,
 		rebuildActiveAgeSeconds,
 		rebuildRunsActive,
+		trustQueueBacklogAgeSeconds,
+		trustRunsActive,
+		trustRunActiveOldestAgeSeconds,
+		trustSnapshotActiveAgeSeconds,
+		trustScoreRowsPublishedTotal,
+		trustPhaseDuration,
+		trustFetchFrontierCount,
+		trustFetchCyclesTotal,
+		trustFetchPubkeysTotal,
+		trustFetchPubkeysSelectedTotal,
 		buildInfo,
 		deploymentInfo,
+		lookupLocalTotal,
+		lookupFallbackTotal,
+		lookupFallbackLatency,
+		storageDatabaseBytes,
+		storageTableBytes,
+		storageTableRows,
+		retentionPurgeRunsTotal,
+		retentionPurgedRowsTotal,
 	)
 	metricsRegistered = true
 }
@@ -290,6 +456,11 @@ func SetIngestSnapshot(valid, duplicate, invalid uint64) {
 	ingestSnapshot.WithLabelValues("valid").Set(float64(valid))
 	ingestSnapshot.WithLabelValues("duplicate").Set(float64(duplicate))
 	ingestSnapshot.WithLabelValues("invalid").Set(float64(invalid))
+}
+
+func IncIngestRelayPriorityDecision(outcome string) {
+	ensureRegistered()
+	ingestRelayPriorityDecisions.WithLabelValues(outcome).Inc()
 }
 
 func IncWorkerJob(jobType, outcome string) {
@@ -348,6 +519,153 @@ func SetRebuildRunsActive(count float64) {
 		count = 0
 	}
 	rebuildRunsActive.Set(count)
+}
+
+func SetTrustQueueBacklogOldestPendingAge(seconds float64) {
+	ensureRegistered()
+	if seconds < 0 {
+		seconds = 0
+	}
+	trustQueueBacklogAgeSeconds.Set(seconds)
+}
+
+func SetTrustRunsActive(count float64) {
+	ensureRegistered()
+	if count < 0 {
+		count = 0
+	}
+	trustRunsActive.Set(count)
+}
+
+func SetTrustActiveOldestRunAge(seconds float64) {
+	ensureRegistered()
+	if seconds < 0 {
+		seconds = 0
+	}
+	trustRunActiveOldestAgeSeconds.Set(seconds)
+}
+
+func SetTrustActiveSnapshotAge(seconds float64) {
+	ensureRegistered()
+	if seconds < 0 {
+		seconds = 0
+	}
+	trustSnapshotActiveAgeSeconds.Set(seconds)
+}
+
+func AddTrustScoreRowsPublished(rows int64) {
+	ensureRegistered()
+	if rows <= 0 {
+		return
+	}
+	trustScoreRowsPublishedTotal.Add(float64(rows))
+}
+
+func ObserveTrustPhaseDuration(phase, outcome string, d time.Duration) {
+	ensureRegistered()
+	trustPhaseDuration.WithLabelValues(phase, outcome).Observe(d.Seconds())
+}
+
+func SetTrustFetchFrontierCount(state string, count float64) {
+	ensureRegistered()
+	if count < 0 {
+		count = 0
+	}
+	trustFetchFrontierCount.WithLabelValues(state).Set(count)
+}
+
+func IncTrustFetchCycleOutcome(outcome string) {
+	ensureRegistered()
+	trustFetchCyclesTotal.WithLabelValues(outcome).Inc()
+}
+
+func IncTrustFetchPubkeyOutcome(outcome string) {
+	ensureRegistered()
+	trustFetchPubkeysTotal.WithLabelValues(outcome).Inc()
+}
+
+func AddTrustFetchPubkeysSelected(count float64) {
+	ensureRegistered()
+	if count <= 0 {
+		return
+	}
+	trustFetchPubkeysSelectedTotal.Add(count)
+}
+
+func ObserveLookupLocal(surface string, hit bool) {
+	ensureRegistered()
+	result := "miss"
+	if hit {
+		result = "hit"
+	}
+	lookupLocalTotal.WithLabelValues(surface, result).Inc()
+}
+
+func IncLookupFallbackAttempt(surface string) {
+	ensureRegistered()
+	lookupFallbackTotal.WithLabelValues(surface, "attempt").Inc()
+}
+
+func IncLookupFallbackSuccess(surface string) {
+	ensureRegistered()
+	lookupFallbackTotal.WithLabelValues(surface, "success").Inc()
+}
+
+func IncLookupFallbackPartialSuccess(surface string) {
+	ensureRegistered()
+	lookupFallbackTotal.WithLabelValues(surface, "partial_success").Inc()
+}
+
+func IncLookupFallbackMiss(surface string) {
+	ensureRegistered()
+	lookupFallbackTotal.WithLabelValues(surface, "miss").Inc()
+}
+
+func IncLookupFallbackFailure(surface string) {
+	ensureRegistered()
+	lookupFallbackTotal.WithLabelValues(surface, "failure").Inc()
+}
+
+func ObserveLookupFallbackLatency(surface string, d time.Duration) {
+	ensureRegistered()
+	lookupFallbackLatency.WithLabelValues(surface).Observe(d.Seconds())
+}
+
+func SetStorageDatabaseBytes(bytes float64) {
+	ensureRegistered()
+	if bytes < 0 {
+		bytes = 0
+	}
+	storageDatabaseBytes.Set(bytes)
+}
+
+func SetStorageTableBytes(table string, bytes float64) {
+	ensureRegistered()
+	if bytes < 0 {
+		bytes = 0
+	}
+	storageTableBytes.WithLabelValues(table).Set(bytes)
+}
+
+func SetStorageTableRows(table string, rows float64) {
+	ensureRegistered()
+	if rows < 0 {
+		rows = 0
+	}
+	storageTableRows.WithLabelValues(table).Set(rows)
+}
+
+func IncRetentionPurgeRun(target, result string) {
+	ensureRegistered()
+	retentionPurgeRunsTotal.WithLabelValues(target, result).Inc()
+}
+
+func AddRetentionPurgedRows(target string, rows int64) {
+	ensureRegistered()
+	if rows <= 0 {
+		return
+	}
+	retentionPurgedRowsTotal.WithLabelValues(target).Add(float64(rows))
 }
 
 type dbPoolCollector struct {

@@ -368,6 +368,58 @@ func (q *Queue) GetJobByID(ctx context.Context, jobID int64) (*Job, error) {
 	return job, nil
 }
 
+func (q *Queue) PurgeTerminalJobs(
+	ctx context.Context,
+	succeededBefore time.Time,
+	deadBefore time.Time,
+	limit int,
+) (deleted int64, err error) {
+	started := time.Now()
+	defer func() {
+		metrics.ObserveQueueOperation("purge_terminal_jobs", queueResultFromErr(err), time.Since(started))
+	}()
+	if q == nil || q.pool == nil {
+		return 0, fmt.Errorf("queue is not initialized")
+	}
+	if limit <= 0 {
+		return 0, fmt.Errorf("limit must be > 0")
+	}
+	if succeededBefore.IsZero() && deadBefore.IsZero() {
+		return 0, fmt.Errorf("at least one cutoff must be provided")
+	}
+
+	if succeededBefore.IsZero() {
+		succeededBefore = time.Unix(0, 0).UTC()
+	}
+	if deadBefore.IsZero() {
+		deadBefore = time.Unix(0, 0).UTC()
+	}
+
+	tag, execErr := q.pool.Exec(ctx, `
+		WITH candidates AS (
+			SELECT id
+			FROM jobs
+			WHERE (status = $1 AND updated_at < $3)
+			   OR (status = $2 AND updated_at < $4)
+			ORDER BY updated_at ASC, id ASC
+			LIMIT $5
+		)
+		DELETE FROM jobs j
+		USING candidates c
+		WHERE j.id = c.id
+	`,
+		StatusSucceeded,
+		StatusDead,
+		succeededBefore.UTC(),
+		deadBefore.UTC(),
+		limit,
+	)
+	if execErr != nil {
+		return 0, fmt.Errorf("purge terminal jobs: %w", execErr)
+	}
+	return tag.RowsAffected(), nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }

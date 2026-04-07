@@ -1,6 +1,6 @@
 # Coolify Deployment
 
-This page describes the production-oriented Coolify layout for NostrMash when Postgres and Redis are managed as separate Coolify resources and the application stack contains only the runtime services:
+Use this page when you want the production-oriented Coolify layout. The local development stack lives in [`../docker-compose.yml`](../docker-compose.yml); this document covers the shape where Postgres and Redis are managed separately and only the runtime services live in the application stack:
 
 - `api`
 - `ingestor`
@@ -9,7 +9,7 @@ This page describes the production-oriented Coolify layout for NostrMash when Po
 
 Use [`../docker-compose.coolify.yml`](../docker-compose.coolify.yml) as the Compose source for this setup.
 
-## Why This Layout
+## Why this layout
 
 The checked-in [`../docker-compose.yml`](../docker-compose.yml) is a local/dev stack. It bundles `postgres` and `redis` and publishes their ports to the host.
 
@@ -20,7 +20,7 @@ For Coolify production deployments:
 - run only the NostrMash binaries in the application stack
 - expose only the `api` service publicly
 
-## Coolify Resources
+## Coolify resources
 
 Create these resources first:
 
@@ -33,7 +33,7 @@ Keep both internal-only:
 - do not expose public ports
 - enable persistent storage
 
-## Coolify Application
+## Coolify application
 
 Create a Docker Compose application from this repository and point Coolify at:
 
@@ -48,7 +48,7 @@ The Compose file builds the repo `Dockerfile` once and starts four services:
 - `worker` via `/app/worker`
 - `trust_worker` via `/app/trust_worker`
 
-## Public Routing
+## Public routing
 
 Attach the public domain only to the `api` service.
 
@@ -64,7 +64,7 @@ Do not expose public domains for:
 - `worker`
 - `trust_worker`
 
-## Required Environment Variables
+## Required environment variables
 
 Set these in the Coolify application:
 
@@ -97,7 +97,7 @@ Optional browser/WebSocket origin control:
 PRIMAL_WS_ALLOWED_ORIGINS=https://<your-frontend-domain>
 ```
 
-## Metrics And Debug Endpoints
+## Metrics and debug endpoints
 
 The Compose file keeps the default internal metrics listeners for background services:
 
@@ -114,7 +114,7 @@ Do not expose debug endpoints publicly. If you enable:
 
 bind them only to private/local addresses.
 
-## Validation Checklist
+## Validation checklist
 
 After deployment:
 
@@ -125,6 +125,17 @@ After deployment:
 5. Check `ingestor` logs for relay connectivity
 6. Check `worker` logs for queue polling and job execution
 7. Check `trust_worker` logs for Redis/Postgres connectivity
+
+### Example: first production verification pass
+
+A clean first pass looks like this:
+
+1. Open `GET /health` and `GET /ready` through the public `api` domain.
+2. Confirm the `api` container is reachable and the background services are healthy in Coolify.
+3. Verify `GET /metrics` on the API surface, then confirm background metrics listeners are reachable internally if you scrape them.
+4. Use `ADMIN_BEARER_TOKEN` to open `GET /admin/v1/system`, `GET /admin/v1/relays`, and `GET /admin/v1/jobs`.
+5. Check `ingestor` for successful relay connections, `worker` for normal queue polling, and `trust_worker` for successful Postgres/Redis startup.
+6. Only then treat the deployment as ready for external traffic or migration cutover.
 
 Expected operator endpoints:
 

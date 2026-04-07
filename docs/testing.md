@@ -1,8 +1,8 @@
 # Testing
 
-This repository uses a pragmatic coverage policy focused on high-risk packages instead of a vanity repo-wide percentage.
+Use this page when you need to decide what to run for a change. It is the execution guide for CI parity, race scope, coverage policy, fuzzing, benchmarks, load tests, and contract drift.
 
-## Quick Path For Contributors
+## Quick path for contributors
 
 If you are unsure what to run:
 
@@ -13,7 +13,27 @@ If you are unsure what to run:
    - `compatibility.md`
    - `../RELEASE.md`
 
-## Race Test Policy (Enforced In CI)
+## Decide what to run
+
+| If your change touches... | Start with | Then add |
+| --- | --- | --- |
+| General product code | `make ci` | targeted package tests if you need faster iteration |
+| Concurrency-sensitive paths | `make test-race-policy` | `make ci` before review |
+| API or compatibility contracts | `make contract-drift` | relevant handler and compatibility tests |
+| Performance-sensitive paths | relevant benchmark or load-test command | `make perf-collect` when you need evidence |
+| Coverage-sensitive packages | `make cover` or package tests | `make coverage-policy` |
+
+## Common validation recipes
+
+| Scenario | Recommended path |
+| --- | --- |
+| Small handler or query change | run focused package tests first, then `make ci` |
+| Route or contract change | update docs/contracts, run `make contract-drift`, then relevant tests and `make ci` |
+| Concurrency-sensitive change | run `make test-race-policy`, then finish with `make ci` |
+| Perf-sensitive change | run the relevant benchmark/load scenario before and after, then store evidence with `make perf-collect` if needed |
+| Schema or rollout-sensitive change | pair this page with `migrations.md` and `RELEASE.md`, then run the highest-signal checks plus `make ci` |
+
+## Race test policy (enforced in CI)
 
 CI runs `make test-race-policy`, which executes:
 
@@ -34,7 +54,7 @@ CI runs `make test-race-policy`, which executes:
 
 This is intentionally targeted instead of full-repo `-race` to keep CI cost reasonable while still covering concurrency-sensitive paths.
 
-## Coverage Policy (Enforced In CI)
+## Coverage policy (enforced in CI)
 
 CI runs `make coverage-policy`, which executes `scripts/coverage_check.sh` and enforces minimum coverage for:
 
@@ -45,7 +65,7 @@ CI runs `make coverage-policy`, which executes `scripts/coverage_check.sh` and e
 
 When `coverage.out` is present (for example after `make cover` or in CI), the policy check consumes that profile directly instead of re-running package tests.
 
-## Why This Policy
+## Why this policy
 
 - `internal/query` owns read orchestration logic and is a high-leverage failure point.
 - `internal/store` owns data correctness and persistence behavior.
@@ -54,7 +74,7 @@ When `coverage.out` is present (for example after `make cover` or in CI), the po
 
 This keeps the signal high by enforcing coverage where regressions are costly, without pushing contributors to write low-value tests just to raise a global number.
 
-## Fuzz Testing (Targeted Input Surfaces)
+## Fuzz testing (targeted input surfaces)
 
 Fuzzing is currently focused on high-risk input handling rather than broad, low-value coverage:
 
@@ -80,7 +100,7 @@ go test ./internal/api_primal -run=^$ -fuzz=FuzzParseAndValidateDMResetAuth$ -fu
 
 If a fuzzer finds a crash or decoder regression, keep the fix narrow and add the minimized reproducer to the seed corpus in the fuzz test.
 
-## Benchmarks (Hot Paths)
+## Benchmarks (hot paths)
 
 Benchmarks are targeted at representative hot paths:
 
@@ -144,7 +164,7 @@ Protected benchmark set currently focuses on:
 - replay/rebuild hot functions (`BenchmarkLoadFixtureFile`, `BenchmarkDeriveEventReferences`)
 - derivation normalization (`BenchmarkNormalizeUniqueIDs`)
 
-## Load Tests (Repeatable Scenarios)
+## Load tests (repeatable scenarios)
 
 Repeatable load-test scenarios live under [`../loadtest`](../loadtest):
 
@@ -171,7 +191,7 @@ To preserve load-test outputs with a benchmark snapshot in one run:
 PERF_COLLECT_INCLUDE_LOADTEST=1 make perf-collect
 ```
 
-## Contract Drift (Routes vs OpenAPI)
+## Contract drift (routes vs OpenAPI)
 
 Route ownership is centralized in `cmd/api/routes.go`. The API server and the contract-drift test both consume this same route declaration set.
 
@@ -184,7 +204,7 @@ make contract-drift
 This verifies each contract-owned route pattern (`METHOD /path`) is represented in `docs/openapi.yaml` with the matching HTTP method.
 The policy is intentionally one-way: route declarations own the runtime surface, and OpenAPI must cover that surface.
 
-## Lint Policy (Blocking)
+## Lint policy (blocking)
 
 Linting is intentionally high-signal and blocking in CI.
 
@@ -196,7 +216,7 @@ make lint
 
 The lint stack focuses on correctness and maintainability (`govet`, `staticcheck`, `errcheck`, `ineffassign`, `unused`, `revive`, `gosec`, `misspell`) plus dependency-policy checks (`depguard`) for key architecture boundaries.
 
-## CI-Enforced Gates
+## CI-enforced gates
 
 The current CI workflow enforces:
 
@@ -213,7 +233,7 @@ The current CI workflow enforces:
 - `make configdoc-check`
 - `make build`
 
-## Advisory Deep Confidence Workflow
+## Advisory Deep Confidence workflow
 
 For broader, higher-cost confidence checks that should not block normal PR flow, use the `Deep Confidence` GitHub workflow.
 
@@ -221,7 +241,7 @@ It runs a broad race sweep and a full coverage profile + policy check as an advi
 
 Contributor workflow and PR expectations are in [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 
-## Local Commands
+## Local commands
 
 Run race policy checks (same scope as CI):
 
@@ -252,6 +272,14 @@ make coverage-policy
 Run full quality checks:
 
 ```bash
+make ci
+```
+
+Example quick path for an API contract change:
+
+```bash
+go test ./internal/api ./internal/api_primal
+make contract-drift
 make ci
 ```
 

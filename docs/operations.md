@@ -1,29 +1,37 @@
 # Operations
 
-This page is the runtime and incident-response reference for NostrMash. Use [../README.md](../README.md) for first boot; use this document for health, checkpoints, jobs, rebuilds, trust runs, and what to inspect when the system is not behaving the way you expect.
+Use this page when you are running NostrMash in production or under pressure. Boot validation, health checks, incident triage, rebuild recovery, trust runs, and operator-facing workflows all live here. Use [../README.md](../README.md) for first boot and [observability.md](observability.md) when you need the fuller telemetry catalog.
 
-Environment-variable ownership is documented in [configuration.md](configuration.md). Runtime binaries load role-owned config via `LoadAPI`, `LoadWorker`, `LoadTrustWorker`, and `LoadIngestor`.
-Migration safety and rollback-aware schema evolution rules are documented in [migrations.md](migrations.md). External compatibility and deprecation expectations are documented in [compatibility.md](compatibility.md).
+What this page owns:
 
-For hot-path performance ownership and benchmark/load-test planning, use [performance.md](performance.md).
+- runtime checklists and first-response flow
+- interpretation of admin endpoints and operational states
+- alert response playbooks
+- operator expectations for rebuilds, trust runs, invalid events, and curated data
 
-## On This Page
+What it does not try to be:
 
-- [Operator Checklist](#operator-checklist)
-- [Running The Stack](#running-the-stack)
-- [Health and Readiness](#health-and-readiness)
-- [Key Operational Concepts](#key-operational-concepts)
-- [What To Inspect First](#what-to-inspect-first)
-- [Troubleshooting Flow](#troubleshooting-flow)
-- [Backup and Restore Cautions](#backup-and-restore-cautions)
-- [SLO-Driven Triage](#slo-driven-triage)
-- [Alert Response Playbook](#alert-response-playbook)
-- [Debug And Build Identity](#debug-and-build-identity)
-- [Contributor Handoff Checklist](#contributor-handoff-checklist)
+- a full environment-variable reference; use [configuration.md](configuration.md)
+- the full metrics and tracing catalog; use [observability.md](observability.md)
+- migration or compatibility policy; use [migrations.md](migrations.md) and [compatibility.md](compatibility.md)
 
-## Operator Checklist
+## On this page
 
-Start here before diving into details:
+- [Operator checklist](#operator-checklist)
+- [Running the stack](#running-the-stack)
+- [Health and readiness](#health-and-readiness)
+- [Key operational concepts](#key-operational-concepts)
+- [What to inspect first](#what-to-inspect-first)
+- [Troubleshooting flow](#troubleshooting-flow)
+- [Backup and restore cautions](#backup-and-restore-cautions)
+- [SLO-driven triage](#slo-driven-triage)
+- [Alert response playbook](#alert-response-playbook)
+- [Debug and build identity](#debug-and-build-identity)
+- [Contributor handoff checklist](#contributor-handoff-checklist)
+
+## Operator checklist
+
+Start here before diving deeper:
 
 1. Check `GET /health` and `GET /ready`.
 2. Check `GET /admin/v1/system` if admin auth is configured.
@@ -32,7 +40,29 @@ Start here before diving into details:
 5. Check `GET /admin/v1/invalid-events` if validation behavior looks off.
 6. Check `GET /admin/v1/derivation-versions` and `GET /admin/v1/rebuilds` if projections look stale.
 
-## Contributor Handoff Checklist
+```mermaid
+flowchart TD
+    Incident[IncidentObserved] --> Health{health_or_ready}
+    Health -->|"failing"| SystemCheck[Check_admin_system]
+    Health -->|"healthy"| Freshness{data_or_projection_issue}
+    SystemCheck --> RelayCheck[Check_relays_jobs]
+    Freshness -->|"ingest_or_stale_data"| RelayCheck
+    Freshness -->|"projection_or_read_issue"| RebuildCheck[Check_rebuilds_and_versions]
+    RelayCheck --> NextSignals[Use_metrics_logs_traces]
+    RebuildCheck --> NextSignals
+```
+
+### Example: service looks stale
+
+Use this sequence when the API is up but the data feels behind:
+
+1. Check `GET /ready` to make sure the API still has database connectivity.
+2. Check `GET /admin/v1/relays` for stale checkpoints or relay errors.
+3. Check `GET /admin/v1/jobs` for backlog, retries, or dead jobs that would slow projection freshness.
+4. If raw events appear current but product-facing reads still lag, inspect `GET /admin/v1/derivation-versions` and `GET /admin/v1/rebuilds`.
+5. Use [observability.md](observability.md) to decide whether the issue is ingest freshness, queue pressure, DB saturation, or a failing derivation path.
+
+## Contributor handoff checklist
 
 Before merging/releasing behavior changes, contributors should provide operators with:
 
@@ -46,7 +76,7 @@ For this handoff, use:
 - `compatibility.md` for external behavior/deprecation communication
 - `../RELEASE.md` for release notes and rollback expectations
 
-## Running The Stack
+## Running the stack
 
 For the first boot path, use [../README.md](../README.md). The standard containerized command is:
 
@@ -57,6 +87,7 @@ docker compose up --build
 This starts:
 
 - `postgres`
+- `redis`
 - `api` on `:8080`
 - `ingestor`
 - `worker`
@@ -64,14 +95,14 @@ This starts:
 
 All services run embedded migrations on startup. That means schema mistakes show up immediately during boot, not later.
 
-## Health and Readiness
+## Health and readiness
 
 - `GET /health`: liveness only. The process is up.
 - `GET /ready`: readiness check for API only. Returns `200` when Postgres is reachable and `503` otherwise.
 - `GET /metrics`: Prometheus metrics on the API process.
 - `GET /primal/ws`: Primal-compatible WebSocket upgrade endpoint for `REQ`/`CLOSE` traffic.
 
-The ingestor and worker expose metrics on `METRICS_ADDR` when configured. API metrics stay on `HTTP_ADDR` at `GET /metrics`.
+The ingestor, worker, and trust worker expose metrics on `METRICS_ADDR` when configured. API metrics stay on `HTTP_ADDR` at `GET /metrics`. Use [observability.md](observability.md) when you need the complete metric and tracing catalog rather than the operator-first subset below.
 
 Compatibility gateway tuning:
 
@@ -103,7 +134,7 @@ HTTP API observability metrics:
 - `nostrmash_api_requests_total{method,path_template,status_code}`
 - `nostrmash_api_request_duration_seconds{method,path_template}`
 
-Metrics use route templates (for example `/api/v1/events/{id}`) to avoid label-cardinality explosions; structured request logs still include both actual and template paths.
+Metrics use route templates (for example `/api/v1/events/{id}`) to avoid label-cardinality explosions; structured request logs still carry both actual and template paths.
 
 Runtime/process and DB pool saturation metrics:
 
@@ -178,6 +209,23 @@ First-class freshness/backlog/rebuild gauges:
 - `nostrmash_rebuild_runs_active`
 - `nostrmash_rebuild_active_oldest_age_seconds`
 
+Storage/fallback operating gauges and counters:
+
+- `nostrmash_storage_database_bytes`
+- `nostrmash_storage_table_bytes{table}`
+- `nostrmash_storage_table_rows{table}`
+- `nostrmash_lookup_local_total{surface,result}`
+- `nostrmash_lookup_fallback_total{surface,outcome}`
+- `nostrmash_lookup_fallback_latency_seconds{surface}`
+
+Fallback `outcome` now distinguishes `success` (full batch recovery) from `partial_success` (only some missing entities were recovered).
+
+Storage/retention signal ownership:
+
+- Storage gauges are emitted by the API process (`GET /metrics` on API).
+- Retention purge counters (`nostrmash_retention_purge_runs_total`, `nostrmash_retention_purged_rows_total`) are emitted by the worker process (`METRICS_ADDR` when enabled).
+- Sustained growth slope matters more than one-off size steps after migrations/rebuilds.
+
 Build/runtime identification:
 
 - Each binary logs `build_info` at startup with:
@@ -190,9 +238,9 @@ Build/runtime identification:
   - `nostrmash_build_info{binary_role,version,commit,build_time}`
   - `nostrmash_deployment_info{binary_role,service_name,environment}`
 
-## Key Operational Concepts
+## Key operational concepts
 
-### Relay State
+### Relay state
 
 Relay lifecycle and ingest progress are persisted, not held only in memory.
 
@@ -246,6 +294,13 @@ The worker claims jobs with `FOR UPDATE SKIP LOCKED`, pushes claimed work to a b
 Worker throughput tuning:
 
 - `WORKER_CONCURRENCY` controls bounded in-process worker pool size (default `4`).
+- `WORKER_JOB_RETENTION_ENABLED` enables periodic cleanup of old terminal jobs (default `true`).
+- `WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE` and `WORKER_JOB_RETENTION_DEAD_MAX_AGE` control retention windows.
+- `WORKER_JOB_RETENTION_RUN_INTERVAL` and `WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT` bound cleanup cadence and delete volume.
+- `WORKER_INVALID_EVENTS_RETENTION_ENABLED` enables periodic cleanup of old `invalid_events` rows (default `true`).
+- `WORKER_INVALID_EVENTS_RETENTION_MAX_AGE`, `WORKER_INVALID_EVENTS_RETENTION_RUN_INTERVAL`, and `WORKER_INVALID_EVENTS_RETENTION_DELETE_BATCH_LIMIT` bound invalid-event retention behavior.
+- `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_ENABLED` enables optional payload-only trimming (`raw_payload -> NULL`) before full-row retention.
+- `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE` and `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT` bound payload trimming when enabled.
 
 Primary inspection endpoint:
 
@@ -263,7 +318,7 @@ Useful endpoints:
 
 Full rebuilds are the version-promotion path. Narrow rebuild scopes exist for single-event, pubkey, and time-range repair.
 
-### Trust Runs
+### Trust runs
 
 Trust computation is run by `trust_worker` and publishes durable global trust output into Postgres.
 
@@ -272,22 +327,64 @@ Useful endpoints:
 - `POST /admin/v1/trust/runs` to trigger a run
 - `GET /admin/v1/trust/runs` and `GET /admin/v1/trust/runs/{runID}` for run status
 - `GET /admin/v1/trust/scores` and `GET /api/v1/trust/scores` for score visibility
+- `GET /admin/v1/relays/suggestions` for operator-facing trust-weighted relay recommendations
+
+Trust execution phases:
+
+- `trust_sync_graph_redis`: materialize run-scoped graph snapshot keys in Redis from `follower_edges` and active `trust_seeds`
+- `trust_compute_global_scores`: run deterministic iterative graph ranking and stage rows for promotion
+- `trust_promote_run`: atomically publish staged rows into `trust_scores_global` and mark the run succeeded
+
+Operational run metadata:
+
+- `trust_runs.redis_snapshot_ref` links a durable run to the Redis snapshot used for compute
+- `trust_runs.last_error` captures terminal failure context when phase execution fails
+- `trust_runs.input_follower_edges_count` and `trust_runs.score_rows_published` expose run cardinality
+- `trust_runs.current_phase`, `phase_started_at`, `phase_finished_at`, and `phase_last_error` capture phase state
+- `trust_runs.sync_job_id`, `compute_job_id`, and `promote_job_id` identify per-phase queue jobs
+
+Trust metrics:
+
+- `nostrmash_trust_queue_backlog_oldest_pending_age_seconds`
+- `nostrmash_trust_runs_active`
+- `nostrmash_trust_active_oldest_run_age_seconds`
+- `nostrmash_trust_active_snapshot_age_seconds`
+- `nostrmash_trust_score_rows_published_total`
+- `nostrmash_trust_phase_duration_seconds{phase,outcome}`
 
 Trust incidents and recovery:
 
 - If trust jobs are not running, check `jobs.worker_pool='trust'` queue backlog and `trust_worker` process health.
 - If a run fails, inspect `trust_runs.last_error`, then retrigger with `POST /admin/v1/trust/runs` once corrected.
-- Redis state is disposable working state. If Redis is lost/corrupted, restart `trust_worker` and trigger a fresh trust run.
+- Redis state is disposable working state. If Redis is lost/corrupted, trigger a fresh trust run to rehydrate and republish from Postgres.
 
-### Invalid Events
+Trust-driven ingest prioritization:
+
+- Relay ordering is currently calculated at ingestor startup from `trust_scores_global` + `relay_lists_latest`.
+- Use `INGESTOR_TRUST_PRIORITIZATION_ENABLED` and `INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS` to control trust ordering behavior.
+- If trust prioritization is disabled or fails, ingest falls back to configured relay order.
+- A bounded trust-targeted pubkey frontier can be enabled with `INGESTOR_TRUST_FETCH_ENABLED`; it fetches author-scoped replaceable slices (kinds `0`, `3`, `10002`) from configured relays.
+- Frontier behavior is bounded and smoothed by `INGESTOR_TRUST_FETCH_MAX_TRACKED_PUBKEYS`, `INGESTOR_TRUST_FETCH_MAX_SELECTED_PER_CYCLE`, `INGESTOR_TRUST_FETCH_REFRESH_INTERVAL`, `INGESTOR_TRUST_FETCH_STABLE_WINDOW`, and `INGESTOR_TRUST_FETCH_MAX_PROMOTIONS_PER_CYCLE`.
+- Retry and fetch pacing are controlled by `INGESTOR_TRUST_FETCH_COOLDOWN` and `INGESTOR_TRUST_FETCH_RETRY_DELAY`; recent lookback is bounded by `INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS`.
+
+Trust fetch and suggestion metrics:
+
+- `nostrmash_trust_fetch_frontier_count{state}`
+- `nostrmash_trust_fetch_cycles_total{outcome}`
+- `nostrmash_trust_fetch_pubkeys_total{outcome}`
+- `nostrmash_trust_fetch_pubkeys_selected_total`
+
+### Invalid events
 
 Invalid relay payloads are not dropped silently. They are written to `invalid_events` with error code, message, optional payload, and relay source when available.
+
+If payload trimming is enabled, older rows may keep metadata (`error_code`, `error_message`, relay, timestamps) while `raw_payload` is intentionally cleared to reduce storage pressure.
 
 Primary inspection endpoint:
 
 - `GET /admin/v1/invalid-events`
 
-## What To Inspect First
+## What to inspect first
 
 When something breaks, check in this order:
 
@@ -304,12 +401,13 @@ Useful endpoints:
 - `GET /ready`
 - `GET /admin/v1/system`
 - `GET /admin/v1/relays`
+- `GET /admin/v1/relays/suggestions`
 - `GET /admin/v1/jobs`
 - `GET /admin/v1/invalid-events`
 - `GET /admin/v1/derivation-versions`
 - `GET /admin/v1/rebuilds`
 
-## Troubleshooting Flow
+## Troubleshooting flow
 
 ### API returns `503` on `/ready`
 
@@ -338,7 +436,7 @@ If this is a performance regression rather than a correctness regression, check 
 - Look for relay-specific issues, malformed client traffic, or a validator change.
 - Treat spikes carefully before loosening validation, since invalid storage is part of the safety boundary.
 
-## SLO-Driven Triage
+## SLO-driven triage
 
 Use [slo.md](slo.md) as the reliability contract, and this page for action-oriented checks.
 
@@ -355,7 +453,7 @@ Use [slo.md](slo.md) as the reliability contract, and this page for action-orien
   - Start with `GET /admin/v1/rebuilds` and `GET /admin/v1/derivation-versions`.
   - Correlate with worker queue/store telemetry before changing concurrency or retry policy.
 
-## Alert Response Playbook
+## Alert response playbook
 
 Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use this map for first response:
 
@@ -386,14 +484,41 @@ Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use 
 - `NostrMashRebuildJobsDead`
   - Meaning: rebuild jobs are dead-lettering; rebuild recovery is failing.
   - Check next: rebuild run status (`GET /admin/v1/rebuilds`), dead-job error payloads, and worker/store traces.
+- `NostrMashTrustRunStuck`
+  - Meaning: at least one trust run has remained active beyond the expected phase window.
+  - Check next: `GET /admin/v1/trust/runs`, current phase metadata/error fields, trust queue health, and `trust_worker` logs.
+- `NostrMashTrustSnapshotStale`
+  - Meaning: the most recent successful trust snapshot is older than the freshness target.
+  - Check next: trigger or inspect `POST /admin/v1/trust/runs`, verify `trust_worker` liveness, and confirm Redis/Postgres trust phases are completing.
+- `NostrMashTrustRetryStorm`
+  - Meaning: trust sync/compute/promote phases are retrying at an unhealthy rate.
+  - Check next: retry-heavy `job_type` values, trust phase error fields, Redis reachability, and backing store latency.
+- `NostrMashFallbackFailureRatioHigh`
+  - Meaning: per-surface fallback miss/failure ratio is elevated.
+  - Check next: relay availability, timeout/fanout tuning, and local miss distribution by lookup surface.
+- `NostrMashFallbackLatencyHigh`
+  - Meaning: per-surface fallback p95 latency is elevated.
+  - Check next: relay response speed, network path, and fallback timeout budget.
+- `NostrMashLocalMissRatioHigh`
+  - Meaning: per-surface local cache/index hit ratio degraded for fallback-enabled lookups.
+  - Check next: ingest freshness/checkpoints and recent data locality.
+- `NostrMashRetentionPurgeFailing`
+  - Meaning: worker retention loops are repeatedly erroring.
+  - Check next: worker logs for purge target (`jobs` vs `invalid_events`), DB connectivity, and retention env configuration.
+- `NostrMashDatabaseGrowthSustained`
+  - Meaning: global database growth rate is elevated for hours.
+  - Check next: heavy-table growth (`nostrmash_storage_table_bytes{table}`), retention throughput, and expected ingest/rebuild workload.
+- `NostrMashInvalidEventsGrowthHigh`
+  - Meaning: `invalid_events` is growing faster than expected.
+  - Check next: malformed relay/client sources, validator behavior changes, and invalid-event retention purge effectiveness.
 
-## Debug And Build Identity
+## Debug and build identity
 
 Debug listener configuration:
 
 - `DEBUG_ADDR` enables an auxiliary pprof HTTP server.
 - API debug server requires `ADMIN_BEARER_TOKEN`; if token is not configured, API debug server remains disabled even when `DEBUG_ADDR` is set.
-- Worker debug server is unauthenticated; bind only to localhost/private addresses.
+- Worker and trust-worker debug servers are unauthenticated; bind only to localhost/private addresses.
 
 Common incident commands:
 
@@ -407,7 +532,7 @@ Security/access caveats:
 - Prefer temporary enablement during incidents.
 - Treat profile data as sensitive operational data.
 
-## Backup and Restore Cautions
+## Backup and restore cautions
 
 Postgres holds more than application data. It also holds queue state, relay checkpoints, invalid payloads, and derivation version metadata.
 
@@ -422,7 +547,7 @@ If projections are suspect after restore, rebuild them. If canonical raw storage
 
 For release-time schema change risk decisions, follow [migrations.md](migrations.md) and [../RELEASE.md](../RELEASE.md) together.
 
-## Curated Data Operations
+## Curated data operations
 
 Curated compatibility surfaces are operator-seeded. The runtime does not auto-ingest external curation feeds.
 
@@ -442,17 +567,4 @@ Operational expectations:
 - `creator_paid_tiers` first tries event-native output (latest kind `17000` plus referenced `e` events) and falls back to curated normalized output (`10000147`) when source events are absent.
 - `user_of_ln_address` resolves from `profiles_latest.nip05` and emits kind `10000138`; ensure metadata ingestion is healthy when troubleshooting LN-address lookup gaps.
 
-## Related Docs
-
-- [../README.md](../README.md)
-- [README.md](README.md)
-- [architecture.md](architecture.md)
-- [development.md](development.md)
-- [api.md](api.md)
-- [observability.md](observability.md)
-- [performance.md](performance.md)
-- [slo.md](slo.md)
-- [migrations.md](migrations.md)
-- [compatibility.md](compatibility.md)
-- [../RELEASE.md](../RELEASE.md)
-- [../SECURITY.md](../SECURITY.md)
+For deeper telemetry detail, use [observability.md](observability.md). For rollout safety and policy, use [migrations.md](migrations.md), [compatibility.md](compatibility.md), and [../RELEASE.md](../RELEASE.md).

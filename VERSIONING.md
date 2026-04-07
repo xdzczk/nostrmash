@@ -1,12 +1,14 @@
 # Versioning
 
+Use this page for the release-tag and semantic-versioning contract. It is the shortest statement of how version numbers map to compatibility expectations in this repository.
+
 NostrMash uses semantic versioning intent:
 
 - `MAJOR`: incompatible API/behavior changes requiring explicit migration by integrators/operators
 - `MINOR`: backward-compatible feature additions and compatibility-surface expansion
 - `PATCH`: backward-compatible fixes (correctness, security, performance, docs)
 
-## Compatibility Expectations
+## Compatibility expectations
 
 - Native API contracts should remain stable within a major version.
 - Compatibility surfaces (`/primal/v1`, `/primal/ws`) may evolve in phased increments, but breaking behavior should still be treated as major-version material.
@@ -21,7 +23,7 @@ Detailed compatibility/deprecation policy lives in `docs/compatibility.md`.
 Schema evolution and rollback-aware migration guidance lives in `docs/migrations.md`.
 Release execution flow lives in `RELEASE.md`.
 
-## Release Tag Contract
+## Release tag contract
 
 - Release automation is tag-driven.
 - Tags matching `v*` trigger `.github/workflows/release.yml`.
@@ -31,10 +33,10 @@ Release execution flow lives in `RELEASE.md`.
 
 If a change is not ready for an externally visible release, do not create a `v*` tag.
 
-## Build Metadata
+## Build metadata
 
 Runtime/build identity fields (`version`, `commit`, `build_time`) are operationally meaningful and should map cleanly to release tags.
 
-## Practical Rule
+## Practical rule
 
 If a change forces existing clients/operators to change behavior urgently, it is probably not a patch release.

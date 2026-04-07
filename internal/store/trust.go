@@ -30,6 +30,13 @@ type TrustRun struct {
 	InputFollowerEdges int64
 	ScoreRowsPublished int64
 	RedisSnapshotRef   *string
+	CurrentPhase       *string
+	SyncJobID          *int64
+	ComputeJobID       *int64
+	PromoteJobID       *int64
+	PhaseStartedAt     *time.Time
+	PhaseFinishedAt    *time.Time
+	PhaseLastError     *string
 	StartedAt          *time.Time
 	FinishedAt         *time.Time
 	LastError          *string
@@ -107,6 +114,8 @@ func (s *PostgresStore) GetTrustRun(ctx context.Context, runID int64) (TrustRun,
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, derivation_name, target_version, status, job_id, attempts,
 		       input_follower_edges_count, score_rows_published, redis_snapshot_ref,
+		       current_phase, sync_job_id, compute_job_id, promote_job_id,
+		       phase_started_at, phase_finished_at, phase_last_error,
 		       started_at, finished_at, last_error, created_at, updated_at
 		FROM trust_runs
 		WHERE id = $1
@@ -128,6 +137,8 @@ func (s *PostgresStore) ListTrustRuns(ctx context.Context, limit int) ([]TrustRu
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, derivation_name, target_version, status, job_id, attempts,
 		       input_follower_edges_count, score_rows_published, redis_snapshot_ref,
+		       current_phase, sync_job_id, compute_job_id, promote_job_id,
+		       phase_started_at, phase_finished_at, phase_last_error,
 		       started_at, finished_at, last_error, created_at, updated_at
 		FROM trust_runs
 		ORDER BY created_at DESC, id DESC
@@ -163,6 +174,13 @@ func scanTrustRun(row interface{ Scan(dest ...any) error }) (TrustRun, error) {
 		&out.InputFollowerEdges,
 		&out.ScoreRowsPublished,
 		&out.RedisSnapshotRef,
+		&out.CurrentPhase,
+		&out.SyncJobID,
+		&out.ComputeJobID,
+		&out.PromoteJobID,
+		&out.PhaseStartedAt,
+		&out.PhaseFinishedAt,
+		&out.PhaseLastError,
 		&out.StartedAt,
 		&out.FinishedAt,
 		&out.LastError,
@@ -180,6 +198,14 @@ func scanTrustRun(row interface{ Scan(dest ...any) error }) (TrustRun, error) {
 	if out.FinishedAt != nil {
 		ts := out.FinishedAt.UTC()
 		out.FinishedAt = &ts
+	}
+	if out.PhaseStartedAt != nil {
+		ts := out.PhaseStartedAt.UTC()
+		out.PhaseStartedAt = &ts
+	}
+	if out.PhaseFinishedAt != nil {
+		ts := out.PhaseFinishedAt.UTC()
+		out.PhaseFinishedAt = &ts
 	}
 	return out, nil
 }

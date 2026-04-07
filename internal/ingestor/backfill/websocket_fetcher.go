@@ -43,16 +43,7 @@ func (f WebsocketFetcher) FetchPage(ctx context.Context, relayURL string, reques
 	defer conn.Close()
 
 	subID := fmt.Sprintf("nm-backfill-%d", time.Now().UnixNano())
-	filter := map[string]any{
-		"kinds": request.Kinds,
-		"limit": request.Limit,
-	}
-	if request.Since != nil {
-		filter["since"] = *request.Since
-	}
-	if request.Until != nil {
-		filter["until"] = *request.Until
-	}
+	filter := buildFilter(request)
 	req := []any{"REQ", subID, filter}
 	reqRaw, err := json.Marshal(req)
 	if err != nil {
@@ -112,6 +103,23 @@ func (f WebsocketFetcher) FetchPage(ctx context.Context, relayURL string, reques
 			return result, nil
 		}
 	}
+}
+
+func buildFilter(request PageRequest) map[string]any {
+	filter := map[string]any{
+		"kinds": request.Kinds,
+		"limit": request.Limit,
+	}
+	if len(request.Authors) > 0 {
+		filter["authors"] = request.Authors
+	}
+	if request.Since != nil {
+		filter["since"] = *request.Since
+	}
+	if request.Until != nil {
+		filter["until"] = *request.Until
+	}
+	return filter
 }
 
 func parseNostrEnvelope(frame []byte) (envType string, subID string, payload []byte, ok bool) {

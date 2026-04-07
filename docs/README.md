@@ -1,64 +1,74 @@
 # Documentation
 
-This directory is the working map for NostrMash. Use it when the top-level `README.md` is no longer enough and you need the repo's actual architecture, development workflow, operating model, or API semantics.
+This is the docs hub for NostrMash. Use the top-level [`README.md`](../README.md) for the project overview and first boot. Use this page when you want the shortest path to the right document without guessing.
 
-## Choose Your Starting Point
+## Reader journeys
 
-| If you are... | Start here | Why |
+| If you are... | Start here | Then read |
 | --- | --- | --- |
-| A new contributor | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Entrypoint workflow, change-type playbook, and links to deep docs |
-| An operator | [operations.md](operations.md) | Health, checkpoints, jobs, rebuilds, and troubleshooting |
-| An API integrator | [api.md](api.md) | API surfaces, consistency model, pagination, and links to the contract |
-| Reviewing the system design | [architecture.md](architecture.md) | Service boundaries, data flow, layering, and rebuild philosophy |
-| Planning trust/ranking work | [architecture/trust-subsystem.md](architecture/trust-subsystem.md) | Target WoT/ranking subsystem shape, Redis role, and publication model |
+| New to the system | [architecture.md](architecture.md) | [api.md](api.md) |
+| Building locally | [development.md](development.md) | [testing.md](testing.md) |
+| Deploying to production | [coolify.md](coolify.md) | [operations.md](operations.md) |
+| Operating the stack | [operations.md](operations.md) | [observability.md](observability.md) |
+| Integrating with the API | [api.md](api.md) | [openapi.yaml](openapi.yaml) |
+| Changing compatibility behavior | [primal_compatibility_matrix.md](primal_compatibility_matrix.md) | [compatibility_rollout.md](compatibility_rollout.md) |
+| Planning trust and ranking work | [architecture/trust-subsystem.md](architecture/trust-subsystem.md) | [architecture.md](architecture.md) |
+| Contributing safely | [../CONTRIBUTING.md](../CONTRIBUTING.md) | [testing.md](testing.md) |
+| Releasing or managing policy | [../RELEASE.md](../RELEASE.md) | [compatibility.md](compatibility.md) |
 
-## Recommended Reading Order
+## Documentation tiers
 
-1. [architecture.md](architecture.md)
-2. [../CONTRIBUTING.md](../CONTRIBUTING.md) for contributor workflow, then [development.md](development.md) or [operations.md](operations.md)
-3. [api.md](api.md)
-4. [openapi.yaml](openapi.yaml) for request and response details
+### Tier 1: start here first
 
-## Source Of Truth Map
+These pages are meant to orient you, not just answer a narrow lookup:
 
-Use one canonical home for each topic:
+- [`../README.md`](../README.md): product overview, quick start, and primary paths
+- [architecture.md](architecture.md): system model, layers, and service boundaries
+- [api.md](api.md): API surface selection and consistency model
+- [operations.md](operations.md): runtime and incident-response guide
+- [`../CONTRIBUTING.md`](../CONTRIBUTING.md): contributor workflow and safety expectations
 
-- Landing page and first boot: [`../README.md`](../README.md)
-- Contributor entrypoint and change workflow: [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
-- Local dev environment and loops: [development.md](development.md)
-- Coolify deployment with managed Postgres/Redis: [coolify.md](coolify.md)
-- Environment-variable reference: [configuration.md](configuration.md)
-- Testing gates and targeted validation: [testing.md](testing.md)
-- Runtime health and incident response: [operations.md](operations.md)
-- Observability signals and alert interpretation: [observability.md](observability.md)
-- Performance hot paths and benchmark/load evidence: [performance.md](performance.md)
-- API semantics and consistency: [api.md](api.md)
-- Compatibility and deprecation policy: [compatibility.md](compatibility.md)
-- Migration safety and rollback-aware schema guidance: [migrations.md](migrations.md)
-- Primal compatibility target and gaps: [primal_compatibility_matrix.md](primal_compatibility_matrix.md)
-- Compatibility migration staging: [compatibility_rollout.md](compatibility_rollout.md)
-- Trust/ranking target design: [architecture/trust-subsystem.md](architecture/trust-subsystem.md)
-- Request and response schema details: [openapi.yaml](openapi.yaml)
-- Release execution: [`../RELEASE.md`](../RELEASE.md)
-- Versioning and tag contract: [`../VERSIONING.md`](../VERSIONING.md)
+### Tier 2: lookup and deep reference
 
-## Related
+These pages are authoritative, but they are best used as targeted references:
 
-- [`../README.md`](../README.md)
-- [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
-- [architecture.md](architecture.md)
-- [architecture/trust-subsystem.md](architecture/trust-subsystem.md)
-- [development.md](development.md)
-- [coolify.md](coolify.md)
-- [configuration.md](configuration.md)
-- [testing.md](testing.md)
-- [operations.md](operations.md)
-- [observability.md](observability.md)
-- [performance.md](performance.md)
-- [migrations.md](migrations.md)
-- [compatibility.md](compatibility.md)
-- [api.md](api.md)
-- [primal_compatibility_matrix.md](primal_compatibility_matrix.md)
-- [compatibility_rollout.md](compatibility_rollout.md)
-- [`../RELEASE.md`](../RELEASE.md)
-- [`../VERSIONING.md`](../VERSIONING.md)
+- [configuration.md](configuration.md): generated environment-variable reference
+- [observability.md](observability.md): metrics, tracing, and signal interpretation
+- [development.md](development.md): local workflow details and replay-safe development loops
+- [testing.md](testing.md): CI gates, race policy, coverage, fuzzing, benchmarks, and contract drift
+- [migrations.md](migrations.md): schema safety and rollout posture
+- [performance.md](performance.md): hot-path ownership and evidence collection
+- [compatibility.md](compatibility.md): compatibility and deprecation policy
+- [primal_compatibility_matrix.md](primal_compatibility_matrix.md): exact compatibility inventory
+- [compatibility_rollout.md](compatibility_rollout.md): staged adoption plan
+- [coolify.md](coolify.md): production-oriented Coolify deployment path
+- [architecture/trust-subsystem.md](architecture/trust-subsystem.md): trust and ranking design
+- [architecture/orchestration-surfaces.md](architecture/orchestration-surfaces.md): transport/query ownership map
+- [`../RELEASE.md`](../RELEASE.md), [`../VERSIONING.md`](../VERSIONING.md), [`../SECURITY.md`](../SECURITY.md): maintainer policy and release guidance
+
+## Source-of-truth map
+
+Each topic has one canonical home:
+
+| Topic | Canonical doc |
+| --- | --- |
+| Project overview and first boot | [`../README.md`](../README.md) |
+| Contributor entrypoint | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) |
+| Local development loops | [development.md](development.md) |
+| Production deployment on Coolify | [coolify.md](coolify.md) |
+| Environment variables | [configuration.md](configuration.md) |
+| Runtime health and response playbooks | [operations.md](operations.md) |
+| Metrics, traces, and alerts | [observability.md](observability.md) |
+| API mental model | [api.md](api.md) |
+| Exact HTTP and response contract | [openapi.yaml](openapi.yaml) |
+| Compatibility inventory | [primal_compatibility_matrix.md](primal_compatibility_matrix.md) |
+| Compatibility rollout sequencing | [compatibility_rollout.md](compatibility_rollout.md) |
+| Compatibility and deprecation policy | [compatibility.md](compatibility.md) |
+| Migration safety | [migrations.md](migrations.md) |
+| Performance ownership and evidence | [performance.md](performance.md) |
+| Trust subsystem design | [architecture/trust-subsystem.md](architecture/trust-subsystem.md) |
+
+## Notes
+
+- [configuration.md](configuration.md) is generated and works best as a lookup reference, not as a page to read front to back.
+- [storage-optimization.md](storage-optimization.md) is a scoped design note for storage and relay-fallback work, not the primary operator guide.

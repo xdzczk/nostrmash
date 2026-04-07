@@ -81,11 +81,14 @@ func main() {
 	}
 
 	queue := jobs.NewQueue(pool)
+	postgresStore := store.NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
 	workerID := resolveWorkerID()
 	runMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	runDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
 	go runQueueAndRebuildMetricsReporter(ctx, log, pool, 30*time.Second)
+	go runJobRetentionLoop(ctx, log, queue, cfg.JobRetention)
+	go runInvalidEventsRetentionLoop(ctx, log, postgresStore, cfg.InvalidEventRetention)
 	const (
 		claimBatchSize = 10
 		pollInterval   = 1 * time.Second
@@ -119,6 +122,118 @@ type workerQueue interface {
 	ClaimAvailableForPool(ctx context.Context, workerID, workerPool string, limit int) ([]jobs.Job, error)
 	CompleteJob(ctx context.Context, jobID int64, workerID string) error
 	FailJob(ctx context.Context, jobID int64, workerID string, errMsg string, retryDelay time.Duration) (jobs.FailureResult, error)
+	PurgeTerminalJobs(ctx context.Context, succeededBefore, deadBefore time.Time, limit int) (int64, error)
+}
+
+type invalidEventRetentionStore interface {
+	PurgeInvalidEventsOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
+	TrimInvalidEventPayloadsOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
+}
+
+func runJobRetentionLoop(ctx context.Context, log interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}, queue workerQueue, cfg config.WorkerJobRetentionConfig) {
+	if !cfg.Enabled {
+		log.Info("job_retention_disabled")
+		return
+	}
+	if cfg.RunInterval <= 0 || cfg.DeleteBatchLimit <= 0 {
+		log.Error("job_retention_invalid_config", "run_interval", cfg.RunInterval.String(), "delete_batch_limit", cfg.DeleteBatchLimit)
+		return
+	}
+	log.Info(
+		"job_retention_enabled",
+		"succeeded_max_age", cfg.SucceededMaxAge.String(),
+		"dead_max_age", cfg.DeadMaxAge.String(),
+		"run_interval", cfg.RunInterval.String(),
+		"delete_batch_limit", cfg.DeleteBatchLimit,
+	)
+
+	ticker := time.NewTicker(cfg.RunInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			succeededBefore := now.Add(-cfg.SucceededMaxAge)
+			deadBefore := now.Add(-cfg.DeadMaxAge)
+			deleted, err := queue.PurgeTerminalJobs(ctx, succeededBefore, deadBefore, cfg.DeleteBatchLimit)
+			if err != nil {
+				metrics.IncRetentionPurgeRun("jobs_terminal", "error")
+				log.Error("job_retention_purge_failed", "error", err)
+				continue
+			}
+			metrics.IncRetentionPurgeRun("jobs_terminal", "ok")
+			metrics.AddRetentionPurgedRows("jobs_terminal", deleted)
+			if deleted > 0 {
+				log.Info("job_retention_purged", "deleted", deleted, "succeeded_before", succeededBefore.Format(time.RFC3339), "dead_before", deadBefore.Format(time.RFC3339))
+			}
+		}
+	}
+}
+
+func runInvalidEventsRetentionLoop(ctx context.Context, log interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}, store invalidEventRetentionStore, cfg config.WorkerInvalidEventRetentionConfig) {
+	if !cfg.Enabled {
+		log.Info("invalid_events_retention_disabled")
+		return
+	}
+	if cfg.RunInterval <= 0 || cfg.DeleteBatchLimit <= 0 {
+		log.Error("invalid_events_retention_invalid_config", "run_interval", cfg.RunInterval.String(), "delete_batch_limit", cfg.DeleteBatchLimit)
+		return
+	}
+	log.Info(
+		"invalid_events_retention_enabled",
+		"max_age", cfg.MaxAge.String(),
+		"run_interval", cfg.RunInterval.String(),
+		"delete_batch_limit", cfg.DeleteBatchLimit,
+		"payload_trim_enabled", cfg.PayloadTrim.Enabled,
+		"payload_trim_max_age", cfg.PayloadTrim.MaxAge.String(),
+		"payload_trim_batch_limit", cfg.PayloadTrim.BatchLimit,
+	)
+
+	ticker := time.NewTicker(cfg.RunInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cutoff := time.Now().UTC().Add(-cfg.MaxAge)
+			deleted, err := store.PurgeInvalidEventsOlderThan(ctx, cutoff, cfg.DeleteBatchLimit)
+			if err != nil {
+				metrics.IncRetentionPurgeRun("invalid_events", "error")
+				log.Error("invalid_events_retention_purge_failed", "error", err)
+				continue
+			}
+			metrics.IncRetentionPurgeRun("invalid_events", "ok")
+			metrics.AddRetentionPurgedRows("invalid_events", deleted)
+			if deleted > 0 {
+				log.Info("invalid_events_retention_purged", "deleted", deleted, "cutoff", cutoff.Format(time.RFC3339))
+			}
+			if !cfg.PayloadTrim.Enabled {
+				continue
+			}
+
+			trimCutoff := time.Now().UTC().Add(-cfg.PayloadTrim.MaxAge)
+			trimmed, trimErr := store.TrimInvalidEventPayloadsOlderThan(ctx, trimCutoff, cfg.PayloadTrim.BatchLimit)
+			if trimErr != nil {
+				metrics.IncRetentionPurgeRun("invalid_events_payload", "error")
+				log.Error("invalid_events_payload_trim_failed", "error", trimErr)
+				continue
+			}
+			metrics.IncRetentionPurgeRun("invalid_events_payload", "ok")
+			metrics.AddRetentionPurgedRows("invalid_events_payload", trimmed)
+			if trimmed > 0 {
+				log.Info("invalid_events_payload_trimmed", "trimmed", trimmed, "cutoff", trimCutoff.Format(time.RFC3339))
+			}
+		}
+	}
 }
 
 func runClaimLoop(

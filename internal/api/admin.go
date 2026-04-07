@@ -14,6 +14,7 @@ import (
 
 type AdminService interface {
 	GetRelays(context.Context) ([]adminRelayState, error)
+	GetRelaySuggestions(context.Context, int, bool) ([]adminRelaySuggestion, error)
 	GetJobs(context.Context, int) (adminJobsResponse, error)
 	GetInvalidEvents(context.Context, int) (adminInvalidEventsResponse, error)
 	GetRebuilds(context.Context, int) ([]adminRebuildRunResponse, error)
@@ -96,6 +97,30 @@ func (h AdminHandlers) GetRelays(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"relays": relays})
+}
+
+func (h AdminHandlers) GetRelaySuggestions(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseBoundedPositiveInt(r, "limit", 50, 500)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	recommendedOnly := false
+	rawRecommendedOnly := strings.TrimSpace(r.URL.Query().Get("recommended_only"))
+	if rawRecommendedOnly != "" {
+		v, err := strconv.ParseBool(rawRecommendedOnly)
+		if err != nil {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "recommended_only must be a boolean")
+			return
+		}
+		recommendedOnly = v
+	}
+	suggestions, err := h.service.GetRelaySuggestions(r.Context(), limit, recommendedOnly)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"suggestions": suggestions})
 }
 
 func (h AdminHandlers) GetJobs(w http.ResponseWriter, r *http.Request) {

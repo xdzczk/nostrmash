@@ -2,14 +2,19 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 )
 
 type profileService struct {
-	reader ProfileReader
+	reader   ProfileReader
+	fallback FallbackReader
 }
 
 // NewProfileService constructs a profile-only orchestration service from a narrow dependency.
@@ -18,27 +23,7 @@ func NewProfileService(reader ProfileReader) ProfileService {
 }
 
 func (s Service) GetUserInfos(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
-	normalized := normalizeUniqueStrings(pubkeys)
-	if len(normalized) == 0 {
-		return UserInfosResult{}, fmt.Errorf("pubkeys must include at least one non-empty value")
-	}
-	profilesByPubkey, err := s.reader.GetProfilesByPubkeys(ctx, normalized)
-	if err != nil {
-		return UserInfosResult{}, err
-	}
-	out := UserInfosResult{
-		Profiles:       make([]store.ProfileProjection, 0, len(profilesByPubkey)),
-		MissingPubkeys: make([]string, 0),
-	}
-	for _, pubkey := range normalized {
-		profile, ok := profilesByPubkey[pubkey]
-		if !ok {
-			out.MissingPubkeys = append(out.MissingPubkeys, pubkey)
-			continue
-		}
-		out.Profiles = append(out.Profiles, profile)
-	}
-	return out, nil
+	return profileService{reader: s.reader, fallback: s.fallback}.GetProfiles(ctx, pubkeys)
 }
 
 func (s Service) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
@@ -46,7 +31,39 @@ func (s Service) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosRe
 }
 
 func (s profileService) GetProfile(ctx context.Context, pubkey string) (store.ProfileProjection, error) {
-	return s.reader.GetProfileByPubkey(ctx, pubkey)
+	normalized := strings.TrimSpace(pubkey)
+	if normalized == "" {
+		return store.ProfileProjection{}, fmt.Errorf("pubkey is required")
+	}
+	profile, err := s.reader.GetProfileByPubkey(ctx, normalized)
+	if err == nil {
+		metrics.ObserveLookupLocal("profile_by_pubkey", true)
+		return profile, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return store.ProfileProjection{}, err
+	}
+	metrics.ObserveLookupLocal("profile_by_pubkey", false)
+	if s.fallback == nil {
+		return store.ProfileProjection{}, err
+	}
+	started := time.Now()
+	metrics.IncLookupFallbackAttempt("profile_by_pubkey")
+	fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_profile.fallback", traceutil.KV("fallback.surface", "profile_by_pubkey"))
+	foundByPubkey, fallbackErr := s.fallback.FetchProfilesByPubkeys(fallbackCtx, []string{normalized})
+	fallbackSpan.End(fallbackErr)
+	metrics.ObserveLookupFallbackLatency("profile_by_pubkey", time.Since(started))
+	if fallbackErr != nil {
+		metrics.IncLookupFallbackFailure("profile_by_pubkey")
+		return store.ProfileProjection{}, err
+	}
+	profile, ok := foundByPubkey[normalized]
+	if !ok {
+		metrics.IncLookupFallbackMiss("profile_by_pubkey")
+		return store.ProfileProjection{}, err
+	}
+	metrics.IncLookupFallbackSuccess("profile_by_pubkey")
+	return profile, nil
 }
 
 func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
@@ -57,6 +74,48 @@ func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (User
 	profilesByPubkey, err := s.reader.GetProfilesByPubkeys(ctx, normalized)
 	if err != nil {
 		return UserInfosResult{}, err
+	}
+	missing := make([]string, 0)
+	for _, pubkey := range normalized {
+		if _, ok := profilesByPubkey[pubkey]; ok {
+			continue
+		}
+		missing = append(missing, pubkey)
+	}
+	if len(missing) == 0 {
+		metrics.ObserveLookupLocal("profile_batch", true)
+	} else {
+		metrics.ObserveLookupLocal("profile_batch", false)
+	}
+	if len(missing) > 0 && s.fallback != nil {
+		started := time.Now()
+		metrics.IncLookupFallbackAttempt("profile_batch")
+		fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_profile_batch.fallback", traceutil.KV("fallback.surface", "profile_batch"))
+		fallbackProfiles, fallbackErr := s.fallback.FetchProfilesByPubkeys(fallbackCtx, missing)
+		fallbackSpan.End(fallbackErr)
+		metrics.ObserveLookupFallbackLatency("profile_batch", time.Since(started))
+		if fallbackErr != nil {
+			metrics.IncLookupFallbackFailure("profile_batch")
+		} else if len(fallbackProfiles) == 0 {
+			metrics.IncLookupFallbackMiss("profile_batch")
+		} else {
+			recovered := 0
+			for _, pubkey := range missing {
+				if _, ok := fallbackProfiles[pubkey]; ok {
+					recovered++
+				}
+			}
+			if recovered == 0 {
+				metrics.IncLookupFallbackMiss("profile_batch")
+			} else if recovered < len(missing) {
+				metrics.IncLookupFallbackPartialSuccess("profile_batch")
+			} else {
+				metrics.IncLookupFallbackSuccess("profile_batch")
+			}
+			for pubkey, profile := range fallbackProfiles {
+				profilesByPubkey[pubkey] = profile
+			}
+		}
 	}
 	out := UserInfosResult{
 		Profiles:       make([]store.ProfileProjection, 0, len(profilesByPubkey)),
@@ -76,7 +135,7 @@ func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (User
 func (s Service) GetProfile(ctx context.Context, pubkey string) (out store.ProfileProjection, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_profile")
 	defer func() { span.End(err) }()
-	return s.reader.GetProfileByPubkey(ctx, pubkey)
+	return profileService{reader: s.reader, fallback: s.fallback}.GetProfile(ctx, pubkey)
 }
 
 func (s Service) GetContactList(ctx context.Context, pubkey string) (store.ContactListProjection, error) {

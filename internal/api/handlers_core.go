@@ -51,13 +51,23 @@ type Handlers struct {
 
 var apiErrLog = logging.New("api")
 
+type HandlersOptions struct {
+	MaxBatchSize int
+	QueryOptions query.ServiceOptions
+}
+
 func NewHandlers(store EventReader, maxBatchSize int) Handlers {
+	return NewHandlersWithOptions(store, HandlersOptions{MaxBatchSize: maxBatchSize})
+}
+
+func NewHandlersWithOptions(store EventReader, options HandlersOptions) Handlers {
+	maxBatchSize := options.MaxBatchSize
 	if maxBatchSize <= 0 {
 		maxBatchSize = 200
 	}
 	return Handlers{
 		store:        store,
-		service:      query.NewService(store),
+		service:      query.NewServiceWithOptions(store, options.QueryOptions),
 		maxBatchSize: maxBatchSize,
 	}
 }

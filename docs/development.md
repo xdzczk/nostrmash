@@ -1,18 +1,18 @@
 # Development
 
-This page is the contributor workflow reference for NostrMash. Use the top-level [README](../README.md) for first boot; use this document for day-to-day local work, tests, migrations, replay, and safe projection changes.
+Use this page for the day-to-day local workflow: starting services, replaying ingest, running targeted tests, and making projection changes safely. Use the top-level [README](../README.md) for the quick project overview and [../CONTRIBUTING.md](../CONTRIBUTING.md) for PR expectations.
 
-## On This Page
+## On this page
 
-- [Fast Path](#fast-path)
-- [Common Loops](#common-loops)
+- [Fast path](#fast-path)
+- [Common loops](#common-loops)
 - [Migrations](#migrations)
-- [Running Tests](#running-tests)
-- [Adding a New Projection Safely](#adding-a-new-projection-safely)
-- [Codebase Conventions](#codebase-conventions)
-- [How Not To Break The Architecture](#how-not-to-break-the-architecture)
+- [Running tests](#running-tests)
+- [Adding a new projection safely](#adding-a-new-projection-safely)
+- [Codebase conventions](#codebase-conventions)
+- [How not to break the architecture](#how-not-to-break-the-architecture)
 
-## Fast Path
+## Fast path
 
 Prerequisites:
 
@@ -45,7 +45,7 @@ go run ./cmd/worker
 
 Migrations are embedded and auto-run on startup, so you do not need a separate migration command for normal local work.
 
-## Common Loops
+## Common loops
 
 Run the same quality gate as CI:
 
@@ -91,7 +91,7 @@ Because all services call `store.Migrate()` on startup, migration changes should
 
 For rollback-aware migration practices, staged rollout expectations, and migration PR checklist guidance, see [migrations.md](migrations.md).
 
-## Running Tests
+## Running tests
 
 The repository already has focused unit and integration-style tests around:
 
@@ -151,7 +151,7 @@ Optionally verify local build parity with CI:
 make build
 ```
 
-## Adding a New Projection Safely
+## Adding a new projection safely
 
 Use this sequence. If you skip pieces, the projection usually becomes non-rebuildable or invisible to operations.
 
@@ -171,7 +171,7 @@ Good projection behavior in this repo means:
 - version changes are explicit
 - rebuilds do not require hand-edited data repair
 
-## Codebase Conventions
+## Codebase conventions
 
 - Keep compatibility logic at the boundary. `internal/api_primal` should translate shapes, not leak compatibility rules into core storage models.
 - Keep raw ingest strict and side-effect free until the canonical write boundary.
@@ -179,7 +179,7 @@ Good projection behavior in this repo means:
 - Keep Postgres as the primary consistency boundary unless there is a strong reason not to.
 - Treat `APP_VERSION`, derivation versions, and migration history as operationally meaningful, not decorative metadata.
 
-## How Not To Break The Architecture
+## How not to break the architecture
 
 - Do not read Layer 3 projections inside the ingest path to decide what raw data to store.
 - Do not mutate or overwrite canonical raw events to fit new product behavior.
@@ -195,13 +195,4 @@ Automated boundary checks:
 - Import boundaries are enforced by [`internal/archtest/boundaries_test.go`](../internal/archtest/boundaries_test.go).
 - Keep new package dependencies aligned with that test and the layering model in [`architecture.md`](architecture.md).
 
-## Related Docs
-
-- [../README.md](../README.md)
-- [README.md](README.md)
-- [architecture.md](architecture.md)
-- [operations.md](operations.md)
-- [migrations.md](migrations.md)
-- [compatibility.md](compatibility.md)
-- [testing.md](testing.md)
-- [api.md](api.md)
+For deeper contributor guidance, use [../CONTRIBUTING.md](../CONTRIBUTING.md), [testing.md](testing.md), and [architecture.md](architecture.md).

@@ -1,17 +1,43 @@
-# API Surfaces
+# API surfaces
 
-This page is the high-level API map for NostrMash. Read this before diving into [openapi.yaml](openapi.yaml) if you need to understand which surface to use, what consistency to expect, and how the current compatibility layer is intentionally scoped.
+Use this page to decide which NostrMash surface you should integrate with. It is intentionally the map, not the full contract: start here for surface selection and consistency expectations, then move to [openapi.yaml](openapi.yaml) or the compatibility matrix for exact shapes.
 
-## On This Page
+## On this page
 
+- [Surface selection](#surface-selection)
 - [Native API](#native-api)
 - [Compatibility API](#compatibility-api)
 - [Admin API](#admin-api)
-- [Consistency Model](#consistency-model)
+- [Consistency model](#consistency-model)
 - [OpenAPI](#openapi)
-- [Pagination, Cursors, and Errors](#pagination-cursors-and-errors)
+- [Pagination, cursors, and errors](#pagination-cursors-and-errors)
 
 NostrMash currently exposes three API surfaces with different purposes.
+
+## Surface selection
+
+| Use case | Primary surface | Why |
+| --- | --- | --- |
+| Durable product-facing reads owned by this repo | `/api/v1` | This is the native contract and the preferred home for new first-class capabilities |
+| Existing Primal-oriented clients | `/primal/v1` and `/primal/ws` | Compatibility behavior stays at the boundary without reshaping core storage and derivation layers |
+| Operator inspection and control | `/admin/v1` | Admin routes expose system state, operational controls, and runtime visibility |
+
+```mermaid
+flowchart TD
+    ReaderNeed[ReaderNeed] --> SurfaceChoice{NeedType}
+    SurfaceChoice -->|"Native product reads"| NativeAPI[api_v1]
+    SurfaceChoice -->|"Primal compatibility"| CompatAPI[primal_v1_or_ws]
+    SurfaceChoice -->|"Operational control"| AdminAPI[admin_v1]
+```
+
+### Example: choosing a surface
+
+Use this quick rule of thumb:
+
+1. If you are building a NostrMash-native client, start with `/api/v1`.
+2. If you are replacing or mirroring a Primal-oriented integration, start with `/primal/v1` or `/primal/ws`.
+3. If you need system inspection, rebuild control, or operator visibility, use `/admin/v1`.
+4. If you are still unsure, choose the surface whose response model you want to preserve rather than the one that merely looks familiar.
 
 ## Native API
 
@@ -26,16 +52,18 @@ It serves:
 - thread and ancestor/reply views
 - relay health summaries
 - projected interaction counts
+- kind-scoped user event reads such as `bookmarks`, `highlights`, `long-form`, and `zaps`
 - `mentions` (p-tag reference events)
 - `followers` (derived follower edges from latest kind:3 contact lists)
+- trust score reads for a single pubkey or the current top-ranked set
 
-This is the surface to extend when the system gains new first-class read capabilities.
+This is the surface to extend when NostrMash gains new first-class read capabilities.
 
 ## Compatibility API
 
-The compatibility surface currently lives under `/primal/v1`.
+The compatibility surface currently lives under `/primal/v1` and `/primal/ws`.
 
-It now includes a phased subset plus a WebSocket gateway:
+Today it includes a substantial HTTP subset plus a WebSocket gateway:
 
 - `GET /primal/v1/events/{id}`
 - `POST /primal/v1/events/batch`
@@ -49,26 +77,28 @@ It now includes a phased subset plus a WebSocket gateway:
 - `GET /primal/v1/relay-lists/{pubkey}`
 - `GET /primal/ws` (WebSocket `REQ`/`CLOSE` compatibility gateway)
 
-Compatibility notes:
+How to think about compatibility:
 
-- `thread_view` supports opaque cursor pagination (`cursor` query input, `next_cursor` output).
-- `get_directmsgs` exists on the WS cache gateway for compatibility only; there is no public native HTTP DM retrieval route.
-- DM companion cache calls are available for parity flows: `get_directmsg_contacts`, `directmsg_count`, `directmsg_count_2`, `reset_directmsg_count`, and `reset_directmsg_counts`.
-- DM reset mutations now require signed `event_from_user` payloads; raw pubkey-only reset calls are rejected.
-- `directmsg_count` and `directmsg_count_2` are intentionally split into two wire shapes and can stay live via WS subscriptions.
-- `user_mentions` is a truthful reference-based surface (p-tag mentions).
-- `user_followers` is backed by follower-edge projection derived from latest kind:3 contact lists.
-- Search behavior is intentionally unified between top-level WS `search` filters and `cache:search`.
-- Additional parity cache groups are available for zaps, moderation/filterlists, parameterized replaceables, and curated stats/read surfaces.
-- Moderation checks are tag-aware for pubkey/event/term entries and treat empty lists as valid empty responses.
-- Curated/external cache reads now use Primal-like kind envelopes for reads/topics/authors and LN lookup: `get_recommended_reads` (`10000145`), `get_reads_topics` (`10000146`), `get_featured_authors` (`10000148`), and `user_of_ln_address` (`10000138`).
-- `get_featured_authors` and `user_of_ln_address` also emit profile metadata events when available.
-- `creator_paid_tiers` now prefers live event-native output (latest kind `17000` + referenced `e` events) and falls back to curated normalized payload (`10000147`) when source events are unavailable.
-- `user_of_ln_address` resolves against exact LN address identity data (`nip05`-style match), not search heuristics.
+- use it when you need Primal-oriented shapes and request names, not when you are designing new NostrMash-native capabilities
+- expect boundary-specific response shaping, especially on WebSocket request kinds
+- expect partial parity rather than a frozen one-to-one mirror of every external surface
+- treat [primal_compatibility_matrix.md](primal_compatibility_matrix.md) as the current feature inventory
+- treat [compatibility_rollout.md](compatibility_rollout.md) as the operational adoption plan
+
+Current compatibility highlights:
+
+- `thread_view` supports opaque cursor pagination (`cursor` input, `next_cursor` output)
+- `get_directmsgs` exists on the WebSocket gateway for compatibility only; there is no public native HTTP DM retrieval route
+- search behavior is intentionally unified between top-level WS `search` filters and `cache:search`
+- compatibility cache groups also cover social graph, moderation, zaps, parameterized replaceables, and curated parity reads
+- curated reads/topics/authors and LN lookup use Primal-like kind envelopes
+- `creator_paid_tiers` prefers event-native output and falls back to curated normalized output when source events are absent
+
+Use compatibility when preserving an external client contract matters more than exposing the cleanest native shape.
 
 This is still not full product parity. Compatibility logic remains boundary-only and avoids leaking protocol-specific models into core storage and derivation code.
 
-Compatibility contract coverage remains fixture-driven for HTTP compatibility routes:
+HTTP compatibility contract coverage remains fixture-driven for selected routes:
 
 - `GET /primal/v1/events/{id}`
 - `POST /primal/v1/events/batch`
@@ -93,16 +123,19 @@ The admin surface lives under `/admin/v1` and is for operators, not public clien
 It exposes inspection and control for:
 
 - relay state
+- relay suggestion state
 - job backlog and failures
 - invalid events
 - rebuild runs
 - storage footprint
 - runtime/system status
 - derivation versions
+- trust runs and current trust phase metadata
+- published trust score views
 
 Admin endpoints require `ADMIN_BEARER_TOKEN`. If the token is unset, the admin surface is unavailable by design.
 
-## Consistency Model
+## Consistency model
 
 - Raw event reads can be strong. Canonical event payloads and relay provenance come straight from durable storage.
 - Projection reads may be eventually consistent. Counts, thread views, profiles, and similar higher-level reads depend on asynchronous worker jobs.
@@ -115,7 +148,7 @@ Detailed request and response contracts live in [openapi.yaml](openapi.yaml).
 
 This document is the map. The OpenAPI file is the schema.
 
-## Pagination, Cursors, and Errors
+## Pagination, cursors, and errors
 
 Pagination in the current native API is simple and explicit:
 
@@ -145,10 +178,4 @@ Error responses use a consistent envelope:
 
 Use `request_id` for tracing across logs. Use `code` for program logic. Use `message` for operator-facing context.
 
-## Related Docs
-
-- [../README.md](../README.md)
-- [docs/README.md](README.md)
-- [architecture.md](architecture.md)
-- [development.md](development.md)
-- [operations.md](operations.md)
+For deeper detail, use [openapi.yaml](openapi.yaml) for the native contract, [primal_compatibility_matrix.md](primal_compatibility_matrix.md) for the compatibility inventory, and [operations.md](operations.md) for operator-facing API/runtime expectations.

@@ -8,10 +8,11 @@ import (
 )
 
 type APIConfig struct {
-	Shared   SharedConfig
-	HTTP     APIHTTPConfig
-	PrimalWS APIPrimalWSConfig
-	Relay    APIRelayConfig
+	Shared        SharedConfig
+	HTTP          APIHTTPConfig
+	PrimalWS      APIPrimalWSConfig
+	Relay         APIRelayConfig
+	RelayFallback APIRelayFallbackConfig
 }
 
 type APIHTTPConfig struct {
@@ -38,6 +39,13 @@ type APIPrimalWSConfig struct {
 type APIRelayConfig struct {
 	URLs     []string
 	Disabled []string
+}
+
+type APIRelayFallbackConfig struct {
+	Enabled   bool
+	URLs      []string
+	Timeout   time.Duration
+	MaxFanout int
 }
 
 func LoadAPI() (APIConfig, error) {
@@ -87,6 +95,22 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	relayFallbackTimeout, err := getEnvPositiveDurationStrict("API_RELAY_FALLBACK_TIMEOUT", 2*time.Second)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	relayFallbackMaxFanout, err := getEnvPositiveIntStrict("API_RELAY_FALLBACK_MAX_FANOUT", 3)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	fallbackURLs := parseCSVEnv("API_RELAY_FALLBACK_URLS")
+	if len(fallbackURLs) == 0 {
+		fallbackURLs = parseCSVEnv("INGESTOR_RELAY_URLS")
+	}
+	normalizedFallbackURLs, err := normalizeFallbackRelayURLs(fallbackURLs)
+	if err != nil {
+		return APIConfig{}, err
+	}
 
 	cfg := APIConfig{
 		Shared: shared,
@@ -112,6 +136,12 @@ func LoadAPI() (APIConfig, error) {
 			URLs:     parseCSVEnv("INGESTOR_RELAY_URLS"),
 			Disabled: parseCSVEnv("INGESTOR_RELAY_DISABLED"),
 		},
+		RelayFallback: APIRelayFallbackConfig{
+			Enabled:   getEnvBool("API_RELAY_FALLBACK_ENABLED", false),
+			URLs:      normalizedFallbackURLs,
+			Timeout:   relayFallbackTimeout,
+			MaxFanout: relayFallbackMaxFanout,
+		},
 	}
 	if err := validateAPIConfig(cfg); err != nil {
 		return APIConfig{}, err
@@ -132,6 +162,12 @@ func validateAPIConfig(cfg APIConfig) error {
 				return fmt.Errorf("PRIMAL_WS_ALLOWED_ORIGINS contains invalid origin %q: %w", origin, err)
 			}
 		}
+	}
+	if cfg.RelayFallback.Enabled && len(cfg.RelayFallback.URLs) == 0 {
+		return fmt.Errorf("API_RELAY_FALLBACK_ENABLED requires API_RELAY_FALLBACK_URLS or INGESTOR_RELAY_URLS")
+	}
+	if cfg.RelayFallback.Enabled && cfg.RelayFallback.MaxFanout <= 0 {
+		return fmt.Errorf("API_RELAY_FALLBACK_MAX_FANOUT must be > 0")
 	}
 	return nil
 }
@@ -154,4 +190,21 @@ func validateAllowedOrigin(raw string) error {
 		return fmt.Errorf("query, fragment, and userinfo are not allowed")
 	}
 	return nil
+}
+
+func normalizeFallbackRelayURLs(urls []string) ([]string, error) {
+	out := make([]string, 0, len(urls))
+	seen := make(map[string]struct{}, len(urls))
+	for _, raw := range urls {
+		normalized, err := normalizeRelayURL(raw, false)
+		if err != nil {
+			return nil, fmt.Errorf("invalid fallback relay URL %q: %w", raw, err)
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	return out, nil
 }
