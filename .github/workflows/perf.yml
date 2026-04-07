@@ -35,10 +35,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -51,7 +51,7 @@ jobs:
           PERF_RUN_ID: current-${{ github.run_number }}-${{ github.sha }}
 
       - name: Upload performance artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: perf-snapshot-${{ github.run_number }}
           path: benchmarks/history/ci/current/
@@ -59,7 +59,7 @@ jobs:
 
       - name: Download baseline artifact
         if: ${{ inputs.baseline_run_id != '' && inputs.baseline_artifact_name != '' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           run-id: ${{ inputs.baseline_run_id }}
           name: ${{ inputs.baseline_artifact_name }}
@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload comparison report
         if: ${{ inputs.baseline_run_id != '' && inputs.baseline_artifact_name != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: perf-compare-${{ github.run_number }}
           path: benchmarks/compare/
