@@ -43,3 +43,28 @@ Non-security bugs (correctness/performance regressions without security impact) 
 - document operational mitigations when a full fix needs extra time
 
 When relevant, release notes should include remediation guidance and upgrade urgency.
+
+## Dependency hygiene
+
+Dependency update posture is security-relevant, but it does not need a separate top-level doc.
+
+Automatically updated:
+
+- Go modules (`go.mod`, `go.sum`) via Dependabot `gomod` updates
+- GitHub Actions referenced in workflow `uses:` steps via Dependabot `github-actions` updates
+- Container base images in Dockerfiles via Dependabot `docker` updates
+
+Intentionally manual:
+
+- workflow service/container images declared inside workflow YAML
+- Compose service images such as `postgres:16-alpine`
+- pinned security tooling versions outside `go.mod`
+- risk-significant major version upgrades that need explicit reviewer sign-off
+
+Validation expectations for dependency PRs:
+
+1. Run CI and require green status before merge.
+2. Review changelog or release notes for security fixes and breaking changes.
+3. For Go module changes, ensure tests and vuln checks pass.
+4. For GitHub Action changes, verify workflow behavior and permissions still match least-privilege expectations.
+5. For container base image changes, rebuild images and run smoke checks (`/health`, `/ready`, critical API paths) before merge.

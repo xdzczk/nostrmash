@@ -2,7 +2,6 @@
 
 Use this page when you are preparing, validating, or rolling back a release. It is intentionally lightweight: predictable release flow, clear validation expectations, and explicit rollback posture.
 
-Release artifact security metadata (SBOM, signatures, attestation foundations, and verification commands) is documented in [docs/release-security.md](docs/release-security.md).
 Migration safety expectations are documented in [docs/migrations.md](docs/migrations.md), and external behavior compatibility/deprecation expectations are documented in [docs/compatibility.md](docs/compatibility.md).
 Operational rollout and alert-response references are in [docs/operations.md](docs/operations.md) and [docs/observability.md](docs/observability.md).
 
@@ -66,3 +65,22 @@ Operational rollback references:
 - rebuild/version recovery surfaces: `GET /admin/v1/rebuilds`, `GET /admin/v1/derivation-versions`
 
 If rollback occurs, capture root cause and follow-up actions in the next patch release notes.
+
+## Release security metadata
+
+Release workflows generate the security metadata needed for practical artifact verification:
+
+- Linux `amd64` tarball artifacts for `api`, `ingestor`, and `worker`
+- `sha256sums.txt` covering those tarballs
+- an SPDX JSON SBOM: `nostrmash.spdx.json`
+- Sigstore keyless signatures and certificates for the checksum manifest and SBOM
+- GitHub artifact attestations as build-provenance foundations
+
+Verification path:
+
+1. Verify checksums with `sha256sum --check sha256sums.txt`.
+2. Verify the checksum manifest signature with `cosign verify-blob`.
+3. Verify the SBOM signature with `cosign verify-blob`.
+4. Optionally verify GitHub artifact attestations with `gh attestation verify`.
+
+This is intentionally lightweight: enough integrity, inventory, and provenance signal for operators without turning the release guide into a compliance manual.

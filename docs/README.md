@@ -71,4 +71,4 @@ Each topic has one canonical home:
 ## Notes
 
 - [configuration.md](configuration.md) is generated and works best as a lookup reference, not as a page to read front to back.
-- [storage-optimization.md](storage-optimization.md) is a scoped design note for storage and relay-fallback work, not the primary operator guide.
+- Design notes that are useful but not first-class docs live under `docs/design/`; for example, see [design/storage-optimization.md](design/storage-optimization.md) for the scoped storage and relay-fallback note.

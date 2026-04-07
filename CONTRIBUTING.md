@@ -104,6 +104,37 @@ For migration/compatibility behavior changes, also update:
 - `docs/migrations.md`
 - `docs/compatibility.md`
 
+## Formatting, imports, and docs style
+
+Formatting and import ordering are blocking CI checks:
+
+```bash
+make fmt-check
+make imports-check
+```
+
+To fix formatting and imports locally:
+
+```bash
+make format
+```
+
+This applies:
+
+- `gofmt -w .`
+- `goimports -w .` (via `go run golang.org/x/tools/cmd/goimports@latest`)
+
+Documentation changes should follow the same style system as the rest of the repo:
+
+- use sentence case for headings
+- keep intros short and purposeful
+- prefer tables for comparisons and routing decisions
+- use numbered lists for workflows and walkthroughs
+- use mermaid only when a diagram truly reduces cognitive load
+- avoid long undifferentiated bullet walls and oversized related-doc footers
+
+When in doubt, write the shortest version that still helps a contributor choose, decide, or act.
+
 ## CI gates
 
 CI blocks on:

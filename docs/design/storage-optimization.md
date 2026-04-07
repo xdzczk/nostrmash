@@ -1,6 +1,6 @@
-# Storage Optimization and Relay Fallback
+# Storage optimization and relay fallback
 
-This is a scoped design note for storage optimization and relay fallback work in NostrMash. It is not the general operator guide; use [operations.md](operations.md) for runtime procedures and [observability.md](observability.md) for live signal interpretation.
+This is a scoped design note for storage optimization and relay fallback work in NostrMash. It is not the general operator guide; use [../operations.md](../operations.md) for runtime procedures and [../observability.md](../observability.md) for live signal interpretation.
 
 It is intentionally not a storage-model rewrite. NostrMash remains a durable local ingest/index/query system. This pass adds bounded best-effort fallback for selected lookup paths and improves storage discipline in safe categories.
 
