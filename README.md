@@ -32,7 +32,8 @@ If you want durable local ownership, operational visibility, and a realistic mig
 | Deployment posture | Docker-first, self-hostable |
 | Services | `api`, `ingestor`, `worker`, `trust_worker` |
 | Default API address | `http://localhost:8080` |
-| Ingest modes | `live`, optional `backfill`, deterministic `replay` |
+| Ingest runtime modes | `live`, `replay` |
+| Bootstrap options | optional `backfill` |
 
 ## Why this exists
 

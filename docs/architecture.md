@@ -170,7 +170,7 @@ The design direction is:
 A few limits are still explicit in the current code:
 
 - only the `default_v1` relay filter group is implemented
-- compatibility support is still partial relative to full product parity and is rolled out in phases
+- compatibility support now reaches parity with the legacy `primal-caching-service-main` cache API implemented here, while future ecosystem-specific additions may still roll out in phases
 - trust/ranking continues to expand beyond the currently shipped trust worker, scores, relay suggestions, and trust-targeted ingest scheduling
 
 Use [architecture/trust-subsystem.md](architecture/trust-subsystem.md) for the deeper trust design and [architecture/orchestration-surfaces.md](architecture/orchestration-surfaces.md) for transport/query ownership on the read side.

@@ -70,7 +70,7 @@ If rollback occurs, capture root cause and follow-up actions in the next patch r
 
 Release workflows generate the security metadata needed for practical artifact verification:
 
-- Linux `amd64` tarball artifacts for `api`, `ingestor`, and `worker`
+- Linux `amd64` tarball artifacts for `api`, `ingestor`, `worker`, and `trust_worker`
 - `sha256sums.txt` covering those tarballs
 - an SPDX JSON SBOM: `nostrmash.spdx.json`
 - Sigstore keyless signatures and certificates for the checksum manifest and SBOM

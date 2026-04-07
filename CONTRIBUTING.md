@@ -31,6 +31,12 @@ go run ./cmd/ingestor
 go run ./cmd/worker
 ```
 
+If you are working on trust or relay-suggestion behavior locally, also run:
+
+```bash
+go run ./cmd/trust_worker
+```
+
 For details and replay mode, see `docs/development.md`.
 
 ## Before opening a PR
@@ -41,7 +47,7 @@ Run this baseline sequence locally for CI parity:
 make ci
 ```
 
-`make ci` runs the same blocking gates as CI (`fmt-check`, `imports-check`, `lint`, `mod-verify`, `vulncheck`, `test-race-policy`, `cover`, `coverage-policy`, `contract-drift`, `configdoc-check`, `build`).
+`make ci` runs the same blocking gates as CI (`fmt-check`, `imports-check`, `lint`, `mod-verify`, `vulncheck`, `test-race-policy`, `cover`, `coverage-policy`, `contract-drift`, `rules-check`, `configdoc-check`, `build`).
 
 Blocking race policy now runs `go test -race ./...`.
 

@@ -28,7 +28,8 @@ Operational rollout/triage context lives in [operations.md](operations.md), and 
 
 ### Primal-compatible surfaces
 
-- Compatibility coverage is intentionally phased and may expand incrementally.
+- The currently shipped compatibility surface reaches parity with the legacy `primal-caching-service-main` cache API implemented here.
+- Future compatibility additions outside that shipped surface may still expand incrementally.
 - Existing implemented compatibility routes/events should not change in breaking ways without explicit release communication.
 - For `/primal/ws`, maintain frame-type and request/response semantics for currently supported flows unless a major-version change is declared.
 
@@ -74,5 +75,5 @@ Use staged rollout and verify client/operator impact before broad promotion.
 ## Explicitly limited guarantees
 
 - NostrMash does not claim full, frozen parity with every external ecosystem surface.
-- Compatibility routes may be partial and are expanded iteratively.
+- The compatibility guarantees above apply to the surface implemented in this repository today; future ecosystem-facing additions may still expand iteratively.
 - Emergency fixes may bypass long deprecation windows when required for safety/security, with clear release communication.

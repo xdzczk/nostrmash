@@ -223,7 +223,7 @@ The current CI workflow enforces:
 - `make lint`
 - `go mod verify`
 - `make vulncheck`
-- `make cover`
+- coverage profile generation (`go test -covermode=atomic -coverprofile=coverage.out ./...`, equivalent to the coverage-producing part of `make cover`)
 - `make coverage-policy`
 - `make test-race-policy`
 - `make contract-drift`

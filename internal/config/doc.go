@@ -370,7 +370,7 @@ func ConfigEnvDocs() []EnvVarDoc {
 			Runtimes:     []string{"ingestor", "trust_worker", "worker"},
 			Required:     false,
 			DefaultValue: ":9090",
-			Description:  "Prometheus metrics listen address for ingestor/worker. API exposes /metrics on HTTP_ADDR.",
+			Description:  "Prometheus metrics listen address for ingestor, worker, and trust_worker. API exposes /metrics on HTTP_ADDR.",
 		},
 		{
 			Name:         "PRIMAL_WS_ALLOWED_ORIGINS",

@@ -57,7 +57,7 @@ Do not hand-edit this file.
 | `INGESTOR_TRUST_FETCH_STABLE_WINDOW` | `ingestor` | optional | `10m` | Minimum stability window before newly seen trust candidates become active. |
 | `INGESTOR_TRUST_PRIORITIZATION_ENABLED` | `ingestor` | optional | `true` | Enable trust-driven relay ordering for ingestor startup ordering. |
 | `INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS` | `ingestor` | optional | `2000` | Maximum top trust pubkeys considered for relay ordering. |
-| `METRICS_ADDR` | `ingestor, trust_worker, worker` | optional | `:9090` | Prometheus metrics listen address for ingestor/worker. API exposes /metrics on HTTP_ADDR. |
+| `METRICS_ADDR` | `ingestor, trust_worker, worker` | optional | `:9090` | Prometheus metrics listen address for ingestor, worker, and trust_worker. API exposes /metrics on HTTP_ADDR. |
 | `PRIMAL_WS_ALLOWED_ORIGINS` | `api` | optional | `-` | CSV allowlist of browser origins for Primal WS. |
 | `PRIMAL_WS_ALLOW_ANY_ORIGIN` | `api` | optional | `false` | Allow all WS origins, bypassing PRIMAL_WS_ALLOWED_ORIGINS validation. |
 | `PRIMAL_WS_MAX_MESSAGE_BYTES` | `api` | optional | `1048576` | Maximum inbound WebSocket message size in bytes. |

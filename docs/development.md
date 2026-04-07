@@ -43,6 +43,12 @@ go run ./cmd/ingestor
 go run ./cmd/worker
 ```
 
+If you are changing trust or relay-suggestion behavior, also run:
+
+```bash
+go run ./cmd/trust_worker
+```
+
 Migrations are embedded and auto-run on startup, so you do not need a separate migration command for normal local work.
 
 ## Common loops
@@ -59,6 +65,12 @@ Run one service directly:
 go run ./cmd/api
 go run ./cmd/ingestor
 go run ./cmd/worker
+```
+
+Run the trust worker when your change depends on trust jobs or trust-backed operator/API surfaces:
+
+```bash
+go run ./cmd/trust_worker
 ```
 
 Run the full stack in containers:
