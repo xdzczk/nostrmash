@@ -41,15 +41,26 @@ Start here before diving deeper:
 6. Check `GET /admin/v1/derivation-versions` and `GET /admin/v1/rebuilds` if projections look stale.
 
 ```mermaid
-flowchart TD
-    Incident[IncidentObserved] --> Health{health_or_ready}
-    Health -->|"failing"| SystemCheck[Check_admin_system]
-    Health -->|"healthy"| Freshness{data_or_projection_issue}
-    SystemCheck --> RelayCheck[Check_relays_jobs]
-    Freshness -->|"ingest_or_stale_data"| RelayCheck
-    Freshness -->|"projection_or_read_issue"| RebuildCheck[Check_rebuilds_and_versions]
-    RelayCheck --> NextSignals[Use_metrics_logs_traces]
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif","primaryColor":"#eff6ff","primaryTextColor":"#0f172a","primaryBorderColor":"#93c5fd","lineColor":"#2563eb","secondaryColor":"#ecfeff","secondaryTextColor":"#0f172a","secondaryBorderColor":"#67e8f9","tertiaryColor":"#f0fdf4","tertiaryTextColor":"#0f172a","tertiaryBorderColor":"#86efac","clusterBkg":"#ffffff","clusterBorder":"#dbe7f5","mainBkg":"#ffffff","edgeLabelBackground":"#ffffff"},"flowchart":{"curve":"basis","nodeSpacing":30,"rankSpacing":42,"htmlLabels":false}}}%%
+flowchart LR
+    Incident[Incident observed] --> Health{Health or readiness failing?}
+    Health -->|"Yes"| SystemCheck[Check /admin/v1/system]
+    Health -->|"No"| Freshness{Ingest stale or read stale?}
+    SystemCheck --> RelayCheck[Inspect relays and jobs]
+    Freshness -->|"Ingest or stale data"| RelayCheck
+    Freshness -->|"Projection or read issue"| RebuildCheck[Inspect rebuilds and versions]
+    RelayCheck --> NextSignals[Use metrics, logs, and traces]
     RebuildCheck --> NextSignals
+
+    classDef support fill:#f8fafc,stroke:#cbd5e1,color:#0f172a;
+    classDef decision fill:#eff6ff,stroke:#93c5fd,color:#0f172a;
+    classDef action fill:#ecfeff,stroke:#67e8f9,color:#0f172a;
+    classDef outcome fill:#f0fdf4,stroke:#86efac,color:#0f172a;
+
+    class Incident support;
+    class Health,Freshness decision;
+    class SystemCheck,RelayCheck,RebuildCheck action;
+    class NextSignals outcome;
 ```
 
 ### Example: service looks stale

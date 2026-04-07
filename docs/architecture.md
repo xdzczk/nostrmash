@@ -32,20 +32,32 @@ That split is the point: raw history must survive schema changes and bad project
 ## Data flow
 
 ```mermaid
-flowchart TD
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif","primaryColor":"#eff6ff","primaryTextColor":"#0f172a","primaryBorderColor":"#93c5fd","lineColor":"#2563eb","secondaryColor":"#ecfeff","secondaryTextColor":"#0f172a","secondaryBorderColor":"#67e8f9","tertiaryColor":"#f0fdf4","tertiaryTextColor":"#0f172a","tertiaryBorderColor":"#86efac","clusterBkg":"#ffffff","clusterBorder":"#dbe7f5","mainBkg":"#ffffff","edgeLabelBackground":"#ffffff"},"flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":40,"htmlLabels":false}}}%%
+flowchart LR
     Relays[Relays] --> Ingestor[Ingestor]
-    Ingestor --> Canonical[CanonicalStorage]
-    Ingestor --> Invalid[InvalidEvents]
+    Ingestor --> Canonical[Canonical Postgres]
+    Ingestor --> Invalid[Invalid events]
     Canonical --> Jobs[Jobs]
     Jobs --> Worker[Worker]
-    Worker --> Projections[DerivationsAndProjections]
-    Projections --> API[APIAndCompatibility]
-    Canonical --> TrustInputs[TrustInputs]
-    TrustInputs --> TrustWorker[TrustWorker]
-    TrustWorker --> Redis[RedisWorkingState]
-    TrustWorker --> TrustOutputs[PublishedTrustOutputs]
+    Worker --> Projections[Derived read models]
+    Projections --> API[Native and Primal APIs]
+    Canonical --> TrustInputs[Trust inputs]
+    TrustInputs --> TrustWorker[Trust worker]
+    TrustWorker --> Redis[Redis working state]
+    TrustWorker --> TrustOutputs[Published trust outputs]
     TrustOutputs --> API
 
+    classDef support fill:#f8fafc,stroke:#cbd5e1,color:#0f172a;
+    classDef core fill:#eff6ff,stroke:#93c5fd,color:#0f172a;
+    classDef trust fill:#f0fdf4,stroke:#86efac,color:#0f172a;
+    classDef api fill:#ecfeff,stroke:#67e8f9,color:#0f172a;
+    classDef caution fill:#fff7ed,stroke:#fdba74,color:#0f172a;
+
+    class Relays,Jobs support;
+    class Ingestor,Canonical,Worker,Projections,TrustInputs core;
+    class TrustWorker,Redis,TrustOutputs trust;
+    class API api;
+    class Invalid caution;
 ```
 
 ```text

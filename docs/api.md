@@ -23,11 +23,24 @@ NostrMash currently exposes three API surfaces with different purposes.
 | Operator inspection and control | `/admin/v1` | Admin routes expose system state, operational controls, and runtime visibility |
 
 ```mermaid
-flowchart TD
-    ReaderNeed[ReaderNeed] --> SurfaceChoice{NeedType}
-    SurfaceChoice -->|"Native product reads"| NativeAPI[api_v1]
-    SurfaceChoice -->|"Primal compatibility"| CompatAPI[primal_v1_or_ws]
-    SurfaceChoice -->|"Operational control"| AdminAPI[admin_v1]
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif","primaryColor":"#eff6ff","primaryTextColor":"#0f172a","primaryBorderColor":"#93c5fd","lineColor":"#2563eb","secondaryColor":"#ecfeff","secondaryTextColor":"#0f172a","secondaryBorderColor":"#67e8f9","tertiaryColor":"#f0fdf4","tertiaryTextColor":"#0f172a","tertiaryBorderColor":"#86efac","clusterBkg":"#ffffff","clusterBorder":"#dbe7f5","mainBkg":"#ffffff","edgeLabelBackground":"#ffffff"},"flowchart":{"curve":"basis","nodeSpacing":30,"rankSpacing":44,"htmlLabels":false}}}%%
+flowchart LR
+    ReaderNeed[Reader need] --> SurfaceChoice{Choose the surface}
+    SurfaceChoice -->|"Native product reads"| NativeAPI[/api/v1]
+    SurfaceChoice -->|"Primal compatibility"| CompatAPI[/primal/v1 or /primal/ws]
+    SurfaceChoice -->|"Operational control"| AdminAPI[/admin/v1]
+
+    classDef support fill:#f8fafc,stroke:#cbd5e1,color:#0f172a;
+    classDef decision fill:#eff6ff,stroke:#93c5fd,color:#0f172a;
+    classDef api fill:#ecfeff,stroke:#67e8f9,color:#0f172a;
+    classDef compat fill:#f5f3ff,stroke:#c4b5fd,color:#0f172a;
+    classDef trust fill:#f0fdf4,stroke:#86efac,color:#0f172a;
+
+    class ReaderNeed support;
+    class SurfaceChoice decision;
+    class NativeAPI api;
+    class CompatAPI compat;
+    class AdminAPI trust;
 ```
 
 ### Example: choosing a surface

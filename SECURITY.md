@@ -57,7 +57,7 @@ Automatically updated:
 Intentionally manual:
 
 - workflow service/container images declared inside workflow YAML
-- Compose service images such as `postgres:16-alpine`
+- Compose service images such as `postgres:18-alpine`
 - pinned security tooling versions outside `go.mod`
 - risk-significant major version upgrades that need explicit reviewer sign-off
 

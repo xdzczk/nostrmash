@@ -133,6 +133,16 @@ Documentation changes should follow the same style system as the rest of the rep
 - use mermaid only when a diagram truly reduces cognitive load
 - avoid long undifferentiated bullet walls and oversized related-doc footers
 
+Docs assets should also follow one visual system:
+
+- use the NostrMash docs palette consistently: blue for durable/core flow, teal or green for trust and self-host posture, violet for compatibility boundaries, slate neutrals for support structure
+- keep diagram labels in sentence case with human-readable words, not compact internal-style identifiers
+- prefer rounded cards, soft borders, and light backgrounds over dense wire-diagram aesthetics
+- treat compatibility as a boundary color, not the dominant page color
+- keep diagrams editorial: highlight the system decision or relationship, not every implementation detail
+- when using Mermaid, start from the same branded init/theme block already used in the core docs pages
+- when creating SVG assets, match the README assets' typography, corner radius, and color rhythm unless a page has a strong reason to diverge
+
 When in doubt, write the shortest version that still helps a contributor choose, decide, or act.
 
 ## CI gates

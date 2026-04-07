@@ -24,7 +24,7 @@ For Coolify production deployments:
 
 Create these resources first:
 
-1. A Postgres resource, ideally `postgres:16-alpine`
+1. A Postgres resource, ideally `postgres:18-alpine`
 2. A Redis resource, ideally `redis:7-alpine` or `redis:7.2`
 
 Keep both internal-only:

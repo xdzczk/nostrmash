@@ -36,27 +36,38 @@ These inputs are sufficient to build an initial WoT graph without importing an e
 ## Target data flow
 
 ```mermaid
-flowchart TD
-    relays[Relays]
-    ingestor[Ingestor]
-    postgresCanonical[PostgresCanonical]
-    worker[Worker]
-    graphDerivations[GraphDerivations]
-    trustPublisher[TrustPublisher]
-    redisGraph[RedisGraphState]
-    trustRunner[TrustRunner]
-    postgresTrust[PostgresTrustOutputs]
-    api[APIAndCompatibility]
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif","primaryColor":"#eff6ff","primaryTextColor":"#0f172a","primaryBorderColor":"#93c5fd","lineColor":"#2563eb","secondaryColor":"#ecfeff","secondaryTextColor":"#0f172a","secondaryBorderColor":"#67e8f9","tertiaryColor":"#f0fdf4","tertiaryTextColor":"#0f172a","tertiaryBorderColor":"#86efac","clusterBkg":"#ffffff","clusterBorder":"#dbe7f5","mainBkg":"#ffffff","edgeLabelBackground":"#ffffff"},"flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":40,"htmlLabels":false}}}%%
+flowchart LR
+    Relays[Relays]
+    Ingestor[Ingestor]
+    Canonical[Canonical Postgres]
+    Worker[Worker]
+    GraphDerivations[Graph derivations]
+    TrustPublisher[Trust publisher]
+    RedisGraph[Redis graph state]
+    TrustRunner[Trust runner]
+    TrustOutputs[Published trust outputs]
+    API[Native and Primal APIs]
 
-    relays --> ingestor
-    ingestor --> postgresCanonical
-    postgresCanonical --> worker
-    worker --> graphDerivations
-    graphDerivations --> trustPublisher
-    trustPublisher --> redisGraph
-    redisGraph --> trustRunner
-    trustRunner --> postgresTrust
-    postgresTrust --> api
+    Relays --> Ingestor
+    Ingestor --> Canonical
+    Canonical --> Worker
+    Worker --> GraphDerivations
+    GraphDerivations --> TrustPublisher
+    TrustPublisher --> RedisGraph
+    RedisGraph --> TrustRunner
+    TrustRunner --> TrustOutputs
+    TrustOutputs --> API
+
+    classDef support fill:#f8fafc,stroke:#cbd5e1,color:#0f172a;
+    classDef core fill:#eff6ff,stroke:#93c5fd,color:#0f172a;
+    classDef trust fill:#f0fdf4,stroke:#86efac,color:#0f172a;
+    classDef api fill:#ecfeff,stroke:#67e8f9,color:#0f172a;
+
+    class Relays support;
+    class Ingestor,Canonical,Worker,GraphDerivations core;
+    class TrustPublisher,RedisGraph,TrustRunner,TrustOutputs trust;
+    class API api;
 ```
 
 Read this diagram left to right: canonical relay data still enters through the normal ingest path, graph-oriented trust work happens off to the side in Redis-backed working state, and only the published outputs flow back into the shared API/query world.
