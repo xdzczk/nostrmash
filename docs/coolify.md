@@ -70,10 +70,15 @@ Set these in the Coolify application:
 
 ```bash
 DATABASE_URL=<coolify-postgres-internal-url>
-TRUST_REDIS_URL=<coolify-redis-internal-url>
 ADMIN_BEARER_TOKEN=<long-random-secret>
 INGESTOR_RELAY_URLS=wss://relay.primal.net,wss://relay.damus.io,wss://nos.lol
 INGESTOR_RELAY_ALLOWLIST=wss://relay.primal.net,wss://relay.damus.io,wss://nos.lol
+```
+
+Set this only when Redis sync is enabled:
+
+```bash
+TRUST_REDIS_URL=<coolify-redis-internal-url>
 ```
 
 Recommended production defaults:
@@ -90,6 +95,15 @@ TRUST_WORKER_CLAIM_BATCH_SIZE=5
 TRUST_ENABLE_SCORE_COMPUTE=true
 TRUST_ENABLE_REDIS_SYNC=false
 ```
+
+Trust-worker mode matrix:
+
+1. `TRUST_ENABLE_REDIS_SYNC=true` and `TRUST_ENABLE_SCORE_COMPUTE=true`  
+   Runs Redis sync + score compute (Redis required).
+2. `TRUST_ENABLE_REDIS_SYNC=false` and `TRUST_ENABLE_SCORE_COMPUTE=true`  
+   Runs score compute only in postgres-only mode (Redis optional).
+3. `TRUST_ENABLE_REDIS_SYNC=false` and `TRUST_ENABLE_SCORE_COMPUTE=false`  
+   Invalid startup configuration.
 
 Optional browser/WebSocket origin control:
 
@@ -124,7 +138,7 @@ After deployment:
 4. Verify admin endpoints using `ADMIN_BEARER_TOKEN`
 5. Check `ingestor` logs for relay connectivity
 6. Check `worker` logs for queue polling and job execution
-7. Check `trust_worker` logs for Redis/Postgres connectivity
+7. Check `trust_worker` logs for mode startup and Postgres connectivity (and Redis connectivity only when Redis sync is enabled)
 
 ### Example: first production verification pass
 
@@ -134,7 +148,7 @@ A clean first pass looks like this:
 2. Confirm the `api` container is reachable and the background services are healthy in Coolify.
 3. Verify `GET /metrics` on the API surface, then confirm background metrics listeners are reachable internally if you scrape them.
 4. Use `ADMIN_BEARER_TOKEN` to open `GET /admin/v1/system`, `GET /admin/v1/relays`, and `GET /admin/v1/jobs`.
-5. Check `ingestor` for successful relay connections, `worker` for normal queue polling, and `trust_worker` for successful Postgres/Redis startup.
+5. Check `ingestor` for successful relay connections, `worker` for normal queue polling, and `trust_worker` for successful mode startup (`redis-sync+compute`, `redis-sync-only`, or `postgres-only-compute`).
 6. Only then treat the deployment as ready for external traffic or migration cutover.
 
 Expected operator endpoints:

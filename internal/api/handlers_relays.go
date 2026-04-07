@@ -16,7 +16,7 @@ type relayHealthEntry struct {
 
 // GetRelaysHealth returns an aggregate view of relay ingest state.
 func (h Handlers) GetRelaysHealth(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.store.ListRelayHealth(r.Context())
+	rows, err := h.service.GetRelaysHealth(r.Context())
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return

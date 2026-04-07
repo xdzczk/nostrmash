@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/query"
-	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 // GetEventCounts returns eventually-consistent interaction counters from Layer 3 projections.
@@ -16,7 +15,7 @@ func (h Handlers) GetEventCounts(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "event id is required")
 		return
 	}
-	counts, err := h.store.GetEventCounts(r.Context(), eventID)
+	counts, err := h.service.GetEventActionCounts(r.Context(), eventID)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
@@ -48,9 +47,9 @@ func (h Handlers) GetEventReplies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	replies, next, err := h.store.GetEventReplies(r.Context(), eventID, limit, cursor)
+	repliesView, err := h.service.GetEventReplies(r.Context(), eventID, limit, cursor)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
 			return
 		}
@@ -58,16 +57,16 @@ func (h Handlers) GetEventReplies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nextCursor, err := encodeEventCursor(next)
+	nextCursor, err := encodeEventCursor(repliesView.NextCursor)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"event_id":    eventID,
-		"replies":     replies,
+		"event_id":    repliesView.EventID,
+		"replies":     repliesView.Replies,
 		"next_cursor": nextCursor,
-		"consistency": "eventual",
+		"consistency": repliesView.Consistency,
 	})
 }
 
@@ -84,9 +83,9 @@ func (h Handlers) GetEventAncestors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ancestors, missing, err := h.store.GetEventAncestors(r.Context(), eventID, maxDepth)
+	ancestorsView, err := h.service.GetEventAncestors(r.Context(), eventID, maxDepth)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
 			return
 		}
@@ -94,10 +93,10 @@ func (h Handlers) GetEventAncestors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"event_id":             eventID,
-		"ancestors":            ancestors,
-		"missing_ancestor_ids": missing,
-		"consistency":          "eventual",
+		"event_id":             ancestorsView.EventID,
+		"ancestors":            ancestorsView.Ancestors,
+		"missing_ancestor_ids": ancestorsView.MissingAncestorIDs,
+		"consistency":          ancestorsView.Consistency,
 	})
 }
 

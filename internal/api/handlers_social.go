@@ -1,13 +1,10 @@
 package api
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/query"
 )
 
 // GetContactList returns projected latest contact list (kind=3) for one pubkey.
@@ -19,7 +16,7 @@ func (h Handlers) GetContactList(w http.ResponseWriter, r *http.Request) {
 	}
 	contactList, err := h.service.GetContactList(r.Context(), pubkey)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "contact list not found")
 			return
 		}
@@ -45,7 +42,7 @@ func (h Handlers) GetRelayList(w http.ResponseWriter, r *http.Request) {
 	}
 	relayList, err := h.service.GetRelayList(r.Context(), pubkey)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "relay list not found")
 			return
 		}
@@ -68,25 +65,21 @@ func (h Handlers) GetBookmarks(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
 	}
-	type replaceableReader interface {
-		GetParameterizedReplaceableEvent(ctx context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error)
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
 	}
-	if reader, ok := h.store.(replaceableReader); ok {
-		event, err := reader.GetParameterizedReplaceableEvent(r.Context(), pubkey, 10003, "")
-		if err == nil {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"pubkey":      pubkey,
-				"bookmarks":   []json.RawMessage{event},
-				"consistency": "eventual",
-			})
-			return
-		}
-		if !errors.Is(err, store.ErrNotFound) {
-			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-			return
-		}
+	bookmarks, err := h.service.GetBookmarks(r.Context(), pubkey, limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
 	}
-	h.getKindScopedEvents(w, r, 10003, "bookmarks")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":      pubkey,
+		"bookmarks":   bookmarks,
+		"consistency": "eventual",
+	})
 }
 
 func (h Handlers) GetHighlights(w http.ResponseWriter, r *http.Request) {
@@ -108,23 +101,16 @@ func (h Handlers) GetZaps(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	type zapReader interface {
-		GetUserZaps(ctx context.Context, pubkey string, limit int, sortBySats bool) ([]json.RawMessage, error)
-	}
-	if reader, ok := h.store.(zapReader); ok {
-		zaps, err := reader.GetUserZaps(r.Context(), pubkey, limit, true)
-		if err != nil {
-			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"pubkey":      pubkey,
-			"zaps":        zaps,
-			"consistency": "eventual",
-		})
+	zaps, err := h.service.GetUserZapsBySats(r.Context(), pubkey, limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	h.getKindScopedEvents(w, r, 9735, "zaps")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":      pubkey,
+		"zaps":        zaps,
+		"consistency": "eventual",
+	})
 }
 
 // GetMentions returns events referencing this pubkey via p-tags.
@@ -139,7 +125,7 @@ func (h Handlers) GetMentions(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	items, err := h.store.GetEventsReferencingPubkey(r.Context(), pubkey, limit)
+	items, err := h.service.GetMentions(r.Context(), pubkey, limit)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
@@ -163,7 +149,7 @@ func (h Handlers) GetFollowers(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	items, err := h.store.GetFollowersByPubkey(r.Context(), pubkey, limit)
+	items, err := h.service.GetFollowers(r.Context(), pubkey, limit)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return

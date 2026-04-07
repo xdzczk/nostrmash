@@ -15,19 +15,23 @@ type trustReader interface {
 	ListTrustRuns(ctx context.Context, limit int) ([]store.TrustRun, error)
 }
 
-func (s Service) GetTrustScore(ctx context.Context, pubkey string) (store.TrustGlobalScore, error) {
+func (s Service) GetTrustScore(ctx context.Context, pubkey string) (TrustScore, error) {
 	pubkey = strings.TrimSpace(pubkey)
 	if pubkey == "" {
-		return store.TrustGlobalScore{}, fmt.Errorf("pubkey is required")
+		return TrustScore{}, fmt.Errorf("pubkey is required")
 	}
 	reader, ok := s.reader.(trustReader)
 	if !ok {
-		return store.TrustGlobalScore{}, fmt.Errorf("trust reads are not configured")
+		return TrustScore{}, fmt.Errorf("trust reads are not configured")
 	}
-	return reader.GetTrustScore(ctx, pubkey)
+	score, err := reader.GetTrustScore(ctx, pubkey)
+	if err != nil {
+		return TrustScore{}, err
+	}
+	return trustScoreFromStore(score), nil
 }
 
-func (s Service) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]store.TrustGlobalScore, error) {
+func (s Service) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustScore, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -35,21 +39,33 @@ func (s Service) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]store.
 	if !ok {
 		return nil, fmt.Errorf("trust reads are not configured")
 	}
-	return reader.ListTopTrustedPubkeys(ctx, limit)
+	rows, err := reader.ListTopTrustedPubkeys(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TrustScore, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, trustScoreFromStore(row))
+	}
+	return out, nil
 }
 
-func (s Service) GetTrustRun(ctx context.Context, runID int64) (store.TrustRun, error) {
+func (s Service) GetTrustRun(ctx context.Context, runID int64) (TrustRun, error) {
 	if runID <= 0 {
-		return store.TrustRun{}, fmt.Errorf("run id must be > 0")
+		return TrustRun{}, fmt.Errorf("run id must be > 0")
 	}
 	reader, ok := s.reader.(trustReader)
 	if !ok {
-		return store.TrustRun{}, fmt.Errorf("trust reads are not configured")
+		return TrustRun{}, fmt.Errorf("trust reads are not configured")
 	}
-	return reader.GetTrustRun(ctx, runID)
+	row, err := reader.GetTrustRun(ctx, runID)
+	if err != nil {
+		return TrustRun{}, err
+	}
+	return trustRunFromStore(row), nil
 }
 
-func (s Service) ListTrustRuns(ctx context.Context, limit int) ([]store.TrustRun, error) {
+func (s Service) ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -57,5 +73,13 @@ func (s Service) ListTrustRuns(ctx context.Context, limit int) ([]store.TrustRun
 	if !ok {
 		return nil, fmt.Errorf("trust reads are not configured")
 	}
-	return reader.ListTrustRuns(ctx, limit)
+	rows, err := reader.ListTrustRuns(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TrustRun, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, trustRunFromStore(row))
+	}
+	return out, nil
 }

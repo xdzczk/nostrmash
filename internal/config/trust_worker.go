@@ -18,6 +18,7 @@ type TrustWorkerConfig struct {
 	ClaimBatchSize     int
 	PollInterval       time.Duration
 	RetryDelay         time.Duration
+	JobRecovery        WorkerJobRecoveryConfig
 	EnableRedisSync    bool
 	EnableScoreCompute bool
 }
@@ -43,6 +44,10 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 	if err != nil {
 		return TrustWorkerConfig{}, err
 	}
+	jobRecovery, err := loadWorkerJobRecoveryConfig()
+	if err != nil {
+		return TrustWorkerConfig{}, err
+	}
 
 	cfg := TrustWorkerConfig{
 		Shared: shared,
@@ -54,6 +59,7 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 		ClaimBatchSize:     claimBatchSize,
 		PollInterval:       pollInterval,
 		RetryDelay:         retryDelay,
+		JobRecovery:        jobRecovery,
 		EnableRedisSync:    getEnvBool("TRUST_ENABLE_REDIS_SYNC", false),
 		EnableScoreCompute: getEnvBool("TRUST_ENABLE_SCORE_COMPUTE", true),
 	}
@@ -76,14 +82,17 @@ func validateTrustWorkerConfig(cfg TrustWorkerConfig) error {
 	if cfg.RetryDelay <= 0 {
 		return fmt.Errorf("TRUST_WORKER_RETRY_DELAY must be > 0")
 	}
-	if strings.TrimSpace(cfg.Redis.URL) == "" {
-		return fmt.Errorf("TRUST_REDIS_URL is required")
-	}
-	if strings.TrimSpace(cfg.Redis.KeyPrefix) == "" {
-		return fmt.Errorf("TRUST_REDIS_KEY_PREFIX must not be empty")
+	if err := validateWorkerJobRecoveryConfig(cfg.JobRecovery); err != nil {
+		return err
 	}
 	if !cfg.EnableRedisSync && !cfg.EnableScoreCompute {
 		return fmt.Errorf("at least one of TRUST_ENABLE_REDIS_SYNC or TRUST_ENABLE_SCORE_COMPUTE must be true")
+	}
+	if cfg.EnableRedisSync && strings.TrimSpace(cfg.Redis.URL) == "" {
+		return fmt.Errorf("TRUST_REDIS_URL is required when TRUST_ENABLE_REDIS_SYNC=true")
+	}
+	if cfg.EnableRedisSync && strings.TrimSpace(cfg.Redis.KeyPrefix) == "" {
+		return fmt.Errorf("TRUST_REDIS_KEY_PREFIX must not be empty when TRUST_ENABLE_REDIS_SYNC=true")
 	}
 	return nil
 }

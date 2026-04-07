@@ -3,8 +3,6 @@ package query
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 func TestWindowDescendingRepliesReversesAscendingBase(t *testing.T) {
@@ -67,7 +65,7 @@ func TestWindowDescendingRepliesCursorSkipsThroughWindow(t *testing.T) {
 		json.RawMessage(`{"id":"r2","created_at":2}`),
 		json.RawMessage(`{"id":"r3","created_at":3}`),
 	}
-	cur := &store.EventOrderCursor{CreatedAt: 3, ID: "r3"}
+	cur := &EventCursor{CreatedAt: 3, ID: "r3"}
 	got, next := WindowDescendingReplies(base, nil, 1, cur, 0)
 	if len(got) != 1 {
 		t.Fatalf("len=%d", len(got))

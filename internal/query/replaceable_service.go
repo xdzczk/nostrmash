@@ -11,6 +11,10 @@ import (
 )
 
 func (s Service) GetBookmarks(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return nil, fmt.Errorf("pubkey is required")
+	}
 	type replaceableEventReader interface {
 		GetParameterizedReplaceableEvent(ctx context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error)
 	}
@@ -23,7 +27,13 @@ func (s Service) GetBookmarks(ctx context.Context, pubkey string, limit int) ([]
 			return nil, err
 		}
 	}
-	return s.reader.GetRecentEventsByKindAndPubkey(ctx, 10003, pubkey, 1)
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.reader.GetRecentEventsByKindAndPubkey(ctx, 10003, pubkey, limit)
 }
 
 func (s Service) GetLongForm(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {

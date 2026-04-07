@@ -193,6 +193,15 @@ func TestLoadWorker_DefaultsAndValidation(t *testing.T) {
 	if cfg.Concurrency != 4 {
 		t.Fatalf("unexpected worker default concurrency: %d", cfg.Concurrency)
 	}
+	if cfg.JobRecovery.RunningTimeout != 15*time.Minute {
+		t.Fatalf("unexpected worker stale running timeout: %s", cfg.JobRecovery.RunningTimeout)
+	}
+	if cfg.JobRecovery.StaleRecoveryInterval != 30*time.Second {
+		t.Fatalf("unexpected worker stale recovery interval: %s", cfg.JobRecovery.StaleRecoveryInterval)
+	}
+	if cfg.JobRecovery.StaleRecoveryBatchLimit != 100 {
+		t.Fatalf("unexpected worker stale recovery batch limit: %d", cfg.JobRecovery.StaleRecoveryBatchLimit)
+	}
 	if !cfg.JobRetention.Enabled {
 		t.Fatalf("expected job retention enabled by default")
 	}
@@ -241,6 +250,12 @@ func TestLoadWorker_DefaultsAndValidation(t *testing.T) {
 	if _, err := LoadWorker(); err == nil || !strings.Contains(err.Error(), "WORKER_CONCURRENCY") {
 		t.Fatalf("expected actionable WORKER_CONCURRENCY error, got %v", err)
 	}
+
+	t.Setenv("WORKER_CONCURRENCY", "4")
+	t.Setenv("WORKER_JOB_RUNNING_TIMEOUT", "0s")
+	if _, err := LoadWorker(); err == nil || !strings.Contains(err.Error(), "WORKER_JOB_RUNNING_TIMEOUT") {
+		t.Fatalf("expected actionable WORKER_JOB_RUNNING_TIMEOUT error, got %v", err)
+	}
 }
 
 func TestLoadWorker_InvalidInvalidEventsRetentionConfigFails(t *testing.T) {
@@ -280,6 +295,15 @@ func TestLoadTrustWorker_DefaultsAndValidation(t *testing.T) {
 	if cfg.Concurrency != 2 || cfg.ClaimBatchSize != 5 {
 		t.Fatalf("unexpected trust worker defaults: %#v", cfg)
 	}
+	if cfg.JobRecovery.RunningTimeout != 15*time.Minute {
+		t.Fatalf("unexpected trust worker stale running timeout: %s", cfg.JobRecovery.RunningTimeout)
+	}
+	if cfg.JobRecovery.StaleRecoveryInterval != 30*time.Second {
+		t.Fatalf("unexpected trust worker stale recovery interval: %s", cfg.JobRecovery.StaleRecoveryInterval)
+	}
+	if cfg.JobRecovery.StaleRecoveryBatchLimit != 100 {
+		t.Fatalf("unexpected trust worker stale recovery batch limit: %d", cfg.JobRecovery.StaleRecoveryBatchLimit)
+	}
 	if cfg.Redis.URL != "redis://localhost:6379/0" {
 		t.Fatalf("unexpected redis url: %q", cfg.Redis.URL)
 	}
@@ -290,6 +314,12 @@ func TestLoadTrustWorker_DefaultsAndValidation(t *testing.T) {
 	t.Setenv("TRUST_WORKER_CONCURRENCY", "0")
 	if _, err := LoadTrustWorker(); err == nil || !strings.Contains(err.Error(), "TRUST_WORKER_CONCURRENCY") {
 		t.Fatalf("expected actionable TRUST_WORKER_CONCURRENCY error, got %v", err)
+	}
+
+	t.Setenv("TRUST_WORKER_CONCURRENCY", "2")
+	t.Setenv("WORKER_JOB_STALE_RECOVERY_BATCH_LIMIT", "0")
+	if _, err := LoadTrustWorker(); err == nil || !strings.Contains(err.Error(), "WORKER_JOB_STALE_RECOVERY_BATCH_LIMIT") {
+		t.Fatalf("expected actionable WORKER_JOB_STALE_RECOVERY_BATCH_LIMIT error, got %v", err)
 	}
 }
 
@@ -327,8 +357,20 @@ func TestLoadTrustWorker_TrustSpecificGuardrailsFail(t *testing.T) {
 		}
 	})
 
-	t.Run("requires redis url", func(t *testing.T) {
+	t.Run("compute only without redis url is allowed", func(t *testing.T) {
 		t.Setenv("DATABASE_URL", "postgres://example")
+		t.Setenv("TRUST_REDIS_URL", " ")
+		t.Setenv("TRUST_ENABLE_REDIS_SYNC", "false")
+		t.Setenv("TRUST_ENABLE_SCORE_COMPUTE", "true")
+		if _, err := LoadTrustWorker(); err != nil {
+			t.Fatalf("expected compute-only mode without redis url to pass, got %v", err)
+		}
+	})
+
+	t.Run("redis sync mode requires redis url", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		t.Setenv("TRUST_ENABLE_REDIS_SYNC", "true")
+		t.Setenv("TRUST_ENABLE_SCORE_COMPUTE", "true")
 		t.Setenv("TRUST_REDIS_URL", " ")
 		_, err := LoadTrustWorker()
 		if err == nil || !strings.Contains(err.Error(), "TRUST_REDIS_URL") {

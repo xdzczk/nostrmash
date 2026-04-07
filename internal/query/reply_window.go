@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
-
-	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 type orderedReply struct {
@@ -40,9 +38,9 @@ func toDescendingReplies(values []json.RawMessage) []orderedReply {
 func paginateReplies(
 	descReplies []orderedReply,
 	limit int,
-	cursor *store.EventOrderCursor,
+	cursor *EventCursor,
 	offset int,
-) ([]json.RawMessage, *store.EventOrderCursor) {
+) ([]json.RawMessage, *EventCursor) {
 	start := offset
 	if cursor != nil {
 		start = len(descReplies)
@@ -68,10 +66,10 @@ func paginateReplies(
 	for _, reply := range window {
 		out = append(out, reply.raw)
 	}
-	var next *store.EventOrderCursor
+	var next *EventCursor
 	if end < len(descReplies) && len(window) > 0 {
 		last := window[len(window)-1]
-		next = &store.EventOrderCursor{
+		next = &EventCursor{
 			CreatedAt: last.createdAt,
 			ID:        last.id,
 		}
@@ -133,9 +131,9 @@ func WindowDescendingReplies(
 	baseReplies []json.RawMessage,
 	extraReplies []json.RawMessage,
 	limit int,
-	cursor *store.EventOrderCursor,
+	cursor *EventCursor,
 	offset int,
-) ([]json.RawMessage, *store.EventOrderCursor) {
+) ([]json.RawMessage, *EventCursor) {
 	baseOrdered := toDescendingReplies(baseReplies)
 	if len(extraReplies) == 0 {
 		return paginateReplies(baseOrdered, limit, cursor, offset)

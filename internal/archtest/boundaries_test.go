@@ -263,6 +263,36 @@ func TestMigratedThreadPathsStayQueryOrchestrated(t *testing.T) {
 	}
 }
 
+func TestNativeProductReadHandlersStayQueryOrchestrated(t *testing.T) {
+	root := repoRoot(t)
+	fset := token.NewFileSet()
+	for _, tc := range []struct {
+		file     string
+		funcName string
+	}{
+		{file: "internal/api/handlers_threads.go", funcName: "GetEventCounts"},
+		{file: "internal/api/handlers_threads.go", funcName: "GetEventReplies"},
+		{file: "internal/api/handlers_threads.go", funcName: "GetEventAncestors"},
+		{file: "internal/api/handlers_search.go", funcName: "Search"},
+		{file: "internal/api/handlers_relays.go", funcName: "GetRelaysHealth"},
+		{file: "internal/api/handlers_social.go", funcName: "GetBookmarks"},
+		{file: "internal/api/handlers_social.go", funcName: "GetZaps"},
+		{file: "internal/api/handlers_social.go", funcName: "GetMentions"},
+		{file: "internal/api/handlers_social.go", funcName: "GetFollowers"},
+		{file: "internal/api/handlers_events.go", funcName: "GetEventByID"},
+		{file: "internal/api/handlers_events.go", funcName: "GetEventSeenOn"},
+	} {
+		parsed := parseFile(t, fset, filepath.Join(root, tc.file))
+		fn := mustFindFunc(t, parsed, tc.funcName)
+		if hasFieldMethodCall(fn.Body, "h", "store", "") {
+			t.Fatalf("%s %s must not call h.store methods directly; keep native product read orchestration in internal/query", tc.file, tc.funcName)
+		}
+		if !hasFieldMethodCall(fn.Body, "h", "service", "") {
+			t.Fatalf("%s %s must delegate product reads through h.service query methods", tc.file, tc.funcName)
+		}
+	}
+}
+
 func isException(path string, exceptions []string) bool {
 	for _, exception := range exceptions {
 		if strings.HasPrefix(path, exception) {

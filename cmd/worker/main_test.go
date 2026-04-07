@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/jobs"
 )
 
@@ -22,6 +23,7 @@ type fakeWorkerQueue struct {
 	claimCalls   int
 	completedIDs []int64
 	failedIDs    []int64
+	recoverCalls int
 }
 
 func (f *fakeWorkerQueue) ClaimAvailableForPool(ctx context.Context, _ string, _ string, _ int) ([]jobs.Job, error) {
@@ -56,6 +58,13 @@ func (f *fakeWorkerQueue) FailJob(_ context.Context, jobID int64, _ string, _ st
 
 func (f *fakeWorkerQueue) PurgeTerminalJobs(_ context.Context, _ time.Time, _ time.Time, _ int) (int64, error) {
 	return 0, nil
+}
+
+func (f *fakeWorkerQueue) RecoverStaleRunningJobs(_ context.Context, _ time.Time, _ int) (jobs.RecoveryResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recoverCalls++
+	return jobs.RecoveryResult{}, nil
 }
 
 func TestRunClaimLoop_ProcessesJobsConcurrently(t *testing.T) {
@@ -180,4 +189,34 @@ func TestRunClaimLoop_RecoversFromPanicAndFailsJob(t *testing.T) {
 	if len(queue.failedIDs) != 1 || queue.failedIDs[0] != 99 {
 		t.Fatalf("expected panicing job to be failed, failed ids=%v", queue.failedIDs)
 	}
+}
+
+func TestRunStaleRecoveryLoop_InvokesQueueRecoveryPeriodically(t *testing.T) {
+	queue := &fakeWorkerQueue{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go runStaleRecoveryLoop(
+		ctx,
+		fakeWorkerLogger{},
+		queue,
+		jobs.WorkerPoolDefault,
+		config.WorkerJobRecoveryConfig{
+			RunningTimeout:          10 * time.Millisecond,
+			StaleRecoveryInterval:   10 * time.Millisecond,
+			StaleRecoveryBatchLimit: 5,
+		},
+	)
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		queue.mu.Lock()
+		calls := queue.recoverCalls
+		queue.mu.Unlock()
+		if calls >= 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("expected stale recovery loop to invoke queue recovery at least twice")
 }

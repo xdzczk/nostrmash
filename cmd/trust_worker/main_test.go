@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/jobs"
 )
 
@@ -22,6 +23,7 @@ type fakeTrustWorkerQueue struct {
 	claimCalls   int
 	completedIDs []int64
 	failedIDs    []int64
+	recoverCalls int
 }
 
 func (f *fakeTrustWorkerQueue) ClaimAvailableForPool(ctx context.Context, _ string, _ string, _ int) ([]jobs.Job, error) {
@@ -52,6 +54,13 @@ func (f *fakeTrustWorkerQueue) FailJob(_ context.Context, jobID int64, _ string,
 	defer f.mu.Unlock()
 	f.failedIDs = append(f.failedIDs, jobID)
 	return jobs.FailureResult{Status: jobs.StatusPending, Attempts: 1, MaxAttempts: 5}, nil
+}
+
+func (f *fakeTrustWorkerQueue) RecoverStaleRunningJobs(_ context.Context, _ time.Time, _ int) (jobs.RecoveryResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recoverCalls++
+	return jobs.RecoveryResult{}, nil
 }
 
 func TestRunClaimLoop_ProcessesTrustJobsConcurrently(t *testing.T) {
@@ -192,5 +201,77 @@ func TestResolveBuildVersion(t *testing.T) {
 	buildVersion = ""
 	if got := resolveBuildVersion(" env-v9.9.9 "); got != "env-v9.9.9" {
 		t.Fatalf("expected fallback to app version, got %q", got)
+	}
+}
+
+func TestRunStaleRecoveryLoop_InvokesQueueRecoveryPeriodically(t *testing.T) {
+	queue := &fakeTrustWorkerQueue{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go runStaleRecoveryLoop(
+		ctx,
+		fakeTrustWorkerLogger{},
+		queue,
+		jobs.WorkerPoolTrust,
+		config.WorkerJobRecoveryConfig{
+			RunningTimeout:          10 * time.Millisecond,
+			StaleRecoveryInterval:   10 * time.Millisecond,
+			StaleRecoveryBatchLimit: 5,
+		},
+	)
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		queue.mu.Lock()
+		calls := queue.recoverCalls
+		queue.mu.Unlock()
+		if calls >= 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("expected stale recovery loop to invoke queue recovery at least twice")
+}
+
+func TestTrustWorkerModeLabel(t *testing.T) {
+	tests := []struct {
+		name               string
+		enableRedisSync    bool
+		enableScoreCompute bool
+		want               string
+	}{
+		{
+			name:               "redis sync and compute",
+			enableRedisSync:    true,
+			enableScoreCompute: true,
+			want:               "redis-sync+compute",
+		},
+		{
+			name:               "redis sync only",
+			enableRedisSync:    true,
+			enableScoreCompute: false,
+			want:               "redis-sync-only",
+		},
+		{
+			name:               "compute only",
+			enableRedisSync:    false,
+			enableScoreCompute: true,
+			want:               "postgres-only-compute",
+		},
+		{
+			name:               "invalid none enabled",
+			enableRedisSync:    false,
+			enableScoreCompute: false,
+			want:               "invalid",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := trustWorkerModeLabel(tc.enableRedisSync, tc.enableScoreCompute)
+			if got != tc.want {
+				t.Fatalf("expected mode %q, got %q", tc.want, got)
+			}
+		})
 	}
 }

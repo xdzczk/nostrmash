@@ -61,6 +61,13 @@ type FailureResult struct {
 	MaxAttempts int
 }
 
+type RecoveryResult struct {
+	Recovered    int
+	DeadLettered int
+}
+
+const staleRunningRecoveryError = "job lease expired / worker lost before completion"
+
 func NewQueue(pool *pgxpool.Pool) *Queue {
 	return &Queue{pool: pool}
 }
@@ -366,6 +373,83 @@ func (q *Queue) GetJobByID(ctx context.Context, jobID int64) (*Job, error) {
 		return nil, fmt.Errorf("get job by id: %w", err)
 	}
 	return job, nil
+}
+
+func (q *Queue) RecoverStaleRunningJobs(
+	ctx context.Context,
+	olderThan time.Time,
+	limit int,
+) (result RecoveryResult, err error) {
+	started := time.Now()
+	defer func() {
+		metrics.ObserveQueueOperation("recover_stale_running_jobs", queueResultFromErr(err), time.Since(started))
+	}()
+	if q == nil || q.pool == nil {
+		return result, fmt.Errorf("queue is not initialized")
+	}
+	if olderThan.IsZero() {
+		return result, fmt.Errorf("olderThan is required")
+	}
+	if limit <= 0 {
+		return result, fmt.Errorf("limit must be > 0")
+	}
+
+	rows, err := q.pool.Query(ctx, `
+		WITH stale AS (
+			SELECT id
+			FROM jobs
+			WHERE status = $1
+			  AND locked_at < $2
+			ORDER BY locked_at ASC, id ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT $3
+		),
+		recovered AS (
+			UPDATE jobs j
+			SET attempts = j.attempts + 1,
+			    status = CASE WHEN (j.attempts + 1) >= j.max_attempts THEN $4 ELSE $5 END,
+			    run_after = CASE WHEN (j.attempts + 1) >= j.max_attempts THEN j.run_after ELSE now() END,
+			    locked_at = NULL,
+			    locked_by = NULL,
+			    last_error = $6,
+			    updated_at = now()
+			FROM stale s
+			WHERE j.id = s.id
+			RETURNING j.status
+		)
+		SELECT status, COUNT(*)
+		FROM recovered
+		GROUP BY status
+	`,
+		StatusRunning,
+		olderThan.UTC(),
+		limit,
+		StatusDead,
+		StatusPending,
+		staleRunningRecoveryError,
+	)
+	if err != nil {
+		return result, fmt.Errorf("recover stale running jobs: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		var count int
+		if scanErr := rows.Scan(&status, &count); scanErr != nil {
+			return result, fmt.Errorf("scan stale recovery result: %w", scanErr)
+		}
+		switch status {
+		case StatusPending:
+			result.Recovered += count
+		case StatusDead:
+			result.DeadLettered += count
+		}
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return result, fmt.Errorf("read stale recovery results: %w", rowsErr)
+	}
+	return result, nil
 }
 
 func (q *Queue) PurgeTerminalJobs(

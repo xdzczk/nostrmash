@@ -30,40 +30,45 @@ func (s Service) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosRe
 	return s.GetUserInfos(ctx, pubkeys)
 }
 
-func (s profileService) GetProfile(ctx context.Context, pubkey string) (store.ProfileProjection, error) {
+func (s profileService) GetProfile(ctx context.Context, pubkey string) (Profile, error) {
 	normalized := strings.TrimSpace(pubkey)
 	if normalized == "" {
-		return store.ProfileProjection{}, fmt.Errorf("pubkey is required")
+		return Profile{}, fmt.Errorf("pubkey is required")
 	}
-	profile, err := s.reader.GetProfileByPubkey(ctx, normalized)
+	row, err := s.reader.GetProfileByPubkey(ctx, normalized)
 	if err == nil {
 		metrics.ObserveLookupLocal("profile_by_pubkey", true)
-		return profile, nil
+		return profileFromStore(row), nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
-		return store.ProfileProjection{}, err
+		return Profile{}, err
 	}
 	metrics.ObserveLookupLocal("profile_by_pubkey", false)
 	if s.fallback == nil {
-		return store.ProfileProjection{}, err
+		return Profile{}, err
 	}
 	started := time.Now()
 	metrics.IncLookupFallbackAttempt("profile_by_pubkey")
+	observeFallbackAttemptByEntity(fallbackEntityProfile)
 	fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_profile.fallback", traceutil.KV("fallback.surface", "profile_by_pubkey"))
 	foundByPubkey, fallbackErr := s.fallback.FetchProfilesByPubkeys(fallbackCtx, []string{normalized})
 	fallbackSpan.End(fallbackErr)
 	metrics.ObserveLookupFallbackLatency("profile_by_pubkey", time.Since(started))
 	if fallbackErr != nil {
 		metrics.IncLookupFallbackFailure("profile_by_pubkey")
-		return store.ProfileProjection{}, err
+		observeFallbackResultByEntity(fallbackEntityProfile, fallbackResultError, time.Since(started))
+		logFallbackInfraFailure(ctx, "profile_by_pubkey", fallbackEntityProfile, normalized, fallbackErr, true)
+		return Profile{}, err
 	}
 	profile, ok := foundByPubkey[normalized]
 	if !ok {
 		metrics.IncLookupFallbackMiss("profile_by_pubkey")
-		return store.ProfileProjection{}, err
+		observeFallbackResultByEntity(fallbackEntityProfile, fallbackResultMiss, time.Since(started))
+		return Profile{}, err
 	}
 	metrics.IncLookupFallbackSuccess("profile_by_pubkey")
-	return profile, nil
+	observeFallbackResultByEntity(fallbackEntityProfile, fallbackResultHit, time.Since(started))
+	return profileFromStore(profile), nil
 }
 
 func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
@@ -90,14 +95,18 @@ func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (User
 	if len(missing) > 0 && s.fallback != nil {
 		started := time.Now()
 		metrics.IncLookupFallbackAttempt("profile_batch")
+		observeFallbackAttemptByEntity(fallbackEntityProfile)
 		fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_profile_batch.fallback", traceutil.KV("fallback.surface", "profile_batch"))
 		fallbackProfiles, fallbackErr := s.fallback.FetchProfilesByPubkeys(fallbackCtx, missing)
 		fallbackSpan.End(fallbackErr)
 		metrics.ObserveLookupFallbackLatency("profile_batch", time.Since(started))
 		if fallbackErr != nil {
 			metrics.IncLookupFallbackFailure("profile_batch")
+			observeFallbackResultByEntity(fallbackEntityProfile, fallbackResultError, time.Since(started))
+			logFallbackBatchInfraFailure(ctx, "profile_batch", fallbackEntityProfile, missing, fallbackErr, true)
 		} else if len(fallbackProfiles) == 0 {
 			metrics.IncLookupFallbackMiss("profile_batch")
+			observeFallbackResultByEntity(fallbackEntityProfile, fallbackResultMiss, time.Since(started))
 		} else {
 			recovered := 0
 			for _, pubkey := range missing {
@@ -107,10 +116,13 @@ func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (User
 			}
 			if recovered == 0 {
 				metrics.IncLookupFallbackMiss("profile_batch")
+				observeFallbackResultByEntity(fallbackEntityProfile, fallbackResultMiss, time.Since(started))
 			} else if recovered < len(missing) {
 				metrics.IncLookupFallbackPartialSuccess("profile_batch")
+				observeFallbackResultByEntity(fallbackEntityProfile, fallbackResultHit, time.Since(started))
 			} else {
 				metrics.IncLookupFallbackSuccess("profile_batch")
+				observeFallbackResultByEntity(fallbackEntityProfile, fallbackResultHit, time.Since(started))
 			}
 			for pubkey, profile := range fallbackProfiles {
 				profilesByPubkey[pubkey] = profile
@@ -118,7 +130,7 @@ func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (User
 		}
 	}
 	out := UserInfosResult{
-		Profiles:       make([]store.ProfileProjection, 0, len(profilesByPubkey)),
+		Profiles:       make([]Profile, 0, len(profilesByPubkey)),
 		MissingPubkeys: make([]string, 0),
 	}
 	for _, pubkey := range normalized {
@@ -127,12 +139,12 @@ func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (User
 			out.MissingPubkeys = append(out.MissingPubkeys, pubkey)
 			continue
 		}
-		out.Profiles = append(out.Profiles, profile)
+		out.Profiles = append(out.Profiles, profileFromStore(profile))
 	}
 	return out, nil
 }
 
-func (s Service) GetProfile(ctx context.Context, pubkey string) (out store.ProfileProjection, err error) {
+func (s Service) GetProfile(ctx context.Context, pubkey string) (out Profile, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_profile")
 	defer func() { span.End(err) }()
 	return profileService{reader: s.reader, fallback: s.fallback}.GetProfile(ctx, pubkey)

@@ -1,11 +1,10 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/query"
 )
 
 func (h Handlers) GetTrustScore(w http.ResponseWriter, r *http.Request) {
@@ -16,7 +15,7 @@ func (h Handlers) GetTrustScore(w http.ResponseWriter, r *http.Request) {
 	}
 	score, err := h.service.GetTrustScore(r.Context(), pubkey)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "trust score not found")
 			return
 		}

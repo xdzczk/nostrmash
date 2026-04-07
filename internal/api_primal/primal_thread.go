@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/query"
-	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 func (g WSGateway) resolveLongFormContentThreadView(ctx context.Context, kwargs map[string]any) ([]any, error) {
@@ -74,7 +73,7 @@ func (g WSGateway) collectThreadRepliesDescending(
 ) (query.ThreadView, []json.RawMessage, error) {
 	const fetchPageSize = 100
 	var out query.ThreadView
-	var ascCursor *store.EventOrderCursor
+	var ascCursor *query.EventCursor
 	collected := make([]json.RawMessage, 0, fetchPageSize)
 	firstPage := true
 	seenCursors := map[string]struct{}{}

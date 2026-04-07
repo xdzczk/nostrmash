@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
@@ -232,6 +236,147 @@ func TestGetProfiles_LocalMissRelayPartialSuccessPreservesMissing(t *testing.T) 
 	if len(out.MissingPubkeys) != 1 || out.MissingPubkeys[0] != "pk-2" {
 		t.Fatalf("expected pk-2 to stay missing, got %#v", out.MissingPubkeys)
 	}
+}
+
+func TestGetEventByID_FallbackMetricsEmitHit(t *testing.T) {
+	svc := NewServiceWithOptions(fakeReader{
+		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+			return nil, store.ErrNotFound
+		},
+	}, ServiceOptions{
+		FallbackReader: fakeFallbackReader{
+			fetchEventsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
+				return map[string]json.RawMessage{
+					"evt-hit": json.RawMessage(`{"id":"evt-hit"}`),
+				}, nil
+			},
+		},
+	})
+
+	attemptBefore := fallbackMetricValue(t, "nostrmash_lookup_fallback_total", `surface="event"`, `outcome="attempt"`)
+	resultBefore := fallbackMetricValue(
+		t,
+		"nostrmash_lookup_fallback_total",
+		`surface="event"`,
+		`outcome="success"`,
+	)
+	if _, err := svc.GetEventByID(context.Background(), "evt-hit"); err != nil {
+		t.Fatalf("GetEventByID returned error: %v", err)
+	}
+	attemptAfter := fallbackMetricValue(t, "nostrmash_lookup_fallback_total", `surface="event"`, `outcome="attempt"`)
+	resultAfter := fallbackMetricValue(
+		t,
+		"nostrmash_lookup_fallback_total",
+		`surface="event"`,
+		`outcome="success"`,
+	)
+	if attemptAfter <= attemptBefore {
+		t.Fatalf("expected fallback attempt metric increment for event")
+	}
+	if resultAfter <= resultBefore {
+		t.Fatalf("expected fallback hit result metric increment for event")
+	}
+}
+
+func TestGetEventByID_FallbackMetricsEmitMiss(t *testing.T) {
+	svc := NewServiceWithOptions(fakeReader{
+		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+			return nil, store.ErrNotFound
+		},
+	}, ServiceOptions{
+		FallbackReader: fakeFallbackReader{
+			fetchEventsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
+				return map[string]json.RawMessage{}, nil
+			},
+		},
+	})
+
+	resultBefore := fallbackMetricValue(
+		t,
+		"nostrmash_lookup_fallback_total",
+		`surface="event"`,
+		`outcome="miss"`,
+	)
+	_, _ = svc.GetEventByID(context.Background(), "evt-miss")
+	resultAfter := fallbackMetricValue(
+		t,
+		"nostrmash_lookup_fallback_total",
+		`surface="event"`,
+		`outcome="miss"`,
+	)
+	if resultAfter <= resultBefore {
+		t.Fatalf("expected fallback miss result metric increment for event")
+	}
+}
+
+func TestGetProfile_FallbackMetricsEmitError(t *testing.T) {
+	svc := NewServiceWithOptions(fakeReader{
+		getProfileByPubkeyFn: func(context.Context, string) (store.ProfileProjection, error) {
+			return store.ProfileProjection{}, store.ErrNotFound
+		},
+	}, ServiceOptions{
+		FallbackReader: fakeFallbackReader{
+			fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]store.ProfileProjection, error) {
+				return nil, errors.New("dial relay wss://relay.example: i/o timeout")
+			},
+		},
+	})
+
+	resultBefore := fallbackMetricValue(
+		t,
+		"nostrmash_lookup_fallback_total",
+		`surface="profile"`,
+		`outcome="failure"`,
+	)
+	_, _ = svc.GetProfile(context.Background(), "pk-error")
+	resultAfter := fallbackMetricValue(
+		t,
+		"nostrmash_lookup_fallback_total",
+		`surface="profile"`,
+		`outcome="failure"`,
+	)
+	if resultAfter <= resultBefore {
+		t.Fatalf("expected fallback error result metric increment for profile")
+	}
+}
+
+func fallbackMetricValue(t *testing.T, metricName string, labelFragments ...string) float64 {
+	t.Helper()
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !strings.HasPrefix(line, metricName) {
+			continue
+		}
+		matches := true
+		for _, fragment := range labelFragments {
+			if !strings.Contains(line, fragment) {
+				matches = false
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		value, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+		if err != nil {
+			t.Fatalf("parse metric value from line %q: %v", line, err)
+		}
+		return value
+	}
+	return 0
 }
 
 type fakeReader struct {

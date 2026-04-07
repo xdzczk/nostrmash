@@ -50,16 +50,19 @@ func main() {
 	defer pool.Close()
 	metrics.RegisterDBPool(pool)
 
-	redisOpts, err := redis.ParseURL(cfg.Redis.URL)
-	if err != nil {
-		log.Error("redis_parse_url", "error", err)
-		os.Exit(1)
-	}
-	redisClient := redis.NewClient(redisOpts)
-	defer func() { _ = redisClient.Close() }()
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Error("redis_ping", "error", err)
-		os.Exit(1)
+	var redisClient *redis.Client
+	if cfg.EnableRedisSync {
+		redisOpts, err := redis.ParseURL(cfg.Redis.URL)
+		if err != nil {
+			log.Error("redis_parse_url", "error", err)
+			os.Exit(1)
+		}
+		redisClient = redis.NewClient(redisOpts)
+		defer func() { _ = redisClient.Close() }()
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			log.Error("redis_ping", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	appVersion := os.Getenv("APP_VERSION")
@@ -86,19 +89,38 @@ func main() {
 		os.Exit(1)
 	}
 
-	queue := jobs.NewQueue(pool)
-	runtime := trust.NewRuntimeWithRedis(
-		pool,
-		redisClient,
-		cfg.Redis.KeyPrefix,
-		cfg.EnableRedisSync,
-		cfg.EnableScoreCompute,
+	log.Info(
+		"trust_worker_startup_mode",
+		"redis_sync_enabled", cfg.EnableRedisSync,
+		"score_compute_enabled", cfg.EnableScoreCompute,
+		"mode", trustWorkerModeLabel(cfg.EnableRedisSync, cfg.EnableScoreCompute),
 	)
+
+	queue := jobs.NewQueue(pool)
+	var runtime *trust.Runtime
+	if cfg.EnableRedisSync {
+		runtime = trust.NewRuntimeWithRedis(
+			pool,
+			redisClient,
+			cfg.Redis.KeyPrefix,
+			cfg.EnableRedisSync,
+			cfg.EnableScoreCompute,
+		)
+	} else {
+		runtime = trust.NewRuntimeWithRedis(
+			pool,
+			nil,
+			cfg.Redis.KeyPrefix,
+			cfg.EnableRedisSync,
+			cfg.EnableScoreCompute,
+		)
+	}
 	workerID := resolveWorkerID()
 
 	runMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	runDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
 	go runTrustMetricsReporter(ctx, log, pool, 30*time.Second)
+	go runStaleRecoveryLoop(ctx, log, queue, jobs.WorkerPoolTrust, cfg.JobRecovery)
 
 	runClaimLoop(
 		ctx,
@@ -118,6 +140,7 @@ type workerQueue interface {
 	ClaimAvailableForPool(ctx context.Context, workerID, workerPool string, limit int) ([]jobs.Job, error)
 	CompleteJob(ctx context.Context, jobID int64, workerID string) error
 	FailJob(ctx context.Context, jobID int64, workerID string, errMsg string, retryDelay time.Duration) (jobs.FailureResult, error)
+	RecoverStaleRunningJobs(ctx context.Context, olderThan time.Time, limit int) (jobs.RecoveryResult, error)
 }
 
 func runClaimLoop(
@@ -206,6 +229,62 @@ func runClaimLoop(
 			case <-ctx.Done():
 				return
 			case jobQueue <- job:
+			}
+		}
+	}
+}
+
+func runStaleRecoveryLoop(ctx context.Context, log interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}, queue workerQueue, workerPool string, cfg config.WorkerJobRecoveryConfig) {
+	if cfg.StaleRecoveryInterval <= 0 || cfg.RunningTimeout <= 0 || cfg.StaleRecoveryBatchLimit <= 0 {
+		log.Error(
+			"stale_recovery_invalid_config",
+			"worker_pool", workerPool,
+			"running_timeout", cfg.RunningTimeout.String(),
+			"stale_recovery_interval", cfg.StaleRecoveryInterval.String(),
+			"stale_recovery_batch_limit", cfg.StaleRecoveryBatchLimit,
+		)
+		return
+	}
+	log.Info(
+		"stale_recovery_enabled",
+		"worker_pool", workerPool,
+		"running_timeout", cfg.RunningTimeout.String(),
+		"stale_recovery_interval", cfg.StaleRecoveryInterval.String(),
+		"stale_recovery_batch_limit", cfg.StaleRecoveryBatchLimit,
+	)
+
+	ticker := time.NewTicker(cfg.StaleRecoveryInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			olderThan := time.Now().UTC().Add(-cfg.RunningTimeout)
+			started := time.Now()
+			result, err := queue.RecoverStaleRunningJobs(ctx, olderThan, cfg.StaleRecoveryBatchLimit)
+			recoveryResult := "ok"
+			if err != nil {
+				recoveryResult = "error"
+			}
+			metrics.ObserveStaleRecoveryDuration(workerPool, recoveryResult, time.Since(started))
+			if err != nil {
+				log.Error("stale_recovery_failed", "worker_pool", workerPool, "error", err)
+				continue
+			}
+			metrics.AddStaleRecoveryRecovered(workerPool, result.Recovered)
+			metrics.AddStaleRecoveryDeadLettered(workerPool, result.DeadLettered)
+			if result.Recovered > 0 || result.DeadLettered > 0 {
+				log.Info(
+					"stale_recovery_completed",
+					"worker_pool", workerPool,
+					"recovered", result.Recovered,
+					"dead_lettered", result.DeadLettered,
+					"older_than", olderThan.Format(time.RFC3339),
+				)
 			}
 		}
 	}
@@ -374,4 +453,17 @@ func resolveBuildVersion(appVersion string) string {
 		return v
 	}
 	return strings.TrimSpace(appVersion)
+}
+
+func trustWorkerModeLabel(enableRedisSync, enableScoreCompute bool) string {
+	switch {
+	case enableRedisSync && enableScoreCompute:
+		return "redis-sync+compute"
+	case enableRedisSync:
+		return "redis-sync-only"
+	case enableScoreCompute:
+		return "postgres-only-compute"
+	default:
+		return "invalid"
+	}
 }

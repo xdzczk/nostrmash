@@ -69,7 +69,6 @@ services:
     command: ["/app/trust_worker"]
     environment:
       DATABASE_URL: postgres://nostrmash:nostrmash@postgres:5432/nostrmash?sslmode=disable
-      TRUST_REDIS_URL: redis://redis:6379/0
       TRUST_WORKER_CONCURRENCY: "2"
       TRUST_WORKER_CLAIM_BATCH_SIZE: "5"
       TRUST_ENABLE_SCORE_COMPUTE: "true"
@@ -79,5 +78,3 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_started

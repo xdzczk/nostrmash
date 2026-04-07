@@ -2,13 +2,12 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/query"
 )
 
 func (h Handlers) GetEventByID(w http.ResponseWriter, r *http.Request) {
@@ -17,29 +16,13 @@ func (h Handlers) GetEventByID(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "event id is required")
 		return
 	}
-	event, err := h.store.GetEventWithProvenance(r.Context(), eventID)
+	event, err := h.service.GetEventWithProvenance(r.Context(), eventID)
 	if err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-			return
-		}
-		raw, fallbackErr := h.service.GetEvent(r.Context(), eventID)
-		if fallbackErr != nil {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
 			return
 		}
-		var payload any
-		if unmarshalErr := json.Unmarshal(raw, &payload); unmarshalErr != nil {
-			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "stored event payload is invalid")
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"event": payload,
-			"provenance": map[string]any{
-				"relays": []seenOnEntry{},
-			},
-			"consistency": "eventual",
-		})
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 	var payload any
@@ -59,7 +42,7 @@ func (h Handlers) GetEventByID(w http.ResponseWriter, r *http.Request) {
 		"provenance": map[string]any{
 			"relays": relays,
 		},
-		"consistency": "strong",
+		"consistency": event.Consistency,
 	})
 }
 
@@ -149,9 +132,9 @@ func (h Handlers) GetEventSeenOn(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "event id is required")
 		return
 	}
-	seenOn, err := h.store.GetEventSeenOn(r.Context(), eventID)
+	seenOn, err := h.service.GetEventSeenOn(r.Context(), eventID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
 			return
 		}
@@ -161,9 +144,9 @@ func (h Handlers) GetEventSeenOn(w http.ResponseWriter, r *http.Request) {
 
 	resp := seenOnResponse{
 		EventID: eventID,
-		SeenOn:  make([]seenOnEntry, 0, len(seenOn)),
+		SeenOn:  make([]seenOnEntry, 0, len(seenOn.SeenOn)),
 	}
-	for _, relay := range seenOn {
+	for _, relay := range seenOn.SeenOn {
 		resp.SeenOn = append(resp.SeenOn, seenOnEntry{
 			RelayURL: relay.RelayURL,
 			SeenAt:   relay.SeenAt.UTC(),

@@ -87,6 +87,7 @@ func main() {
 	runMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	runDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
 	go runQueueAndRebuildMetricsReporter(ctx, log, pool, 30*time.Second)
+	go runStaleRecoveryLoop(ctx, log, queue, jobs.WorkerPoolDefault, cfg.JobRecovery)
 	go runJobRetentionLoop(ctx, log, queue, cfg.JobRetention)
 	go runInvalidEventsRetentionLoop(ctx, log, postgresStore, cfg.InvalidEventRetention)
 	const (
@@ -122,6 +123,7 @@ type workerQueue interface {
 	ClaimAvailableForPool(ctx context.Context, workerID, workerPool string, limit int) ([]jobs.Job, error)
 	CompleteJob(ctx context.Context, jobID int64, workerID string) error
 	FailJob(ctx context.Context, jobID int64, workerID string, errMsg string, retryDelay time.Duration) (jobs.FailureResult, error)
+	RecoverStaleRunningJobs(ctx context.Context, olderThan time.Time, limit int) (jobs.RecoveryResult, error)
 	PurgeTerminalJobs(ctx context.Context, succeededBefore, deadBefore time.Time, limit int) (int64, error)
 }
 
@@ -231,6 +233,62 @@ func runInvalidEventsRetentionLoop(ctx context.Context, log interface {
 			metrics.AddRetentionPurgedRows("invalid_events_payload", trimmed)
 			if trimmed > 0 {
 				log.Info("invalid_events_payload_trimmed", "trimmed", trimmed, "cutoff", trimCutoff.Format(time.RFC3339))
+			}
+		}
+	}
+}
+
+func runStaleRecoveryLoop(ctx context.Context, log interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}, queue workerQueue, workerPool string, cfg config.WorkerJobRecoveryConfig) {
+	if cfg.StaleRecoveryInterval <= 0 || cfg.RunningTimeout <= 0 || cfg.StaleRecoveryBatchLimit <= 0 {
+		log.Error(
+			"stale_recovery_invalid_config",
+			"worker_pool", workerPool,
+			"running_timeout", cfg.RunningTimeout.String(),
+			"stale_recovery_interval", cfg.StaleRecoveryInterval.String(),
+			"stale_recovery_batch_limit", cfg.StaleRecoveryBatchLimit,
+		)
+		return
+	}
+	log.Info(
+		"stale_recovery_enabled",
+		"worker_pool", workerPool,
+		"running_timeout", cfg.RunningTimeout.String(),
+		"stale_recovery_interval", cfg.StaleRecoveryInterval.String(),
+		"stale_recovery_batch_limit", cfg.StaleRecoveryBatchLimit,
+	)
+	ticker := time.NewTicker(cfg.StaleRecoveryInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			olderThan := time.Now().UTC().Add(-cfg.RunningTimeout)
+			started := time.Now()
+			result, err := queue.RecoverStaleRunningJobs(ctx, olderThan, cfg.StaleRecoveryBatchLimit)
+			recoveryResult := "ok"
+			if err != nil {
+				recoveryResult = "error"
+			}
+			metrics.ObserveStaleRecoveryDuration(workerPool, recoveryResult, time.Since(started))
+			if err != nil {
+				log.Error("stale_recovery_failed", "worker_pool", workerPool, "error", err)
+				continue
+			}
+			metrics.AddStaleRecoveryRecovered(workerPool, result.Recovered)
+			metrics.AddStaleRecoveryDeadLettered(workerPool, result.DeadLettered)
+			if result.Recovered > 0 || result.DeadLettered > 0 {
+				log.Info(
+					"stale_recovery_completed",
+					"worker_pool", workerPool,
+					"recovered", result.Recovered,
+					"dead_lettered", result.DeadLettered,
+					"older_than", olderThan.Format(time.RFC3339),
+				)
 			}
 		}
 	}

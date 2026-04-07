@@ -8,12 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 func TestGetEventReplies_UsesCursorAndReturnsNextCursor(t *testing.T) {
 	nextCursor := &store.EventOrderCursor{CreatedAt: 1001, ID: "evt_b"}
-	encoded, err := encodeEventCursor(&store.EventOrderCursor{CreatedAt: 1000, ID: "evt_a"})
+	encoded, err := encodeEventCursor(&query.EventCursor{CreatedAt: 1000, ID: "evt_a"})
 	if err != nil {
 		t.Fatalf("encode cursor: %v", err)
 	}

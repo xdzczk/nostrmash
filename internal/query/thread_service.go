@@ -43,7 +43,7 @@ func (s threadService) GetThread(ctx context.Context, req ThreadRequest) (out Th
 	if err != nil {
 		return out, err
 	}
-	replies, next, err := s.reader.GetEventReplies(ctx, eventID, req.Limit, req.Cursor)
+	replies, next, err := s.reader.GetEventReplies(ctx, eventID, req.Limit, eventCursorToStore(req.Cursor))
 	if err != nil {
 		return out, err
 	}
@@ -51,7 +51,7 @@ func (s threadService) GetThread(ctx context.Context, req ThreadRequest) (out Th
 	out.Ancestors = ancestors
 	out.MissingAncestorIDs = missing
 	out.Replies = replies
-	out.NextCursor = next
+	out.NextCursor = eventCursorFromStore(next)
 	return out, nil
 }
 
@@ -122,7 +122,7 @@ func (s Service) GetThreadView(
 	eventID string,
 	limit int,
 	maxDepth int,
-	cursor *store.EventOrderCursor,
+	cursor *EventCursor,
 ) (out ThreadView, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_thread_view")
 	defer func() { span.End(err) }()
@@ -139,7 +139,7 @@ func (s Service) GetThreadView(
 	if err != nil {
 		return out, err
 	}
-	replies, next, err := s.reader.GetEventReplies(ctx, eventID, limit, cursor)
+	replies, next, err := s.reader.GetEventReplies(ctx, eventID, limit, eventCursorToStore(cursor))
 	if err != nil {
 		return out, err
 	}
@@ -147,6 +147,6 @@ func (s Service) GetThreadView(
 	out.Ancestors = ancestors
 	out.MissingAncestorIDs = missing
 	out.Replies = replies
-	out.NextCursor = next
+	out.NextCursor = eventCursorFromStore(next)
 	return out, nil
 }

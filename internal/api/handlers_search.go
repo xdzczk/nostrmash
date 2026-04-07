@@ -17,19 +17,14 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	events, err := h.store.SearchEventsByContent(r.Context(), queryText, limit)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-	profiles, err := h.store.SearchProfiles(r.Context(), queryText, limit)
+	result, err := h.service.Search(r.Context(), queryText, limit)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 
-	projectedProfiles := make([]profileResponse, 0, len(profiles))
-	for _, profile := range profiles {
+	projectedProfiles := make([]profileResponse, 0, len(result.Profiles))
+	for _, profile := range result.Profiles {
 		projectedProfiles = append(projectedProfiles, profileResponse{
 			Pubkey:            profile.Pubkey,
 			MetadataEventID:   profile.MetadataEventID,
@@ -39,7 +34,7 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"query":       queryText,
-		"events":      events,
+		"events":      result.Events,
 		"profiles":    projectedProfiles,
 		"consistency": "eventual",
 	})

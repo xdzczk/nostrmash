@@ -253,6 +253,180 @@ func TestPurgeTerminalJobs_DeletesOnlyOldTerminalRows(t *testing.T) {
 	}
 }
 
+func TestRecoverStaleRunningJobs_RequeuesStaleRunningJob(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+	job := insertRunningJobForRecoveryTest(
+		t,
+		ctx,
+		pool,
+		1,
+		3,
+		time.Now().UTC().Add(-2*time.Minute),
+		"lost-worker-a",
+	)
+
+	result, err := queue.RecoverStaleRunningJobs(ctx, time.Now().UTC().Add(-30*time.Second), 10)
+	if err != nil {
+		t.Fatalf("recover stale jobs: %v", err)
+	}
+	if result.Recovered != 1 || result.DeadLettered != 0 {
+		t.Fatalf("unexpected recovery result: %+v", result)
+	}
+
+	stored, err := queue.GetJobByID(ctx, job)
+	if err != nil {
+		t.Fatalf("load recovered job: %v", err)
+	}
+	if stored.Status != jobs.StatusPending {
+		t.Fatalf("expected recovered job to become pending, got %q", stored.Status)
+	}
+	if stored.Attempts != 2 {
+		t.Fatalf("expected attempts incremented to 2, got %d", stored.Attempts)
+	}
+	if stored.LockedAt != nil || stored.LockedBy != nil {
+		t.Fatalf("expected lock fields to be cleared, locked_at=%v locked_by=%v", stored.LockedAt, stored.LockedBy)
+	}
+	if stored.LastError == nil || *stored.LastError == "" {
+		t.Fatalf("expected recovery last_error to be set")
+	}
+
+	claimed, err := queue.ClaimAvailable(ctx, "worker-a", 1)
+	if err != nil {
+		t.Fatalf("claim recovered job: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != job {
+		t.Fatalf("expected recovered job to be claimable, got %+v", claimed)
+	}
+}
+
+func TestRecoverStaleRunningJobs_DeadLettersWhenAttemptsExhausted(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+	job := insertRunningJobForRecoveryTest(
+		t,
+		ctx,
+		pool,
+		2,
+		3,
+		time.Now().UTC().Add(-3*time.Minute),
+		"lost-worker-b",
+	)
+
+	result, err := queue.RecoverStaleRunningJobs(ctx, time.Now().UTC().Add(-1*time.Minute), 10)
+	if err != nil {
+		t.Fatalf("recover stale jobs: %v", err)
+	}
+	if result.Recovered != 0 || result.DeadLettered != 1 {
+		t.Fatalf("unexpected recovery result: %+v", result)
+	}
+
+	stored, err := queue.GetJobByID(ctx, job)
+	if err != nil {
+		t.Fatalf("load dead-lettered recovered job: %v", err)
+	}
+	if stored.Status != jobs.StatusDead {
+		t.Fatalf("expected stale exhausted job to be dead, got %q", stored.Status)
+	}
+	if stored.Attempts != 3 {
+		t.Fatalf("expected attempts incremented to max=3, got %d", stored.Attempts)
+	}
+	if stored.LockedAt != nil || stored.LockedBy != nil {
+		t.Fatalf("expected lock fields to be cleared, locked_at=%v locked_by=%v", stored.LockedAt, stored.LockedBy)
+	}
+
+	claimed, err := queue.ClaimAvailable(ctx, "worker-a", 1)
+	if err != nil {
+		t.Fatalf("claim dead-lettered recovered job: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("expected dead-lettered recovered job to be unclaimable, got %d", len(claimed))
+	}
+}
+
+func TestRecoverStaleRunningJobs_DoesNotTouchFreshRunningJob(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+	job := insertRunningJobForRecoveryTest(
+		t,
+		ctx,
+		pool,
+		0,
+		5,
+		time.Now().UTC().Add(-3*time.Second),
+		"active-worker",
+	)
+
+	result, err := queue.RecoverStaleRunningJobs(ctx, time.Now().UTC().Add(-10*time.Second), 10)
+	if err != nil {
+		t.Fatalf("recover stale jobs: %v", err)
+	}
+	if result.Recovered != 0 || result.DeadLettered != 0 {
+		t.Fatalf("expected no recovered jobs, got %+v", result)
+	}
+
+	stored, err := queue.GetJobByID(ctx, job)
+	if err != nil {
+		t.Fatalf("load fresh running job: %v", err)
+	}
+	if stored.Status != jobs.StatusRunning {
+		t.Fatalf("expected fresh running job to remain running, got %q", stored.Status)
+	}
+	if stored.Attempts != 0 {
+		t.Fatalf("expected attempts unchanged, got %d", stored.Attempts)
+	}
+}
+
+func TestRecoverStaleRunningJobs_RespectsBatchLimit(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+	ids := []int64{
+		insertRunningJobForRecoveryTest(t, ctx, pool, 0, 5, time.Now().UTC().Add(-3*time.Minute), "lost-worker-1"),
+		insertRunningJobForRecoveryTest(t, ctx, pool, 0, 5, time.Now().UTC().Add(-2*time.Minute), "lost-worker-2"),
+		insertRunningJobForRecoveryTest(t, ctx, pool, 0, 5, time.Now().UTC().Add(-1*time.Minute), "lost-worker-3"),
+	}
+
+	result, err := queue.RecoverStaleRunningJobs(ctx, time.Now().UTC().Add(-30*time.Second), 2)
+	if err != nil {
+		t.Fatalf("recover stale jobs: %v", err)
+	}
+	if result.Recovered != 2 || result.DeadLettered != 0 {
+		t.Fatalf("expected two recovered jobs in first batch, got %+v", result)
+	}
+
+	var pendingCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs WHERE status = 'pending'`).Scan(&pendingCount); err != nil {
+		t.Fatalf("count pending jobs: %v", err)
+	}
+	if pendingCount != 2 {
+		t.Fatalf("expected exactly two pending recovered jobs, got %d", pendingCount)
+	}
+
+	remaining, err := queue.GetJobByID(ctx, ids[2])
+	if err != nil {
+		t.Fatalf("load remaining running job: %v", err)
+	}
+	if remaining.Status != jobs.StatusRunning {
+		t.Fatalf("expected one running job to remain after limited batch, got %q", remaining.Status)
+	}
+}
+
 func setupSchemaPool(t *testing.T, ctx context.Context, dbURL string) *pgxpool.Pool {
 	t.Helper()
 	return dbtest.SetupSchemaPool(t, ctx, dbURL, "jobs")
@@ -293,4 +467,43 @@ func assertJobMissing(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id 
 	if count != 0 {
 		t.Fatalf("expected job %d to be deleted", id)
 	}
+}
+
+func insertRunningJobForRecoveryTest(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	attempts int,
+	maxAttempts int,
+	lockedAt time.Time,
+	lockedBy string,
+) int64 {
+	t.Helper()
+	var id int64
+	err := pool.QueryRow(ctx, `
+		INSERT INTO jobs (
+			job_type,
+			worker_pool,
+			payload,
+			status,
+			attempts,
+			max_attempts,
+			run_after,
+			locked_at,
+			locked_by,
+			updated_at
+		)
+		VALUES ('derive_profile', 'default', '{}'::jsonb, $1, $2, $3, now(), $4, $5, now())
+		RETURNING id
+	`,
+		jobs.StatusRunning,
+		attempts,
+		maxAttempts,
+		lockedAt.UTC(),
+		lockedBy,
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert running job for stale recovery test: %v", err)
+	}
+	return id
 }

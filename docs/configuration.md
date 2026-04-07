@@ -67,7 +67,7 @@ Do not hand-edit this file.
 | `TRUST_ENABLE_REDIS_SYNC` | `trust_worker` | optional | `false` | Enable Redis graph synchronization trust job phases. |
 | `TRUST_ENABLE_SCORE_COMPUTE` | `trust_worker` | optional | `true` | Enable trust score computation trust job phases. |
 | `TRUST_REDIS_KEY_PREFIX` | `trust_worker` | optional | `nostrmash` | Prefix namespace for trust-worker Redis graph/snapshot keys. |
-| `TRUST_REDIS_URL` | `trust_worker` | required | `-` | Redis connection string used for trust graph working state. |
+| `TRUST_REDIS_URL` | `trust_worker` | optional | `-` | Redis connection string used for trust graph working state; required when TRUST_ENABLE_REDIS_SYNC=true. |
 | `TRUST_WORKER_CLAIM_BATCH_SIZE` | `trust_worker` | optional | `5` | Maximum trust jobs claimed per poll loop. |
 | `TRUST_WORKER_CONCURRENCY` | `trust_worker` | optional | `2` | Trust worker goroutine concurrency. |
 | `TRUST_WORKER_POLL_INTERVAL` | `trust_worker` | optional | `1s` | Polling interval for trust queue claims. |
@@ -85,3 +85,6 @@ Do not hand-edit this file.
 | `WORKER_JOB_RETENTION_ENABLED` | `worker` | optional | `true` | Enable periodic retention purge of terminal job history. |
 | `WORKER_JOB_RETENTION_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | Interval between terminal job retention purge runs. |
 | `WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE` | `worker` | optional | `720h0m0s` | Max age for succeeded jobs before retention purges terminal history. |
+| `WORKER_JOB_RUNNING_TIMEOUT` | `trust_worker, worker` | optional | `15m0s` | Lease timeout for running jobs before stale recovery treats them as orphaned. |
+| `WORKER_JOB_STALE_RECOVERY_BATCH_LIMIT` | `trust_worker, worker` | optional | `100` | Maximum stale running jobs processed per recovery interval. |
+| `WORKER_JOB_STALE_RECOVERY_INTERVAL` | `trust_worker, worker` | optional | `30s` | Interval between stale running-job recovery scans. |

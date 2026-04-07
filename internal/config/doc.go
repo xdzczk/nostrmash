@@ -18,6 +18,7 @@ type EnvVarDoc struct {
 // ConfigEnvDocs is the single source of truth for config documentation.
 func ConfigEnvDocs() []EnvVarDoc {
 	return []EnvVarDoc{
+		// API runtime.
 		{
 			Name:         "ADMIN_BEARER_TOKEN",
 			Runtimes:     []string{"api"},
@@ -60,6 +61,7 @@ func ConfigEnvDocs() []EnvVarDoc {
 			DefaultValue: "",
 			Description:  "CSV fallback relay URLs. If empty, API falls back to INGESTOR_RELAY_URLS.",
 		},
+		// Shared runtime settings.
 		{
 			Name:         "DATABASE_URL",
 			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
@@ -123,6 +125,7 @@ func ConfigEnvDocs() []EnvVarDoc {
 			DefaultValue: "60",
 			Description:  "Per-IP requests per minute for the search endpoint.",
 		},
+		// Ingestor runtime.
 		{
 			Name:         "INGESTOR_BACKFILL_CONNECT_TIMEOUT",
 			Runtimes:     []string{"ingestor"},
@@ -361,6 +364,7 @@ func ConfigEnvDocs() []EnvVarDoc {
 			DefaultValue: "2000",
 			Description:  "Maximum top trust pubkeys considered for relay ordering.",
 		},
+		// Shared observability/runtime-adjacent settings.
 		{
 			Name:         "METRICS_ADDR",
 			Runtimes:     []string{"ingestor", "trust_worker", "worker"},
@@ -410,12 +414,34 @@ func ConfigEnvDocs() []EnvVarDoc {
 			DefaultValue: "10s",
 			Description:  "Timeout for individual Primal WS request handling.",
 		},
+		// Worker runtime.
 		{
 			Name:         "WORKER_CONCURRENCY",
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "4",
 			Description:  "Worker goroutine concurrency.",
+		},
+		{
+			Name:         "WORKER_JOB_RUNNING_TIMEOUT",
+			Runtimes:     []string{"trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "15m0s",
+			Description:  "Lease timeout for running jobs before stale recovery treats them as orphaned.",
+		},
+		{
+			Name:         "WORKER_JOB_STALE_RECOVERY_BATCH_LIMIT",
+			Runtimes:     []string{"trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "100",
+			Description:  "Maximum stale running jobs processed per recovery interval.",
+		},
+		{
+			Name:         "WORKER_JOB_STALE_RECOVERY_INTERVAL",
+			Runtimes:     []string{"trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "30s",
+			Description:  "Interval between stale running-job recovery scans.",
 		},
 		{
 			Name:         "WORKER_JOB_RETENTION_DEAD_MAX_AGE",
@@ -501,6 +527,7 @@ func ConfigEnvDocs() []EnvVarDoc {
 			DefaultValue: "1h0m0s",
 			Description:  "Interval between invalid_events retention purge runs.",
 		},
+		// Trust worker runtime.
 		{
 			Name:         "TRUST_ENABLE_REDIS_SYNC",
 			Runtimes:     []string{"trust_worker"},
@@ -518,9 +545,9 @@ func ConfigEnvDocs() []EnvVarDoc {
 		{
 			Name:         "TRUST_REDIS_URL",
 			Runtimes:     []string{"trust_worker"},
-			Required:     true,
+			Required:     false,
 			DefaultValue: "",
-			Description:  "Redis connection string used for trust graph working state.",
+			Description:  "Redis connection string used for trust graph working state; required when TRUST_ENABLE_REDIS_SYNC=true.",
 		},
 		{
 			Name:         "TRUST_REDIS_KEY_PREFIX",

@@ -18,6 +18,9 @@ func TestHandlerIncludesGoRuntimeMetrics(t *testing.T) {
 	SetWorkerQueueBacklogOldestPendingAge(34)
 	SetRebuildRunsActive(1)
 	SetRebuildActiveOldestAge(56)
+	AddStaleRecoveryRecovered("default", 1)
+	AddStaleRecoveryDeadLettered("default", 1)
+	ObserveStaleRecoveryDuration("default", "ok", 3*time.Millisecond)
 	RegisterBuildInfo("api", "v1.2.3", "abc1234", "2026-04-06T00:00:00Z")
 	RegisterDeploymentInfo("api", "nostrmash", "development")
 
@@ -58,6 +61,15 @@ func TestHandlerIncludesGoRuntimeMetrics(t *testing.T) {
 	}
 	if !strings.Contains(body, "nostrmash_deployment_info") {
 		t.Fatalf("expected deployment info metrics in /metrics output")
+	}
+	if !strings.Contains(body, "nostrmash_worker_stale_recovery_recovered_total") {
+		t.Fatalf("expected stale recovery recovered metrics in /metrics output")
+	}
+	if !strings.Contains(body, "nostrmash_worker_stale_recovery_dead_lettered_total") {
+		t.Fatalf("expected stale recovery dead-lettered metrics in /metrics output")
+	}
+	if !strings.Contains(body, "nostrmash_worker_stale_recovery_duration_seconds") {
+		t.Fatalf("expected stale recovery duration metrics in /metrics output")
 	}
 }
 

@@ -7,11 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 func TestGetThreadView_UsesSharedServiceAndPreservesPrimalShape(t *testing.T) {
-	cursor, err := encodeEventCursor(&store.EventOrderCursor{CreatedAt: 1000, ID: "evt_cursor"})
+	cursor, err := encodeEventCursor(&query.EventCursor{CreatedAt: 1000, ID: "evt_cursor"})
 	if err != nil {
 		t.Fatalf("encode cursor: %v", err)
 	}

@@ -2,12 +2,11 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"slices"
 	"strings"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/query"
 )
 
 type profileResponse struct {
@@ -25,7 +24,7 @@ func (h Handlers) GetProfileByPubkey(w http.ResponseWriter, r *http.Request) {
 	}
 	profile, err := h.service.GetProfile(r.Context(), pubkey)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "profile not found")
 			return
 		}

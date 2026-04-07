@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/query"
-	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/store/failure"
 	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 	"github.com/xdzczk/nostrmash/internal/transport/httpx"
@@ -122,7 +121,7 @@ func parseBoundedPositiveInt(r *http.Request, key string, defaultValue int, maxV
 	return parsed, nil
 }
 
-func encodeEventCursor(cursor *store.EventOrderCursor) (string, error) {
+func encodeEventCursor(cursor *query.EventCursor) (string, error) {
 	if cursor == nil {
 		return "", nil
 	}
@@ -132,7 +131,7 @@ func encodeEventCursor(cursor *store.EventOrderCursor) (string, error) {
 	})
 }
 
-func decodeEventCursor(value string) (*store.EventOrderCursor, error) {
+func decodeEventCursor(value string) (*query.EventCursor, error) {
 	payload, err := httpx.DecodeEventCursorPayload(value)
 	if err != nil {
 		return nil, err
@@ -140,7 +139,7 @@ func decodeEventCursor(value string) (*store.EventOrderCursor, error) {
 	if payload == nil {
 		return nil, nil
 	}
-	return &store.EventOrderCursor{
+	return &query.EventCursor{
 		CreatedAt: payload.CreatedAt,
 		ID:        payload.ID,
 	}, nil

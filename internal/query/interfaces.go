@@ -3,8 +3,6 @@ package query
 import (
 	"context"
 	"encoding/json"
-
-	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 // ThreadService defines transport-agnostic thread assembly orchestration.
@@ -22,15 +20,15 @@ type EventService interface {
 
 // ProfileService defines transport-agnostic profile read orchestration.
 type ProfileService interface {
-	GetProfile(ctx context.Context, pubkey string) (store.ProfileProjection, error)
+	GetProfile(ctx context.Context, pubkey string) (Profile, error)
 	GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error)
 }
 
 type TrustService interface {
-	GetTrustScore(ctx context.Context, pubkey string) (store.TrustGlobalScore, error)
-	ListTopTrustedPubkeys(ctx context.Context, limit int) ([]store.TrustGlobalScore, error)
-	GetTrustRun(ctx context.Context, runID int64) (store.TrustRun, error)
-	ListTrustRuns(ctx context.Context, limit int) ([]store.TrustRun, error)
+	GetTrustScore(ctx context.Context, pubkey string) (TrustScore, error)
+	ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustScore, error)
+	GetTrustRun(ctx context.Context, runID int64) (TrustRun, error)
+	ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, error)
 }
 
 // ReadOrchestration groups focused read-side service capabilities.
