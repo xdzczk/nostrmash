@@ -1,0 +1,12 @@
+{
+  "method": "POST",
+  "path": "/primal/v1/dms/contacts",
+  "body": {
+    "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "relation": "any",
+    "since": 0,
+    "until": 1700000100,
+    "limit": 2,
+    "offset": 0
+  }
+}

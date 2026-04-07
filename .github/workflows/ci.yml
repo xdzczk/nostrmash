@@ -67,7 +67,7 @@ jobs:
       - name: Enforce risk-focused coverage policy
         run: make coverage-policy
 
-      - name: Run race policy suite
+      - name: Run full race suite
         run: make test-race-policy
 
       - name: Verify route contract drift

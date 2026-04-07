@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -376,6 +377,102 @@ func TestAdminTrustRoutes_BasicFlow(t *testing.T) {
 	if recScores.Code != http.StatusOK {
 		t.Fatalf("unexpected scores status: got %d want %d", recScores.Code, http.StatusOK)
 	}
+}
+
+func TestAdminTrustRoutes_ErrorMappingAndValidation(t *testing.T) {
+	mux := newAdminTestMux("token", fakeAdminService{
+		getTrustRunsFn: func(_ context.Context, limit int) ([]adminTrustRunResponse, error) {
+			if limit != 50 {
+				t.Fatalf("expected default runs limit 50, got %d", limit)
+			}
+			return nil, errors.New("store unavailable")
+		},
+		getTrustRunFn: func(_ context.Context, runID int64) (adminTrustRunResponse, error) {
+			if runID != 404 {
+				t.Fatalf("unexpected run id: %d", runID)
+			}
+			return adminTrustRunResponse{}, errors.New("missing")
+		},
+		triggerTrustRunFn: func(_ context.Context) (adminTrustRunResponse, error) {
+			return adminTrustRunResponse{}, errors.New("trust runtime is not configured")
+		},
+		getTopTrustScoresFn: func(_ context.Context, limit int) ([]adminTrustScoreResponse, error) {
+			if limit != 50 {
+				t.Fatalf("expected default score limit 50, got %d", limit)
+			}
+			return nil, errors.New("store unavailable")
+		},
+	})
+
+	t.Run("trust runs default limit internal error", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/admin/v1/trust/runs", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusInternalServerError)
+		}
+	})
+
+	t.Run("trust runs rejects invalid limit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/admin/v1/trust/runs?limit=9999", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("trust run rejects invalid id", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/admin/v1/trust/runs/not-a-number", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("trust run maps missing to not found", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/admin/v1/trust/runs/404", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusNotFound)
+		}
+	})
+
+	t.Run("trigger trust run returns bad request on runtime error", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/admin/v1/trust/runs", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("trust scores default limit internal error", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/admin/v1/trust/scores", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusInternalServerError)
+		}
+	})
+
+	t.Run("trust scores reject invalid limit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/admin/v1/trust/scores?limit=0", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
 }
 
 func newAdminTestMux(token string, service AdminService) http.Handler {

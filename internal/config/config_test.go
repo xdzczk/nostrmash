@@ -293,6 +293,73 @@ func TestLoadTrustWorker_DefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestLoadTrustWorker_InvalidSharedObservabilityAddrsFail(t *testing.T) {
+	t.Run("invalid metrics addr", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		t.Setenv("TRUST_REDIS_URL", "redis://localhost:6379/0")
+		t.Setenv("METRICS_ADDR", "not-a-valid-addr")
+		_, err := LoadTrustWorker()
+		if err == nil || !strings.Contains(err.Error(), "METRICS_ADDR") {
+			t.Fatalf("expected actionable METRICS_ADDR validation error, got %v", err)
+		}
+	})
+
+	t.Run("invalid debug addr", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		t.Setenv("TRUST_REDIS_URL", "redis://localhost:6379/0")
+		t.Setenv("DEBUG_ADDR", "not-a-valid-addr")
+		_, err := LoadTrustWorker()
+		if err == nil || !strings.Contains(err.Error(), "DEBUG_ADDR") {
+			t.Fatalf("expected actionable DEBUG_ADDR validation error, got %v", err)
+		}
+	})
+}
+
+func TestLoadTrustWorker_TrustSpecificGuardrailsFail(t *testing.T) {
+	t.Run("requires at least one trust phase", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		t.Setenv("TRUST_REDIS_URL", "redis://localhost:6379/0")
+		t.Setenv("TRUST_ENABLE_REDIS_SYNC", "false")
+		t.Setenv("TRUST_ENABLE_SCORE_COMPUTE", "false")
+		_, err := LoadTrustWorker()
+		if err == nil || !strings.Contains(err.Error(), "at least one of TRUST_ENABLE_REDIS_SYNC or TRUST_ENABLE_SCORE_COMPUTE must be true") {
+			t.Fatalf("expected trust phase validation error, got %v", err)
+		}
+	})
+
+	t.Run("requires redis url", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		t.Setenv("TRUST_REDIS_URL", " ")
+		_, err := LoadTrustWorker()
+		if err == nil || !strings.Contains(err.Error(), "TRUST_REDIS_URL") {
+			t.Fatalf("expected actionable TRUST_REDIS_URL validation error, got %v", err)
+		}
+	})
+
+	t.Run("blank redis key prefix falls back to default", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		t.Setenv("TRUST_REDIS_URL", "redis://localhost:6379/0")
+		t.Setenv("TRUST_REDIS_KEY_PREFIX", " ")
+		cfg, err := LoadTrustWorker()
+		if err != nil {
+			t.Fatalf("expected blank key prefix to use default, got %v", err)
+		}
+		if cfg.Redis.KeyPrefix != "nostrmash" {
+			t.Fatalf("expected blank key prefix to fall back to default, got %q", cfg.Redis.KeyPrefix)
+		}
+	})
+
+	t.Run("invalid poll interval", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		t.Setenv("TRUST_REDIS_URL", "redis://localhost:6379/0")
+		t.Setenv("TRUST_WORKER_POLL_INTERVAL", "bad")
+		_, err := LoadTrustWorker()
+		if err == nil || !strings.Contains(err.Error(), "TRUST_WORKER_POLL_INTERVAL") {
+			t.Fatalf("expected actionable TRUST_WORKER_POLL_INTERVAL validation error, got %v", err)
+		}
+	})
+}
+
 func TestLoadAPI_InvalidDebugAddrFails(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("DEBUG_ADDR", "not-a-valid-addr")

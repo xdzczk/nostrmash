@@ -129,6 +129,114 @@ func TestMigrateDetectsChecksumDrift(t *testing.T) {
 	}
 }
 
+func TestMigrateTrustSchedulingSchemaGuards(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	assertColumnsExist := func(tableName string, columns ...string) {
+		t.Helper()
+		rows, err := pool.Query(ctx, `
+			SELECT column_name
+			FROM information_schema.columns
+			WHERE table_schema = current_schema()
+			  AND table_name = $1
+		`, tableName)
+		if err != nil {
+			t.Fatalf("list columns for %s: %v", tableName, err)
+		}
+		defer rows.Close()
+
+		existing := make(map[string]bool, len(columns))
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatalf("scan column for %s: %v", tableName, err)
+			}
+			existing[name] = true
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("read columns for %s: %v", tableName, err)
+		}
+		for _, column := range columns {
+			if !existing[column] {
+				t.Fatalf("expected column %s.%s to exist", tableName, column)
+			}
+		}
+	}
+
+	assertColumnsExist(
+		"ingest_pubkey_frontier",
+		"pubkey",
+		"source_run_id",
+		"state",
+		"first_seen_at",
+		"next_eligible_at",
+		"fetch_attempts",
+		"success_count",
+		"last_error",
+	)
+	assertColumnsExist(
+		"trust_relay_suggestions",
+		"relay_url",
+		"weighted_score",
+		"supporting_pubkeys_sample",
+		"source_run_id",
+		"first_seen_at",
+		"last_seen_at",
+		"is_recommended",
+	)
+
+	var sampleType string
+	if err := pool.QueryRow(ctx, `
+		SELECT udt_name
+		FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'trust_relay_suggestions'
+		  AND column_name = 'supporting_pubkeys_sample'
+	`).Scan(&sampleType); err != nil {
+		t.Fatalf("query supporting_pubkeys_sample type: %v", err)
+	}
+	if sampleType != "jsonb" {
+		t.Fatalf("expected trust_relay_suggestions.supporting_pubkeys_sample to be jsonb, got %q", sampleType)
+	}
+
+	var frontierStateConstraint string
+	if err := pool.QueryRow(ctx, `
+		SELECT pg_get_constraintdef(c.oid)
+		FROM pg_constraint c
+		INNER JOIN pg_class tbl ON tbl.oid = c.conrelid
+		INNER JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+		WHERE ns.nspname = current_schema()
+		  AND tbl.relname = 'ingest_pubkey_frontier'
+		  AND c.conname = 'ingest_pubkey_frontier_state_chk'
+	`).Scan(&frontierStateConstraint); err != nil {
+		t.Fatalf("query ingest_pubkey_frontier state constraint: %v", err)
+	}
+	for _, expectedState := range []string{"candidate", "active", "cooldown", "failed"} {
+		if !strings.Contains(frontierStateConstraint, expectedState) {
+			t.Fatalf("expected state constraint to include %q, got %q", expectedState, frontierStateConstraint)
+		}
+	}
+
+	for _, indexName := range []string{
+		"idx_ingest_pubkey_frontier_state_eligibility",
+		"idx_trust_relay_suggestions_recommended",
+	} {
+		var exists bool
+		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, indexName).Scan(&exists); err != nil {
+			t.Fatalf("check index %s existence: %v", indexName, err)
+		}
+		if !exists {
+			t.Fatalf("expected index %q to exist", indexName)
+		}
+	}
+}
+
 func setupSchemaPool(t *testing.T, ctx context.Context, dbURL string) *pgxpool.Pool {
 	t.Helper()
 	return dbtest.SetupSchemaPool(t, ctx, dbURL, "migrate")

@@ -83,7 +83,7 @@ Choose the path that matches what you need:
 | Integrating with the API | [docs/api.md](docs/api.md) | [docs/openapi.yaml](docs/openapi.yaml) |
 | Replacing or mirroring Primal Cache | [docs/primal_compatibility_matrix.md](docs/primal_compatibility_matrix.md) | [docs/compatibility_rollout.md](docs/compatibility_rollout.md) |
 | Contributing changes | [CONTRIBUTING.md](CONTRIBUTING.md) | [docs/testing.md](docs/testing.md) |
-| Planning compatibility work | [docs/primal_compatibility_matrix.md](docs/primal_compatibility_matrix.md) | [docs/compatibility_rollout.md](docs/compatibility_rollout.md) |
+| Operating compatibility surfaces | [docs/primal_compatibility_matrix.md](docs/primal_compatibility_matrix.md) | [docs/compatibility_rollout.md](docs/compatibility_rollout.md) |
 | Planning trust and ranking work | [docs/architecture/trust-subsystem.md](docs/architecture/trust-subsystem.md) | [docs/architecture.md](docs/architecture.md) |
 
 For the complete docs hub and source-of-truth map, use [docs/README.md](docs/README.md).
@@ -202,8 +202,8 @@ make ci
 ## Status and scope
 
 - Postgres remains the canonical datastore in this repository today
-- compatibility support is still intentionally partial relative to full Primal parity, but the shipped HTTP and WebSocket surface is already substantial and exists to make Primal Cache-style adoption materially easier
-- compatibility rollout remains phased; use [docs/primal_compatibility_matrix.md](docs/primal_compatibility_matrix.md) for current availability and [docs/compatibility_rollout.md](docs/compatibility_rollout.md) for adoption sequencing
+- the compatibility HTTP and WebSocket surface now reaches parity with the legacy `primal-caching-service-main` cache API
+- use [docs/primal_compatibility_matrix.md](docs/primal_compatibility_matrix.md) for the current compatibility inventory and [docs/compatibility_rollout.md](docs/compatibility_rollout.md) for operational guidance
 - trust and ranking are active repository surfaces; the deeper design lives in [docs/architecture/trust-subsystem.md](docs/architecture/trust-subsystem.md)
 
 ## Project policy references

@@ -114,7 +114,7 @@ func (s *PostgresStore) TrimInvalidEventPayloadsOlderThan(ctx context.Context, c
 		SET raw_payload = NULL
 		FROM candidates c
 		WHERE ie.id = c.id
-	`)
+	`, cutoff.UTC(), limit)
 	if execErr != nil {
 		return 0, fmt.Errorf("trim invalid event payloads: %w", execErr)
 	}

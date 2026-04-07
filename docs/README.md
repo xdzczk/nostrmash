@@ -62,7 +62,7 @@ Each topic has one canonical home:
 | API mental model | [api.md](api.md) |
 | Exact HTTP and response contract | [openapi.yaml](openapi.yaml) |
 | Compatibility inventory | [primal_compatibility_matrix.md](primal_compatibility_matrix.md) |
-| Compatibility rollout sequencing | [compatibility_rollout.md](compatibility_rollout.md) |
+| Compatibility operations | [compatibility_rollout.md](compatibility_rollout.md) |
 | Compatibility and deprecation policy | [compatibility.md](compatibility.md) |
 | Migration safety | [migrations.md](migrations.md) |
 | Performance ownership and evidence | [performance.md](performance.md) |

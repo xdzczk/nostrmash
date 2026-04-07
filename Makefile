@@ -1,7 +1,5 @@
 .PHONY: lint lint-ci test test-race test-race-policy cover coverage-policy contract-drift rules-check benchmark-hot benchmark-query benchmark-ws benchmark-replay-derivation benchmark-protected perf-collect perf-protect-collect perf-protect-compare loadtest loadtest-api loadtest-worker loadtest-ingest loadtest-replay-rebuild build mod-verify vulncheck configdoc configdoc-check fmt fmt-check imports imports-check format ci
-
-RACE_POLICY_PKGS := ./internal/jobs ./internal/store ./internal/ingestor/... ./internal/api_primal ./cmd/worker ./internal/api
-BENCH_HOT_PKGS := ./internal/query ./internal/store ./internal/replay ./internal/derivation ./internal/api_primal
+BENCH_HOT_PKGS := ./internal/query ./internal/store ./internal/replay ./internal/derivation ./internal/api_primal ./internal/trust
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
 GOIMPORTS := go run golang.org/x/tools/cmd/goimports@latest
@@ -26,7 +24,7 @@ test-race:
 	$(MAKE) test-race-policy
 
 test-race-policy:
-	go test -race $(RACE_POLICY_PKGS)
+	go test -race ./...
 
 cover:
 	go test -covermode=atomic -coverprofile=coverage.out ./...
@@ -57,7 +55,8 @@ benchmark-replay-derivation:
 benchmark-protected:
 	go test -run=^$$ -bench='BenchmarkService(GetThreadWindow|GetUserInfos|GetEventBatch)$$' -benchmem -count=5 ./internal/query && \
 	go test -run=^$$ -bench='BenchmarkWSGatewayDispatchCacheCall(ThreadView|UserInfos)$$' -benchmem -count=5 ./internal/api_primal && \
-	go test -run=^$$ -bench='Benchmark(LoadFixtureFile|DeriveEventReferences|NormalizeUniqueIDs)$$' -benchmem -count=5 ./internal/replay ./internal/derivation
+	go test -run=^$$ -bench='Benchmark(LoadFixtureFile|DeriveEventReferences|NormalizeUniqueIDs)$$' -benchmem -count=5 ./internal/replay ./internal/derivation && \
+	go test -run=^$$ -bench='BenchmarkComputeIterativeGlobalRankLarge$$' -benchmem -count=5 ./internal/trust
 
 perf-collect:
 	bash ./scripts/perf_collect.sh

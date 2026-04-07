@@ -7,7 +7,7 @@ on:
 
 jobs:
   advisory:
-    name: Advisory deep confidence checks
+    name: Advisory coverage confidence checks
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -46,11 +46,6 @@ jobs:
           echo "Postgres did not become healthy in time"
           exit 1
 
-      - name: Broad race sweep (advisory)
-        id: race
-        continue-on-error: true
-        run: go test -race ./...
-
       - name: Full coverage profile (advisory)
         id: cover
         continue-on-error: true
@@ -63,7 +58,6 @@ jobs:
 
       - name: Summarize advisory status
         run: |
-          echo "race_result=${{ steps.race.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "cover_result=${{ steps.cover.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "policy_result=${{ steps.policy.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"

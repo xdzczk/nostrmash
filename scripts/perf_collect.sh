@@ -41,12 +41,14 @@ if [[ "${SKIP_BENCHMARKS}" != "1" ]]; then
 		go test -run=^$ -bench='BenchmarkWSGatewayDispatchCacheCall(ThreadView|UserInfos)$' -benchmem -count="${BENCH_COUNT}" ./internal/api_primal | tee "${OUT_DIR}/benchmarks/benchmark-ws-protected.txt"
 		go test -run=^$ -bench='BenchmarkLoadFixtureFile$' -benchmem -count="${BENCH_COUNT}" ./internal/replay | tee "${OUT_DIR}/benchmarks/benchmark-replay-protected.txt"
 		go test -run=^$ -bench='BenchmarkDeriveEventReferences$' -benchmem -count="${BENCH_COUNT}" ./internal/derivation | tee "${OUT_DIR}/benchmarks/benchmark-derivation-protected.txt"
+		go test -run=^$ -bench='BenchmarkComputeIterativeGlobalRankLarge$' -benchmem -count="${BENCH_COUNT}" ./internal/trust | tee "${OUT_DIR}/benchmarks/benchmark-trust-protected.txt"
 	else
-		go test -run=^$ -bench=. -benchmem -count="${BENCH_COUNT}" ./internal/query ./internal/store ./internal/replay ./internal/derivation ./internal/api_primal | tee "${OUT_DIR}/benchmarks/benchmark-hot.txt"
+		go test -run=^$ -bench=. -benchmem -count="${BENCH_COUNT}" ./internal/query ./internal/store ./internal/replay ./internal/derivation ./internal/api_primal ./internal/trust | tee "${OUT_DIR}/benchmarks/benchmark-hot.txt"
 		go test -run=^$ -bench=BenchmarkService -benchmem -count="${BENCH_COUNT}" ./internal/query | tee "${OUT_DIR}/benchmarks/benchmark-query.txt"
 		go test -run=^$ -bench=BenchmarkWSGateway -benchmem -count="${BENCH_COUNT}" ./internal/api_primal | tee "${OUT_DIR}/benchmarks/benchmark-ws.txt"
 		go test -run=^$ -bench=BenchmarkLoadFixtureFile -benchmem -count="${BENCH_COUNT}" ./internal/replay | tee "${OUT_DIR}/benchmarks/benchmark-replay.txt"
 		go test -run=^$ -bench=BenchmarkDerive -benchmem -count="${BENCH_COUNT}" ./internal/derivation | tee "${OUT_DIR}/benchmarks/benchmark-derivation.txt"
+		go test -run=^$ -bench=BenchmarkComputeIterativeGlobalRank -benchmem -count="${BENCH_COUNT}" ./internal/trust | tee "${OUT_DIR}/benchmarks/benchmark-trust.txt"
 	fi
 fi
 

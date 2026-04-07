@@ -1,0 +1,8 @@
+{
+  "method": "POST",
+  "path": "/primal/v1/dms/count",
+  "body": {
+    "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sender": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

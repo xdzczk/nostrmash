@@ -84,6 +84,12 @@ func buildRouteDefinitions(
 		{Pattern: "GET /primal/v1/events/{id}/actions", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetEventActions)},
 		{Pattern: "GET /primal/v1/contact-lists/{pubkey}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetContactList)},
 		{Pattern: "GET /primal/v1/relay-lists/{pubkey}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetRelayList)},
+		{Pattern: "POST /primal/v1/dms/messages", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostDirectMessages)},
+		{Pattern: "POST /primal/v1/dms/contacts", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostDirectMessageContacts)},
+		{Pattern: "POST /primal/v1/dms/count", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostDirectMessageCount)},
+		{Pattern: "POST /primal/v1/dms/count2", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostDirectMessageCount2)},
+		{Pattern: "POST /primal/v1/dms/reset-count", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostResetDirectMessageCount)},
+		{Pattern: "POST /primal/v1/dms/reset-counts", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostResetDirectMessageCounts)},
 		{Pattern: "GET /primal/ws", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalWS.Handle)},
 
 		{Pattern: "GET /admin/v1/relays", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetRelays)},

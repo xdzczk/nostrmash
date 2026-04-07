@@ -596,6 +596,147 @@ paths:
       responses:
         '200':
           description: Relay list projection
+  /primal/v1/dms/messages:
+    post:
+      tags: [primal]
+      summary: Primal-compatible DM message history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pubkey: { type: string }
+                peer_pubkey: { type: string }
+                sender: { type: string }
+                since: { type: integer }
+                until: { type: integer }
+                limit: { type: integer, minimum: 1, maximum: 10000, default: 20 }
+                offset: { type: integer, minimum: 0, default: 0 }
+              required: [pubkey]
+      responses:
+        '200':
+          description: Mixed event envelope mirroring legacy get_directmsgs output
+        '400':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /primal/v1/dms/contacts:
+    post:
+      tags: [primal]
+      summary: Primal-compatible DM contact summary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pubkey: { type: string }
+                relation:
+                  type: string
+                  enum: [any, follows, other]
+                since: { type: integer }
+                until: { type: integer }
+                limit: { type: integer, minimum: 1, maximum: 10000, default: 20 }
+                offset: { type: integer, minimum: 0, default: 0 }
+              required: [pubkey]
+      responses:
+        '200':
+          description: Mixed event envelope mirroring legacy get_directmsg_contacts output
+        '400':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /primal/v1/dms/count:
+    post:
+      tags: [primal]
+      summary: Primal-compatible DM unread count
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pubkey: { type: string }
+                sender: { type: string }
+              required: [pubkey]
+      responses:
+        '200':
+          description: Direct-message count kind envelope
+        '400':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /primal/v1/dms/count2:
+    post:
+      tags: [primal]
+      summary: Primal-compatible DM unread count v2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pubkey: { type: string }
+                sender: { type: string }
+              required: [pubkey]
+      responses:
+        '200':
+          description: Direct-message count v2 kind envelope
+        '400':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /primal/v1/dms/reset-count:
+    post:
+      tags: [primal]
+      summary: Primal-compatible DM counter reset for a peer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                peer_pubkey: { type: string }
+                sender: { type: string }
+                event_from_user:
+                  type: object
+                  additionalProperties: true
+              required: [event_from_user]
+      responses:
+        '200':
+          description: Empty event list on successful reset
+        '400':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /primal/v1/dms/reset-counts:
+    post:
+      tags: [primal]
+      summary: Primal-compatible DM counter reset for all peers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_from_user:
+                  type: object
+                  additionalProperties: true
+              required: [event_from_user]
+      responses:
+        '200':
+          description: Empty event list on successful reset-all
+        '400':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
   /primal/ws:
     get:
       tags: [primal]

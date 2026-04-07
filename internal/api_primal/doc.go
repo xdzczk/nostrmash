@@ -11,10 +11,14 @@
 // - [x] GET /primal/v1/events/{id}/actions
 // - [x] GET /primal/v1/contact-lists/{pubkey}
 // - [x] GET /primal/v1/relay-lists/{pubkey}
+// - [x] POST /primal/v1/dms/messages
+// - [x] POST /primal/v1/dms/contacts
+// - [x] POST /primal/v1/dms/count
+// - [x] POST /primal/v1/dms/count2
+// - [x] POST /primal/v1/dms/reset-count
+// - [x] POST /primal/v1/dms/reset-counts
 // - [x] GET /primal/ws (REQ/CLOSE gateway)
 //
 // Handler-level contract coverage for this checklist is maintained by fixture/golden
 // tests under internal/api_primal/testdata/primal_contracts.
-//
-// Remaining deferred scope is tracked in docs/primal_compatibility_matrix.md.
 package api_primal

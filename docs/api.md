@@ -88,20 +88,26 @@ Today it includes a substantial HTTP subset plus a WebSocket gateway:
 - `GET /primal/v1/events/{id}/actions`
 - `GET /primal/v1/contact-lists/{pubkey}`
 - `GET /primal/v1/relay-lists/{pubkey}`
+- `POST /primal/v1/dms/messages`
+- `POST /primal/v1/dms/contacts`
+- `POST /primal/v1/dms/count`
+- `POST /primal/v1/dms/count2`
+- `POST /primal/v1/dms/reset-count`
+- `POST /primal/v1/dms/reset-counts`
 - `GET /primal/ws` (WebSocket `REQ`/`CLOSE` compatibility gateway)
 
 How to think about compatibility:
 
 - use it when you need Primal-oriented shapes and request names, not when you are designing new NostrMash-native capabilities
 - expect boundary-specific response shaping, especially on WebSocket request kinds
-- expect partial parity rather than a frozen one-to-one mirror of every external surface
+- expect parity with the legacy `primal-caching-service-main` compatibility surface implemented here
 - treat [primal_compatibility_matrix.md](primal_compatibility_matrix.md) as the current feature inventory
-- treat [compatibility_rollout.md](compatibility_rollout.md) as the operational adoption plan
+- treat [compatibility_rollout.md](compatibility_rollout.md) as the operational guide for running the already-supported surface
 
 Current compatibility highlights:
 
 - `thread_view` supports opaque cursor pagination (`cursor` input, `next_cursor` output)
-- `get_directmsgs` exists on the WebSocket gateway for compatibility only; there is no public native HTTP DM retrieval route
+- DM compatibility now exists on both transports: WebSocket cache calls plus strict-parity HTTP wrappers under `/primal/v1/dms/*`
 - search behavior is intentionally unified between top-level WS `search` filters and `cache:search`
 - compatibility cache groups also cover social graph, moderation, zaps, parameterized replaceables, and curated parity reads
 - curated reads/topics/authors and LN lookup use Primal-like kind envelopes
@@ -109,13 +115,17 @@ Current compatibility highlights:
 
 Use compatibility when preserving an external client contract matters more than exposing the cleanest native shape.
 
-This is still not full product parity. Compatibility logic remains boundary-only and avoids leaking protocol-specific models into core storage and derivation code.
+This reaches parity with the legacy `primal-caching-service-main` compatibility surface implemented in this repository. Compatibility logic remains boundary-only so protocol-specific models do not leak into core storage and derivation code.
 
-HTTP compatibility contract coverage remains fixture-driven for selected routes:
+HTTP compatibility contract coverage remains fixture-driven for compatibility routes including:
 
 - `GET /primal/v1/events/{id}`
 - `POST /primal/v1/events/batch`
 - `GET /primal/v1/profiles/{pubkey}`
+- `POST /primal/v1/dms/messages`
+- `POST /primal/v1/dms/contacts`
+- `POST /primal/v1/dms/count`
+- `POST /primal/v1/dms/count2`
 
 Contract fixtures and golden responses live under [`../internal/api_primal/testdata/primal_contracts`](../internal/api_primal/testdata/primal_contracts).
 Run with strict comparison by default and update intentionally only with:
@@ -124,7 +134,7 @@ Run with strict comparison by default and update intentionally only with:
 go test ./internal/api_primal -update
 ```
 
-The phased target and deferred scope are defined in:
+Current inventory and operational notes live in:
 
 - [primal_compatibility_matrix.md](primal_compatibility_matrix.md)
 - [compatibility_rollout.md](compatibility_rollout.md)

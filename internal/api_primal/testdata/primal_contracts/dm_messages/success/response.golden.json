@@ -1,0 +1,35 @@
+{
+  "body": {
+    "events": [
+      {
+        "created_at": 20,
+        "id": "dm_2",
+        "kind": 4,
+        "pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "created_at": 10,
+        "id": "dm_1",
+        "kind": 4,
+        "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "content": "{\"name\":\"Receiver\"}",
+        "id": "md_receiver",
+        "kind": 0,
+        "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "content": "{\"name\":\"Peer\"}",
+        "id": "md_peer",
+        "kind": 0,
+        "pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "content": "{\"order_by\":\"created_at\",\"since\":10,\"until\":20}",
+        "kind": 10000113
+      }
+    ]
+  },
+  "status": 200
+}

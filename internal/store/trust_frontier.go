@@ -119,7 +119,7 @@ func (s *PostgresStore) RefreshTrustPubkeyFrontier(
 			FROM ingest_pubkey_frontier
 			WHERE pubkey = ANY($1)
 			  AND state = 'candidate'
-			  AND first_seen_at <= (now() - make_interval(secs => $2))
+			  AND first_seen_at <= (clock_timestamp() - make_interval(secs => $2))
 			ORDER BY trust_rank ASC
 			LIMIT $3
 			FOR UPDATE SKIP LOCKED
@@ -358,7 +358,7 @@ func (s *PostgresStore) RefreshTrustRelaySuggestions(
 			FROM trust_relay_suggestions
 			WHERE relay_url = ANY($1)
 			  AND is_recommended = false
-			  AND first_seen_at <= (now() - make_interval(secs => $2))
+			  AND first_seen_at <= (clock_timestamp() - make_interval(secs => $2))
 			ORDER BY weighted_score DESC, relay_url ASC
 			LIMIT $3
 			FOR UPDATE SKIP LOCKED

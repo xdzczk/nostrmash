@@ -1,6 +1,6 @@
 # Testing
 
-Use this page when you need to decide what to run for a change. It is the execution guide for CI parity, race scope, coverage policy, fuzzing, benchmarks, load tests, and contract drift.
+Use this page when you need to decide what to run for a change. It is the execution guide for CI parity, race testing, coverage policy, fuzzing, benchmarks, load tests, and contract drift.
 
 ## Quick path for contributors
 
@@ -37,22 +37,20 @@ If you are unsure what to run:
 
 CI runs `make test-race-policy`, which executes:
 
-- `./internal/jobs`
-- `./internal/store`
-- `./internal/ingestor/...`
-- `./internal/api_primal`
-- `./cmd/worker`
-- `./internal/api`
+- `go test -race ./...`
 
 ### Why this scope
 
-- `internal/jobs`, `cmd/worker`, and `internal/ingestor` coordinate concurrent workers, relay sessions, and lifecycle flows.
-- `internal/store` is shared by concurrent writers/readers and sits on the correctness boundary for persisted state.
-- `internal/api_primal` includes WebSocket compatibility paths where concurrent request/session behavior is easy to regress.
-- `internal/api` includes mutex-backed request-rate limiting and now participates in blocking race checks.
-- `internal/query` remains excluded from blocking `-race` to keep CI cost bounded; it currently has low in-package concurrency and is still covered by unit tests.
+- concurrency bugs are often package-boundary bugs, not just "hot spot" bugs
+- blocking `-race` now covers `internal/query`, `internal/trust`, `internal/replay`, `cmd/api`, and other packages that previously relied on advisory coverage only
+- the full-repo race suite remains fast enough to justify using it as a merge gate on this repository
 
-This is intentionally targeted instead of full-repo `-race` to keep CI cost reasonable while still covering concurrency-sensitive paths.
+For local parity on integration-backed packages such as `internal/store`, point tests at a running Postgres:
+
+```bash
+export TEST_DATABASE_URL=postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+make test-race-policy
+```
 
 ## Coverage policy (enforced in CI)
 
@@ -237,7 +235,7 @@ The current CI workflow enforces:
 
 For broader, higher-cost confidence checks that should not block normal PR flow, use the `Deep Confidence` GitHub workflow.
 
-It runs a broad race sweep and a full coverage profile + policy check as an advisory signal, and uploads artifacts for inspection.
+It runs a scheduled advisory pass with a full coverage profile + policy check and uploads artifacts for inspection.
 
 Contributor workflow and PR expectations are in [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 

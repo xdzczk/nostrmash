@@ -1,0 +1,39 @@
+{
+  "body": {
+    "events": [
+      {
+        "content": "{\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\":{\"cnt\":3,\"latest_at\":30,\"latest_event_id\":\"dm_latest_1\"},\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\":{\"cnt\":1,\"latest_at\":20,\"latest_event_id\":\"dm_latest_2\"}}",
+        "kind": 10000118
+      },
+      {
+        "created_at": 1700000030,
+        "id": "dm_latest_1",
+        "kind": 4,
+        "pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "created_at": 1700000020,
+        "id": "dm_latest_2",
+        "kind": 4,
+        "pubkey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      {
+        "content": "{\"name\":\"Peer\"}",
+        "id": "md_peer",
+        "kind": 0,
+        "pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "content": "{\"name\":\"Peer Alt\"}",
+        "id": "md_peer_alt",
+        "kind": 0,
+        "pubkey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      {
+        "content": "{\"order_by\":\"latest_at\",\"since\":20,\"until\":30}",
+        "kind": 10000113
+      }
+    ]
+  },
+  "status": 200
+}

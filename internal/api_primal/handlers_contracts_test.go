@@ -64,6 +64,9 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 	if reqFixture.MaxBatchSize <= 0 {
 		reqFixture.MaxBatchSize = 10
 	}
+	const dmReceiver = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const dmPeer = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const dmPeerAlt = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
 	eventRaw := mustReadJSON(t, "fixtures/event_store_raw.json")
 	profileRaw := mustReadJSON(t, "fixtures/profile_store_profile.json")
@@ -95,6 +98,16 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 					out[id] = eventRaw
 				case "evt_3":
 					out[id] = json.RawMessage(`{"id":"evt_3","kind":7,"content":"note-3"}`)
+				case "md_receiver":
+					out[id] = json.RawMessage(`{"id":"md_receiver","kind":0,"pubkey":"` + dmReceiver + `","content":"{\"name\":\"Receiver\"}"}`)
+				case "md_peer":
+					out[id] = json.RawMessage(`{"id":"md_peer","kind":0,"pubkey":"` + dmPeer + `","content":"{\"name\":\"Peer\"}"}`)
+				case "md_peer_alt":
+					out[id] = json.RawMessage(`{"id":"md_peer_alt","kind":0,"pubkey":"` + dmPeerAlt + `","content":"{\"name\":\"Peer Alt\"}"}`)
+				case "dm_latest_1":
+					out[id] = json.RawMessage(`{"id":"dm_latest_1","kind":4,"pubkey":"` + dmPeer + `","created_at":1700000030}`)
+				case "dm_latest_2":
+					out[id] = json.RawMessage(`{"id":"dm_latest_2","kind":4,"pubkey":"` + dmPeerAlt + `","created_at":1700000020}`)
 				}
 			}
 			return out, nil
@@ -136,6 +149,27 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 						MetadataEventID:   "evt_meta_2",
 						MetadataCreatedAt: 1700000500,
 						ProfileJSON:       json.RawMessage(`{"name":"XYZ"}`),
+					}
+				case dmReceiver:
+					out[pubkey] = store.ProfileProjection{
+						Pubkey:            dmReceiver,
+						MetadataEventID:   "md_receiver",
+						MetadataCreatedAt: 1700000005,
+						ProfileJSON:       json.RawMessage(`{"name":"Receiver"}`),
+					}
+				case dmPeer:
+					out[pubkey] = store.ProfileProjection{
+						Pubkey:            dmPeer,
+						MetadataEventID:   "md_peer",
+						MetadataCreatedAt: 1700000006,
+						ProfileJSON:       json.RawMessage(`{"name":"Peer"}`),
+					}
+				case dmPeerAlt:
+					out[pubkey] = store.ProfileProjection{
+						Pubkey:            dmPeerAlt,
+						MetadataEventID:   "md_peer_alt",
+						MetadataCreatedAt: 1700000007,
+						ProfileJSON:       json.RawMessage(`{"name":"Peer Alt"}`),
 					}
 				}
 			}
@@ -238,6 +272,42 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 				return store.RelayListProjection{}, store.ErrNotFound
 			}
 		},
+		getDirectMsgsRangeFn: func(_ context.Context, pubkey string, peer string, since int64, until int64, limit int, offset int) ([]json.RawMessage, error) {
+			if pubkey == "pubkey_store_err" || peer == "pubkey_store_err" {
+				return nil, errors.New("storage down")
+			}
+			if pubkey == dmReceiver && peer == dmPeer && since == 0 && until == 1700000100 && limit == 2 && offset == 0 {
+				return []json.RawMessage{
+					json.RawMessage(`{"id":"dm_2","kind":4,"pubkey":"` + dmPeer + `","created_at":20}`),
+					json.RawMessage(`{"id":"dm_1","kind":4,"pubkey":"` + dmReceiver + `","created_at":10}`),
+				}, nil
+			}
+			return []json.RawMessage{}, nil
+		},
+		getDMContactsDetailedFn: func(_ context.Context, receiver string, limit int, offset int, since int64, until int64) ([]json.RawMessage, error) {
+			if receiver == "pubkey_store_err" {
+				return nil, errors.New("storage down")
+			}
+			if receiver == dmReceiver && limit == 2 && offset == 0 && since == 0 && until == 1700000100 {
+				return []json.RawMessage{
+					json.RawMessage(`{"peer_pubkey":"` + dmPeer + `","cnt":3,"latest_at":30,"latest_event_id":"dm_latest_1"}`),
+					json.RawMessage(`{"peer_pubkey":"` + dmPeerAlt + `","cnt":1,"latest_at":20,"latest_event_id":"dm_latest_2"}`),
+				}, nil
+			}
+			return []json.RawMessage{}, nil
+		},
+		getDMCountFn: func(_ context.Context, receiver string, sender string) (int64, error) {
+			if receiver == "pubkey_store_err" || sender == "pubkey_store_err" {
+				return 0, errors.New("storage down")
+			}
+			if receiver == dmReceiver && sender == dmPeer {
+				return 7, nil
+			}
+			if receiver == dmReceiver && sender == "" {
+				return 8, nil
+			}
+			return 0, nil
+		},
 	}, reqFixture.MaxBatchSize)
 
 	mux := http.NewServeMux()
@@ -251,6 +321,12 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 	mux.HandleFunc("GET /primal/v1/events/{id}/actions", handlers.GetEventActions)
 	mux.HandleFunc("GET /primal/v1/contact-lists/{pubkey}", handlers.GetContactList)
 	mux.HandleFunc("GET /primal/v1/relay-lists/{pubkey}", handlers.GetRelayList)
+	mux.HandleFunc("POST /primal/v1/dms/messages", handlers.PostDirectMessages)
+	mux.HandleFunc("POST /primal/v1/dms/contacts", handlers.PostDirectMessageContacts)
+	mux.HandleFunc("POST /primal/v1/dms/count", handlers.PostDirectMessageCount)
+	mux.HandleFunc("POST /primal/v1/dms/count2", handlers.PostDirectMessageCount2)
+	mux.HandleFunc("POST /primal/v1/dms/reset-count", handlers.PostResetDirectMessageCount)
+	mux.HandleFunc("POST /primal/v1/dms/reset-counts", handlers.PostResetDirectMessageCounts)
 
 	reqBody := bytes.NewReader(nil)
 	if reqFixture.BodyText != "" {

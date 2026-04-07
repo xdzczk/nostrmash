@@ -51,6 +51,7 @@ targets = [
     "BenchmarkWSGatewayDispatchCacheCallUserInfos",
     "BenchmarkLoadFixtureFile",
     "BenchmarkDeriveEventReferences",
+    "BenchmarkComputeIterativeGlobalRankLarge",
 ]
 
 pattern = re.compile(r'^(Benchmark\S+?)(?:-\d+)?\s+\d+\s+([\d.]+)\s+ns/op')

@@ -1,0 +1,12 @@
+{
+  "method": "POST",
+  "path": "/primal/v1/dms/messages",
+  "body": {
+    "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "peer_pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "since": 0,
+    "until": 1700000100,
+    "limit": 2,
+    "offset": 0
+  }
+}
