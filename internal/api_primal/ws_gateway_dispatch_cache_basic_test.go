@@ -14,7 +14,7 @@ import (
 )
 
 func TestWSGateway_REQCacheEventsThenEOSE(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getEventRawsByIDs: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
 			out := map[string]json.RawMessage{}
 			for _, id := range ids {
@@ -67,7 +67,7 @@ func TestWSGateway_REQCacheEventsThenEOSE(t *testing.T) {
 }
 
 func TestWSGateway_REQIDsUsesRelayFallbackOnLocalMiss(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getEventRawsByIDs: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
 			return map[string]json.RawMessage{}, nil
 		},
@@ -122,7 +122,7 @@ func TestWSGateway_REQIDsUsesRelayFallbackOnLocalMiss(t *testing.T) {
 }
 
 func TestWSGateway_UnknownCacheRequestReturnsNotice(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{}, WSGatewayOptions{})
+	gateway := mustNewWSGateway(t, fakeEventReader{}, WSGatewayOptions{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /primal/ws", gateway.Handle)
 	server := httptest.NewServer(mux)
@@ -152,7 +152,7 @@ func TestWSGateway_UnknownCacheRequestReturnsNotice(t *testing.T) {
 }
 
 func TestWSGateway_CacheUserProfile(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getProfileByPubkey: func(_ context.Context, pubkey string) (store.ProfileProjection, error) {
 			return store.ProfileProjection{
 				Pubkey:            pubkey,
@@ -189,7 +189,7 @@ func TestWSGateway_CacheUserProfile(t *testing.T) {
 }
 
 func TestWSGateway_CacheUserProfileUsesRelayFallbackOnLocalMiss(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getProfileByPubkey: func(_ context.Context, pubkey string) (store.ProfileProjection, error) {
 			return store.ProfileProjection{}, store.ErrNotFound
 		},
@@ -247,7 +247,7 @@ func TestWSGateway_CacheUserProfileUsesRelayFallbackOnLocalMiss(t *testing.T) {
 }
 
 func TestWSGateway_CacheUserInfosUsesRelayFallbackOnLocalMiss(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
 			return map[string]store.ProfileProjection{}, nil
 		},
@@ -305,7 +305,7 @@ func TestWSGateway_CacheUserInfosUsesRelayFallbackOnLocalMiss(t *testing.T) {
 }
 
 func TestWSGateway_GetBookmarksReturnsSingleLatestEvent(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			if pubkey != "pk_bookmarks" || kind != 10003 || dTag != "" {
 				t.Fatalf("unexpected bookmark args pubkey=%s kind=%d dTag=%q", pubkey, kind, dTag)
@@ -339,7 +339,7 @@ func TestWSGateway_GetBookmarksReturnsSingleLatestEvent(t *testing.T) {
 
 func TestWSGateway_GetHighlightsByTargetIncludesMetadataAndRange(t *testing.T) {
 	const highlightAuthor = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getHighlightsByEventFn: func(_ context.Context, eventID string, limit int) ([]json.RawMessage, error) {
 			if eventID != "evt_target" || limit != 2 {
 				t.Fatalf("unexpected highlights args event_id=%s limit=%d", eventID, limit)

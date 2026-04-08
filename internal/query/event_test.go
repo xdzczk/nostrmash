@@ -33,7 +33,7 @@ func TestGetEventActionCountsAliasesLegacyMethod(t *testing.T) {
 
 func TestServiceGetActionCountsUsesSharedEventOrchestration(t *testing.T) {
 	t.Parallel()
-	svc := NewService(fakeReader{})
+	svc := mustNewService(t, fakeReader{})
 	svc.reader = readerWithCounts{
 		Reader: svc.reader,
 		getEventCountsFn: func(_ context.Context, eventID string) (EventCounts, error) {

@@ -7,7 +7,7 @@ import (
 )
 
 func TestUserDMRouteAbsentWhenOnlyMentionsAndFollowersRegistered(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{}, 10)
+	handlers := mustNewHandlers(t, fakeEventReader{}, 10)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/users/{pubkey}/mentions", handlers.GetMentions)
 	mux.HandleFunc("GET /api/v1/users/{pubkey}/followers", handlers.GetFollowers)

@@ -12,7 +12,7 @@ import (
 )
 
 func TestPrimalGetEventByID_LocalMissRelayFallbackSuccess(t *testing.T) {
-	handlers := NewHandlersWithOptions(fakeEventReader{
+	handlers := mustNewHandlersWithOptions(t, fakeEventReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -49,7 +49,7 @@ func TestPrimalGetEventByID_LocalMissRelayFallbackSuccess(t *testing.T) {
 }
 
 func TestPrimalGetEventByID_LocalMissRelayMissPreservesNotFound(t *testing.T) {
-	handlers := NewHandlersWithOptions(fakeEventReader{
+	handlers := mustNewHandlersWithOptions(t, fakeEventReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -74,7 +74,7 @@ func TestPrimalGetEventByID_LocalMissRelayMissPreservesNotFound(t *testing.T) {
 }
 
 func TestPrimalGetProfileByPubkey_LocalMissRelayFallbackSuccess(t *testing.T) {
-	handlers := NewHandlersWithOptions(fakeEventReader{
+	handlers := mustNewHandlersWithOptions(t, fakeEventReader{
 		getProfileByPubkey: func(context.Context, string) (store.ProfileProjection, error) {
 			return store.ProfileProjection{}, store.ErrNotFound
 		},

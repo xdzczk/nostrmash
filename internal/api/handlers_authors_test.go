@@ -11,7 +11,7 @@ import (
 )
 
 func TestGetAuthorEvents_SortsAlreadyProjectedOrder(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getAuthorEventsFn: func(_ context.Context, _ string, limit int) ([]json.RawMessage, error) {
 			if limit != 20 {
 				t.Fatalf("unexpected default limit: %d", limit)
@@ -35,7 +35,7 @@ func TestGetAuthorEvents_SortsAlreadyProjectedOrder(t *testing.T) {
 }
 
 func TestGetAuthorReplies_ReturnsItems(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getAuthorRepliesFn: func(_ context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
 			if pubkey != "pubkey_x" || limit != 20 {
 				t.Fatalf("unexpected args: pubkey=%s limit=%d", pubkey, limit)
@@ -64,7 +64,7 @@ func TestGetAuthorReplies_ReturnsItems(t *testing.T) {
 }
 
 func TestGetEventCounts_ExposesEventualConsistency(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventCountsFn: func(_ context.Context, id string) (store.EventCounts, error) {
 			return store.EventCounts{
 				EventID:       id,

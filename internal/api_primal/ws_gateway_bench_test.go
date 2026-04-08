@@ -14,7 +14,7 @@ func BenchmarkWSGatewayDispatchCacheCallThreadView(b *testing.B) {
 		json.RawMessage(`{"id":"reply_2","created_at":2}`),
 		json.RawMessage(`{"id":"reply_3","created_at":3}`),
 	}
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(b, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, _ string) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"evt_root","created_at":1}`), nil
 		},
@@ -47,7 +47,7 @@ func BenchmarkWSGatewayDispatchCacheCallThreadView(b *testing.B) {
 }
 
 func BenchmarkWSGatewayDispatchCacheCallUserInfos(b *testing.B) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(b, fakeEventReader{
 		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
 			out := make(map[string]store.ProfileProjection, len(pubkeys))
 			for _, pubkey := range pubkeys {

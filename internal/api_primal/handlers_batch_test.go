@@ -13,7 +13,7 @@ import (
 )
 
 func TestPrimalBatchUserInfosEndpoint(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
 			return map[string]store.ProfileProjection{
 				pubkeys[0]: {
@@ -43,7 +43,7 @@ func TestPrimalBatchUserInfosEndpoint(t *testing.T) {
 	}
 }
 func TestPrimalBatchEndpoints_RejectOversizedPayloads(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{}, 10)
+	handlers := mustNewHandlers(t, fakeEventReader{}, 10)
 
 	tooLargeIDs := bytes.Repeat([]byte("a"), int(publicBatchBodyLimitBytes+10))
 	eventsBody := []byte(`{"event_ids":["` + string(tooLargeIDs) + `"]}`)

@@ -12,7 +12,7 @@ import (
 
 func TestWSGateway_DMResetRequiresSignedAuthEvent(t *testing.T) {
 	const peerPubkey = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	gateway := NewWSGateway(fakeEventReader{}, WSGatewayOptions{})
+	gateway := mustNewWSGateway(t, fakeEventReader{}, WSGatewayOptions{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /primal/ws", gateway.Handle)
 	server := httptest.NewServer(mux)

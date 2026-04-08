@@ -16,7 +16,7 @@ func TestWSGateway_GetDirectMsgContactsContractOrdering(t *testing.T) {
 	const receiver = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const peer1 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const peer2 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getDMContactsDetailedFn: func(_ context.Context, r string, limit int, offset int, since int64, until int64) ([]json.RawMessage, error) {
 			return []json.RawMessage{
 				json.RawMessage(`{"peer_pubkey":"` + peer1 + `","cnt":3,"latest_at":30,"latest_event_id":"dm_latest_1"}`),
@@ -112,7 +112,7 @@ func TestWSGateway_GetDirectMsgContactsRelationFiltering(t *testing.T) {
 	const receiver = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const followedPeer = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const otherPeer = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getDMContactsDetailedFn: func(_ context.Context, r string, limit int, offset int, since int64, until int64) ([]json.RawMessage, error) {
 			return []json.RawMessage{
 				json.RawMessage(`{"peer_pubkey":"` + followedPeer + `","cnt":3,"latest_at":30,"latest_event_id":"dm_latest_1"}`),

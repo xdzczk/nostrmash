@@ -38,6 +38,7 @@ These pages are authoritative, but they are best used as targeted references:
 - [testing.md](testing.md): CI gates, race policy, coverage, fuzzing, benchmarks, and contract drift
 - [migrations.md](migrations.md): schema safety and rollout posture
 - [performance.md](performance.md): hot-path ownership and evidence collection
+- [hotspot-watchlist.md](hotspot-watchlist.md): maintainability risk watchlist for structurally fragile code surfaces
 - [compatibility.md](compatibility.md): compatibility and deprecation policy
 - [primal_compatibility_matrix.md](primal_compatibility_matrix.md): exact compatibility inventory
 - [compatibility_rollout.md](compatibility_rollout.md): staged adoption plan
@@ -66,6 +67,7 @@ Each topic has one canonical home:
 | Compatibility and deprecation policy | [compatibility.md](compatibility.md) |
 | Migration safety | [migrations.md](migrations.md) |
 | Performance ownership and evidence | [performance.md](performance.md) |
+| Maintainability hotspot watchlist | [hotspot-watchlist.md](hotspot-watchlist.md) |
 | Trust subsystem design | [architecture/trust-subsystem.md](architecture/trust-subsystem.md) |
 
 ## Notes

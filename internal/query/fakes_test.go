@@ -4,7 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"testing"
 )
+
+func mustNewService(tb testing.TB, reader any) Service {
+	tb.Helper()
+	svc, err := NewService(reader)
+	if err != nil {
+		tb.Fatalf("NewService: %v", err)
+	}
+	return svc
+}
+
+func mustNewServiceWithOptions(tb testing.TB, reader any, options ServiceOptions) Service {
+	tb.Helper()
+	svc, err := NewServiceWithOptions(reader, options)
+	if err != nil {
+		tb.Fatalf("NewServiceWithOptions: %v", err)
+	}
+	return svc
+}
 
 type fakeThreadReader struct {
 	getEventRawByIDFn           func(ctx context.Context, id string) (json.RawMessage, error)

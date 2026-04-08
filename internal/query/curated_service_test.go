@@ -11,7 +11,7 @@ import (
 
 func TestGetNetworkStatsMapsLegacyStoreModel(t *testing.T) {
 	t.Parallel()
-	svc := NewService(curatedLegacyReader{
+	svc := mustNewService(t, curatedLegacyReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, store.ErrNotFound
@@ -32,7 +32,7 @@ func TestGetNetworkStatsMapsLegacyStoreModel(t *testing.T) {
 
 func TestGetCuratedRecommendedReadsMapsLegacyStoreModel(t *testing.T) {
 	t.Parallel()
-	svc := NewService(curatedLegacyReader{
+	svc := mustNewService(t, curatedLegacyReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, store.ErrNotFound
@@ -58,7 +58,7 @@ func TestGetCuratedRecommendedReadsMapsLegacyStoreModel(t *testing.T) {
 
 func TestGetCuratedReadsTopicsMapsLegacyStoreModel(t *testing.T) {
 	t.Parallel()
-	svc := NewService(curatedLegacyReader{
+	svc := mustNewService(t, curatedLegacyReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, store.ErrNotFound
@@ -79,7 +79,7 @@ func TestGetCuratedReadsTopicsMapsLegacyStoreModel(t *testing.T) {
 
 func TestGetCuratedFeaturedAuthorsMapsLegacyStoreModel(t *testing.T) {
 	t.Parallel()
-	svc := NewService(curatedLegacyReader{
+	svc := mustNewService(t, curatedLegacyReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, store.ErrNotFound

@@ -13,7 +13,7 @@ import (
 )
 
 func TestWSGateway_GetRecommendedReadsEmitsCuratedKindPayload(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getCuratedRecommendedReadsFn: func(_ context.Context, limit int) ([]store.CuratedRecommendedRead, error) {
 			if limit != 2 {
 				t.Fatalf("unexpected recommended reads limit: %d", limit)
@@ -61,7 +61,7 @@ func TestWSGateway_GetRecommendedReadsEmitsCuratedKindPayload(t *testing.T) {
 }
 
 func TestWSGateway_GetReadsTopicsEmitsCuratedKindPayload(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getCuratedReadsTopicsFn: func(_ context.Context, limit int) ([]store.CuratedReadsTopic, error) {
 			if limit != 2 {
 				t.Fatalf("unexpected reads topics limit: %d", limit)
@@ -111,7 +111,7 @@ func TestWSGateway_GetReadsTopicsEmitsCuratedKindPayload(t *testing.T) {
 func TestWSGateway_GetFeaturedAuthorsIncludesMetadata(t *testing.T) {
 	const authorA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const authorB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getCuratedFeaturedAuthorsFn: func(_ context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
 			if limit != 2 {
 				t.Fatalf("unexpected featured authors limit: %d", limit)
@@ -174,7 +174,7 @@ func TestWSGateway_GetFeaturedAuthorsIncludesMetadata(t *testing.T) {
 }
 
 func TestWSGateway_CreatorPaidTiersPrefersLiveEventChain(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getByKindPubkeyFn: func(_ context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error) {
 			if kind != 17000 || pubkey != "pk_tiers" || limit != 1 {
 				t.Fatalf("unexpected creator paid tiers source query kind=%d pubkey=%s limit=%d", kind, pubkey, limit)
@@ -220,7 +220,7 @@ func TestWSGateway_CreatorPaidTiersPrefersLiveEventChain(t *testing.T) {
 
 func TestWSGateway_UserOfLNAddressReturnsUserPubkeyAndMetadata(t *testing.T) {
 	const pubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getPubkeyByLNAddressFn: func(_ context.Context, lnAddress string) (string, error) {
 			switch lnAddress {
 			case "alice@example.com":

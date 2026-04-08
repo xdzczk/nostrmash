@@ -14,7 +14,7 @@ import (
 func TestWSGateway_DirectMessagesRateLimitAndValidation(t *testing.T) {
 	const validPubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const peerPubkey = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getDirectMsgsRangeFn: func(_ context.Context, pubkey string, peer string, since int64, until int64, limit int, offset int) ([]json.RawMessage, error) {
 			if pubkey != validPubkey || peer != peerPubkey || limit != 1 {
 				t.Fatalf("unexpected DM query args pubkey=%s peer=%s limit=%d", pubkey, peer, limit)

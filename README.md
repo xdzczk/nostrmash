@@ -2,7 +2,7 @@
 
 Run your own Nostr data plane with durable ingest, rebuildable read models, and plug-in compatibility for existing clients.
 
-![NostrMash hero banner](docs/readme-hero.svg)
+![NostrMash logo](docs/NostrMashLogoTransparent.svg)
 
 [![CI](https://github.com/xdzczk/nostrmash/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xdzczk/nostrmash/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/xdzczk/nostrmash?display_name=tag)](https://github.com/xdzczk/nostrmash/releases)
@@ -160,13 +160,15 @@ If you want the day-to-day local workflow instead of the one-command boot path, 
 
 ## Quality checks
 
-Use [CONTRIBUTING.md](CONTRIBUTING.md) as the contributor entrypoint. The shortest path to CI parity is:
+Use [CONTRIBUTING.md](CONTRIBUTING.md) as the contributor entrypoint. The canonical reproducible verification path (pinned toolchain + ephemeral Postgres) is:
 
 ```bash
-make ci
+make verify-docker
 ```
 
-Common follow-up commands:
+Use `make verify-local` or `make ci` when you already have Go `1.26.2` and local dependencies aligned and want faster inner-loop checks.
+
+Common local follow-up commands:
 
 ```bash
 make format
@@ -177,7 +179,7 @@ make cover
 
 - Minimum supported language/runtime version: Go `1.26` (`go.mod` uses `go 1.26`)
 - Recommended local toolchain: Go `1.26.2` (`go.mod` uses `toolchain go1.26.2`)
-- CI and Docker builders are pinned to Go `1.26.2` for reproducible verification
+- CI and Docker builders are pinned to Go `1.26.2` for reproducible verification (including `make verify-docker`)
 
 Why this split:
 
@@ -186,7 +188,13 @@ Why this split:
 
 ## Local verification commands
 
-Use these when validating changes against the intended Go `1.26.x` policy:
+Prefer the containerized path for outsider/reviewer verification:
+
+```bash
+make verify-docker
+```
+
+Use local/native commands when validating changes against the intended Go `1.26.x` policy:
 
 ```bash
 # Build

@@ -13,7 +13,7 @@ import (
 
 func TestGetEventWithProvenance_LocalHitIsStrong(t *testing.T) {
 	t.Parallel()
-	svc := NewService(fakeReader{
+	svc := mustNewService(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -43,7 +43,7 @@ func TestGetEventWithProvenance_LocalHitIsStrong(t *testing.T) {
 
 func TestGetEventWithProvenance_LocalMissUsesFallback(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(readerWithProvenance{
+	svc := mustNewServiceWithOptions(t, readerWithProvenance{
 		Reader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, store.ErrNotFound
@@ -74,7 +74,7 @@ func TestGetEventWithProvenance_LocalMissUsesFallback(t *testing.T) {
 func TestGetEventReplies_NormalizesLimit(t *testing.T) {
 	t.Parallel()
 	calledLimit := 0
-	svc := NewService(fakeReader{
+	svc := mustNewService(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -97,7 +97,7 @@ func TestGetEventReplies_NormalizesLimit(t *testing.T) {
 
 func TestGetBookmarks_UsesReplaceableBeforeKindFallback(t *testing.T) {
 	t.Parallel()
-	svc := NewService(bookmarksReader{
+	svc := mustNewService(t, bookmarksReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, store.ErrNotFound
@@ -238,7 +238,7 @@ func (r bookmarksReader) GetFollowersByPubkey(ctx context.Context, targetPubkey 
 
 func TestGetEventWithProvenance_LocalMissFallbackMissReturnsNotFound(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(readerWithProvenance{
+	svc := mustNewServiceWithOptions(t, readerWithProvenance{
 		Reader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, store.ErrNotFound

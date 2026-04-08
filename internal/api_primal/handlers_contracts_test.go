@@ -70,7 +70,7 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 
 	eventRaw := mustReadJSON(t, "fixtures/event_store_raw.json")
 	profileRaw := mustReadJSON(t, "fixtures/profile_store_profile.json")
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, id string) (json.RawMessage, error) {
 			switch id {
 			case "evt_123":

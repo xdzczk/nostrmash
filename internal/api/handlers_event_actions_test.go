@@ -19,7 +19,7 @@ func TestGetEventReplies_UsesCursorAndReturnsNextCursor(t *testing.T) {
 		t.Fatalf("encode cursor: %v", err)
 	}
 
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRepliesFn: func(_ context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error) {
 			if eventID != "evt_parent" {
 				t.Fatalf("unexpected event id: %s", eventID)

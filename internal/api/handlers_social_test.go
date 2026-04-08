@@ -9,7 +9,7 @@ import (
 )
 
 func TestGetMentions_ReturnsReferencedEvents(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getRefsPubkeyFn: func(_ context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
 			if pubkey != "pk1" {
 				t.Fatalf("unexpected pubkey: %s", pubkey)

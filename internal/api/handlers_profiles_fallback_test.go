@@ -12,7 +12,7 @@ import (
 )
 
 func TestGetProfileByPubkey_LocalMissRelayFallbackSuccess(t *testing.T) {
-	handlers := NewHandlersWithOptions(fakeEventReader{
+	handlers := mustNewHandlersWithOptions(t, fakeEventReader{
 		getProfileByPubkey: func(context.Context, string) (store.ProfileProjection, error) {
 			return store.ProfileProjection{}, store.ErrNotFound
 		},

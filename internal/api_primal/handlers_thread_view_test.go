@@ -17,7 +17,7 @@ func TestGetThreadView_UsesSharedServiceAndPreservesPrimalShape(t *testing.T) {
 		t.Fatalf("encode cursor: %v", err)
 	}
 	next := &store.EventOrderCursor{CreatedAt: 999, ID: "evt_next"}
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, eventID string) (json.RawMessage, error) {
 			if eventID != "evt_parent" {
 				t.Fatalf("unexpected event id: %s", eventID)
@@ -80,7 +80,7 @@ func TestGetThreadView_UsesSharedServiceAndPreservesPrimalShape(t *testing.T) {
 }
 
 func TestGetThreadView_NotFoundWhenFocalEventMissing(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, _ string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -105,7 +105,7 @@ func TestGetThreadView_NotFoundWhenFocalEventMissing(t *testing.T) {
 }
 
 func TestGetThreadView_AncestorNotFoundStillInternalError(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, _ string) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"evt_parent"}`), nil
 		},

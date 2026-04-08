@@ -13,7 +13,7 @@ import (
 )
 
 func TestBatchGetEvents_EnforcesConfiguredLimit(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{}, 2)
+	handlers := mustNewHandlers(t, fakeEventReader{}, 2)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/events/batch", strings.NewReader(`{"ids":["a","b","c"]}`))
 	rec := httptest.NewRecorder()
 	WithRequestID(http.HandlerFunc(handlers.BatchGetEvents)).ServeHTTP(rec, req)
@@ -40,7 +40,7 @@ func TestBatchGetEvents_EnforcesConfiguredLimit(t *testing.T) {
 }
 
 func TestGetEventSeenOn_Success(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventSeenOnByID: func(_ context.Context, id string) ([]model.EventRelay, error) {
 			return []model.EventRelay{
 				{EventID: id, RelayURL: "wss://relay.one", SeenAt: time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)},

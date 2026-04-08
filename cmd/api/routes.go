@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/api"
@@ -12,16 +13,50 @@ import (
 type routeDefinition struct {
 	Pattern      string
 	OwnsContract bool
-	Target       routeTarget
 	Handler      http.Handler
+	register     routeRegistrar
 }
 
-type routeTarget uint8
+type routeRegistrar func(publicMux, adminMux *http.ServeMux, pattern string, handler http.Handler)
 
-const (
-	publicRoute routeTarget = iota
-	adminRoute
-)
+func registerPublicRoute(publicMux, _ *http.ServeMux, pattern string, handler http.Handler) {
+	publicMux.Handle(pattern, handler)
+}
+
+func registerAdminRoute(_ *http.ServeMux, adminMux *http.ServeMux, pattern string, handler http.Handler) {
+	adminMux.Handle(pattern, handler)
+}
+
+func newPublicRoute(pattern string, ownsContract bool, handler http.Handler) routeDefinition {
+	return newRouteDefinition(pattern, ownsContract, handler, registerPublicRoute)
+}
+
+func newAdminRoute(pattern string, ownsContract bool, handler http.Handler) routeDefinition {
+	return newRouteDefinition(pattern, ownsContract, handler, registerAdminRoute)
+}
+
+func newRouteDefinition(
+	pattern string,
+	ownsContract bool,
+	handler http.Handler,
+	register routeRegistrar,
+) routeDefinition {
+	if strings.TrimSpace(pattern) == "" {
+		panic("route pattern is required")
+	}
+	if handler == nil {
+		panic("route handler is required")
+	}
+	if register == nil {
+		panic("route registrar is required")
+	}
+	return routeDefinition{
+		Pattern:      pattern,
+		OwnsContract: ownsContract,
+		Handler:      handler,
+		register:     register,
+	}
+}
 
 func buildRouteDefinitions(
 	pool *pgxpool.Pool,
@@ -31,93 +66,74 @@ func buildRouteDefinitions(
 	adminHandlers api.AdminHandlers,
 ) []routeDefinition {
 	return []routeDefinition{
-		{
-			Pattern:      "GET /health",
-			OwnsContract: true,
-			Target:       publicRoute,
-			Handler:      http.HandlerFunc(api.Health),
-		},
-		{
-			Pattern:      "GET /ready",
-			OwnsContract: true,
-			Target:       publicRoute,
-			Handler:      api.Ready(pool),
-		},
-		{
-			Pattern:      "GET /metrics",
-			OwnsContract: true,
-			Target:       publicRoute,
-			Handler:      metrics.Handler(),
-		},
+		newPublicRoute("GET /health", true, http.HandlerFunc(api.Health)),
+		newPublicRoute("GET /ready", true, api.Ready(pool)),
+		newPublicRoute("GET /metrics", true, metrics.Handler()),
 
-		{Pattern: "GET /api/v1/events/{id}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetEventByID)},
-		{Pattern: "POST /api/v1/events/batch", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.BatchGetEvents)},
-		{Pattern: "GET /api/v1/events/{id}/seen-on", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetEventSeenOn)},
-		{Pattern: "GET /api/v1/profiles/{pubkey}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetProfileByPubkey)},
-		{Pattern: "POST /api/v1/profiles/batch", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.BatchGetProfiles)},
-		{Pattern: "GET /api/v1/authors/{pubkey}/events", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetAuthorEvents)},
-		{Pattern: "GET /api/v1/authors/{pubkey}/replies", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetAuthorReplies)},
-		{Pattern: "GET /api/v1/events/{id}/counts", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetEventCounts)},
-		{Pattern: "GET /api/v1/events/{id}/replies", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetEventReplies)},
-		{Pattern: "GET /api/v1/events/{id}/ancestors", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetEventAncestors)},
-		{Pattern: "GET /api/v1/threads/{eventId}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetThread)},
-		{Pattern: "GET /api/v1/relays/health", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetRelaysHealth)},
-		{Pattern: "GET /api/v1/contact-lists/{pubkey}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetContactList)},
-		{Pattern: "GET /api/v1/relay-lists/{pubkey}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetRelayList)},
-		{Pattern: "GET /api/v1/search", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.Search)},
-		{Pattern: "GET /api/v1/users/{pubkey}/bookmarks", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetBookmarks)},
-		{Pattern: "GET /api/v1/users/{pubkey}/highlights", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetHighlights)},
-		{Pattern: "GET /api/v1/users/{pubkey}/long-form", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetLongForm)},
-		{Pattern: "GET /api/v1/users/{pubkey}/zaps", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetZaps)},
-		{Pattern: "GET /api/v1/users/{pubkey}/mentions", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetMentions)},
-		{Pattern: "GET /api/v1/users/{pubkey}/followers", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetFollowers)},
-		{Pattern: "GET /api/v1/trust/scores/{pubkey}", OwnsContract: false, Target: publicRoute, Handler: http.HandlerFunc(handlers.GetTrustScore)},
-		{Pattern: "GET /api/v1/trust/scores", OwnsContract: false, Target: publicRoute, Handler: http.HandlerFunc(handlers.ListTopTrustScores)},
+		newPublicRoute("GET /api/v1/events/{id}", true, http.HandlerFunc(handlers.GetEventByID)),
+		newPublicRoute("POST /api/v1/events/batch", true, http.HandlerFunc(handlers.BatchGetEvents)),
+		newPublicRoute("GET /api/v1/events/{id}/seen-on", true, http.HandlerFunc(handlers.GetEventSeenOn)),
+		newPublicRoute("GET /api/v1/profiles/{pubkey}", true, http.HandlerFunc(handlers.GetProfileByPubkey)),
+		newPublicRoute("POST /api/v1/profiles/batch", true, http.HandlerFunc(handlers.BatchGetProfiles)),
+		newPublicRoute("GET /api/v1/authors/{pubkey}/events", true, http.HandlerFunc(handlers.GetAuthorEvents)),
+		newPublicRoute("GET /api/v1/authors/{pubkey}/replies", true, http.HandlerFunc(handlers.GetAuthorReplies)),
+		newPublicRoute("GET /api/v1/events/{id}/counts", true, http.HandlerFunc(handlers.GetEventCounts)),
+		newPublicRoute("GET /api/v1/events/{id}/replies", true, http.HandlerFunc(handlers.GetEventReplies)),
+		newPublicRoute("GET /api/v1/events/{id}/ancestors", true, http.HandlerFunc(handlers.GetEventAncestors)),
+		newPublicRoute("GET /api/v1/threads/{eventId}", true, http.HandlerFunc(handlers.GetThread)),
+		newPublicRoute("GET /api/v1/relays/health", true, http.HandlerFunc(handlers.GetRelaysHealth)),
+		newPublicRoute("GET /api/v1/contact-lists/{pubkey}", true, http.HandlerFunc(handlers.GetContactList)),
+		newPublicRoute("GET /api/v1/relay-lists/{pubkey}", true, http.HandlerFunc(handlers.GetRelayList)),
+		newPublicRoute("GET /api/v1/search", true, http.HandlerFunc(handlers.Search)),
+		newPublicRoute("GET /api/v1/users/{pubkey}/bookmarks", true, http.HandlerFunc(handlers.GetBookmarks)),
+		newPublicRoute("GET /api/v1/users/{pubkey}/highlights", true, http.HandlerFunc(handlers.GetHighlights)),
+		newPublicRoute("GET /api/v1/users/{pubkey}/long-form", true, http.HandlerFunc(handlers.GetLongForm)),
+		newPublicRoute("GET /api/v1/users/{pubkey}/zaps", true, http.HandlerFunc(handlers.GetZaps)),
+		newPublicRoute("GET /api/v1/users/{pubkey}/mentions", true, http.HandlerFunc(handlers.GetMentions)),
+		newPublicRoute("GET /api/v1/users/{pubkey}/followers", true, http.HandlerFunc(handlers.GetFollowers)),
+		newPublicRoute("GET /api/v1/trust/scores/{pubkey}", false, http.HandlerFunc(handlers.GetTrustScore)),
+		newPublicRoute("GET /api/v1/trust/scores", false, http.HandlerFunc(handlers.ListTopTrustScores)),
 
-		{Pattern: "GET /primal/v1/events/{id}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetEventByID)},
-		{Pattern: "POST /primal/v1/events/batch", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.BatchGetEvents)},
-		{Pattern: "GET /primal/v1/profiles/{pubkey}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetProfileByPubkey)},
-		{Pattern: "POST /primal/v1/user_infos", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.BatchGetUserInfos)},
-		{Pattern: "GET /primal/v1/threads/{eventId}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetThreadView)},
-		{Pattern: "GET /primal/v1/authors/{pubkey}/events", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetAuthorEvents)},
-		{Pattern: "GET /primal/v1/authors/{pubkey}/replies", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetAuthorReplies)},
-		{Pattern: "GET /primal/v1/events/{id}/actions", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetEventActions)},
-		{Pattern: "GET /primal/v1/contact-lists/{pubkey}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetContactList)},
-		{Pattern: "GET /primal/v1/relay-lists/{pubkey}", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.GetRelayList)},
-		{Pattern: "POST /primal/v1/dms/messages", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostDirectMessages)},
-		{Pattern: "POST /primal/v1/dms/contacts", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostDirectMessageContacts)},
-		{Pattern: "POST /primal/v1/dms/count", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostDirectMessageCount)},
-		{Pattern: "POST /primal/v1/dms/count2", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostDirectMessageCount2)},
-		{Pattern: "POST /primal/v1/dms/reset-count", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostResetDirectMessageCount)},
-		{Pattern: "POST /primal/v1/dms/reset-counts", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalHandlers.PostResetDirectMessageCounts)},
-		{Pattern: "GET /primal/ws", OwnsContract: true, Target: publicRoute, Handler: http.HandlerFunc(primalWS.Handle)},
+		newPublicRoute("GET /primal/v1/events/{id}", true, http.HandlerFunc(primalHandlers.GetEventByID)),
+		newPublicRoute("POST /primal/v1/events/batch", true, http.HandlerFunc(primalHandlers.BatchGetEvents)),
+		newPublicRoute("GET /primal/v1/profiles/{pubkey}", true, http.HandlerFunc(primalHandlers.GetProfileByPubkey)),
+		newPublicRoute("POST /primal/v1/user_infos", true, http.HandlerFunc(primalHandlers.BatchGetUserInfos)),
+		newPublicRoute("GET /primal/v1/threads/{eventId}", true, http.HandlerFunc(primalHandlers.GetThreadView)),
+		newPublicRoute("GET /primal/v1/authors/{pubkey}/events", true, http.HandlerFunc(primalHandlers.GetAuthorEvents)),
+		newPublicRoute("GET /primal/v1/authors/{pubkey}/replies", true, http.HandlerFunc(primalHandlers.GetAuthorReplies)),
+		newPublicRoute("GET /primal/v1/events/{id}/actions", true, http.HandlerFunc(primalHandlers.GetEventActions)),
+		newPublicRoute("GET /primal/v1/contact-lists/{pubkey}", true, http.HandlerFunc(primalHandlers.GetContactList)),
+		newPublicRoute("GET /primal/v1/relay-lists/{pubkey}", true, http.HandlerFunc(primalHandlers.GetRelayList)),
+		newPublicRoute("POST /primal/v1/dms/messages", true, http.HandlerFunc(primalHandlers.PostDirectMessages)),
+		newPublicRoute("POST /primal/v1/dms/contacts", true, http.HandlerFunc(primalHandlers.PostDirectMessageContacts)),
+		newPublicRoute("POST /primal/v1/dms/count", true, http.HandlerFunc(primalHandlers.PostDirectMessageCount)),
+		newPublicRoute("POST /primal/v1/dms/count2", true, http.HandlerFunc(primalHandlers.PostDirectMessageCount2)),
+		newPublicRoute("POST /primal/v1/dms/reset-count", true, http.HandlerFunc(primalHandlers.PostResetDirectMessageCount)),
+		newPublicRoute("POST /primal/v1/dms/reset-counts", true, http.HandlerFunc(primalHandlers.PostResetDirectMessageCounts)),
+		newPublicRoute("GET /primal/ws", true, http.HandlerFunc(primalWS.Handle)),
 
-		{Pattern: "GET /admin/v1/relays", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetRelays)},
-		{Pattern: "GET /admin/v1/relays/suggestions", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetRelaySuggestions)},
-		{Pattern: "GET /admin/v1/jobs", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetJobs)},
-		{Pattern: "GET /admin/v1/invalid-events", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetInvalidEvents)},
-		{Pattern: "GET /admin/v1/rebuilds", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetRebuilds)},
-		{Pattern: "POST /admin/v1/rebuilds", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.TriggerRebuild)},
-		{Pattern: "GET /admin/v1/storage", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetStorage)},
-		{Pattern: "GET /admin/v1/system", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetSystem)},
-		{Pattern: "GET /admin/v1/derivation-versions", OwnsContract: true, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetDerivationVersions)},
-		{Pattern: "GET /admin/v1/trust/runs", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetTrustRuns)},
-		{Pattern: "GET /admin/v1/trust/runs/{runID}", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetTrustRun)},
-		{Pattern: "POST /admin/v1/trust/runs", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.TriggerTrustRun)},
-		{Pattern: "GET /admin/v1/trust/scores", OwnsContract: false, Target: adminRoute, Handler: http.HandlerFunc(adminHandlers.GetTopTrustScores)},
+		newAdminRoute("GET /admin/v1/relays", true, http.HandlerFunc(adminHandlers.GetRelays)),
+		newAdminRoute("GET /admin/v1/relays/suggestions", false, http.HandlerFunc(adminHandlers.GetRelaySuggestions)),
+		newAdminRoute("GET /admin/v1/jobs", true, http.HandlerFunc(adminHandlers.GetJobs)),
+		newAdminRoute("GET /admin/v1/invalid-events", true, http.HandlerFunc(adminHandlers.GetInvalidEvents)),
+		newAdminRoute("GET /admin/v1/rebuilds", true, http.HandlerFunc(adminHandlers.GetRebuilds)),
+		newAdminRoute("POST /admin/v1/rebuilds", true, http.HandlerFunc(adminHandlers.TriggerRebuild)),
+		newAdminRoute("GET /admin/v1/storage", true, http.HandlerFunc(adminHandlers.GetStorage)),
+		newAdminRoute("GET /admin/v1/system", true, http.HandlerFunc(adminHandlers.GetSystem)),
+		newAdminRoute("GET /admin/v1/derivation-versions", true, http.HandlerFunc(adminHandlers.GetDerivationVersions)),
+		newAdminRoute("GET /admin/v1/trust/runs", false, http.HandlerFunc(adminHandlers.GetTrustRuns)),
+		newAdminRoute("GET /admin/v1/trust/runs/{runID}", false, http.HandlerFunc(adminHandlers.GetTrustRun)),
+		newAdminRoute("POST /admin/v1/trust/runs", false, http.HandlerFunc(adminHandlers.TriggerTrustRun)),
+		newAdminRoute("GET /admin/v1/trust/scores", false, http.HandlerFunc(adminHandlers.GetTopTrustScores)),
 	}
 }
 
 func registerDeclaredRoutes(publicMux, adminMux *http.ServeMux, defs []routeDefinition) {
 	for _, route := range defs {
-		switch route.Target {
-		case publicRoute:
-			publicMux.Handle(route.Pattern, route.Handler)
-		case adminRoute:
-			adminMux.Handle(route.Pattern, route.Handler)
-		default:
-			panic("unsupported route target")
+		if route.register == nil {
+			panic("route registrar is required")
 		}
+		route.register(publicMux, adminMux, route.Pattern, route.Handler)
 	}
 }
 

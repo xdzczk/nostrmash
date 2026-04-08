@@ -59,6 +59,14 @@ Migrations are embedded and auto-run on startup, so you do not need a separate m
 
 ## Common loops
 
+Run the canonical reproducible verification path (pinned Go `1.26.2` container + isolated Postgres sidecar):
+
+```bash
+make verify-docker
+```
+
+Use this when you need outsider/reviewer parity and want to avoid host toolchain drift.
+
 Run the same quality gate as CI:
 
 ```bash
@@ -70,6 +78,8 @@ Run the same gate with clean local artifacts (recommended before PR updates):
 ```bash
 make verify-local
 ```
+
+Use `make verify-local` when your host is already aligned to Go `1.26.2` and you want faster iteration than containerized verification.
 
 `make verify-local` runs the full `make ci` gate with an isolated coverage profile under `.tmp/` and then cleans generated verification artifacts (`coverage.out`, `coverage-summary.txt`, `.tmp`), so repeated runs stay reproducible and do not leak junk files into export/release workflows.
 

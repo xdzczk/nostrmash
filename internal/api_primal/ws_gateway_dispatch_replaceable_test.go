@@ -13,7 +13,7 @@ import (
 )
 
 func TestWSGateway_ParameterizedReplaceableListRequiresIdentifier(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{}, WSGatewayOptions{})
+	gateway := mustNewWSGateway(t, fakeEventReader{}, WSGatewayOptions{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /primal/ws", gateway.Handle)
 	server := httptest.NewServer(mux)
@@ -59,7 +59,7 @@ func TestWSGateway_ParameterizedReplaceableListRequiresIdentifier(t *testing.T) 
 }
 
 func TestWSGateway_ParameterizedReplaceableListAllowsEmptyIdentifier(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamListByIdentifierFn: func(_ context.Context, pubkey string, kind int, identifier string, limit int) ([]json.RawMessage, error) {
 			if pubkey != "pk" || kind != 30000 || identifier != "" || limit != 1 {
 				t.Fatalf("unexpected list lookup args pubkey=%s kind=%d identifier=%q limit=%d", pubkey, kind, identifier, limit)
@@ -93,7 +93,7 @@ func TestWSGateway_ParameterizedReplaceableListAllowsEmptyIdentifier(t *testing.
 }
 
 func TestWSGateway_ParameterizedReplaceableListSupportsDTagAlias(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamListByIdentifierFn: func(_ context.Context, pubkey string, kind int, identifier string, limit int) ([]json.RawMessage, error) {
 			if pubkey != "pk" || kind != 30000 || identifier != "from-d-tag" || limit != 1 {
 				t.Fatalf("unexpected list lookup args pubkey=%s kind=%d identifier=%q limit=%d", pubkey, kind, identifier, limit)
@@ -127,7 +127,7 @@ func TestWSGateway_ParameterizedReplaceableListSupportsDTagAlias(t *testing.T) {
 }
 
 func TestWSGateway_ParametrizedReplaceableEventsSupportsEventsVector(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			switch {
 			case pubkey == "pk_a" && kind == 30023 && dTag == "read-a":
@@ -170,7 +170,7 @@ func TestWSGateway_ParametrizedReplaceableEventsSupportsEventsVector(t *testing.
 }
 
 func TestWSGateway_ParametrizedReplaceableEventSupportsIdentifierAndDTag(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			switch {
 			case pubkey == "pk" && kind == 30023 && dTag == "from-identifier":

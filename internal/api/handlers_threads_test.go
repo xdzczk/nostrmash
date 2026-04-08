@@ -19,7 +19,7 @@ func TestGetThread_UsesSharedServiceAndPreservesResponseShape(t *testing.T) {
 	}
 	next := &store.EventOrderCursor{CreatedAt: 999, ID: "evt_next"}
 
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, eventID string) (json.RawMessage, error) {
 			if eventID != "evt_parent" {
 				t.Fatalf("unexpected event id: %s", eventID)

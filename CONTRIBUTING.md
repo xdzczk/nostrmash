@@ -54,13 +54,19 @@ For details and replay mode, see `docs/development.md`.
 
 ## Before opening a PR
 
-Run this baseline sequence locally for CI parity:
+Run this baseline sequence for reproducible CI parity (pinned Go toolchain in Docker):
 
 ```bash
-make ci
+make verify-docker
 ```
 
-`make ci` runs the same blocking gates as CI (`fmt-check`, `imports-check`, `lint`, `mod-verify`, `vulncheck`, `test-race-policy`, `cover`, `coverage-policy`, `contract-drift`, `rules-check`, `configdoc-check`, `build`).
+`make verify-docker` runs the same blocking gates as CI inside a pinned Go `1.26.2` container, with an isolated Postgres sidecar for integration-backed checks.
+
+If your host already matches the pinned toolchain and you want faster local loops, use:
+
+```bash
+make verify-local
+```
 
 Blocking race policy now runs `go test -race ./...`.
 

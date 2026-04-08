@@ -14,7 +14,7 @@ import (
 
 func TestWSGateway_DMResetRejectsFutureEventAndEmitsNoEventOnSuccess(t *testing.T) {
 	const peerPubkey = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		resetDMCountFn: func(_ context.Context, receiver string, sender string) error {
 			return nil
 		},

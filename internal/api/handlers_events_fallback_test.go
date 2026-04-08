@@ -12,7 +12,7 @@ import (
 )
 
 func TestGetEventByID_LocalMissRelayFallbackSuccess(t *testing.T) {
-	handlers := NewHandlersWithOptions(fakeEventReader{
+	handlers := mustNewHandlersWithOptions(t, fakeEventReader{
 		getEventWithProvFn: func(context.Context, string) (store.EventWithProvenance, error) {
 			return store.EventWithProvenance{}, store.ErrNotFound
 		},

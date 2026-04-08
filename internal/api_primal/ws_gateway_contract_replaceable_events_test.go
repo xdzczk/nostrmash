@@ -15,7 +15,7 @@ import (
 )
 
 func TestWSGateway_ParametrizedReplaceableEventsContract(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			switch {
 			case pubkey == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" && kind == 30023 && dTag == "read-a":

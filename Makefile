@@ -1,4 +1,4 @@
-.PHONY: lint lint-ci test test-race test-race-policy cover coverage-policy verify-clean verify-local contract-drift rules-check benchmark-hot benchmark-query benchmark-ws benchmark-replay-derivation benchmark-protected perf-collect perf-protect-collect perf-protect-compare loadtest loadtest-api loadtest-worker loadtest-ingest loadtest-replay-rebuild build mod-verify vulncheck configdoc configdoc-check fmt fmt-check imports imports-check format ci
+.PHONY: lint lint-ci test test-race test-race-policy cover coverage-policy verify-clean verify-local verify-docker contract-drift rules-check benchmark-hot benchmark-query benchmark-ws benchmark-replay-derivation benchmark-protected perf-collect perf-protect-collect perf-protect-compare loadtest loadtest-api loadtest-worker loadtest-ingest loadtest-replay-rebuild build mod-verify vulncheck configdoc configdoc-check fmt fmt-check imports imports-check format ci
 BENCH_HOT_PKGS := ./internal/query ./internal/store ./internal/replay ./internal/derivation ./internal/api_primal ./internal/trust
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -46,6 +46,11 @@ verify-local:
 	trap '$(MAKE) verify-clean' EXIT; \
 	$(MAKE) verify-clean; \
 	COVERAGE_PROFILE="$(VERIFY_COVERAGE_PROFILE)" $(MAKE) ci
+
+verify-docker:
+	@set -e; \
+	trap 'docker compose -p nostrmash-verify -f docker-compose.verify.yml down --volumes --remove-orphans >/dev/null 2>&1 || true' EXIT; \
+	docker compose -p nostrmash-verify -f docker-compose.verify.yml up --build --abort-on-container-exit --exit-code-from verify verify
 
 contract-drift:
 	go test ./cmd/api -run TestOpenAPIContainsAllContractOwnedRoutes_OneWayPolicy -count=1

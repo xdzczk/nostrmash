@@ -18,7 +18,7 @@ func TestWSGateway_IsHiddenByContentModerationContract(t *testing.T) {
 	const muted = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const allowed = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			switch {
 			case kind == 10000 && dTag == "":

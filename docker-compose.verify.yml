@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: nostrmash
+      POSTGRES_PASSWORD: nostrmash
+      POSTGRES_DB: nostrmash
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nostrmash -d nostrmash"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+
+  verify:
+    build:
+      context: .
+      dockerfile: Dockerfile.verify
+    working_dir: /workspace
+    command: ["make", "verify-local"]
+    environment:
+      TEST_DATABASE_URL: postgres://nostrmash:nostrmash@postgres:5432/nostrmash?sslmode=disable
+    volumes:
+      - .:/workspace
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  go-mod-cache:
+  go-build-cache:

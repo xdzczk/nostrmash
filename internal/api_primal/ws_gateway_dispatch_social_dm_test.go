@@ -16,7 +16,7 @@ import (
 func TestWSGateway_NewSocialAndDMCacheCalls(t *testing.T) {
 	const validPubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const peerPubkey = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		isFollowingFn: func(_ context.Context, followerPubkey, followedPubkey string) (bool, error) {
 			return followerPubkey == validPubkey && followedPubkey == peerPubkey, nil
 		},
@@ -97,7 +97,7 @@ func TestWSGateway_NewSocialAndDMCacheCalls(t *testing.T) {
 func TestWSGateway_MutualFollowsUnsupportedKeepsCompatEmptyShape(t *testing.T) {
 	const left = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const right = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getMutualFollowsFn: func(_ context.Context, leftPubkey, rightPubkey string, limit int) ([]string, error) {
 			return nil, errors.Join(query.ErrUnsupportedCapability, errors.New("query: mutual follows unsupported"))
 		},

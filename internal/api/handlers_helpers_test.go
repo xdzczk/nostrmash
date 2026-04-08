@@ -4,10 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"testing"
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
+
+func mustNewHandlers(tb testing.TB, reader EventReader, maxBatchSize int) Handlers {
+	tb.Helper()
+	handlers, err := NewHandlers(reader, maxBatchSize)
+	if err != nil {
+		tb.Fatalf("NewHandlers: %v", err)
+	}
+	return handlers
+}
+
+func mustNewHandlersWithOptions(tb testing.TB, reader EventReader, options HandlersOptions) Handlers {
+	tb.Helper()
+	handlers, err := NewHandlersWithOptions(reader, options)
+	if err != nil {
+		tb.Fatalf("NewHandlersWithOptions: %v", err)
+	}
+	return handlers
+}
 
 type fakeEventReader struct {
 	getEventRawByIDFn  func(context.Context, string) (json.RawMessage, error)

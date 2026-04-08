@@ -13,7 +13,7 @@ import (
 )
 
 func TestWSGateway_CacheUserMentions(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getRefsPubkeyFn: func(_ context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
 			if targetPubkey != "pk_mentions" || limit != 1 {
 				t.Fatalf("unexpected mentions args pubkey=%s limit=%d", targetPubkey, limit)
@@ -50,7 +50,7 @@ func TestWSGateway_CacheUserMentions(t *testing.T) {
 }
 
 func TestWSGateway_CacheUserFollowersUsesFollowerProjection(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getFollowersFn: func(_ context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
 			if targetPubkey != "pk_followed" || limit != 1 {
 				t.Fatalf("unexpected followers args pubkey=%s limit=%d", targetPubkey, limit)
@@ -87,7 +87,7 @@ func TestWSGateway_CacheUserFollowersUsesFollowerProjection(t *testing.T) {
 }
 
 func TestWSGateway_SearchAndCacheSearchReturnSameShape(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		searchEventsFn: func(_ context.Context, query string, limit int) ([]json.RawMessage, error) {
 			return []json.RawMessage{json.RawMessage(`{"id":"evt_search_1","kind":1}`)}, nil
 		},

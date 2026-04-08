@@ -8,7 +8,7 @@ import (
 )
 
 func TestBatchGetEvents_RejectsOversizedPayload(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{}, 200)
+	handlers := mustNewHandlers(t, fakeEventReader{}, 200)
 	tooLargeJSON := `{"ids":["` + strings.Repeat("a", publicBatchBodyLimitBytes+10) + `"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/events/batch", strings.NewReader(tooLargeJSON))
 	rec := httptest.NewRecorder()
@@ -19,7 +19,7 @@ func TestBatchGetEvents_RejectsOversizedPayload(t *testing.T) {
 }
 
 func TestBatchGetProfiles_RejectsOversizedPayload(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{}, 200)
+	handlers := mustNewHandlers(t, fakeEventReader{}, 200)
 	tooLargeJSON := `{"pubkeys":["` + strings.Repeat("a", publicBatchBodyLimitBytes+10) + `"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/profiles/batch", strings.NewReader(tooLargeJSON))
 	rec := httptest.NewRecorder()

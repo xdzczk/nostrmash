@@ -16,7 +16,7 @@ import (
 func TestWSGateway_SearchFilterlistContract(t *testing.T) {
 	const viewer = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const muted = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			if kind == 10000 && dTag == "" {
 				return json.RawMessage(`{"id":"mute_base","kind":10000,"tags":[["p","` + muted + `"]]}`), nil

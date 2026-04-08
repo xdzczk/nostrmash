@@ -12,7 +12,7 @@ import (
 )
 
 func TestWSGateway_OneShotRequestsDoNotExhaustSubscriptions(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getEventRawsByIDs: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
 			return map[string]json.RawMessage{}, nil
 		},
@@ -55,7 +55,7 @@ func TestWSGateway_OneShotRequestsDoNotExhaustSubscriptions(t *testing.T) {
 }
 
 func TestWSGateway_EnforcesRateLimit(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{}, WSGatewayOptions{MaxReqPerMinute: 1})
+	gateway := mustNewWSGateway(t, fakeEventReader{}, WSGatewayOptions{MaxReqPerMinute: 1})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /primal/ws", gateway.Handle)
 	server := httptest.NewServer(mux)
@@ -94,7 +94,7 @@ func TestWSGateway_EnforcesRateLimit(t *testing.T) {
 }
 
 func TestWSGateway_OriginPolicy(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{}, WSGatewayOptions{
+	gateway := mustNewWSGateway(t, fakeEventReader{}, WSGatewayOptions{
 		AllowedOrigins: []string{"https://allowed.example"},
 	})
 	mux := http.NewServeMux()

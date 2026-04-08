@@ -34,7 +34,7 @@ func TestReady_UsesErrorEnvelopeWhenDependencyUnavailable(t *testing.T) {
 }
 
 func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		listRelayHealthFn: func(_ context.Context) ([]model.IngestCheckpoint, error) {
 			return []model.IngestCheckpoint{
 				{

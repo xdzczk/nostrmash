@@ -15,7 +15,7 @@ import (
 func TestPrimalDMHTTPMessages_PreservesParityShapeAndNoStoreHeaders(t *testing.T) {
 	const receiver = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const peer = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getDirectMsgsRangeFn: func(_ context.Context, pubkey string, gotPeer string, since int64, until int64, limit int, offset int) ([]json.RawMessage, error) {
 			if pubkey != receiver || gotPeer != peer || since != 0 || limit != 2 || offset != 0 {
 				t.Fatalf("unexpected direct message args pubkey=%s peer=%s since=%d until=%d limit=%d offset=%d", pubkey, gotPeer, since, until, limit, offset)
@@ -76,7 +76,7 @@ func TestPrimalDMHTTPResetCount_UsesSignedAuthAndNoStoreHeaders(t *testing.T) {
 	const peer = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	var gotReceiver string
 	var gotPeer string
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		resetDMCountFn: func(_ context.Context, receiver string, sender string) error {
 			gotReceiver = receiver
 			gotPeer = sender
@@ -127,7 +127,7 @@ func TestPrimalDMHTTPResetCount_UsesSignedAuthAndNoStoreHeaders(t *testing.T) {
 
 func TestPrimalDMHTTPResetCount_RejectsFutureEvent(t *testing.T) {
 	const peer = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	handlers := NewHandlers(fakeEventReader{}, 10)
+	handlers := mustNewHandlers(t, fakeEventReader{}, 10)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /primal/v1/dms/reset-count", handlers.PostResetDirectMessageCount)
 

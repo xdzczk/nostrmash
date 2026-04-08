@@ -12,7 +12,7 @@ import (
 )
 
 func TestGetEventActions_UsesSharedServiceAndPreservesPrimalShape(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventCountsFn: func(_ context.Context, eventID string) (store.EventCounts, error) {
 			if eventID != "evt_actions_1" {
 				t.Fatalf("unexpected event id: %q", eventID)
@@ -58,7 +58,7 @@ func TestGetEventActions_UsesSharedServiceAndPreservesPrimalShape(t *testing.T) 
 }
 
 func TestGetEventActions_StoreErrorStillReturnsInternalError(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventCountsFn: func(_ context.Context, _ string) (store.EventCounts, error) {
 			return store.EventCounts{}, errors.New("storage down")
 		},
@@ -77,7 +77,7 @@ func TestGetEventActions_StoreErrorStillReturnsInternalError(t *testing.T) {
 }
 
 func TestGetEventActions_EmptyEventIDReturnsBadRequest(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{}, 10)
+	handlers := mustNewHandlers(t, fakeEventReader{}, 10)
 	req := httptest.NewRequest(http.MethodGet, "/primal/v1/events/actions", nil)
 	req.SetPathValue("id", "   ")
 	rec := httptest.NewRecorder()

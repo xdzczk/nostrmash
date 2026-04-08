@@ -1,0 +1,118 @@
+package config
+
+func configEnvDocsWorker() []EnvVarDoc {
+	return []EnvVarDoc{
+		{
+			Name:         "WORKER_CONCURRENCY",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "4",
+			Description:  "Worker goroutine concurrency.",
+		},
+		{
+			Name:         "WORKER_JOB_RUNNING_TIMEOUT",
+			Runtimes:     []string{"trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "15m0s",
+			Description:  "Lease timeout for running jobs before stale recovery treats them as orphaned.",
+		},
+		{
+			Name:         "WORKER_JOB_STALE_RECOVERY_BATCH_LIMIT",
+			Runtimes:     []string{"trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "100",
+			Description:  "Maximum stale running jobs processed per recovery interval.",
+		},
+		{
+			Name:         "WORKER_JOB_STALE_RECOVERY_INTERVAL",
+			Runtimes:     []string{"trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "30s",
+			Description:  "Interval between stale running-job recovery scans.",
+		},
+		{
+			Name:         "WORKER_JOB_RETENTION_DEAD_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "4320h0m0s",
+			Description:  "Max age for dead jobs before retention purges terminal history.",
+		},
+		{
+			Name:         "WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "500",
+			Description:  "Maximum terminal jobs deleted per retention purge run.",
+		},
+		{
+			Name:         "WORKER_JOB_RETENTION_ENABLED",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable periodic retention purge of terminal job history.",
+		},
+		{
+			Name:         "WORKER_JOB_RETENTION_RUN_INTERVAL",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "1h0m0s",
+			Description:  "Interval between terminal job retention purge runs.",
+		},
+		{
+			Name:         "WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "720h0m0s",
+			Description:  "Max age for succeeded jobs before retention purges terminal history.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "500",
+			Description:  "Maximum invalid_events rows with raw_payload trimmed to NULL per retention run when payload trimming is enabled.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_PAYLOAD_TRIM_ENABLED",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable optional second-stage invalid_events payload trimming (raw_payload set to NULL before full-row retention purge).",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "168h0m0s",
+			Description:  "Max age for invalid_events rows before payload-only trimming (must be smaller than WORKER_INVALID_EVENTS_RETENTION_MAX_AGE).",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_RETENTION_DELETE_BATCH_LIMIT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "500",
+			Description:  "Maximum invalid_events rows deleted per retention purge run.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_RETENTION_ENABLED",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable periodic invalid_events retention purge.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_RETENTION_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "720h0m0s",
+			Description:  "Max age for invalid_events rows before retention purge.",
+		},
+		{
+			Name:         "WORKER_INVALID_EVENTS_RETENTION_RUN_INTERVAL",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "1h0m0s",
+			Description:  "Interval between invalid_events retention purge runs.",
+		},
+	}
+}

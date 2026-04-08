@@ -11,7 +11,7 @@ import (
 )
 
 func TestGetThread_NotFoundWhenFocalEventMissing(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, _ string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -36,7 +36,7 @@ func TestGetThread_NotFoundWhenFocalEventMissing(t *testing.T) {
 }
 
 func TestGetThread_AncestorNotFoundStillInternalError(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, _ string) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"evt_parent"}`), nil
 		},

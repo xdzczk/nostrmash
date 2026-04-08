@@ -15,7 +15,7 @@ import (
 )
 
 func TestWSGateway_ModerationEmptyListsReturnEvents(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -67,7 +67,7 @@ func TestWSGateway_FilterlistResponsesIncludeListEventsAndMetadata(t *testing.T)
 	const mutedB = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	const allowed = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			switch {
 			case kind == 10000 && dTag == "":
@@ -163,7 +163,7 @@ func TestWSGateway_SearchFilterlistReturnsFilteringReason(t *testing.T) {
 	const muted = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const allowed = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			switch {
 			case kind == 10000 && dTag == "":
@@ -246,7 +246,7 @@ func TestWSGateway_IsHiddenByContentModerationSupportsTagAwarePubkeysAndReasons(
 	const muted = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const allowed = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			switch {
 			case kind == 10000 && dTag == "":
@@ -332,7 +332,7 @@ func TestWSGateway_IsHiddenByContentModerationSupportsTagAwarePubkeysAndReasons(
 }
 
 func TestWSGateway_HiddenByContentUnsupportedKeepsCompatVisiblePayload(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		isHiddenFn: func(_ context.Context, viewerPubkey string, eventID string) (bool, string, error) {
 			return false, "", errors.Join(query.ErrUnsupportedCapability, errors.New("query: content moderation visibility lookup unsupported"))
 		},

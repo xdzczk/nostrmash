@@ -35,7 +35,7 @@ func TestGetProfilesNormalizesInputOrder(t *testing.T) {
 
 func TestGetContactListReturnsQueryModel(t *testing.T) {
 	t.Parallel()
-	svc := NewService(fakeReader{
+	svc := mustNewService(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -66,7 +66,7 @@ func TestGetContactListReturnsQueryModel(t *testing.T) {
 
 func TestGetRelayListReturnsQueryModel(t *testing.T) {
 	t.Parallel()
-	svc := NewService(fakeReader{
+	svc := mustNewService(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},

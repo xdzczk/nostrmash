@@ -95,7 +95,7 @@ func main() {
 	queryOptions := query.ServiceOptions{
 		FallbackReader: fallbackReader,
 	}
-	handlers, err := api.NewHandlersWithOptionsE(queryStore, api.HandlersOptions{
+	handlers, err := api.NewHandlersWithOptions(queryStore, api.HandlersOptions{
 		MaxBatchSize: cfg.HTTP.MaxBatchSize,
 		QueryOptions: queryOptions,
 	})
@@ -103,7 +103,7 @@ func main() {
 		log.Error("query_service_init", "surface", "api", "error", err)
 		os.Exit(1)
 	}
-	primalHandlers, err := api_primal.NewHandlersWithOptionsE(queryStore, api_primal.HandlersOptions{
+	primalHandlers, err := api_primal.NewHandlersWithOptions(queryStore, api_primal.HandlersOptions{
 		MaxBatchSize: cfg.HTTP.MaxBatchSize,
 		QueryOptions: queryOptions,
 	})
@@ -112,7 +112,7 @@ func main() {
 		os.Exit(1)
 	}
 	wsLog := logging.New("api_primal_ws")
-	primalWS, err := api_primal.NewWSGatewayE(queryStore, api_primal.WSGatewayOptions{
+	primalWS, err := api_primal.NewWSGateway(queryStore, api_primal.WSGatewayOptions{
 		MaxSubscriptions:  cfg.PrimalWS.MaxSubscriptions,
 		RequestTimeout:    cfg.PrimalWS.RequestTimeout,
 		MaxMessageBytes:   cfg.PrimalWS.MaxMessageBytes,

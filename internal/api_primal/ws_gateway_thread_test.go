@@ -17,7 +17,7 @@ func TestWSGateway_LongFormContentFeedFollowsIncludesMetadataAndRange(t *testing
 	const viewer = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const followedA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const followedB = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getContactListFn: func(_ context.Context, pubkey string) (store.ContactListProjection, error) {
 			if pubkey != viewer {
 				t.Fatalf("unexpected contact list pubkey: %s", pubkey)
@@ -89,7 +89,7 @@ func TestWSGateway_LongFormContentFeedFollowsIncludesMetadataAndRange(t *testing
 
 func TestWSGateway_LongFormContentThreadViewUsesParameterizedRoot(t *testing.T) {
 	const author = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			if pubkey != author || kind != 30023 || dTag != "read-id" {
 				t.Fatalf("unexpected parameterized args pubkey=%s kind=%d dTag=%s", pubkey, kind, dTag)
@@ -166,7 +166,7 @@ func TestWSGateway_LongFormContentThreadViewUsesParameterizedRoot(t *testing.T) 
 }
 
 func TestWSGateway_ThreadViewContinuationSupportsCursorAndOffset(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, id string) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"` + id + `","kind":1}`), nil
 		},
@@ -240,7 +240,7 @@ func TestWSGateway_ThreadViewContinuationSupportsCursorAndOffset(t *testing.T) {
 }
 
 func TestWSGateway_ThreadViewRejectsMalformedCursor(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{}, WSGatewayOptions{})
+	gateway := mustNewWSGateway(t, fakeEventReader{}, WSGatewayOptions{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /primal/ws", gateway.Handle)
 	server := httptest.NewServer(mux)
@@ -277,7 +277,7 @@ func TestWSGateway_ThreadViewStreamOrderingAndMetadata(t *testing.T) {
 	const replyPubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const rootPubkey = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const eventPubkey = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, id string) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"evt_focus","kind":1,"pubkey":"` + eventPubkey + `"}`), nil
 		},
@@ -346,7 +346,7 @@ func TestWSGateway_ThreadViewStreamOrderingAndMetadata(t *testing.T) {
 }
 
 func TestWSGateway_ThreadViewContinuation_NoDuplicatesOrSkips(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getEventRawByIDFn: func(_ context.Context, id string) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"` + id + `","kind":1}`), nil
 		},
@@ -463,7 +463,7 @@ func TestThreadView_HTTPAndWSMemberParity(t *testing.T) {
 		},
 	}
 
-	httpHandlers := NewHandlers(reader, 10)
+	httpHandlers := mustNewHandlers(t, reader, 10)
 	httpMux := http.NewServeMux()
 	httpMux.HandleFunc("GET /primal/v1/threads/{eventId}", httpHandlers.GetThreadView)
 	httpReq := httptest.NewRequest(http.MethodGet, "/primal/v1/threads/evt_1?limit=1", nil)
@@ -477,7 +477,7 @@ func TestThreadView_HTTPAndWSMemberParity(t *testing.T) {
 		t.Fatalf("decode http payload: %v", err)
 	}
 
-	wsGateway := NewWSGateway(reader, WSGatewayOptions{})
+	wsGateway := mustNewWSGateway(t, reader, WSGatewayOptions{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /primal/ws", wsGateway.Handle)
 	server := httptest.NewServer(mux)

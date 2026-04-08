@@ -53,7 +53,7 @@ func FuzzBatchGetEventsRequestDecoder(f *testing.F) {
 	f.Add([]byte(`{"ids":"not-array"}`))
 	f.Add([]byte(`{"ids":["evt_1"]} trailing`))
 
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(f, fakeEventReader{
 		getEventRawsByIDs: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
 			out := make(map[string]json.RawMessage, len(ids))
 			for _, id := range ids {
@@ -79,7 +79,7 @@ func FuzzBatchGetProfilesRequestDecoder(f *testing.F) {
 	f.Add([]byte(`{"pubkeys":"not-array"}`))
 	f.Add([]byte(`{"pubkeys":["pk1"]} x`))
 
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(f, fakeEventReader{
 		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
 			out := make(map[string]store.ProfileProjection, len(pubkeys))
 			for _, pubkey := range pubkeys {

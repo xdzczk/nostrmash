@@ -13,7 +13,7 @@ import (
 )
 
 func TestWSGateway_ModerationAndCuratedCacheCalls(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getModerationFn: func(_ context.Context, pubkey string, kind int) ([]string, error) {
 			if kind == 10000 {
 				return []string{"spam"}, nil

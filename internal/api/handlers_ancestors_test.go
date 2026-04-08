@@ -9,7 +9,7 @@ import (
 )
 
 func TestGetEventAncestors_IncludesMissingAncestorIDs(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventAncestors: func(_ context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error) {
 			if eventID != "evt_child" {
 				t.Fatalf("unexpected event id: %s", eventID)

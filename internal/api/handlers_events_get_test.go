@@ -13,7 +13,7 @@ import (
 )
 
 func TestGetEventByID_NotFoundUsesErrorEnvelopeAndRequestID(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventWithProvFn: func(_ context.Context, _ string) (store.EventWithProvenance, error) {
 			return store.EventWithProvenance{}, store.ErrNotFound
 		},
@@ -52,7 +52,7 @@ func TestGetEventByID_NotFoundUsesErrorEnvelopeAndRequestID(t *testing.T) {
 }
 
 func TestGetEventByID_ReturnsEventAndProvenance(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventWithProvFn: func(_ context.Context, _ string) (store.EventWithProvenance, error) {
 			return store.EventWithProvenance{
 				Event: json.RawMessage(`{"id":"evt_1","kind":1}`),

@@ -18,7 +18,7 @@ import (
 
 func TestGetEventByID_LocalMissRelaySuccess(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -42,9 +42,9 @@ func TestGetEventByID_LocalMissRelaySuccess(t *testing.T) {
 	}
 }
 
-func TestNewServiceWithOptionsE_ReturnsErrorForUnsupportedFallbackReader(t *testing.T) {
+func TestNewServiceWithOptions_ReturnsErrorForUnsupportedFallbackReader(t *testing.T) {
 	t.Parallel()
-	_, err := NewServiceWithOptionsE(fakeReader{}, ServiceOptions{
+	_, err := NewServiceWithOptions(fakeReader{}, ServiceOptions{
 		FallbackReader: struct{}{},
 	})
 	if err == nil {
@@ -57,7 +57,7 @@ func TestNewServiceWithOptionsE_ReturnsErrorForUnsupportedFallbackReader(t *test
 
 func TestGetEventByID_LocalHitSkipsRelayFallback(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"evt-local"}`), nil
 		},
@@ -80,7 +80,7 @@ func TestGetEventByID_LocalHitSkipsRelayFallback(t *testing.T) {
 
 func TestGetEventByID_LocalMissRelayMiss(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -100,7 +100,7 @@ func TestGetEventByID_LocalMissRelayMiss(t *testing.T) {
 
 func TestGetEventBatch_LocalMissRelaySuccess(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getEventRawsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
 			return map[string]json.RawMessage{
 				"evt-1": json.RawMessage(`{"id":"evt-1"}`),
@@ -130,7 +130,7 @@ func TestGetEventBatch_LocalMissRelaySuccess(t *testing.T) {
 
 func TestGetEventBatch_LocalMissRelayPartialSuccess(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getEventRawsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
 			return map[string]json.RawMessage{
 				"evt-1": json.RawMessage(`{"id":"evt-1"}`),
@@ -163,7 +163,7 @@ func TestGetEventBatch_LocalMissRelayPartialSuccess(t *testing.T) {
 
 func TestGetProfile_LocalMissRelaySuccess(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getProfileByPubkeyFn: func(context.Context, string) (store.ProfileProjection, error) {
 			return store.ProfileProjection{}, store.ErrNotFound
 		},
@@ -196,7 +196,7 @@ func TestGetProfile_LocalMissRelaySuccess(t *testing.T) {
 
 func TestGetProfiles_LocalMissRelayMissPreservesMissing(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getProfilesByPubkeysFn: func(context.Context, []string) (map[string]store.ProfileProjection, error) {
 			return map[string]store.ProfileProjection{}, nil
 		},
@@ -222,7 +222,7 @@ func TestGetProfiles_LocalMissRelayMissPreservesMissing(t *testing.T) {
 
 func TestGetProfiles_LocalMissRelayPartialSuccessPreservesMissing(t *testing.T) {
 	t.Parallel()
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getProfilesByPubkeysFn: func(context.Context, []string) (map[string]store.ProfileProjection, error) {
 			return map[string]store.ProfileProjection{}, nil
 		},
@@ -254,7 +254,7 @@ func TestGetProfiles_LocalMissRelayPartialSuccessPreservesMissing(t *testing.T) 
 }
 
 func TestGetEventByID_FallbackMetricsEmitHit(t *testing.T) {
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -294,7 +294,7 @@ func TestGetEventByID_FallbackMetricsEmitHit(t *testing.T) {
 }
 
 func TestGetEventByID_FallbackMetricsEmitMiss(t *testing.T) {
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -325,7 +325,7 @@ func TestGetEventByID_FallbackMetricsEmitMiss(t *testing.T) {
 }
 
 func TestGetProfile_FallbackMetricsEmitError(t *testing.T) {
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getProfileByPubkeyFn: func(context.Context, string) (store.ProfileProjection, error) {
 			return store.ProfileProjection{}, store.ErrNotFound
 		},
@@ -359,7 +359,7 @@ func TestGetEventByID_FallbackErrorDegradedToNotFoundStillEmitsErrorMetric(t *te
 	logOutput, restore := captureDefaultSlogJSON()
 	defer restore()
 
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
@@ -410,7 +410,7 @@ func TestGetEventByID_FallbackErrorDegradedToNotFoundStillEmitsErrorMetric(t *te
 }
 
 func TestFallbackMetricsUseBoundedEntityAndResultLabels(t *testing.T) {
-	svc := NewServiceWithOptions(fakeReader{
+	svc := mustNewServiceWithOptions(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},

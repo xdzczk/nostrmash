@@ -14,7 +14,7 @@ import (
 )
 
 func TestWSGateway_GetRecommendedReadsContract(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getCuratedRecommendedReadsFn: func(_ context.Context, limit int) ([]store.CuratedRecommendedRead, error) {
 			return []store.CuratedRecommendedRead{
 				{EventID: "evt_read_1", Title: "Read 1", URL: "https://example.com/1", Rank: 20},
@@ -63,7 +63,7 @@ func TestWSGateway_GetRecommendedReadsContract(t *testing.T) {
 }
 
 func TestWSGateway_GetReadsTopicsContract(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getCuratedReadsTopicsFn: func(_ context.Context, limit int) ([]store.CuratedReadsTopic, error) {
 			return []store.CuratedReadsTopic{
 				{Topic: "nostr", Rank: 10},
@@ -114,7 +114,7 @@ func TestWSGateway_GetReadsTopicsContract(t *testing.T) {
 func TestWSGateway_GetFeaturedAuthorsContract(t *testing.T) {
 	const authorA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const authorB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getCuratedFeaturedAuthorsFn: func(_ context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
 			return []store.CuratedFeaturedAuthor{
 				{Pubkey: authorA, Rank: 12},
@@ -175,7 +175,7 @@ func TestWSGateway_GetFeaturedAuthorsContract(t *testing.T) {
 }
 
 func TestWSGateway_CreatorPaidTiersContract(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getByKindPubkeyFn: func(_ context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error) {
 			_ = kind
 			_ = pubkey
@@ -233,7 +233,7 @@ func TestWSGateway_CreatorPaidTiersContract(t *testing.T) {
 
 func TestWSGateway_UserOfLNAddressContract(t *testing.T) {
 	const pubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getPubkeyByLNAddressFn: func(_ context.Context, lnAddress string) (string, error) {
 			return pubkey, nil
 		},

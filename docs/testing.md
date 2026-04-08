@@ -10,7 +10,7 @@ Prerequisite toolchain: Go `1.26+` (CI/Docker pin `1.26.2`; local recommendation
 
 Why this is pinned: `go.mod` uses `toolchain go1.26.2` and CI/Docker run the same version. Using `1.26.2` locally keeps formatter, analyzer, race, and coverage behavior aligned with merge gates.
 
-1. Run `make verify-local` for full local parity with core CI checks and automatic cleanup of generated verification artifacts.
+1. Run `make verify-docker` for reproducible parity using pinned Go `1.26.2` plus ephemeral Postgres.
 2. Add targeted checks from this page based on your change type (race, fuzz, benchmark, contract drift).
 3. For schema/compatibility/release-sensitive changes, pair this page with:
    - `migrations.md`
@@ -245,6 +245,25 @@ Contributor workflow and PR expectations are in [`../CONTRIBUTING.md`](../CONTRI
 
 ## Local commands
 
+Containerized parity path (recommended for contributors/reviewers who want reproducible verification independent of host toolchain):
+
+```bash
+make verify-docker
+```
+
+What it does:
+
+- runs verification inside a pinned Go `1.26.2` container image
+- provisions an isolated Postgres sidecar for integration-backed checks
+- executes `make verify-local` (the same blocking checks used by CI gates)
+- tears down the temporary verification stack automatically
+
+Use native verify when you are iterating locally and already have Go `1.26.2` + Postgres aligned:
+
+```bash
+make verify-local
+```
+
 Run race policy checks (same scope as CI):
 
 ```bash
@@ -277,7 +296,7 @@ Run full quality checks:
 make ci
 ```
 
-Run full quality checks with automatic cleanup of verification artifacts:
+Run full quality checks with automatic cleanup of verification artifacts (native host path):
 
 ```bash
 make verify-local

@@ -11,7 +11,7 @@ import (
 
 func TestServiceCapabilities_FullCapabilityReader(t *testing.T) {
 	t.Parallel()
-	svc := NewService(fullCapabilityReader{
+	svc := mustNewService(t, fullCapabilityReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, errors.New("unused")
@@ -79,7 +79,7 @@ func TestServiceCapabilities_FullCapabilityReader(t *testing.T) {
 
 func TestServiceCapabilities_PartialCapabilityReader(t *testing.T) {
 	t.Parallel()
-	svc := NewService(partialCapabilityReader{
+	svc := mustNewService(t, partialCapabilityReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, errors.New("unused")
@@ -117,7 +117,7 @@ func TestServiceCapabilities_PartialCapabilityReader(t *testing.T) {
 
 func TestServiceCapabilities_MissingCapabilityReader(t *testing.T) {
 	t.Parallel()
-	svc := NewService(fakeReader{
+	svc := mustNewService(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, errors.New("unused")
 		},
@@ -151,9 +151,9 @@ func TestServiceCapabilities_MissingCapabilityReader(t *testing.T) {
 	}
 }
 
-func TestNewServiceWithOptionsE_ReturnsErrorWithoutRequiredReaderCapabilities(t *testing.T) {
+func TestNewServiceWithOptions_ReturnsErrorWithoutRequiredReaderCapabilities(t *testing.T) {
 	t.Parallel()
-	_, err := NewServiceWithOptionsE(struct{}{}, ServiceOptions{})
+	_, err := NewServiceWithOptions(struct{}{}, ServiceOptions{})
 	if err == nil {
 		t.Fatalf("expected constructor error when required reader capability is missing")
 	}
@@ -162,9 +162,9 @@ func TestNewServiceWithOptionsE_ReturnsErrorWithoutRequiredReaderCapabilities(t 
 	}
 }
 
-func TestNewServiceWithOptionsE_SucceedsWithMixedCapabilities(t *testing.T) {
+func TestNewServiceWithOptions_SucceedsWithMixedCapabilities(t *testing.T) {
 	t.Parallel()
-	svc, err := NewServiceWithOptionsE(partialCapabilityReader{
+	svc, err := NewServiceWithOptions(partialCapabilityReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, errors.New("unused")
@@ -178,7 +178,7 @@ func TestNewServiceWithOptionsE_SucceedsWithMixedCapabilities(t *testing.T) {
 		},
 	}, ServiceOptions{})
 	if err != nil {
-		t.Fatalf("NewServiceWithOptionsE returned error: %v", err)
+		t.Fatalf("NewServiceWithOptions returned error: %v", err)
 	}
 
 	ctx := context.Background()
@@ -202,7 +202,7 @@ func TestGetMuteList_DistinguishesSupportedEmptyUnsupportedAndBackendFailure(t *
 	t.Parallel()
 	ctx := context.Background()
 
-	supportedEmpty := NewService(moderationCapabilityReader{
+	supportedEmpty := mustNewService(t, moderationCapabilityReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, errors.New("unused")
@@ -220,7 +220,7 @@ func TestGetMuteList_DistinguishesSupportedEmptyUnsupportedAndBackendFailure(t *
 		t.Fatalf("expected supported empty mute list, got %#v", values)
 	}
 
-	unsupported := NewService(fakeReader{
+	unsupported := mustNewService(t, fakeReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, errors.New("unused")
 		},
@@ -230,7 +230,7 @@ func TestGetMuteList_DistinguishesSupportedEmptyUnsupportedAndBackendFailure(t *
 		t.Fatalf("expected unsupported capability error, got %v", err)
 	}
 
-	backendFailure := NewService(moderationCapabilityReader{
+	backendFailure := mustNewService(t, moderationCapabilityReader{
 		fakeReader: fakeReader{
 			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 				return nil, errors.New("unused")

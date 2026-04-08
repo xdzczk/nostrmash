@@ -469,3 +469,30 @@ func formatJSONDiff(got any, want any) string {
 	wantPretty, _ := json.MarshalIndent(want, "", "  ")
 	return fmt.Sprintf("got=%s\nwant=%s", gotPretty, wantPretty)
 }
+
+func mustNewHandlers(tb testing.TB, reader EventReader, maxBatchSize int) Handlers {
+	tb.Helper()
+	handlers, err := NewHandlers(reader, maxBatchSize)
+	if err != nil {
+		tb.Fatalf("NewHandlers: %v", err)
+	}
+	return handlers
+}
+
+func mustNewHandlersWithOptions(tb testing.TB, reader EventReader, options HandlersOptions) Handlers {
+	tb.Helper()
+	handlers, err := NewHandlersWithOptions(reader, options)
+	if err != nil {
+		tb.Fatalf("NewHandlersWithOptions: %v", err)
+	}
+	return handlers
+}
+
+func mustNewWSGateway(tb testing.TB, reader EventReader, options WSGatewayOptions) WSGateway {
+	tb.Helper()
+	gateway, err := NewWSGateway(reader, options)
+	if err != nil {
+		tb.Fatalf("NewWSGateway: %v", err)
+	}
+	return gateway
+}

@@ -10,7 +10,7 @@ import (
 )
 
 func TestBatchGetEvents_SuccessWithExplicitMissingIDs(t *testing.T) {
-	handlers := NewHandlers(fakeEventReader{
+	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRawsByIDs: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
 			return map[string]json.RawMessage{
 				ids[0]: json.RawMessage(`{"id":"evt_1","kind":1}`),

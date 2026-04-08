@@ -15,7 +15,7 @@ import (
 
 func TestWSGateway_LongFormContentThreadViewContract(t *testing.T) {
 	const author = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			return json.RawMessage(`{"id":"evt_read_root","kind":30023,"pubkey":"` + author + `"}`), nil
 		},

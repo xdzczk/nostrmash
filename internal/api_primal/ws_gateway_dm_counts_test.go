@@ -14,7 +14,7 @@ import (
 
 func TestWSGateway_DirectMessageCountContracts(t *testing.T) {
 	const validPubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getDMCountFn: func(_ context.Context, receiver string, sender string) (int64, error) {
 			return 7, nil
 		},
@@ -118,7 +118,7 @@ func TestWSGateway_DirectMessageCountContracts(t *testing.T) {
 }
 
 func TestWSGateway_DirectMessageCountLiveRejectsInvalidPubkey(t *testing.T) {
-	gateway := NewWSGateway(fakeEventReader{
+	gateway := mustNewWSGateway(t, fakeEventReader{
 		getDMCountFn: func(_ context.Context, receiver string, sender string) (int64, error) {
 			return 7, nil
 		},

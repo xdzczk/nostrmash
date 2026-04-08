@@ -72,15 +72,7 @@ func handleWSFrameClose(s *wsConnSession, subID string, _ []any) error {
 	return nil
 }
 
-func NewWSGateway(reader EventReader, opts WSGatewayOptions) WSGateway {
-	gateway, err := NewWSGatewayE(reader, opts)
-	if err != nil {
-		panic(err)
-	}
-	return gateway
-}
-
-func NewWSGatewayE(reader EventReader, opts WSGatewayOptions) (WSGateway, error) {
+func NewWSGateway(reader EventReader, opts WSGatewayOptions) (WSGateway, error) {
 	if opts.MaxSubscriptions <= 0 {
 		opts.MaxSubscriptions = 200
 	}
@@ -100,7 +92,7 @@ func NewWSGatewayE(reader EventReader, opts WSGatewayOptions) (WSGateway, error)
 	if wsLog == nil {
 		wsLog = logging.New("api_primal_ws")
 	}
-	service, err := query.NewServiceWithOptionsE(reader, opts.QueryOptions)
+	service, err := query.NewServiceWithOptions(reader, opts.QueryOptions)
 	if err != nil {
 		return WSGateway{}, err
 	}

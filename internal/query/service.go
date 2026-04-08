@@ -69,19 +69,11 @@ type ServiceOptions struct {
 	FallbackReader any
 }
 
-func NewService(reader any) Service {
+func NewService(reader any) (Service, error) {
 	return NewServiceWithOptions(reader, ServiceOptions{})
 }
 
-func NewServiceWithOptions(reader any, options ServiceOptions) Service {
-	svc, err := NewServiceWithOptionsE(reader, options)
-	if err != nil {
-		panic(err)
-	}
-	return svc
-}
-
-func NewServiceWithOptionsE(reader any, options ServiceOptions) (Service, error) {
+func NewServiceWithOptions(reader any, options ServiceOptions) (Service, error) {
 	adaptedReader, err := adaptReader(reader)
 	if err != nil {
 		return Service{}, err
