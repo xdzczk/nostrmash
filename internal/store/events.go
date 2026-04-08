@@ -31,6 +31,16 @@ type ProfileProjection struct {
 	ProfileJSON       json.RawMessage
 }
 
+// ProfilePublicStatsProjection captures denormalized public-facing profile counters.
+type ProfilePublicStatsProjection struct {
+	Pubkey           string
+	FollowerCount    int64
+	FollowingCount   int64
+	NoteCount        int64
+	ReplyCount       int64
+	RecentActivityAt *int64
+}
+
 type EventCounts struct {
 	EventID       string
 	ReplyCount    int64

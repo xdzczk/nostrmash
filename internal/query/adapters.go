@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
@@ -16,6 +17,7 @@ type legacyReader interface {
 	GetEventSeenOn(ctx context.Context, id string) ([]model.EventRelay, error)
 	GetProfileByPubkey(ctx context.Context, pubkey string) (store.ProfileProjection, error)
 	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+	GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (store.ProfilePublicStatsProjection, error)
 	GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
 	GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
 	GetEventCounts(ctx context.Context, eventID string) (store.EventCounts, error)
@@ -29,6 +31,32 @@ type legacyReader interface {
 	GetRecentEventsByKindAndPubkey(ctx context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error)
 	GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error)
 	GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error)
+}
+
+type legacyNotesSearchReader interface {
+	SearchNotes(
+		ctx context.Context,
+		query string,
+		sort string,
+		window *time.Duration,
+		limit int,
+		offset int,
+	) ([]json.RawMessage, error)
+}
+
+type legacyProfilesSearchReader interface {
+	SearchProfilesWithOptions(
+		ctx context.Context,
+		query string,
+		sort string,
+		limit int,
+		offset int,
+	) ([]store.ProfileProjection, error)
+}
+
+type legacySearchSuggestionsReader interface {
+	SuggestProfiles(ctx context.Context, query string, limit int) ([]store.ProfileProjection, error)
+	SuggestHashtags(ctx context.Context, query string, limit int) ([]store.TrendingHashtag, error)
 }
 
 type legacyReaderAdapter struct {
@@ -77,6 +105,14 @@ func (a legacyReaderAdapter) GetProfilesByPubkeys(ctx context.Context, pubkeys [
 		out[pubkey] = profileFromStore(row)
 	}
 	return out, nil
+}
+
+func (a legacyReaderAdapter) GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (ProfilePublicStats, error) {
+	row, err := a.legacy.GetProfilePublicStatsByPubkey(ctx, pubkey)
+	if err != nil {
+		return ProfilePublicStats{}, err
+	}
+	return profilePublicStatsFromStore(row), nil
 }
 
 func (a legacyReaderAdapter) GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
@@ -151,6 +187,83 @@ func (a legacyReaderAdapter) SearchProfiles(ctx context.Context, query string, l
 	out := make([]Profile, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, profileFromStore(row))
+	}
+	return out, nil
+}
+
+func (a legacyReaderAdapter) SearchNotes(
+	ctx context.Context,
+	query string,
+	sort string,
+	window *time.Duration,
+	limit int,
+	offset int,
+) ([]json.RawMessage, error) {
+	if advanced, ok := a.legacy.(legacyNotesSearchReader); ok {
+		return advanced.SearchNotes(ctx, query, sort, window, limit, offset)
+	}
+	if sort == "relevant" && window == nil && offset == 0 {
+		return a.legacy.SearchEventsByContent(ctx, query, limit)
+	}
+	return nil, unsupportedCapabilityError("advanced notes search")
+}
+
+func (a legacyReaderAdapter) SearchProfilesWithOptions(
+	ctx context.Context,
+	query string,
+	sort string,
+	limit int,
+	offset int,
+) ([]Profile, error) {
+	if advanced, ok := a.legacy.(legacyProfilesSearchReader); ok {
+		rows, err := advanced.SearchProfilesWithOptions(ctx, query, sort, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]Profile, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, profileFromStore(row))
+		}
+		return out, nil
+	}
+	if sort == "relevant" && offset == 0 {
+		return a.SearchProfiles(ctx, query, limit)
+	}
+	return nil, unsupportedCapabilityError("advanced profile search")
+}
+
+func (a legacyReaderAdapter) SuggestProfiles(ctx context.Context, query string, limit int) ([]Profile, error) {
+	reader, ok := a.legacy.(legacySearchSuggestionsReader)
+	if !ok {
+		return nil, unsupportedCapabilityError("search profile suggestions")
+	}
+	rows, err := reader.SuggestProfiles(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Profile, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, profileFromStore(row))
+	}
+	return out, nil
+}
+
+func (a legacyReaderAdapter) SuggestHashtags(ctx context.Context, query string, limit int) ([]HashtagSuggestion, error) {
+	reader, ok := a.legacy.(legacySearchSuggestionsReader)
+	if !ok {
+		return nil, unsupportedCapabilityError("search hashtag suggestions")
+	}
+	rows, err := reader.SuggestHashtags(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]HashtagSuggestion, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, HashtagSuggestion{
+			Hashtag:       row.Hashtag,
+			EventCount:    row.EventCount,
+			UniqueAuthors: row.UniqueAuthors,
+		})
 	}
 	return out, nil
 }

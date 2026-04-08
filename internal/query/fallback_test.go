@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
@@ -250,6 +251,108 @@ func TestGetProfiles_LocalMissRelayPartialSuccessPreservesMissing(t *testing.T) 
 	}
 	if len(out.MissingPubkeys) != 1 || out.MissingPubkeys[0] != "pk-2" {
 		t.Fatalf("expected pk-2 to stay missing, got %#v", out.MissingPubkeys)
+	}
+}
+
+func TestFallbackPolicy_TrustedOnlyBlocksDiscoveryMisses(t *testing.T) {
+	t.Parallel()
+	svc := mustNewServiceWithOptions(t, fakeReader{}, ServiceOptions{
+		FallbackFetchTrustMode: trustModeTrustedOnly,
+	})
+	allowedDiscovery, _ := svc.fallbackPolicy().eventAdmission(fallbackLookupDiscoveryMiss)
+	if allowedDiscovery {
+		t.Fatalf("expected trusted_only policy to block discovery-driven fallback")
+	}
+	allowedSearch, _ := svc.fallbackPolicy().eventAdmission(fallbackLookupSearchMiss)
+	if allowedSearch {
+		t.Fatalf("expected trusted_only policy to block search-driven fallback")
+	}
+	allowedDirect, _ := svc.fallbackPolicy().eventAdmission(fallbackLookupDirect)
+	if !allowedDirect {
+		t.Fatalf("expected trusted_only policy to preserve direct fallback by default")
+	}
+}
+
+func TestGetProfile_TrustedOnlyUntrustedDirectBlockedWhenDisabled(t *testing.T) {
+	t.Parallel()
+	allowDirect := false
+	svc := mustNewServiceWithOptions(t, readerWithAdvancedSearch{
+		Reader: fakeReader{
+			getProfileByPubkeyFn: func(context.Context, string) (store.ProfileProjection, error) {
+				return store.ProfileProjection{}, store.ErrNotFound
+			},
+		},
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
+			out := make(map[string]TrustQualification, len(pubkeys))
+			for _, pubkey := range pubkeys {
+				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: false}
+			}
+			return out, nil
+		},
+	}, ServiceOptions{
+		FallbackReader: fakeFallbackReader{
+			fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]Profile, error) {
+				t.Fatalf("fallback should be denied for untrusted direct lookup when direct exception disabled")
+				return nil, nil
+			},
+		},
+		FallbackFetchTrustMode:         trustModeTrustedOnly,
+		FallbackFetchAllowDirectLookup: &allowDirect,
+	})
+
+	_, err := svc.GetProfile(context.Background(), "pk-denied")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store.ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetEventByID_PreferTrustedUntrustedFallbackUsesSingleStrictAttempt(t *testing.T) {
+	t.Parallel()
+	var attempts int
+	svc := mustNewServiceWithOptions(t, fakeReader{
+		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+			return nil, store.ErrNotFound
+		},
+	}, ServiceOptions{
+		FallbackReader: fakeFallbackReader{
+			fetchEventsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
+				attempts++
+				return map[string]json.RawMessage{}, nil
+			},
+		},
+		FallbackFetchTrustMode:     trustModePreferTrusted,
+		FallbackFetchMaxAttempts:   5,
+		FallbackFetchMaxTimeBudget: 5 * time.Second,
+	})
+
+	_, _ = svc.GetEventByID(context.Background(), "evt-untrusted")
+	if attempts != 1 {
+		t.Fatalf("expected strict untrusted fallback to use one attempt, got %d", attempts)
+	}
+}
+
+func TestGetEventByID_OpenModeHonorsMaxFallbackAttempts(t *testing.T) {
+	t.Parallel()
+	var attempts int
+	svc := mustNewServiceWithOptions(t, fakeReader{
+		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+			return nil, store.ErrNotFound
+		},
+	}, ServiceOptions{
+		FallbackReader: fakeFallbackReader{
+			fetchEventsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
+				attempts++
+				return map[string]json.RawMessage{}, nil
+			},
+		},
+		FallbackFetchTrustMode:     trustModeOpen,
+		FallbackFetchMaxAttempts:   2,
+		FallbackFetchMaxTimeBudget: time.Second,
+	})
+
+	_, _ = svc.GetEventByID(context.Background(), "evt-open-attempts")
+	if attempts != 2 {
+		t.Fatalf("expected open mode to honor configured max attempts, got %d", attempts)
 	}
 }
 
@@ -497,10 +600,11 @@ func captureDefaultSlogJSON() (*bytes.Buffer, func()) {
 }
 
 type fakeReader struct {
-	getEventRawByIDFn      func(context.Context, string) (json.RawMessage, error)
-	getEventRawsByIDsFn    func(context.Context, []string) (map[string]json.RawMessage, error)
-	getProfileByPubkeyFn   func(context.Context, string) (store.ProfileProjection, error)
-	getProfilesByPubkeysFn func(context.Context, []string) (map[string]store.ProfileProjection, error)
+	getEventRawByIDFn       func(context.Context, string) (json.RawMessage, error)
+	getEventRawsByIDsFn     func(context.Context, []string) (map[string]json.RawMessage, error)
+	getProfileByPubkeyFn    func(context.Context, string) (store.ProfileProjection, error)
+	getProfilesByPubkeysFn  func(context.Context, []string) (map[string]store.ProfileProjection, error)
+	getProfilePublicStatsFn func(context.Context, string) (store.ProfilePublicStatsProjection, error)
 }
 
 func (f fakeReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -549,6 +653,17 @@ func (f fakeReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) 
 		return out, nil
 	}
 	return map[string]Profile{}, nil
+}
+
+func (f fakeReader) GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (ProfilePublicStats, error) {
+	if f.getProfilePublicStatsFn != nil {
+		row, err := f.getProfilePublicStatsFn(ctx, pubkey)
+		if err != nil {
+			return ProfilePublicStats{}, err
+		}
+		return profilePublicStatsFromStore(row), nil
+	}
+	return ProfilePublicStats{Pubkey: pubkey}, nil
 }
 
 func (f fakeReader) GetAuthorRecentEvents(context.Context, string, int) ([]json.RawMessage, error) {

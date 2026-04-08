@@ -56,6 +56,38 @@ type SearchResult struct {
 	Profiles []Profile         `json:"profiles"`
 }
 
+type SearchSuggestionsResult struct {
+	Profiles []Profile           `json:"profiles"`
+	Hashtags []HashtagSuggestion `json:"hashtags"`
+}
+
+type HashtagSuggestion struct {
+	Hashtag       string `json:"hashtag"`
+	EventCount    int64  `json:"event_count"`
+	UniqueAuthors int64  `json:"unique_authors"`
+}
+
+type NotesSearchParams struct {
+	Query  string
+	Limit  int
+	Offset int
+	Sort   string
+	Window *time.Duration
+}
+
+type ProfileSearchParams struct {
+	Query  string
+	Limit  int
+	Offset int
+	Sort   string
+}
+
+type TrustModeMetadata struct {
+	TrustMode    string `json:"trust_mode"`
+	TrustApplied bool   `json:"trust_applied"`
+	ResultScope  string `json:"result_scope"`
+}
+
 type EventRepliesResult struct {
 	EventID     string
 	Replies     []json.RawMessage
@@ -101,6 +133,20 @@ type Profile struct {
 	ProfileJSON       json.RawMessage
 }
 
+type ProfilePublicStats struct {
+	Pubkey           string
+	FollowerCount    int64
+	FollowingCount   int64
+	NoteCount        int64
+	ReplyCount       int64
+	RecentActivityAt *int64
+}
+
+type ProfilePublicSummary struct {
+	Profile Profile
+	Stats   ProfilePublicStats
+}
+
 type ContactList struct {
 	Pubkey          string
 	EventID         string
@@ -123,6 +169,25 @@ type NetworkStats struct {
 	Relays   int64 `json:"relays"`
 }
 
+type WindowedCount struct {
+	Last24h int64 `json:"24h"`
+	Last7d  int64 `json:"7d"`
+}
+
+type TrendingHashtagWindows struct {
+	Last24h []TrendingHashtag `json:"24h"`
+	Last7d  []TrendingHashtag `json:"7d"`
+}
+
+type PublicDiscoveryNetworkStats struct {
+	EventsIngested    int64                   `json:"events_ingested"`
+	ProjectedProfiles int64                   `json:"projected_profiles"`
+	Relays            int64                   `json:"relays"`
+	ActiveAuthors     WindowedCount           `json:"active_authors"`
+	NoteVolume        WindowedCount           `json:"note_volume"`
+	TopHashtags       *TrendingHashtagWindows `json:"top_hashtags,omitempty"`
+}
+
 type CuratedRecommendedRead struct {
 	EventID string `json:"event_id"`
 	Title   string `json:"title"`
@@ -140,6 +205,36 @@ type CuratedFeaturedAuthor struct {
 	Rank   int    `json:"rank"`
 }
 
+type TrendingHashtag struct {
+	Hashtag       string `json:"hashtag"`
+	EventCount    int64  `json:"event_count"`
+	UniqueAuthors int64  `json:"unique_authors"`
+}
+
+type TrendingNote struct {
+	EventID       string  `json:"event_id"`
+	AuthorPubkey  string  `json:"author_pubkey"`
+	CreatedAt     int64   `json:"created_at"`
+	Content       string  `json:"content"`
+	ReplyCount    int64   `json:"reply_count"`
+	RepostCount   int64   `json:"repost_count"`
+	ReactionCount int64   `json:"reaction_count"`
+	ZapCount      int64   `json:"zap_count"`
+	ZapMSats      int64   `json:"zap_msats"`
+	Score         float64 `json:"score"`
+}
+
+type TrendingProfile struct {
+	Pubkey                   string  `json:"pubkey"`
+	Score                    float64 `json:"score"`
+	RecentPostCount          int64   `json:"recent_post_count"`
+	RecentReplyCount         int64   `json:"recent_reply_count"`
+	RecentEngagementReceived int64   `json:"recent_engagement_received"`
+	RecentZapVolumeMSats     int64   `json:"recent_zap_volume_msats"`
+	RecentActiveDays         int     `json:"recent_active_days"`
+	RecentActivityAt         *int64  `json:"recent_activity_at,omitempty"`
+}
+
 type TrustScore struct {
 	Pubkey         string
 	Score          float64
@@ -148,6 +243,21 @@ type TrustScore struct {
 	DerivationName string
 	TargetVersion  int
 	ComputedAt     time.Time
+}
+
+type TrustQualificationPolicy struct {
+	MaxHops      int
+	MinimumScore float64
+}
+
+type TrustQualification struct {
+	Pubkey       string
+	Trusted      bool
+	IsSeed       bool
+	DistanceHops *int
+	Score        *float64
+	Rank         *int64
+	SourceRunID  *int64
 }
 
 type TrustRun struct {

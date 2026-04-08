@@ -67,6 +67,158 @@ func TestLoad_IngestorCompatibilityWrapper(t *testing.T) {
 	}
 }
 
+func TestLoadSharedConfig_TrustPolicyDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	cfg, err := loadSharedConfig("api")
+	if err != nil {
+		t.Fatalf("load shared config defaults: %v", err)
+	}
+	if cfg.TrustPolicy.CanonicalIngestMode != TrustModeOpen {
+		t.Fatalf("expected default canonical ingest mode open, got %q", cfg.TrustPolicy.CanonicalIngestMode)
+	}
+	if cfg.TrustPolicy.DiscoveryCandidateMode != TrustModeOpen ||
+		cfg.TrustPolicy.SearchRankingMode != TrustModePreferTrusted ||
+		cfg.TrustPolicy.FallbackFetchMode != TrustModeOpen ||
+		cfg.TrustPolicy.RetentionPolicyMode != TrustModeOpen {
+		t.Fatalf("expected default trust policy modes with prefer_trusted search ranking, got %#v", cfg.TrustPolicy)
+	}
+	if cfg.TrustPolicy.MinimumScore != 0 || cfg.TrustPolicy.MaxHops != 3 || cfg.TrustPolicy.RefreshInterval != 10*time.Minute {
+		t.Fatalf("unexpected trust policy defaults: %#v", cfg.TrustPolicy)
+	}
+	if cfg.TrustPolicy.FallbackFetchMaxAttempts != 1 ||
+		cfg.TrustPolicy.FallbackFetchMaxRelaysPerAttempt != 3 ||
+		cfg.TrustPolicy.FallbackFetchMaxTimeBudget != 2*time.Second ||
+		!cfg.TrustPolicy.FallbackFetchAllowDirectLookup {
+		t.Fatalf("unexpected fallback trust policy defaults: %#v", cfg.TrustPolicy)
+	}
+	if !cfg.TrustPolicy.RetentionHooks.DiscoveryCache.Enabled ||
+		cfg.TrustPolicy.RetentionHooks.DiscoveryCache.TrustedHorizon != 10*time.Minute ||
+		cfg.TrustPolicy.RetentionHooks.DiscoveryCache.UntrustedHorizon != 2*time.Minute {
+		t.Fatalf("unexpected discovery-cache retention hook defaults: %#v", cfg.TrustPolicy.RetentionHooks.DiscoveryCache)
+	}
+	if !cfg.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates.Enabled ||
+		cfg.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates.TrustedHorizon != 24*time.Hour ||
+		cfg.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates.UntrustedHorizon != 6*time.Hour {
+		t.Fatalf("unexpected discovery-candidate retention hook defaults: %#v", cfg.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates)
+	}
+	if cfg.TrustPolicy.RetentionHooks.LowValueEnrichmentState.Enabled ||
+		cfg.TrustPolicy.RetentionHooks.LowValueEnrichmentState.TrustedHorizon != 12*time.Hour ||
+		cfg.TrustPolicy.RetentionHooks.LowValueEnrichmentState.UntrustedHorizon != 3*time.Hour {
+		t.Fatalf("unexpected enrichment retention hook defaults: %#v", cfg.TrustPolicy.RetentionHooks.LowValueEnrichmentState)
+	}
+	if cfg.TrustPolicy.RetentionHooks.FallbackTransientMetadata.Enabled ||
+		cfg.TrustPolicy.RetentionHooks.FallbackTransientMetadata.TrustedHorizon != 2*time.Hour ||
+		cfg.TrustPolicy.RetentionHooks.FallbackTransientMetadata.UntrustedHorizon != 30*time.Minute {
+		t.Fatalf("unexpected fallback metadata retention hook defaults: %#v", cfg.TrustPolicy.RetentionHooks.FallbackTransientMetadata)
+	}
+	if len(cfg.TrustPolicy.SeedPubkeys) != 0 {
+		t.Fatalf("expected empty trust seed pubkeys by default, got %#v", cfg.TrustPolicy.SeedPubkeys)
+	}
+}
+
+func TestLoadSharedConfig_TrustPolicyOverrides(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUST_CANONICAL_INGEST_MODE", "prefer_trusted")
+	t.Setenv("TRUST_DISCOVERY_CANDIDATE_MODE", "trusted_only")
+	t.Setenv("TRUST_SEARCH_RANKING_MODE", "prefer_trusted")
+	t.Setenv("TRUST_FALLBACK_FETCH_MODE", "trusted_only")
+	t.Setenv("TRUST_RETENTION_POLICY_MODE", "prefer_trusted")
+	t.Setenv("TRUST_MINIMUM_SCORE", "0.42")
+	t.Setenv("TRUST_SEED_PUBKEYS", "pk1,pk2")
+	t.Setenv("TRUST_MAX_HOPS", "5")
+	t.Setenv("TRUST_REFRESH_INTERVAL", "30s")
+	t.Setenv("TRUST_FALLBACK_FETCH_MAX_ATTEMPTS", "2")
+	t.Setenv("TRUST_FALLBACK_FETCH_MAX_RELAYS_PER_ATTEMPT", "5")
+	t.Setenv("TRUST_FALLBACK_FETCH_MAX_TIME_BUDGET", "3s")
+	t.Setenv("TRUST_FALLBACK_FETCH_ALLOW_DIRECT_LOOKUP", "false")
+	t.Setenv("TRUST_RETENTION_DISCOVERY_CACHE_ENABLED", "false")
+	t.Setenv("TRUST_RETENTION_DISCOVERY_CACHE_TRUSTED_TTL", "8m")
+	t.Setenv("TRUST_RETENTION_DISCOVERY_CACHE_UNTRUSTED_TTL", "2m")
+	t.Setenv("TRUST_RETENTION_DISCOVERY_CANDIDATE_TRUSTED_MAX_AGE", "16h")
+	t.Setenv("TRUST_RETENTION_DISCOVERY_CANDIDATE_UNTRUSTED_MAX_AGE", "4h")
+	t.Setenv("TRUST_RETENTION_ENRICHMENT_STATE_ENABLED", "true")
+	t.Setenv("TRUST_RETENTION_ENRICHMENT_STATE_TRUSTED_MAX_AGE", "9h")
+	t.Setenv("TRUST_RETENTION_ENRICHMENT_STATE_UNTRUSTED_MAX_AGE", "1h")
+	t.Setenv("TRUST_RETENTION_FALLBACK_METADATA_ENABLED", "true")
+	t.Setenv("TRUST_RETENTION_FALLBACK_METADATA_TRUSTED_MAX_AGE", "90m")
+	t.Setenv("TRUST_RETENTION_FALLBACK_METADATA_UNTRUSTED_MAX_AGE", "15m")
+
+	cfg, err := loadSharedConfig("api")
+	if err != nil {
+		t.Fatalf("load shared config trust overrides: %v", err)
+	}
+	if cfg.TrustPolicy.CanonicalIngestMode != TrustModePreferTrusted ||
+		cfg.TrustPolicy.DiscoveryCandidateMode != TrustModeTrustedOnly ||
+		cfg.TrustPolicy.SearchRankingMode != TrustModePreferTrusted ||
+		cfg.TrustPolicy.FallbackFetchMode != TrustModeTrustedOnly ||
+		cfg.TrustPolicy.RetentionPolicyMode != TrustModePreferTrusted {
+		t.Fatalf("unexpected trust mode overrides: %#v", cfg.TrustPolicy)
+	}
+	if cfg.TrustPolicy.MinimumScore != 0.42 ||
+		cfg.TrustPolicy.MaxHops != 5 ||
+		cfg.TrustPolicy.RefreshInterval != 30*time.Second {
+		t.Fatalf("unexpected trust numeric overrides: %#v", cfg.TrustPolicy)
+	}
+	if cfg.TrustPolicy.FallbackFetchMaxAttempts != 2 ||
+		cfg.TrustPolicy.FallbackFetchMaxRelaysPerAttempt != 5 ||
+		cfg.TrustPolicy.FallbackFetchMaxTimeBudget != 3*time.Second ||
+		cfg.TrustPolicy.FallbackFetchAllowDirectLookup {
+		t.Fatalf("unexpected fallback trust overrides: %#v", cfg.TrustPolicy)
+	}
+	if cfg.TrustPolicy.RetentionHooks.DiscoveryCache.Enabled ||
+		cfg.TrustPolicy.RetentionHooks.DiscoveryCache.TrustedHorizon != 8*time.Minute ||
+		cfg.TrustPolicy.RetentionHooks.DiscoveryCache.UntrustedHorizon != 2*time.Minute {
+		t.Fatalf("unexpected discovery cache retention hook overrides: %#v", cfg.TrustPolicy.RetentionHooks.DiscoveryCache)
+	}
+	if !cfg.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates.Enabled ||
+		cfg.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates.TrustedHorizon != 16*time.Hour ||
+		cfg.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates.UntrustedHorizon != 4*time.Hour {
+		t.Fatalf("unexpected discovery candidate retention hook overrides: %#v", cfg.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates)
+	}
+	if !cfg.TrustPolicy.RetentionHooks.LowValueEnrichmentState.Enabled ||
+		cfg.TrustPolicy.RetentionHooks.LowValueEnrichmentState.TrustedHorizon != 9*time.Hour ||
+		cfg.TrustPolicy.RetentionHooks.LowValueEnrichmentState.UntrustedHorizon != time.Hour {
+		t.Fatalf("unexpected enrichment retention hook overrides: %#v", cfg.TrustPolicy.RetentionHooks.LowValueEnrichmentState)
+	}
+	if !cfg.TrustPolicy.RetentionHooks.FallbackTransientMetadata.Enabled ||
+		cfg.TrustPolicy.RetentionHooks.FallbackTransientMetadata.TrustedHorizon != 90*time.Minute ||
+		cfg.TrustPolicy.RetentionHooks.FallbackTransientMetadata.UntrustedHorizon != 15*time.Minute {
+		t.Fatalf("unexpected fallback retention hook overrides: %#v", cfg.TrustPolicy.RetentionHooks.FallbackTransientMetadata)
+	}
+	if len(cfg.TrustPolicy.SeedPubkeys) != 2 || cfg.TrustPolicy.SeedPubkeys[0] != "pk1" || cfg.TrustPolicy.SeedPubkeys[1] != "pk2" {
+		t.Fatalf("unexpected trust seed pubkeys: %#v", cfg.TrustPolicy.SeedPubkeys)
+	}
+}
+
+func TestLoadSharedConfig_TrustPolicyRejectsInvalidMode(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUST_SEARCH_RANKING_MODE", "friends_only")
+	_, err := loadSharedConfig("api")
+	if err == nil || !strings.Contains(err.Error(), "TRUST_SEARCH_RANKING_MODE") {
+		t.Fatalf("expected actionable TRUST_SEARCH_RANKING_MODE validation error, got %v", err)
+	}
+}
+
+func TestLoadSharedConfig_TrustPolicyRejectsInvalidCombination(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUST_CANONICAL_INGEST_MODE", "trusted_only")
+	t.Setenv("TRUST_SEED_PUBKEYS", "")
+	_, err := loadSharedConfig("api")
+	if err == nil || !strings.Contains(err.Error(), "TRUST_SEED_PUBKEYS") {
+		t.Fatalf("expected actionable TRUST_SEED_PUBKEYS validation error, got %v", err)
+	}
+}
+
+func TestLoadSharedConfig_TrustPolicyRejectsInvalidRetentionHookHorizon(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUST_RETENTION_DISCOVERY_CACHE_TRUSTED_TTL", "1m")
+	t.Setenv("TRUST_RETENTION_DISCOVERY_CACHE_UNTRUSTED_TTL", "10m")
+	_, err := loadSharedConfig("api")
+	if err == nil || !strings.Contains(err.Error(), "TRUST_RETENTION_DISCOVERY_CACHE") {
+		t.Fatalf("expected actionable TRUST_RETENTION_DISCOVERY_CACHE validation error, got %v", err)
+	}
+}
+
 func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("METRICS_ADDR", "127.0.0.1:19090")
@@ -83,6 +235,10 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	t.Setenv("HTTP_DM_COMPAT_RATE_LIMIT_RPM", "")
 	t.Setenv("PRIMAL_WS_ALLOWED_ORIGINS", "")
 	t.Setenv("PRIMAL_WS_ALLOW_ANY_ORIGIN", "")
+	t.Setenv("API_DISCOVERY_CACHE_ENABLED", "")
+	t.Setenv("API_DISCOVERY_CACHE_MAX_ENTRIES", "")
+	t.Setenv("API_DISCOVERY_CACHE_TRENDING_TTL", "")
+	t.Setenv("API_DISCOVERY_CACHE_PUBLIC_STATS_TTL", "")
 
 	cfg, err := LoadAPI()
 	if err != nil {
@@ -100,6 +256,10 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	if cfg.Shared.Observability.MetricsAddr != "" {
 		t.Fatalf("expected API metrics addr to be ignored, got %q", cfg.Shared.Observability.MetricsAddr)
 	}
+	if !cfg.DiscoveryCache.Enabled || cfg.DiscoveryCache.MaxEntries != 256 ||
+		cfg.DiscoveryCache.TrendingTTL != 60*time.Second || cfg.DiscoveryCache.PublicStatsTTL != 10*time.Minute {
+		t.Fatalf("unexpected discovery cache defaults: %#v", cfg.DiscoveryCache)
+	}
 
 	t.Setenv("API_MAX_BATCH_SIZE", "75")
 	t.Setenv("PRIMAL_WS_MAX_SUBSCRIPTIONS", "50")
@@ -110,6 +270,10 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	t.Setenv("PRIMAL_WS_ALLOWED_ORIGINS", "https://app.primal.net,https://nostrmash.local")
 	t.Setenv("PRIMAL_WS_ALLOW_ANY_ORIGIN", "true")
 	t.Setenv("DEBUG_ADDR", "127.0.0.1:6060")
+	t.Setenv("API_DISCOVERY_CACHE_ENABLED", "false")
+	t.Setenv("API_DISCOVERY_CACHE_MAX_ENTRIES", "120")
+	t.Setenv("API_DISCOVERY_CACHE_TRENDING_TTL", "45s")
+	t.Setenv("API_DISCOVERY_CACHE_PUBLIC_STATS_TTL", "7m")
 
 	cfg, err = LoadAPI()
 	if err != nil {
@@ -123,6 +287,12 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	}
 	if cfg.Shared.Observability.DebugAddr != "127.0.0.1:6060" {
 		t.Fatalf("unexpected debug addr: %q", cfg.Shared.Observability.DebugAddr)
+	}
+	if cfg.DiscoveryCache.Enabled ||
+		cfg.DiscoveryCache.MaxEntries != 120 ||
+		cfg.DiscoveryCache.TrendingTTL != 45*time.Second ||
+		cfg.DiscoveryCache.PublicStatsTTL != 7*time.Minute {
+		t.Fatalf("unexpected discovery cache env config: %#v", cfg.DiscoveryCache)
 	}
 }
 

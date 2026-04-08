@@ -9,6 +9,10 @@ Do not hand-edit this file.
 | Env var | Runtime(s) | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `ADMIN_BEARER_TOKEN` | `api` | optional | `-` | Optional bearer token for admin HTTP endpoints. |
+| `API_DISCOVERY_CACHE_ENABLED` | `api` | optional | `true` | Enable short-TTL response caching for public discovery trending and stats endpoints. |
+| `API_DISCOVERY_CACHE_MAX_ENTRIES` | `api` | optional | `256` | Maximum in-memory entries retained by discovery/stats response cache. |
+| `API_DISCOVERY_CACHE_PUBLIC_STATS_TTL` | `api` | optional | `10m` | TTL for cached public discovery stats responses. |
+| `API_DISCOVERY_CACHE_TRENDING_TTL` | `api` | optional | `60s` | TTL for cached discovery trending responses. |
 | `API_MAX_BATCH_SIZE` | `api` | optional | `200` | Maximum IDs accepted by batch event/profile API requests. |
 | `API_RELAY_FALLBACK_ENABLED` | `api` | optional | `false` | Enable best-effort relay fallback for local event/profile misses. |
 | `API_RELAY_FALLBACK_MAX_FANOUT` | `api` | optional | `3` | Maximum number of fallback relays queried per lookup. |
@@ -64,10 +68,35 @@ Do not hand-edit this file.
 | `PRIMAL_WS_MAX_REQ_PER_MINUTE` | `api` | optional | `240` | Per-connection request rate limit for Primal WebSocket REQ calls. |
 | `PRIMAL_WS_MAX_SUBSCRIPTIONS` | `api` | optional | `200` | Maximum concurrent Primal WS subscriptions per connection. |
 | `PRIMAL_WS_REQUEST_TIMEOUT` | `api` | optional | `10s` | Timeout for individual Primal WS request handling. |
+| `TRUST_CANONICAL_INGEST_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for canonical ingest candidates: open (ignore trust), prefer_trusted (bias toward trusted), trusted_only (allow trusted set only). Default stays open to preserve current ingest behavior. |
+| `TRUST_DISCOVERY_CANDIDATE_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for discovery candidate selection: open, prefer_trusted, or trusted_only. |
 | `TRUST_ENABLE_REDIS_SYNC` | `trust_worker` | optional | `false` | Enable Redis graph synchronization trust job phases. |
 | `TRUST_ENABLE_SCORE_COMPUTE` | `trust_worker` | optional | `true` | Enable trust score computation trust job phases. |
+| `TRUST_FALLBACK_FETCH_ALLOW_DIRECT_LOOKUP` | `api, ingestor, trust_worker, worker` | optional | `true` | Allow explicitly referenced direct lookups to use strict fallback even in trusted_only mode. |
+| `TRUST_FALLBACK_FETCH_MAX_ATTEMPTS` | `api, ingestor, trust_worker, worker` | optional | `1` | Maximum bounded fallback attempts per entity lookup before giving up. |
+| `TRUST_FALLBACK_FETCH_MAX_RELAYS_PER_ATTEMPT` | `api, ingestor, trust_worker, worker` | optional | `3` | Maximum relay fanout permitted for each fallback attempt. |
+| `TRUST_FALLBACK_FETCH_MAX_TIME_BUDGET` | `api, ingestor, trust_worker, worker` | optional | `2s` | Total fallback time budget per lookup before fallback stops. |
+| `TRUST_FALLBACK_FETCH_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for relay fallback fetches: open, prefer_trusted, or trusted_only. |
+| `TRUST_MAX_HOPS` | `api, ingestor, trust_worker, worker` | optional | `3` | Maximum trust-graph expansion depth used by trust-aware policy surfaces. |
+| `TRUST_MINIMUM_SCORE` | `api, ingestor, trust_worker, worker` | optional | `0` | Minimum trust score threshold used by trust-aware policy surfaces. |
 | `TRUST_REDIS_KEY_PREFIX` | `trust_worker` | optional | `nostrmash` | Prefix namespace for trust-worker Redis graph/snapshot keys. |
 | `TRUST_REDIS_URL` | `trust_worker` | optional | `-` | Redis connection string used for trust graph working state; required when TRUST_ENABLE_REDIS_SYNC=true. |
+| `TRUST_REFRESH_INTERVAL` | `api, ingestor, trust_worker, worker` | optional | `10m` | Refresh cadence for trust policy inputs (seed graph and score snapshots). |
+| `TRUST_RETENTION_DISCOVERY_CACHE_ENABLED` | `api, ingestor, trust_worker, worker` | optional | `true` | Enable trust-aware retention hook parameters for discovery cache TTL shaping. |
+| `TRUST_RETENTION_DISCOVERY_CACHE_TRUSTED_TTL` | `api, ingestor, trust_worker, worker` | optional | `10m0s` | Retention horizon for trusted discovery cache rows. |
+| `TRUST_RETENTION_DISCOVERY_CACHE_UNTRUSTED_TTL` | `api, ingestor, trust_worker, worker` | optional | `2m0s` | Retention horizon for untrusted discovery cache rows (should be <= trusted TTL). |
+| `TRUST_RETENTION_DISCOVERY_CANDIDATE_ENABLED` | `api, ingestor, trust_worker, worker` | optional | `true` | Enable trust-aware retention hook parameters for derived discovery/ranking candidates. |
+| `TRUST_RETENTION_DISCOVERY_CANDIDATE_TRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `24h0m0s` | Retention horizon for trusted derived discovery/ranking candidates. |
+| `TRUST_RETENTION_DISCOVERY_CANDIDATE_UNTRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `6h0m0s` | Retention horizon for untrusted derived discovery/ranking candidates (should be <= trusted horizon). |
+| `TRUST_RETENTION_ENRICHMENT_STATE_ENABLED` | `api, ingestor, trust_worker, worker` | optional | `false` | Enable trust-aware retention hook parameters for optional low-value enrichment state. |
+| `TRUST_RETENTION_ENRICHMENT_STATE_TRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `12h0m0s` | Retention horizon for trusted optional low-value enrichment state. |
+| `TRUST_RETENTION_ENRICHMENT_STATE_UNTRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `3h0m0s` | Retention horizon for untrusted optional low-value enrichment state (should be <= trusted horizon). |
+| `TRUST_RETENTION_FALLBACK_METADATA_ENABLED` | `api, ingestor, trust_worker, worker` | optional | `false` | Enable trust-aware retention hook parameters for optional transient fallback metadata. |
+| `TRUST_RETENTION_FALLBACK_METADATA_TRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `2h0m0s` | Retention horizon for trusted transient fallback metadata. |
+| `TRUST_RETENTION_FALLBACK_METADATA_UNTRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `30m0s` | Retention horizon for untrusted transient fallback metadata (should be <= trusted horizon). |
+| `TRUST_RETENTION_POLICY_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Optional trust policy mode for retention hooks: open, prefer_trusted, or trusted_only. |
+| `TRUST_SEARCH_RANKING_MODE` | `api, ingestor, trust_worker, worker` | optional | `prefer_trusted` | Trust policy mode for search ranking inputs: open, prefer_trusted, or trusted_only. |
+| `TRUST_SEED_PUBKEYS` | `api, ingestor, trust_worker, worker` | optional | `-` | CSV trust seed pubkeys used as trust graph roots. Required when any trust mode is trusted_only. |
 | `TRUST_WORKER_CLAIM_BATCH_SIZE` | `trust_worker` | optional | `5` | Maximum trust jobs claimed per poll loop. |
 | `TRUST_WORKER_CONCURRENCY` | `trust_worker` | optional | `2` | Trust worker goroutine concurrency. |
 | `TRUST_WORKER_POLL_INTERVAL` | `trust_worker` | optional | `1s` | Polling interval for trust queue claims. |

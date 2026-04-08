@@ -28,20 +28,28 @@ type moderationCapabilities struct {
 }
 
 type curatedCapabilities struct {
-	networkStats      networkStatsCapability
-	values            curatedValuesCapability
-	recommendedReads  curatedRecommendedReadsCapability
-	readsTopics       curatedReadsTopicsCapability
-	featuredAuthors   curatedFeaturedAuthorsCapability
-	creatorPaidTiers  creatorPaidTiersCapability
-	pubkeyByLNAddress pubkeyByLNAddressCapability
+	networkStats           networkStatsCapability
+	publicNetworkStats     publicDiscoveryNetworkStatsCapability
+	values                 curatedValuesCapability
+	recommendedReads       curatedRecommendedReadsCapability
+	readsTopics            curatedReadsTopicsCapability
+	trendingNotes          trendingNotesCapability
+	trustQualifiedNotes    trustQualifiedTrendingNotesCapability
+	trendingHashtags       trendingHashtagsCapability
+	trendingProfiles       trendingProfilesCapability
+	trustQualifiedProfiles trustQualifiedTrendingProfilesCapability
+	risingProfiles         risingProfilesCapability
+	featuredAuthors        curatedFeaturedAuthorsCapability
+	creatorPaidTiers       creatorPaidTiersCapability
+	pubkeyByLNAddress      pubkeyByLNAddressCapability
 }
 
 type trustCapabilities struct {
-	score      trustScoreCapability
-	topPubkeys topTrustedPubkeysCapability
-	run        trustRunCapability
-	runs       trustRunsCapability
+	score         trustScoreCapability
+	topPubkeys    topTrustedPubkeysCapability
+	run           trustRunCapability
+	runs          trustRunsCapability
+	qualification trustQualificationCapability
 }
 
 type replaceableCapabilities struct {

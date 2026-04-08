@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (s *PostgresStore) GetNetworkStats(ctx context.Context) (NetworkStats, error) {
@@ -25,6 +27,82 @@ func (s *PostgresStore) GetNetworkStats(ctx context.Context) (NetworkStats, erro
 		return out, fmt.Errorf("count relays: %w", err)
 	}
 	return out, nil
+}
+
+func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (PublicDiscoveryNetworkStats, error) {
+	out := PublicDiscoveryNetworkStats{}
+	if s == nil || s.pool == nil {
+		return out, fmt.Errorf("store is not initialized")
+	}
+	if hashtagLimit <= 0 {
+		hashtagLimit = 10
+	}
+	if hashtagLimit > 50 {
+		hashtagLimit = 50
+	}
+	networkStats, err := s.GetNetworkStats(ctx)
+	if err != nil {
+		return out, err
+	}
+	out.EventsIngested = networkStats.Events
+	out.ProjectedProfiles = networkStats.Profiles
+	out.Relays = networkStats.Relays
+
+	now := time.Now().UTC()
+	last24hNotes, last24hAuthors, err := s.getPublicWindowStats(ctx, now.Add(-24*time.Hour).Unix())
+	if err != nil {
+		return out, err
+	}
+	last7dNotes, last7dAuthors, err := s.getPublicWindowStats(ctx, now.Add(-7*24*time.Hour).Unix())
+	if err != nil {
+		return out, err
+	}
+	out.NoteVolume = WindowedCount{
+		Last24h: last24hNotes,
+		Last7d:  last7dNotes,
+	}
+	out.ActiveAuthors = WindowedCount{
+		Last24h: last24hAuthors,
+		Last7d:  last7dAuthors,
+	}
+
+	top24h, err := s.GetTrendingHashtags(ctx, 24*time.Hour, hashtagLimit, 0)
+	if err != nil {
+		if !isUndefinedRelationError(err) {
+			return out, err
+		}
+		return out, nil
+	}
+	top7d, err := s.GetTrendingHashtags(ctx, 7*24*time.Hour, hashtagLimit, 0)
+	if err != nil {
+		if !isUndefinedRelationError(err) {
+			return out, err
+		}
+		return out, nil
+	}
+	out.TopHashtags = &TrendingHashtagWindows{
+		Last24h: top24h,
+		Last7d:  top7d,
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) getPublicWindowStats(ctx context.Context, minCreatedAt int64) (int64, int64, error) {
+	var noteVolume int64
+	var activeAuthors int64
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*)::bigint, COUNT(DISTINCT author_pubkey)::bigint
+		FROM note_discovery_stats
+		WHERE created_at >= $1
+	`, minCreatedAt).Scan(&noteVolume, &activeAuthors); err != nil {
+		return 0, 0, fmt.Errorf("get note discovery window stats: %w", err)
+	}
+	return noteVolume, activeAuthors, nil
+}
+
+func isUndefinedRelationError(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42P01"
 }
 
 func (s *PostgresStore) GetCuratedValues(ctx context.Context, tableName string, valueColumn string, limit int) ([]string, error) {

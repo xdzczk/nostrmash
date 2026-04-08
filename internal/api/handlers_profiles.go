@@ -16,6 +16,22 @@ type profileResponse struct {
 	Profile           json.RawMessage `json:"profile"`
 }
 
+type profileSummaryStatsResponse struct {
+	FollowerCount    int64  `json:"follower_count"`
+	FollowingCount   int64  `json:"following_count"`
+	NoteCount        int64  `json:"note_count"`
+	ReplyCount       int64  `json:"reply_count"`
+	RecentActivityAt *int64 `json:"recent_activity_at,omitempty"`
+}
+
+type profilePublicSummaryResponse struct {
+	Pubkey            string                      `json:"pubkey"`
+	MetadataEventID   string                      `json:"metadata_event_id"`
+	MetadataCreatedAt int64                       `json:"metadata_created_at"`
+	Profile           json.RawMessage             `json:"profile"`
+	Stats             profileSummaryStatsResponse `json:"stats"`
+}
+
 func (h Handlers) GetProfileByPubkey(w http.ResponseWriter, r *http.Request) {
 	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
 	if pubkey == "" {
@@ -106,4 +122,34 @@ func (h Handlers) BatchGetProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 	slices.Sort(resp.MissingPubkeys)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h Handlers) GetProfilePublicSummary(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	summary, err := h.service.GetProfilePublicSummary(r.Context(), pubkey)
+	if err != nil {
+		if query.IsNotFound(err) {
+			writeError(r.Context(), w, http.StatusNotFound, "not_found", "profile not found")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, profilePublicSummaryResponse{
+		Pubkey:            summary.Profile.Pubkey,
+		MetadataEventID:   summary.Profile.MetadataEventID,
+		MetadataCreatedAt: summary.Profile.MetadataCreatedAt,
+		Profile:           summary.Profile.ProfileJSON,
+		Stats: profileSummaryStatsResponse{
+			FollowerCount:    summary.Stats.FollowerCount,
+			FollowingCount:   summary.Stats.FollowingCount,
+			NoteCount:        summary.Stats.NoteCount,
+			ReplyCount:       summary.Stats.ReplyCount,
+			RecentActivityAt: summary.Stats.RecentActivityAt,
+		},
+	})
 }

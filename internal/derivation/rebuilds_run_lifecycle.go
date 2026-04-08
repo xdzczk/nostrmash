@@ -131,11 +131,17 @@ func (h *Handlers) markRebuildRunSucceeded(ctx context.Context, run ProjectionRe
 }
 
 func (h *Handlers) applyScopeRebuild(ctx context.Context, run ProjectionRebuildRun, def projectionDefinition) error {
+	version := run.TargetVersion
+	if run.Scope.Type == RebuildScopeFull && def.rebuildFull != nil {
+		return def.rebuildFull(ctx, &version)
+	}
+	if def.rebuildProject == nil {
+		return fmt.Errorf("rebuild scope %q is not supported for derivation %q", run.Scope.Type, run.DerivationName)
+	}
 	eventIDs, err := h.scopeEventIDs(ctx, run.Scope)
 	if err != nil {
 		return err
 	}
-	version := run.TargetVersion
 	for _, eventID := range eventIDs {
 		if err := def.rebuildProject(ctx, eventID, &version); err != nil {
 			return fmt.Errorf("rebuild %s for event %s: %w", run.DerivationName, eventID, err)

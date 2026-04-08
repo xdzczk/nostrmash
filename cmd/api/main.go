@@ -84,20 +84,69 @@ func main() {
 	queryStore := store.NewPostgresStore(pool)
 	var fallbackReader any
 	if cfg.RelayFallback.Enabled {
-		fallbackReader = relaylookup.NewClient(cfg.RelayFallback.URLs, cfg.RelayFallback.Timeout, cfg.RelayFallback.MaxFanout)
+		maxFanout := cfg.RelayFallback.MaxFanout
+		if policyMax := cfg.Shared.TrustPolicy.FallbackFetchMaxRelaysPerAttempt; policyMax > 0 && policyMax < maxFanout {
+			maxFanout = policyMax
+		}
+		fallbackReader = relaylookup.NewClient(cfg.RelayFallback.URLs, cfg.RelayFallback.Timeout, maxFanout)
 		log.Info(
 			"relay_fallback_enabled",
 			"relay_count", len(cfg.RelayFallback.URLs),
 			"timeout", cfg.RelayFallback.Timeout.String(),
-			"max_fanout", cfg.RelayFallback.MaxFanout,
+			"max_fanout", maxFanout,
 		)
 	}
 	queryOptions := query.ServiceOptions{
-		FallbackReader: fallbackReader,
+		FallbackReader:                  fallbackReader,
+		FallbackFetchTrustMode:          cfg.Shared.TrustPolicy.FallbackFetchMode,
+		FallbackFetchMinimumScore:       cfg.Shared.TrustPolicy.MinimumScore,
+		FallbackFetchMaxHops:            cfg.Shared.TrustPolicy.MaxHops,
+		FallbackFetchMaxAttempts:        cfg.Shared.TrustPolicy.FallbackFetchMaxAttempts,
+		FallbackFetchMaxTimeBudget:      cfg.Shared.TrustPolicy.FallbackFetchMaxTimeBudget,
+		FallbackFetchAllowDirectLookup:  &cfg.Shared.TrustPolicy.FallbackFetchAllowDirectLookup,
+		DiscoveryCandidateTrustMode:     cfg.Shared.TrustPolicy.DiscoveryCandidateMode,
+		SearchRankingTrustMode:          cfg.Shared.TrustPolicy.SearchRankingMode,
+		DiscoveryCandidateMinimumScore:  cfg.Shared.TrustPolicy.MinimumScore,
+		DiscoveryCandidateMaxHops:       cfg.Shared.TrustPolicy.MaxHops,
+		DiscoveryProjectionMaxStaleness: cfg.Shared.TrustPolicy.RefreshInterval,
+		TrustRetentionHooks: query.TrustRetentionHooks{
+			Mode: cfg.Shared.TrustPolicy.RetentionPolicyMode,
+			DiscoveryCache: query.TrustRetentionHook{
+				Owner:            "query.discovery_cache",
+				Enabled:          cfg.Shared.TrustPolicy.RetentionHooks.DiscoveryCache.Enabled,
+				TrustedHorizon:   cfg.Shared.TrustPolicy.RetentionHooks.DiscoveryCache.TrustedHorizon,
+				UntrustedHorizon: cfg.Shared.TrustPolicy.RetentionHooks.DiscoveryCache.UntrustedHorizon,
+			},
+			DiscoveryCandidateProjection: query.TrustRetentionHook{
+				Owner:            "query.discovery_candidate_projection",
+				Enabled:          cfg.Shared.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates.Enabled,
+				TrustedHorizon:   cfg.Shared.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates.TrustedHorizon,
+				UntrustedHorizon: cfg.Shared.TrustPolicy.RetentionHooks.DiscoveryProjectionCandidates.UntrustedHorizon,
+			},
+			LowValueEnrichmentState: query.TrustRetentionHook{
+				Owner:            "query.low_value_enrichment_state",
+				Enabled:          cfg.Shared.TrustPolicy.RetentionHooks.LowValueEnrichmentState.Enabled,
+				TrustedHorizon:   cfg.Shared.TrustPolicy.RetentionHooks.LowValueEnrichmentState.TrustedHorizon,
+				UntrustedHorizon: cfg.Shared.TrustPolicy.RetentionHooks.LowValueEnrichmentState.UntrustedHorizon,
+			},
+			FallbackTransientMetadata: query.TrustRetentionHook{
+				Owner:            "query.fallback_transient_metadata",
+				Enabled:          cfg.Shared.TrustPolicy.RetentionHooks.FallbackTransientMetadata.Enabled,
+				TrustedHorizon:   cfg.Shared.TrustPolicy.RetentionHooks.FallbackTransientMetadata.TrustedHorizon,
+				UntrustedHorizon: cfg.Shared.TrustPolicy.RetentionHooks.FallbackTransientMetadata.UntrustedHorizon,
+			},
+		},
 	}
+	discoveryCacheEnabled := cfg.DiscoveryCache.Enabled
 	handlers, err := api.NewHandlersWithOptions(queryStore, api.HandlersOptions{
 		MaxBatchSize: cfg.HTTP.MaxBatchSize,
 		QueryOptions: queryOptions,
+		DiscoveryCache: &api.DiscoveryCacheOptions{
+			Enabled:        &discoveryCacheEnabled,
+			MaxEntries:     cfg.DiscoveryCache.MaxEntries,
+			TrendingTTL:    cfg.DiscoveryCache.TrendingTTL,
+			PublicStatsTTL: cfg.DiscoveryCache.PublicStatsTTL,
+		},
 	})
 	if err != nil {
 		log.Error("query_service_init", "surface", "api", "error", err)

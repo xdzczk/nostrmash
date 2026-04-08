@@ -130,6 +130,10 @@ Layer 3 is read-optimized projection state consumed by APIs:
 - `follower_edges`
 - `dm_unread_counts`, `dm_read_cursors`
 - `zap_receipts`
+- `event_hashtags`
+- `note_discovery_stats`
+- `profile_public_stats`
+- `profile_discovery_stats`
 - curated parity tables such as `curated_reads_topics`, `curated_featured_authors`, `curated_recommended_reads`, and `curated_creator_paid_tiers`
 
 Layer 3 is disposable in principle. If a projection is wrong or needs to change shape, rebuild it from lower layers.

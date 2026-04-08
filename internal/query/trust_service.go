@@ -66,3 +66,43 @@ func (s Service) ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, erro
 	}
 	return rows, nil
 }
+
+func (s Service) IsTrustedAuthor(ctx context.Context, pubkey string, policy TrustQualificationPolicy) (bool, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return false, fmt.Errorf("pubkey is required")
+	}
+	reader := s.capabilities.trust.qualification
+	if reader == nil {
+		return false, unsupportedCapabilityError("trust qualification")
+	}
+	return reader.IsTrustedAuthor(ctx, pubkey, policy)
+}
+
+func (s Service) GetTrustQualification(
+	ctx context.Context,
+	pubkeys []string,
+	policy TrustQualificationPolicy,
+) (map[string]TrustQualification, error) {
+	normalized := normalizeUniqueStrings(pubkeys)
+	if len(normalized) == 0 {
+		return map[string]TrustQualification{}, nil
+	}
+	reader := s.capabilities.trust.qualification
+	if reader == nil {
+		return nil, unsupportedCapabilityError("trust qualification")
+	}
+	rows, err := reader.GetTrustQualifications(ctx, normalized, policy)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]TrustQualification, len(normalized))
+	for _, pubkey := range normalized {
+		if row, ok := rows[pubkey]; ok {
+			out[pubkey] = row
+			continue
+		}
+		out[pubkey] = TrustQualification{Pubkey: pubkey}
+	}
+	return out, nil
+}

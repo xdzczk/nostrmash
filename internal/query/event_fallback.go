@@ -24,24 +24,45 @@ func (s eventService) getEventWithFallback(ctx context.Context, eventID string) 
 	if s.fallback == nil {
 		return nil, err
 	}
+	allowed, strict := s.policy.eventAdmission(fallbackLookupDirect)
+	if !allowed {
+		return nil, err
+	}
+	maxAttempts, maxTimeBudget := s.policy.executionBounds(strict)
 
 	started := time.Now()
-	observeFallbackAttemptByEntity(fallbackEntityEvent)
 	fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_event_by_id.fallback", traceutil.KV("fallback.surface", "event_by_id"))
-	foundByID, fallbackErr := s.fallback.FetchEventsByIDs(fallbackCtx, []string{eventID})
-	fallbackSpan.End(fallbackErr)
-	if fallbackErr != nil {
+	budgetCtx, cancel := withFallbackTimeBudget(fallbackCtx, maxTimeBudget)
+	defer cancel()
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		observeFallbackAttemptByEntity(fallbackEntityEvent)
+		foundByID, fallbackErr := s.fallback.FetchEventsByIDs(budgetCtx, []string{eventID})
+		if fallbackErr != nil {
+			lastErr = fallbackErr
+			if budgetCtx.Err() != nil {
+				break
+			}
+			continue
+		}
+		if raw, ok := foundByID[eventID]; ok {
+			fallbackSpan.End(nil)
+			observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultHit, time.Since(started))
+			return raw, nil
+		}
+		if budgetCtx.Err() != nil {
+			break
+		}
+	}
+	fallbackSpan.End(lastErr)
+	if lastErr != nil {
 		observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultError, time.Since(started))
-		logFallbackInfraFailure(ctx, "event_by_id", fallbackEntityEvent, eventID, fallbackErr, true)
+		logFallbackInfraFailure(ctx, "event_by_id", fallbackEntityEvent, eventID, lastErr, true)
 		return nil, err
 	}
-	raw, ok := foundByID[eventID]
-	if !ok {
-		observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultMiss, time.Since(started))
-		return nil, err
-	}
-	observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultHit, time.Since(started))
-	return raw, nil
+	observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultMiss, time.Since(started))
+	return nil, err
 }
 
 func (s eventService) mergeEventsWithFallback(ctx context.Context, normalizedIDs []string, found map[string]json.RawMessage) (map[string]json.RawMessage, error) {
@@ -60,15 +81,48 @@ func (s eventService) mergeEventsWithFallback(ctx context.Context, normalizedIDs
 	if s.fallback == nil {
 		return found, nil
 	}
+	allowed, strict := s.policy.eventAdmission(fallbackLookupDirect)
+	if !allowed {
+		return found, nil
+	}
+	maxAttempts, maxTimeBudget := s.policy.executionBounds(strict)
 
 	started := time.Now()
-	observeFallbackAttemptByEntity(fallbackEntityEvent)
 	fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_event_batch.fallback", traceutil.KV("fallback.surface", "event_batch"))
-	fallbackFound, fallbackErr := s.fallback.FetchEventsByIDs(fallbackCtx, missing)
-	fallbackSpan.End(fallbackErr)
-	if fallbackErr != nil {
+	budgetCtx, cancel := withFallbackTimeBudget(fallbackCtx, maxTimeBudget)
+	defer cancel()
+
+	remaining := append([]string(nil), missing...)
+	fallbackFound := make(map[string]json.RawMessage, len(missing))
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts && len(remaining) > 0; attempt++ {
+		observeFallbackAttemptByEntity(fallbackEntityEvent)
+		attemptFound, fallbackErr := s.fallback.FetchEventsByIDs(budgetCtx, remaining)
+		if fallbackErr != nil {
+			lastErr = fallbackErr
+			if budgetCtx.Err() != nil {
+				break
+			}
+			continue
+		}
+		nextRemaining := make([]string, 0, len(remaining))
+		for _, id := range remaining {
+			raw, ok := attemptFound[id]
+			if !ok {
+				nextRemaining = append(nextRemaining, id)
+				continue
+			}
+			fallbackFound[id] = raw
+		}
+		remaining = nextRemaining
+		if budgetCtx.Err() != nil {
+			break
+		}
+	}
+	fallbackSpan.End(lastErr)
+	if lastErr != nil {
 		observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultError, time.Since(started))
-		logFallbackBatchInfraFailure(ctx, "event_batch", fallbackEntityEvent, missing, fallbackErr, true)
+		logFallbackBatchInfraFailure(ctx, "event_batch", fallbackEntityEvent, missing, lastErr, true)
 		return found, nil
 	}
 	if len(fallbackFound) == 0 {

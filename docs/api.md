@@ -70,6 +70,13 @@ It serves:
 - `followers` (derived follower edges from latest kind:3 contact lists)
 - trust score reads for a single pubkey or the current top-ranked set
 
+Discovery-oriented native reads have an explicit namespace under `/api/v1/discovery/...`.
+
+- keep discovery surfaces grouped under `/api/v1/discovery/...` (for example notes/profiles/hashtags trending and network/content stats)
+- keep discovery ranking endpoints projection-backed (for example note and hashtag trending windows) instead of on-demand joins over raw event graphs
+- keep search under `/api/v1/search` so full-text querying remains a dedicated surface
+- add new discovery routes through the central declared route list and OpenAPI contract so drift checks protect them
+
 This is the surface to extend when NostrMash gains new first-class read capabilities.
 
 ## Compatibility API

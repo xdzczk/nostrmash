@@ -43,15 +43,18 @@ func Ready(pool *pgxpool.Pool) http.HandlerFunc {
 type EventReader = any
 
 type Handlers struct {
-	service      query.Service
-	maxBatchSize int
+	service        query.Service
+	maxBatchSize   int
+	discoveryCache *discoveryResponseCache
+	cacheConfig    discoveryCacheConfig
 }
 
 var apiErrLog = logging.New("api")
 
 type HandlersOptions struct {
-	MaxBatchSize int
-	QueryOptions query.ServiceOptions
+	MaxBatchSize   int
+	QueryOptions   query.ServiceOptions
+	DiscoveryCache *DiscoveryCacheOptions
 }
 
 func NewHandlers(reader EventReader, maxBatchSize int) (Handlers, error) {
@@ -63,13 +66,23 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 	if maxBatchSize <= 0 {
 		maxBatchSize = 200
 	}
+	cacheConfig := defaultDiscoveryCacheConfig()
+	if options.DiscoveryCache != nil {
+		cacheConfig = cacheConfig.withOverrides(*options.DiscoveryCache)
+	}
 	service, err := query.NewServiceWithOptions(reader, options.QueryOptions)
 	if err != nil {
 		return Handlers{}, err
 	}
+	var discoveryCache *discoveryResponseCache
+	if cacheConfig.Enabled {
+		discoveryCache = newDiscoveryResponseCache(cacheConfig.MaxEntries)
+	}
 	return Handlers{
-		service:      service,
-		maxBatchSize: maxBatchSize,
+		service:        service,
+		maxBatchSize:   maxBatchSize,
+		discoveryCache: discoveryCache,
+		cacheConfig:    cacheConfig,
 	}, nil
 }
 
@@ -123,6 +136,21 @@ func parseBoundedPositiveInt(r *http.Request, key string, defaultValue int, maxV
 	return parsed, nil
 }
 
+func parseBoundedNonNegativeInt(r *http.Request, key string, defaultValue int, maxValue int) (int, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return defaultValue, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 0 {
+		return 0, errors.New(key + " must be a non-negative integer")
+	}
+	if parsed > maxValue {
+		return 0, errors.New(key + " exceeds maximum allowed value")
+	}
+	return parsed, nil
+}
+
 func encodeEventCursor(cursor *query.EventCursor) (string, error) {
 	if cursor == nil {
 		return "", nil
@@ -145,4 +173,24 @@ func decodeEventCursor(value string) (*query.EventCursor, error) {
 		CreatedAt: payload.CreatedAt,
 		ID:        payload.ID,
 	}, nil
+}
+
+func (h Handlers) addDiscoveryTrustMetadata(payload map[string]any) {
+	meta := h.service.DiscoveryTrustMetadata()
+	payload["trust_mode"] = meta.TrustMode
+	payload["trust_applied"] = meta.TrustApplied
+	payload["result_scope"] = meta.ResultScope
+}
+
+func (h Handlers) addSearchTrustMetadata(payload map[string]any) {
+	meta := h.service.SearchTrustMetadata()
+	payload["trust_mode"] = meta.TrustMode
+	payload["trust_applied"] = meta.TrustApplied
+	payload["result_scope"] = meta.ResultScope
+}
+
+func addOpenTrustMetadata(payload map[string]any) {
+	payload["trust_mode"] = "open"
+	payload["trust_applied"] = false
+	payload["result_scope"] = "open"
 }

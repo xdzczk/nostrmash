@@ -10,12 +10,14 @@ import (
 )
 
 type rebuildProjectionFunc func(context.Context, string, *int) error
+type rebuildProjectionFullFunc func(context.Context, *int) error
 
 type projectionDefinition struct {
 	name           string
 	compiled       int
 	description    string
 	rebuildProject rebuildProjectionFunc
+	rebuildFull    rebuildProjectionFullFunc
 }
 
 func (h *Handlers) TriggerProjectionRebuild(ctx context.Context, params TriggerProjectionRebuildParams) (ProjectionRebuildRun, error) {

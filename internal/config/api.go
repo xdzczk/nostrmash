@@ -8,11 +8,12 @@ import (
 )
 
 type APIConfig struct {
-	Shared        SharedConfig
-	HTTP          APIHTTPConfig
-	PrimalWS      APIPrimalWSConfig
-	Relay         APIRelayConfig
-	RelayFallback APIRelayFallbackConfig
+	Shared         SharedConfig
+	HTTP           APIHTTPConfig
+	PrimalWS       APIPrimalWSConfig
+	Relay          APIRelayConfig
+	RelayFallback  APIRelayFallbackConfig
+	DiscoveryCache APIDiscoveryCacheConfig
 }
 
 type APIHTTPConfig struct {
@@ -46,6 +47,13 @@ type APIRelayFallbackConfig struct {
 	URLs      []string
 	Timeout   time.Duration
 	MaxFanout int
+}
+
+type APIDiscoveryCacheConfig struct {
+	Enabled        bool
+	MaxEntries     int
+	TrendingTTL    time.Duration
+	PublicStatsTTL time.Duration
 }
 
 func LoadAPI() (APIConfig, error) {
@@ -103,6 +111,18 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	discoveryCacheMaxEntries, err := getEnvPositiveIntStrict("API_DISCOVERY_CACHE_MAX_ENTRIES", 256)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	discoveryTrendingTTL, err := getEnvPositiveDurationStrict("API_DISCOVERY_CACHE_TRENDING_TTL", 60*time.Second)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	discoveryPublicStatsTTL, err := getEnvPositiveDurationStrict("API_DISCOVERY_CACHE_PUBLIC_STATS_TTL", 10*time.Minute)
+	if err != nil {
+		return APIConfig{}, err
+	}
 	fallbackURLs := parseCSVEnv("API_RELAY_FALLBACK_URLS")
 	if len(fallbackURLs) == 0 {
 		fallbackURLs = parseCSVEnv("INGESTOR_RELAY_URLS")
@@ -141,6 +161,12 @@ func LoadAPI() (APIConfig, error) {
 			URLs:      normalizedFallbackURLs,
 			Timeout:   relayFallbackTimeout,
 			MaxFanout: relayFallbackMaxFanout,
+		},
+		DiscoveryCache: APIDiscoveryCacheConfig{
+			Enabled:        getEnvBool("API_DISCOVERY_CACHE_ENABLED", true),
+			MaxEntries:     discoveryCacheMaxEntries,
+			TrendingTTL:    discoveryTrendingTTL,
+			PublicStatsTTL: discoveryPublicStatsTTL,
 		},
 	}
 	if err := validateAPIConfig(cfg); err != nil {

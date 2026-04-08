@@ -74,6 +74,15 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 				return h.projectContactListsLatestWithVersion(ctx, eventID, version)
 			},
 		}, nil
+	case DerivationFollowerEdges:
+		return projectionDefinition{
+			name:        DerivationFollowerEdges,
+			compiled:    FollowerEdgesVersion,
+			description: "Project follower edges from latest contact_lists_latest state",
+			rebuildProject: func(ctx context.Context, eventID string, version *int) error {
+				return h.projectContactListsLatestWithVersion(ctx, eventID, version)
+			},
+		}, nil
 	case DerivationRelayListsLatest:
 		return projectionDefinition{
 			name:        DerivationRelayListsLatest,
@@ -82,6 +91,41 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			rebuildProject: func(ctx context.Context, eventID string, version *int) error {
 				return h.projectRelayListsLatestWithVersion(ctx, eventID, version)
 			},
+		}, nil
+	case DerivationEventHashtags:
+		return projectionDefinition{
+			name:           DerivationEventHashtags,
+			compiled:       EventHashtagsVersion,
+			description:    "Project normalized hashtags from note-like events",
+			rebuildProject: h.projectEventHashtagsWithVersion,
+		}, nil
+	case DerivationNoteDiscoveryStats:
+		return projectionDefinition{
+			name:           DerivationNoteDiscoveryStats,
+			compiled:       NoteDiscoveryStatsVersion,
+			description:    "Project per-note discovery counters and rolling scores",
+			rebuildProject: h.projectNoteDiscoveryStatsWithVersion,
+		}, nil
+	case DerivationProfileDiscoveryStats:
+		return projectionDefinition{
+			name:           DerivationProfileDiscoveryStats,
+			compiled:       ProfileDiscoveryStatsVersion,
+			description:    "Project per-profile discovery counters and rolling scores",
+			rebuildProject: h.projectProfileDiscoveryStatsWithVersion,
+		}, nil
+	case DerivationTrustedNoteDiscovery:
+		return projectionDefinition{
+			name:        DerivationTrustedNoteDiscovery,
+			compiled:    TrustedNoteDiscoveryVersion,
+			description: "Project trust-qualified discovery metadata for note candidates",
+			rebuildFull: h.rebuildTrustedNoteDiscoveryWithVersion,
+		}, nil
+	case DerivationTrustedProfileDiscovery:
+		return projectionDefinition{
+			name:        DerivationTrustedProfileDiscovery,
+			compiled:    TrustedProfileDiscoveryVersion,
+			description: "Project trust-qualified discovery metadata for profile candidates",
+			rebuildFull: h.rebuildTrustedProfileDiscoveryWithVersion,
 		}, nil
 	case DerivationThreadProjection:
 		return projectionDefinition{
@@ -103,6 +147,13 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       ZapReceiptsVersion,
 			description:    "Project zap receipts by sender, receiver, target event, and sats",
 			rebuildProject: h.projectZapReceiptsWithVersion,
+		}, nil
+	case DerivationProfilePublicStats:
+		return projectionDefinition{
+			name:           DerivationProfilePublicStats,
+			compiled:       ProfilePublicStatsVersion,
+			description:    "Project public profile counters and recent activity",
+			rebuildProject: h.projectProfilePublicStatsWithVersion,
 		}, nil
 	default:
 		return projectionDefinition{}, fmt.Errorf("projection rebuild is not supported for derivation %q", normalized)

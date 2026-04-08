@@ -35,6 +35,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"dm_unread_counts",
 		"dm_read_cursors",
 		"event_references",
+		"event_hashtags",
 		"events",
 		"event_relays",
 		"event_tags",
@@ -43,6 +44,9 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"ingest_checkpoints",
 		"ingest_pubkey_frontier",
 		"jobs",
+		"note_discovery_stats",
+		"profile_discovery_stats",
+		"profile_public_stats",
 		"profiles_latest",
 		"projection_rebuild_runs",
 		"pubkey_references",
@@ -60,6 +64,10 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"thread_edges",
 		"trust_runs",
 		"trust_relay_suggestions",
+		"trust_graph_snapshot",
+		"trusted_note_discovery_candidates",
+		"trusted_profile_discovery_candidates",
+		"trusted_discovery_projection_state",
 		"trust_scores_global",
 		"trust_scores_global_stage",
 		"trust_seeds",
@@ -234,6 +242,39 @@ func TestMigrateTrustSchedulingSchemaGuards(t *testing.T) {
 		if !exists {
 			t.Fatalf("expected index %q to exist", indexName)
 		}
+	}
+}
+
+func TestMigratePgTrgmExtensionIsPublicAcrossSchemas(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+
+	firstPool := dbtest.SetupSchemaPool(t, ctx, dbURL, "migrate_trgm_first")
+	if err := Migrate(ctx, firstPool, "test-v1"); err != nil {
+		t.Fatalf("first schema migrate failed: %v", err)
+	}
+
+	secondPool := dbtest.SetupSchemaPool(t, ctx, dbURL, "migrate_trgm_second")
+	if err := Migrate(ctx, secondPool, "test-v1"); err != nil {
+		t.Fatalf("second schema migrate failed: %v", err)
+	}
+
+	var extensionSchema string
+	if err := secondPool.QueryRow(ctx, `
+		SELECT ns.nspname
+		FROM pg_extension ext
+		JOIN pg_namespace ns ON ns.oid = ext.extnamespace
+		WHERE ext.extname = 'pg_trgm'
+	`).Scan(&extensionSchema); err != nil {
+		t.Fatalf("query pg_trgm schema: %v", err)
+	}
+	if extensionSchema != "public" {
+		t.Fatalf("expected pg_trgm extension schema to be public, got %q", extensionSchema)
+	}
+
+	var trigramComparable bool
+	if err := secondPool.QueryRow(ctx, `SELECT 'nostr'::text % 'nostrmash'::text`).Scan(&trigramComparable); err != nil {
+		t.Fatalf("evaluate trigram operator from second schema: %v", err)
 	}
 }
 

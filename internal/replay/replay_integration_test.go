@@ -65,6 +65,35 @@ func TestReplayIsDeterministicAcrossFreshSchemas(t *testing.T) {
 	}
 }
 
+func TestReplayProjectsEventHashtags(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	runner, err := replay.NewRunner(nil, pool, replayValidationOptions())
+	if err != nil {
+		t.Fatalf("new replay runner: %v", err)
+	}
+	if _, err := runner.ReplayFixturePath(ctx, "testdata/relay_payloads/basic_flow.ndjson"); err != nil {
+		t.Fatalf("replay fixture: %v", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM event_hashtags
+		WHERE hashtag = 'test'
+	`).Scan(&count); err != nil {
+		t.Fatalf("count replayed hashtag rows: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("unexpected replayed hashtag row count: got=%d want=1", count)
+	}
+}
+
 func runReplayAndSnapshot(t *testing.T, ctx context.Context, dbURL, fixturePath string) replay.StateSnapshot {
 	t.Helper()
 	pool := setupSchemaPool(t, ctx, dbURL)

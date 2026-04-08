@@ -29,43 +29,55 @@ const (
 )
 
 const (
-	DerivationEventRelationships = "event_relationships"
-	DerivationReplaceableState   = "replaceable_state"
-	DerivationProfilesLatest     = "profiles_latest"
-	DerivationAuthorRecentEvents = "author_recent_events"
-	DerivationReplyCounts        = "reply_counts"
-	DerivationReactionCounts     = "reaction_counts"
-	DerivationRepostCounts       = "repost_counts"
-	DerivationReactionEvents     = "reaction_events"
-	DerivationRepostEvents       = "repost_events"
-	DerivationDeletionEvents     = "deletion_events"
-	DerivationContactListsLatest = "contact_lists_latest"
-	DerivationFollowerEdges      = "follower_edges"
-	DerivationRelayListsLatest   = "relay_lists_latest"
-	DerivationDMUnreadCounts     = "dm_unread_counts"
-	DerivationZapReceipts        = "zap_receipts"
-	DerivationThreadProjection   = "thread_projection"
-	DerivationTrustScoresGlobal  = "trust_scores_global"
+	DerivationEventRelationships      = "event_relationships"
+	DerivationReplaceableState        = "replaceable_state"
+	DerivationProfilesLatest          = "profiles_latest"
+	DerivationAuthorRecentEvents      = "author_recent_events"
+	DerivationReplyCounts             = "reply_counts"
+	DerivationReactionCounts          = "reaction_counts"
+	DerivationRepostCounts            = "repost_counts"
+	DerivationReactionEvents          = "reaction_events"
+	DerivationRepostEvents            = "repost_events"
+	DerivationDeletionEvents          = "deletion_events"
+	DerivationContactListsLatest      = "contact_lists_latest"
+	DerivationFollowerEdges           = "follower_edges"
+	DerivationRelayListsLatest        = "relay_lists_latest"
+	DerivationEventHashtags           = "event_hashtags"
+	DerivationNoteDiscoveryStats      = "note_discovery_stats"
+	DerivationProfileDiscoveryStats   = "profile_discovery_stats"
+	DerivationTrustedNoteDiscovery    = "trusted_note_discovery_candidates"
+	DerivationTrustedProfileDiscovery = "trusted_profile_discovery_candidates"
+	DerivationDMUnreadCounts          = "dm_unread_counts"
+	DerivationZapReceipts             = "zap_receipts"
+	DerivationProfilePublicStats      = "profile_public_stats"
+	DerivationThreadProjection        = "thread_projection"
+	DerivationTrustScoresGlobal       = "trust_scores_global"
 )
 
 const (
-	EventRelationshipsVersion = 1
-	ReplaceableStateVersion   = 1
-	ProfilesLatestVersion     = 1
-	AuthorRecentEventsVersion = 1
-	ReplyCountsVersion        = 1
-	ReactionCountsVersion     = 1
-	RepostCountsVersion       = 1
-	ReactionEventsVersion     = 1
-	RepostEventsVersion       = 1
-	DeletionEventsVersion     = 1
-	ContactListsLatestVersion = 1
-	FollowerEdgesVersion      = 1
-	RelayListsLatestVersion   = 1
-	DMUnreadCountsVersion     = 1
-	ZapReceiptsVersion        = 1
-	ThreadProjectionVersion   = 1
-	TrustScoresGlobalVersion  = 3
+	EventRelationshipsVersion      = 1
+	ReplaceableStateVersion        = 1
+	ProfilesLatestVersion          = 1
+	AuthorRecentEventsVersion      = 1
+	ReplyCountsVersion             = 1
+	ReactionCountsVersion          = 1
+	RepostCountsVersion            = 1
+	ReactionEventsVersion          = 1
+	RepostEventsVersion            = 1
+	DeletionEventsVersion          = 1
+	ContactListsLatestVersion      = 1
+	FollowerEdgesVersion           = 1
+	RelayListsLatestVersion        = 1
+	EventHashtagsVersion           = 1
+	NoteDiscoveryStatsVersion      = 1
+	ProfileDiscoveryStatsVersion   = 1
+	TrustedNoteDiscoveryVersion    = 1
+	TrustedProfileDiscoveryVersion = 1
+	DMUnreadCountsVersion          = 1
+	ZapReceiptsVersion             = 1
+	ProfilePublicStatsVersion      = 1
+	ThreadProjectionVersion        = 1
+	TrustScoresGlobalVersion       = 3
 )
 
 const (

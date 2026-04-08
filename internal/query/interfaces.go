@@ -22,6 +22,7 @@ type EventService interface {
 type ProfileService interface {
 	GetProfile(ctx context.Context, pubkey string) (Profile, error)
 	GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error)
+	GetProfilePublicSummary(ctx context.Context, pubkey string) (ProfilePublicSummary, error)
 }
 
 type TrustService interface {
@@ -29,6 +30,8 @@ type TrustService interface {
 	ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustScore, error)
 	GetTrustRun(ctx context.Context, runID int64) (TrustRun, error)
 	ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, error)
+	IsTrustedAuthor(ctx context.Context, pubkey string, policy TrustQualificationPolicy) (bool, error)
+	GetTrustQualification(ctx context.Context, pubkeys []string, policy TrustQualificationPolicy) (map[string]TrustQualification, error)
 }
 
 // ReadOrchestration groups focused read-side service capabilities.

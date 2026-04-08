@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
@@ -18,6 +19,7 @@ type Reader interface {
 	GetEventSeenOn(ctx context.Context, id string) ([]model.EventRelay, error)
 	GetProfileByPubkey(ctx context.Context, pubkey string) (Profile, error)
 	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error)
+	GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (ProfilePublicStats, error)
 	GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
 	GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
 	GetEventCounts(ctx context.Context, eventID string) (EventCounts, error)
@@ -51,12 +53,26 @@ type EventReader interface {
 type ProfileReader interface {
 	GetProfileByPubkey(ctx context.Context, pubkey string) (Profile, error)
 	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error)
+	GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (ProfilePublicStats, error)
 }
 
 type Service struct {
-	reader       Reader
-	capabilities serviceCapabilities
-	fallback     FallbackReader
+	reader                          Reader
+	capabilities                    serviceCapabilities
+	fallback                        FallbackReader
+	fallbackFetchMode               string
+	fallbackFetchPolicy             TrustQualificationPolicy
+	fallbackMaxAttempts             int
+	fallbackMaxTimeBudget           time.Duration
+	fallbackDirectLookups           bool
+	discoveryTrustMode              string
+	discoveryTrustPolicy            TrustQualificationPolicy
+	discoveryTrustScanSize          int
+	discoveryProjectionMaxStaleness time.Duration
+	searchTrustMode                 string
+	searchTrustPolicy               TrustQualificationPolicy
+	searchTrustScanSize             int
+	retentionHooks                  TrustRetentionHooks
 }
 
 // FallbackReader fetches entity-shaped data from configured relays on local miss.
@@ -66,7 +82,19 @@ type FallbackReader interface {
 }
 
 type ServiceOptions struct {
-	FallbackReader any
+	FallbackReader                  any
+	FallbackFetchTrustMode          string
+	FallbackFetchMinimumScore       float64
+	FallbackFetchMaxHops            int
+	FallbackFetchMaxAttempts        int
+	FallbackFetchMaxTimeBudget      time.Duration
+	FallbackFetchAllowDirectLookup  *bool
+	DiscoveryCandidateTrustMode     string
+	SearchRankingTrustMode          string
+	DiscoveryCandidateMinimumScore  float64
+	DiscoveryCandidateMaxHops       int
+	DiscoveryProjectionMaxStaleness time.Duration
+	TrustRetentionHooks             TrustRetentionHooks
 }
 
 func NewService(reader any) (Service, error) {
@@ -82,10 +110,87 @@ func NewServiceWithOptions(reader any, options ServiceOptions) (Service, error) 
 	if err != nil {
 		return Service{}, err
 	}
+	mode := strings.ToLower(strings.TrimSpace(options.DiscoveryCandidateTrustMode))
+	if mode == "" {
+		mode = trustModeOpen
+	}
+	if mode != trustModeOpen && mode != trustModePreferTrusted && mode != trustModeTrustedOnly {
+		return Service{}, fmt.Errorf("invalid discovery trust mode %q", mode)
+	}
+	searchMode := strings.ToLower(strings.TrimSpace(options.SearchRankingTrustMode))
+	if searchMode == "" {
+		searchMode = trustModePreferTrusted
+	}
+	if searchMode != trustModeOpen && searchMode != trustModePreferTrusted && searchMode != trustModeTrustedOnly {
+		return Service{}, fmt.Errorf("invalid search ranking trust mode %q", searchMode)
+	}
+	fallbackMode := strings.ToLower(strings.TrimSpace(options.FallbackFetchTrustMode))
+	if fallbackMode == "" {
+		fallbackMode = trustModeOpen
+	}
+	if fallbackMode != trustModeOpen && fallbackMode != trustModePreferTrusted && fallbackMode != trustModeTrustedOnly {
+		return Service{}, fmt.Errorf("invalid fallback fetch trust mode %q", fallbackMode)
+	}
+	maxHops := options.DiscoveryCandidateMaxHops
+	if maxHops <= 0 {
+		maxHops = 3
+	}
+	minScore := options.DiscoveryCandidateMinimumScore
+	if minScore < 0 {
+		minScore = 0
+	}
+	fallbackMaxHops := options.FallbackFetchMaxHops
+	if fallbackMaxHops <= 0 {
+		fallbackMaxHops = maxHops
+	}
+	fallbackMinScore := options.FallbackFetchMinimumScore
+	if fallbackMinScore < 0 {
+		fallbackMinScore = minScore
+	}
+	fallbackMaxAttempts := options.FallbackFetchMaxAttempts
+	if fallbackMaxAttempts <= 0 {
+		fallbackMaxAttempts = 1
+	}
+	fallbackMaxTimeBudget := options.FallbackFetchMaxTimeBudget
+	if fallbackMaxTimeBudget <= 0 {
+		fallbackMaxTimeBudget = 2 * time.Second
+	}
+	fallbackDirectLookups := true
+	if options.FallbackFetchAllowDirectLookup != nil {
+		fallbackDirectLookups = *options.FallbackFetchAllowDirectLookup
+	}
+	discoveryProjectionMaxStaleness := options.DiscoveryProjectionMaxStaleness
+	if discoveryProjectionMaxStaleness <= 0 {
+		discoveryProjectionMaxStaleness = 10 * time.Minute
+	}
+	retentionHooks := options.TrustRetentionHooks
+	if retentionHooks.isZero() {
+		retentionHooks = DefaultTrustRetentionHooks(trustModeOpen)
+	}
+	if strings.TrimSpace(retentionHooks.Mode) == "" {
+		retentionHooks.Mode = trustModeOpen
+	}
+	if err := retentionHooks.Validate(); err != nil {
+		return Service{}, err
+	}
 	return Service{
-		reader:       adaptedReader,
-		capabilities: adaptServiceCapabilities(reader),
-		fallback:     adaptedFallback,
+		reader:                adaptedReader,
+		capabilities:          adaptServiceCapabilities(reader),
+		fallback:              adaptedFallback,
+		fallbackFetchMode:     fallbackMode,
+		fallbackFetchPolicy:   TrustQualificationPolicy{MaxHops: fallbackMaxHops, MinimumScore: fallbackMinScore},
+		fallbackMaxAttempts:   fallbackMaxAttempts,
+		fallbackMaxTimeBudget: fallbackMaxTimeBudget,
+		fallbackDirectLookups: fallbackDirectLookups,
+		discoveryTrustMode:    mode,
+		discoveryTrustPolicy:  TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
+		// Keep trust-aware candidate scans bounded and predictable.
+		discoveryTrustScanSize:          400,
+		discoveryProjectionMaxStaleness: discoveryProjectionMaxStaleness,
+		searchTrustMode:                 searchMode,
+		searchTrustPolicy:               TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
+		searchTrustScanSize:             400,
+		retentionHooks:                  retentionHooks,
 	}, nil
 }
 

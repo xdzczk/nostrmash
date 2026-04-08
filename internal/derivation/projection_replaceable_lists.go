@@ -69,6 +69,29 @@ func (h *Handlers) projectContactListsLatestWithVersion(ctx context.Context, eve
 				return nil
 			}
 
+			previousFollowed := make([]string, 0)
+			rows, err := tx.Query(ctx, `
+				SELECT followed_pubkey
+				FROM follower_edges
+				WHERE follower_pubkey = $1
+			`, pubkey)
+			if err != nil {
+				return fmt.Errorf("load prior follower edges for author: %w", err)
+			}
+			for rows.Next() {
+				var followedPubkey string
+				if err := rows.Scan(&followedPubkey); err != nil {
+					rows.Close()
+					return fmt.Errorf("scan prior follower edge row: %w", err)
+				}
+				previousFollowed = append(previousFollowed, followedPubkey)
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return fmt.Errorf("read prior follower edge rows: %w", err)
+			}
+			rows.Close()
+
 			followerWriteVersion, err := resolveDerivationWriteVersion(
 				ctx,
 				tx,
@@ -113,6 +136,13 @@ func (h *Handlers) projectContactListsLatestWithVersion(ctx context.Context, eve
 				`, followedPubkey, pubkey, winnerID, winnerCreatedAt, followerWriteVersion); err != nil {
 					return fmt.Errorf("upsert follower edge: %w", err)
 				}
+			}
+			impactedPubkeys := make([]string, 0, 1+len(previousFollowed)+len(contacts))
+			impactedPubkeys = append(impactedPubkeys, pubkey)
+			impactedPubkeys = append(impactedPubkeys, previousFollowed...)
+			impactedPubkeys = append(impactedPubkeys, contacts...)
+			if err := h.projectProfilePublicStatsForPubkeysTx(ctx, tx, impactedPubkeys, versionOverride); err != nil {
+				return err
 			}
 			return nil
 		},

@@ -24,6 +24,7 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.UpdateReplaceableState,
 		h.ProjectProfilesLatest,
 		h.ProjectAuthorRecentEvent,
+		h.ProjectEventHashtags,
 		h.ProjectReplyCounts,
 		h.ProjectReactionCounts,
 		h.ProjectRepostCounts,
@@ -34,6 +35,9 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.ProjectRelayListsLatest,
 		h.ProjectDMUnreadCounts,
 		h.ProjectZapReceipts,
+		h.ProjectNoteDiscoveryStats,
+		h.ProjectProfileDiscoveryStats,
+		h.ProjectProfilePublicStats,
 	}
 	for _, step := range steps {
 		if err := step(ctx, eventID); err != nil {

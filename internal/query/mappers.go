@@ -34,6 +34,17 @@ func profileFromStore(row store.ProfileProjection) Profile {
 	}
 }
 
+func profilePublicStatsFromStore(row store.ProfilePublicStatsProjection) ProfilePublicStats {
+	return ProfilePublicStats{
+		Pubkey:           row.Pubkey,
+		FollowerCount:    row.FollowerCount,
+		FollowingCount:   row.FollowingCount,
+		NoteCount:        row.NoteCount,
+		ReplyCount:       row.ReplyCount,
+		RecentActivityAt: row.RecentActivityAt,
+	}
+}
+
 func contactListFromStore(row store.ContactListProjection) ContactList {
 	return ContactList{
 		Pubkey:          row.Pubkey,
@@ -62,6 +73,37 @@ func networkStatsFromStore(row store.NetworkStats) NetworkStats {
 	}
 }
 
+func publicDiscoveryNetworkStatsFromStore(row store.PublicDiscoveryNetworkStats) PublicDiscoveryNetworkStats {
+	out := PublicDiscoveryNetworkStats{
+		EventsIngested:    row.EventsIngested,
+		ProjectedProfiles: row.ProjectedProfiles,
+		Relays:            row.Relays,
+		ActiveAuthors: WindowedCount{
+			Last24h: row.ActiveAuthors.Last24h,
+			Last7d:  row.ActiveAuthors.Last7d,
+		},
+		NoteVolume: WindowedCount{
+			Last24h: row.NoteVolume.Last24h,
+			Last7d:  row.NoteVolume.Last7d,
+		},
+	}
+	if row.TopHashtags == nil {
+		return out
+	}
+	topHashtags := &TrendingHashtagWindows{
+		Last24h: make([]TrendingHashtag, 0, len(row.TopHashtags.Last24h)),
+		Last7d:  make([]TrendingHashtag, 0, len(row.TopHashtags.Last7d)),
+	}
+	for _, hashtag := range row.TopHashtags.Last24h {
+		topHashtags.Last24h = append(topHashtags.Last24h, trendingHashtagFromStore(hashtag))
+	}
+	for _, hashtag := range row.TopHashtags.Last7d {
+		topHashtags.Last7d = append(topHashtags.Last7d, trendingHashtagFromStore(hashtag))
+	}
+	out.TopHashtags = topHashtags
+	return out
+}
+
 func curatedRecommendedReadFromStore(row store.CuratedRecommendedRead) CuratedRecommendedRead {
 	return CuratedRecommendedRead{
 		EventID: row.EventID,
@@ -82,6 +124,42 @@ func curatedFeaturedAuthorFromStore(row store.CuratedFeaturedAuthor) CuratedFeat
 	return CuratedFeaturedAuthor{
 		Pubkey: row.Pubkey,
 		Rank:   row.Rank,
+	}
+}
+
+func trendingHashtagFromStore(row store.TrendingHashtag) TrendingHashtag {
+	return TrendingHashtag{
+		Hashtag:       row.Hashtag,
+		EventCount:    row.EventCount,
+		UniqueAuthors: row.UniqueAuthors,
+	}
+}
+
+func trendingNoteFromStore(row store.TrendingNote) TrendingNote {
+	return TrendingNote{
+		EventID:       row.EventID,
+		AuthorPubkey:  row.AuthorPubkey,
+		CreatedAt:     row.CreatedAt,
+		Content:       row.Content,
+		ReplyCount:    row.ReplyCount,
+		RepostCount:   row.RepostCount,
+		ReactionCount: row.ReactionCount,
+		ZapCount:      row.ZapCount,
+		ZapMSats:      row.ZapMSats,
+		Score:         row.Score,
+	}
+}
+
+func trendingProfileFromStore(row store.TrendingProfile) TrendingProfile {
+	return TrendingProfile{
+		Pubkey:                   row.Pubkey,
+		Score:                    row.Score,
+		RecentPostCount:          row.RecentPostCount,
+		RecentReplyCount:         row.RecentReplyCount,
+		RecentEngagementReceived: row.RecentEngagementReceived,
+		RecentZapVolumeMSats:     row.RecentZapVolumeMSats,
+		RecentActiveDays:         row.RecentActiveDays,
+		RecentActivityAt:         row.RecentActivityAt,
 	}
 }
 
@@ -145,5 +223,17 @@ func trustRunFromStore(row store.TrustRun) TrustRun {
 		LastError:          row.LastError,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
+	}
+}
+
+func trustQualificationFromStore(row store.TrustQualification) TrustQualification {
+	return TrustQualification{
+		Pubkey:       row.Pubkey,
+		Trusted:      row.Trusted,
+		IsSeed:       row.IsSeed,
+		DistanceHops: row.DistanceHops,
+		Score:        row.Score,
+		Rank:         row.Rank,
+		SourceRunID:  row.SourceRunID,
 	}
 }

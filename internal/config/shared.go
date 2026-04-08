@@ -15,6 +15,7 @@ type SharedConfig struct {
 	Environment   string
 	Database      DatabaseConfig
 	Observability ObservabilityConfig
+	TrustPolicy   TrustPolicyConfig
 }
 
 // DatabaseConfig owns database connectivity settings.
@@ -29,6 +30,10 @@ type ObservabilityConfig struct {
 }
 
 func loadSharedConfig(serviceName string) (SharedConfig, error) {
+	trustPolicy, err := loadTrustPolicyConfig()
+	if err != nil {
+		return SharedConfig{}, err
+	}
 	cfg := SharedConfig{
 		ServiceName: strings.TrimSpace(serviceName),
 		Environment: getEnv("ENVIRONMENT", "development"),
@@ -39,6 +44,7 @@ func loadSharedConfig(serviceName string) (SharedConfig, error) {
 			MetricsAddr: strings.TrimSpace(getEnv("METRICS_ADDR", ":9090")),
 			DebugAddr:   strings.TrimSpace(getEnv("DEBUG_ADDR", "")),
 		},
+		TrustPolicy: trustPolicy,
 	}
 	if cfg.ServiceName == "" {
 		return SharedConfig{}, fmt.Errorf("service name is required")

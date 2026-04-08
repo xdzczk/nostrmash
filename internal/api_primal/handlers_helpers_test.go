@@ -18,52 +18,53 @@ import (
 var update = flag.Bool("update", false, "update golden contract fixtures")
 
 type fakeEventReader struct {
-	getEventRawByIDFn            func(context.Context, string) (json.RawMessage, error)
-	getEventRawsByIDs            func(context.Context, []string) (map[string]json.RawMessage, error)
-	getProfileByPubkey           func(context.Context, string) (store.ProfileProjection, error)
-	getProfilesByBatch           func(context.Context, []string) (map[string]store.ProfileProjection, error)
-	getAuthorEventsFn            func(context.Context, string, int) ([]json.RawMessage, error)
-	getAuthorRepliesFn           func(context.Context, string, int) ([]json.RawMessage, error)
-	getEventCountsFn             func(context.Context, string) (store.EventCounts, error)
-	getEventRepliesFn            func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
-	getEventAncestors            func(context.Context, string, int) ([]json.RawMessage, []string, error)
-	getContactListFn             func(context.Context, string) (store.ContactListProjection, error)
-	getRelayListFn               func(context.Context, string) (store.RelayListProjection, error)
-	searchEventsFn               func(context.Context, string, int) ([]json.RawMessage, error)
-	searchProfilesFn             func(context.Context, string, int) ([]store.ProfileProjection, error)
-	getByKindPubkeyFn            func(context.Context, int, string, int) ([]json.RawMessage, error)
-	getRefsPubkeyFn              func(context.Context, string, int) ([]json.RawMessage, error)
-	getFollowersFn               func(context.Context, string, int) ([]json.RawMessage, error)
-	getUserZapsFn                func(context.Context, string, int, bool) ([]json.RawMessage, error)
-	getEventZapsFn               func(context.Context, string, int) ([]json.RawMessage, error)
-	isFollowingFn                func(context.Context, string, string) (bool, error)
-	getMutualFollowsFn           func(context.Context, string, string, int) ([]string, error)
-	getDMContactsFn              func(context.Context, string, int) ([]string, error)
-	getDMContactsDetailedFn      func(context.Context, string, int, int, int64, int64) ([]json.RawMessage, error)
-	getDirectMsgsFn              func(context.Context, string, string, int) ([]json.RawMessage, error)
-	getDirectMsgsRangeFn         func(context.Context, string, string, int64, int64, int, int) ([]json.RawMessage, error)
-	getDMUnreadFn                func(context.Context, string, int) ([]json.RawMessage, error)
-	resetDMUnreadFn              func(context.Context, string, string) error
-	getDMCountFn                 func(context.Context, string, string) (int64, error)
-	resetDMCountFn               func(context.Context, string, string) error
-	resetDMCountsFn              func(context.Context, string) error
-	getModerationFn              func(context.Context, string, int) ([]string, error)
-	getModerationByIdentifierFn  func(context.Context, string, string) ([]string, error)
-	isHiddenFn                   func(context.Context, string, string) (bool, string, error)
-	getParamListFn               func(context.Context, string, int, int) ([]json.RawMessage, error)
-	getParamListByIdentifierFn   func(context.Context, string, int, string, int) ([]json.RawMessage, error)
-	getParamEventFn              func(context.Context, string, int, string) (json.RawMessage, error)
-	getParamEventsFn             func(context.Context, int, string, int) ([]json.RawMessage, error)
-	getHighlightsByEventFn       func(context.Context, string, int) ([]json.RawMessage, error)
-	getHighlightsByATargetFn     func(context.Context, int, string, string, int) ([]json.RawMessage, error)
-	getEventsByATagAndKindFn     func(context.Context, int, string, int) ([]json.RawMessage, error)
-	getNetworkStatsFn            func(context.Context) (store.NetworkStats, error)
-	getCuratedValuesFn           func(context.Context, string, string, int) ([]string, error)
-	getCuratedRecommendedReadsFn func(context.Context, int) ([]store.CuratedRecommendedRead, error)
-	getCuratedReadsTopicsFn      func(context.Context, int) ([]store.CuratedReadsTopic, error)
-	getCuratedFeaturedAuthorsFn  func(context.Context, int) ([]store.CuratedFeaturedAuthor, error)
-	getCreatorPaidTiersFn        func(context.Context, string) ([]json.RawMessage, error)
-	getPubkeyByLNAddressFn       func(context.Context, string) (string, error)
+	getEventRawByIDFn             func(context.Context, string) (json.RawMessage, error)
+	getEventRawsByIDs             func(context.Context, []string) (map[string]json.RawMessage, error)
+	getProfileByPubkey            func(context.Context, string) (store.ProfileProjection, error)
+	getProfilesByBatch            func(context.Context, []string) (map[string]store.ProfileProjection, error)
+	getProfilePublicStatsByPubkey func(context.Context, string) (store.ProfilePublicStatsProjection, error)
+	getAuthorEventsFn             func(context.Context, string, int) ([]json.RawMessage, error)
+	getAuthorRepliesFn            func(context.Context, string, int) ([]json.RawMessage, error)
+	getEventCountsFn              func(context.Context, string) (store.EventCounts, error)
+	getEventRepliesFn             func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	getEventAncestors             func(context.Context, string, int) ([]json.RawMessage, []string, error)
+	getContactListFn              func(context.Context, string) (store.ContactListProjection, error)
+	getRelayListFn                func(context.Context, string) (store.RelayListProjection, error)
+	searchEventsFn                func(context.Context, string, int) ([]json.RawMessage, error)
+	searchProfilesFn              func(context.Context, string, int) ([]store.ProfileProjection, error)
+	getByKindPubkeyFn             func(context.Context, int, string, int) ([]json.RawMessage, error)
+	getRefsPubkeyFn               func(context.Context, string, int) ([]json.RawMessage, error)
+	getFollowersFn                func(context.Context, string, int) ([]json.RawMessage, error)
+	getUserZapsFn                 func(context.Context, string, int, bool) ([]json.RawMessage, error)
+	getEventZapsFn                func(context.Context, string, int) ([]json.RawMessage, error)
+	isFollowingFn                 func(context.Context, string, string) (bool, error)
+	getMutualFollowsFn            func(context.Context, string, string, int) ([]string, error)
+	getDMContactsFn               func(context.Context, string, int) ([]string, error)
+	getDMContactsDetailedFn       func(context.Context, string, int, int, int64, int64) ([]json.RawMessage, error)
+	getDirectMsgsFn               func(context.Context, string, string, int) ([]json.RawMessage, error)
+	getDirectMsgsRangeFn          func(context.Context, string, string, int64, int64, int, int) ([]json.RawMessage, error)
+	getDMUnreadFn                 func(context.Context, string, int) ([]json.RawMessage, error)
+	resetDMUnreadFn               func(context.Context, string, string) error
+	getDMCountFn                  func(context.Context, string, string) (int64, error)
+	resetDMCountFn                func(context.Context, string, string) error
+	resetDMCountsFn               func(context.Context, string) error
+	getModerationFn               func(context.Context, string, int) ([]string, error)
+	getModerationByIdentifierFn   func(context.Context, string, string) ([]string, error)
+	isHiddenFn                    func(context.Context, string, string) (bool, string, error)
+	getParamListFn                func(context.Context, string, int, int) ([]json.RawMessage, error)
+	getParamListByIdentifierFn    func(context.Context, string, int, string, int) ([]json.RawMessage, error)
+	getParamEventFn               func(context.Context, string, int, string) (json.RawMessage, error)
+	getParamEventsFn              func(context.Context, int, string, int) ([]json.RawMessage, error)
+	getHighlightsByEventFn        func(context.Context, string, int) ([]json.RawMessage, error)
+	getHighlightsByATargetFn      func(context.Context, int, string, string, int) ([]json.RawMessage, error)
+	getEventsByATagAndKindFn      func(context.Context, int, string, int) ([]json.RawMessage, error)
+	getNetworkStatsFn             func(context.Context) (store.NetworkStats, error)
+	getCuratedValuesFn            func(context.Context, string, string, int) ([]string, error)
+	getCuratedRecommendedReadsFn  func(context.Context, int) ([]store.CuratedRecommendedRead, error)
+	getCuratedReadsTopicsFn       func(context.Context, int) ([]store.CuratedReadsTopic, error)
+	getCuratedFeaturedAuthorsFn   func(context.Context, int) ([]store.CuratedFeaturedAuthor, error)
+	getCreatorPaidTiersFn         func(context.Context, string) ([]json.RawMessage, error)
+	getPubkeyByLNAddressFn        func(context.Context, string) (string, error)
 }
 
 func (f fakeEventReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -100,6 +101,13 @@ func (f fakeEventReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []str
 		return nil, errors.New("not implemented")
 	}
 	return f.getProfilesByBatch(ctx, pubkeys)
+}
+
+func (f fakeEventReader) GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (store.ProfilePublicStatsProjection, error) {
+	if f.getProfilePublicStatsByPubkey == nil {
+		return store.ProfilePublicStatsProjection{Pubkey: pubkey}, nil
+	}
+	return f.getProfilePublicStatsByPubkey(ctx, pubkey)
 }
 
 func (f fakeEventReader) GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {

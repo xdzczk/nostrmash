@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
@@ -15,6 +16,7 @@ import (
 type eventService struct {
 	reader   EventReader
 	fallback FallbackReader
+	policy   fallbackPolicyRuntime
 }
 
 // NewEventService constructs an event-only orchestration service from a narrow dependency.
@@ -23,7 +25,7 @@ func NewEventService(reader EventReader) EventService {
 }
 
 func (s Service) GetActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
-	return eventService{reader: s.reader}.GetEventActionCounts(ctx, eventID)
+	return eventService{reader: s.reader, policy: s.fallbackPolicy()}.GetEventActionCounts(ctx, eventID)
 }
 
 func (s eventService) GetEventActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
@@ -79,37 +81,193 @@ func (s Service) GetEventActionCounts(ctx context.Context, eventID string) (Acti
 func (s Service) GetEventByID(ctx context.Context, id string) (raw json.RawMessage, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_event_by_id")
 	defer func() { span.End(err) }()
-	return eventService{reader: s.reader, fallback: s.fallback}.GetEvent(ctx, id)
+	return eventService{reader: s.reader, fallback: s.fallback, policy: s.fallbackPolicy()}.GetEvent(ctx, id)
 }
 
 func (s Service) GetEventBatch(ctx context.Context, ids []string) (out map[string]json.RawMessage, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_event_batch")
 	defer func() { span.End(err) }()
-	return eventService{reader: s.reader, fallback: s.fallback}.GetEvents(ctx, ids)
+	return eventService{reader: s.reader, fallback: s.fallback, policy: s.fallbackPolicy()}.GetEvents(ctx, ids)
 }
 
 func (s Service) Search(ctx context.Context, text string, limit int) (out SearchResult, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.search")
 	defer func() { span.End(err) }()
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return SearchResult{Events: []json.RawMessage{}, Profiles: []Profile{}}, nil
-	}
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	events, err := s.reader.SearchEventsByContent(ctx, text, limit)
+	events, err := s.SearchNotes(ctx, NotesSearchParams{
+		Query: text,
+		Limit: limit,
+		Sort:  "relevant",
+	})
 	if err != nil {
 		return SearchResult{}, err
 	}
-	profiles, err := s.reader.SearchProfiles(ctx, text, limit)
+	profiles, err := s.SearchProfiles(ctx, ProfileSearchParams{
+		Query: text,
+		Limit: limit,
+		Sort:  "relevant",
+	})
 	if err != nil {
 		return SearchResult{}, err
 	}
 	return SearchResult{Events: events, Profiles: profiles}, nil
+}
+
+func (s Service) SearchSuggestions(ctx context.Context, text string, limit int) (out SearchSuggestionsResult, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.search_suggestions")
+	defer func() { span.End(err) }()
+
+	normalized, err := normalizeSuggestionParams(text, limit)
+	if err != nil {
+		return SearchSuggestionsResult{}, err
+	}
+	if normalized.Query == "" {
+		return SearchSuggestionsResult{
+			Profiles: []Profile{},
+			Hashtags: []HashtagSuggestion{},
+		}, nil
+	}
+	suggestReader, ok := s.reader.(searchSuggestionsReader)
+	if !ok {
+		return SearchSuggestionsResult{}, unsupportedCapabilityError("search suggestions")
+	}
+
+	profiles, err := suggestReader.SuggestProfiles(ctx, normalized.Query, normalized.Limit)
+	if err != nil {
+		return SearchSuggestionsResult{}, err
+	}
+	hashtags, err := suggestReader.SuggestHashtags(ctx, normalized.Query, normalized.Limit)
+	if err != nil {
+		return SearchSuggestionsResult{}, err
+	}
+	return SearchSuggestionsResult{
+		Profiles: profiles,
+		Hashtags: hashtags,
+	}, nil
+}
+
+func (s Service) SearchNotes(ctx context.Context, params NotesSearchParams) (out []json.RawMessage, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.search_notes")
+	defer func() { span.End(err) }()
+
+	normalized, err := normalizeNotesSearchParams(params)
+	if err != nil {
+		return nil, err
+	}
+	if normalized.Query == "" {
+		return []json.RawMessage{}, nil
+	}
+	return s.searchNotesTrustAware(ctx, normalized)
+}
+
+func (s Service) SearchProfiles(ctx context.Context, params ProfileSearchParams) (out []Profile, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.search_profiles")
+	defer func() { span.End(err) }()
+
+	normalized, err := normalizeProfileSearchParams(params)
+	if err != nil {
+		return nil, err
+	}
+	if normalized.Query == "" {
+		return []Profile{}, nil
+	}
+	return s.searchProfilesTrustAware(ctx, normalized)
+}
+
+type notesSearchReader interface {
+	SearchNotes(
+		ctx context.Context,
+		query string,
+		sort string,
+		window *time.Duration,
+		limit int,
+		offset int,
+	) ([]json.RawMessage, error)
+}
+
+type profilesSearchReader interface {
+	SearchProfilesWithOptions(
+		ctx context.Context,
+		query string,
+		sort string,
+		limit int,
+		offset int,
+	) ([]Profile, error)
+}
+
+type searchSuggestionsReader interface {
+	SuggestProfiles(ctx context.Context, query string, limit int) ([]Profile, error)
+	SuggestHashtags(ctx context.Context, query string, limit int) ([]HashtagSuggestion, error)
+}
+
+type suggestionParams struct {
+	Query string
+	Limit int
+}
+
+func normalizeNotesSearchParams(params NotesSearchParams) (NotesSearchParams, error) {
+	params.Query = strings.TrimSpace(params.Query)
+	if params.Limit <= 0 {
+		params.Limit = 20
+	}
+	if params.Limit > 100 {
+		params.Limit = 100
+	}
+	if params.Offset < 0 {
+		return NotesSearchParams{}, fmt.Errorf("offset must be a non-negative integer")
+	}
+	if params.Offset > 5000 {
+		return NotesSearchParams{}, fmt.Errorf("offset exceeds maximum allowed value")
+	}
+	sort := strings.ToLower(strings.TrimSpace(params.Sort))
+	if sort == "" {
+		sort = "relevant"
+	}
+	switch sort {
+	case "relevant", "latest":
+	default:
+		return NotesSearchParams{}, fmt.Errorf("sort must be one of: relevant, latest")
+	}
+	params.Sort = sort
+	return params, nil
+}
+
+func normalizeSuggestionParams(query string, limit int) (suggestionParams, error) {
+	normalized := suggestionParams{
+		Query: strings.TrimSpace(query),
+		Limit: limit,
+	}
+	if normalized.Limit <= 0 {
+		normalized.Limit = 8
+	}
+	if normalized.Limit > 20 {
+		normalized.Limit = 20
+	}
+	return normalized, nil
+}
+
+func normalizeProfileSearchParams(params ProfileSearchParams) (ProfileSearchParams, error) {
+	params.Query = strings.TrimSpace(params.Query)
+	if params.Limit <= 0 {
+		params.Limit = 20
+	}
+	if params.Limit > 100 {
+		params.Limit = 100
+	}
+	if params.Offset < 0 {
+		return ProfileSearchParams{}, fmt.Errorf("offset must be a non-negative integer")
+	}
+	if params.Offset > 5000 {
+		return ProfileSearchParams{}, fmt.Errorf("offset exceeds maximum allowed value")
+	}
+	sort := strings.ToLower(strings.TrimSpace(params.Sort))
+	if sort == "" {
+		sort = "relevant"
+	}
+	if sort != "relevant" {
+		return ProfileSearchParams{}, fmt.Errorf("sort must be one of: relevant")
+	}
+	params.Sort = sort
+	return params, nil
 }
 
 func (s Service) GetAuthorEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
@@ -220,7 +378,7 @@ func (s Service) GetEventWithProvenance(ctx context.Context, eventID string) (Ev
 	if !errors.Is(err, store.ErrNotFound) {
 		return EventWithProvenanceResult{}, err
 	}
-	raw, fallbackErr := eventService{reader: s.reader, fallback: s.fallback}.GetEvent(ctx, eventID)
+	raw, fallbackErr := eventService{reader: s.reader, fallback: s.fallback, policy: s.fallbackPolicy()}.GetEvent(ctx, eventID)
 	if fallbackErr != nil {
 		return EventWithProvenanceResult{}, store.ErrNotFound
 	}

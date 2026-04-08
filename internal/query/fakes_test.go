@@ -61,7 +61,8 @@ func (f fakeThreadReader) GetEventRepliesDescending(ctx context.Context, eventID
 }
 
 type fakeProfileReader struct {
-	getProfilesByPubkeysFn func(ctx context.Context, pubkeys []string) (map[string]Profile, error)
+	getProfilesByPubkeysFn  func(ctx context.Context, pubkeys []string) (map[string]Profile, error)
+	getProfilePublicStatsFn func(ctx context.Context, pubkey string) (ProfilePublicStats, error)
 }
 
 func (f fakeProfileReader) GetProfileByPubkey(context.Context, string) (Profile, error) {
@@ -73,6 +74,13 @@ func (f fakeProfileReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []s
 		return f.getProfilesByPubkeysFn(ctx, pubkeys)
 	}
 	return map[string]Profile{}, nil
+}
+
+func (f fakeProfileReader) GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (ProfilePublicStats, error) {
+	if f.getProfilePublicStatsFn != nil {
+		return f.getProfilePublicStatsFn(ctx, pubkey)
+	}
+	return ProfilePublicStats{Pubkey: pubkey}, nil
 }
 
 type fakeEventReader struct {

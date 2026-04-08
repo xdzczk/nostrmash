@@ -70,6 +70,33 @@ components:
 	}
 }
 
+func TestContractOwnedRoutes_DeclareDiscoveryNamespace(t *testing.T) {
+	required := []string{
+		"GET /api/v1/discovery/notes/trending",
+		"GET /api/v1/discovery/profiles/trending",
+		"GET /api/v1/discovery/profiles/rising",
+		"GET /api/v1/discovery/hashtags/trending",
+		"GET /api/v1/discovery/stats/network",
+		"GET /api/v1/discovery/stats/content",
+		"GET /api/v1/discovery/stats/relays",
+		"GET /api/v1/discovery/network/stats",
+		"GET /api/v1/discovery/content/stats",
+	}
+	ownsByPattern := make(map[string]bool)
+	for _, def := range contractOwnedRoutes() {
+		ownsByPattern[strings.TrimSpace(def.Pattern)] = def.OwnsContract
+	}
+	for _, pattern := range required {
+		owns, ok := ownsByPattern[pattern]
+		if !ok {
+			t.Fatalf("missing required discovery route declaration: %s", pattern)
+		}
+		if !owns {
+			t.Fatalf("required discovery route must own contract: %s", pattern)
+		}
+	}
+}
+
 func openAPIHasPathMethod(methodsByPath map[string]map[string]struct{}, path, method string) bool {
 	methods, ok := methodsByPath[path]
 	if !ok {

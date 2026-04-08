@@ -309,9 +309,186 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         '200':
-          description: Search results
+          description: Search results with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
           $ref: '#/components/responses/Error'
+  /api/v1/search/notes:
+    get:
+      tags: [public]
+      summary: Notes-only full-text search with minimal product filters
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: sort
+          schema: { type: string, enum: [relevant, latest], default: relevant }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d] }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Notes search results with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/search/profiles:
+    get:
+      tags: [public]
+      summary: Profiles-only full-text search with minimal product filters
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: sort
+          schema: { type: string, enum: [relevant], default: relevant }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Profiles search results with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/search/suggest:
+    get:
+      tags: [public]
+      summary: Lightweight grouped suggestions for profiles and hashtags
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 20, default: 8 }
+      responses:
+        '200':
+          description: Grouped search suggestions
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/notes/trending:
+    get:
+      tags: [public]
+      summary: Trending notes from projection-backed discovery stats
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 24h }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Ranked trending notes with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/profiles/trending:
+    get:
+      tags: [public]
+      summary: Trending profiles from projection-backed discovery stats
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 24h }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Ranked trending profiles with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/profiles/rising:
+    get:
+      tags: [public]
+      summary: Rising profiles from projection-backed discovery stats
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 24h }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Ranked rising profiles with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/hashtags/trending:
+    get:
+      tags: [public]
+      summary: Trending hashtags over rolling windows
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 24h }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Ranked trending hashtags with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/stats/network:
+    get:
+      tags: [public]
+      summary: Public product-shaped discovery network stats
+      responses:
+        '200':
+          description: Public network stats snapshot for product surfaces
+  /api/v1/discovery/stats/content:
+    get:
+      tags: [public]
+      summary: Public product-shaped discovery content stats
+      responses:
+        '200':
+          description: Public content stats snapshot for product surfaces
+  /api/v1/discovery/stats/relays:
+    get:
+      tags: [public]
+      summary: Public relay summary stats
+      responses:
+        '200':
+          description: Public relay count snapshot
+  /api/v1/discovery/network/stats:
+    get:
+      tags: [public]
+      summary: Discovery network-level content stats
+      responses:
+        '200':
+          description: Current network stats snapshot
+  /api/v1/discovery/content/stats:
+    get:
+      tags: [public]
+      summary: Discovery content-level stats
+      responses:
+        '200':
+          description: Current content stats snapshot
   /api/v1/users/{pubkey}/bookmarks:
     get:
       tags: [public]
@@ -402,6 +579,20 @@ paths:
       responses:
         '200':
           description: Follower edge rows
+  /api/v1/users/{pubkey}/summary:
+    get:
+      tags: [public]
+      summary: Public profile header summary for one user
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Profile metadata and public counters
+        '404':
+          $ref: '#/components/responses/Error'
   /api/v1/trust/scores/{pubkey}:
     get:
       tags: [public]

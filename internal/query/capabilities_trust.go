@@ -22,6 +22,11 @@ type trustRunsCapability interface {
 	ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, error)
 }
 
+type trustQualificationCapability interface {
+	GetTrustQualifications(ctx context.Context, pubkeys []string, policy TrustQualificationPolicy) (map[string]TrustQualification, error)
+	IsTrustedAuthor(ctx context.Context, pubkey string, policy TrustQualificationPolicy) (bool, error)
+}
+
 func adaptTrustCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(trustScoreCapability); ok {
 		caps.trust.score = r
@@ -34,6 +39,9 @@ func adaptTrustCapabilities(reader any, caps *serviceCapabilities) {
 	}
 	if r, ok := reader.(trustRunsCapability); ok {
 		caps.trust.runs = r
+	}
+	if r, ok := reader.(trustQualificationCapability); ok {
+		caps.trust.qualification = r
 	}
 	if legacy, ok := reader.(legacyTrustCapability); ok {
 		adapted := legacyTrustAdapter{legacy: legacy}
@@ -50,6 +58,12 @@ func adaptTrustCapabilities(reader any, caps *serviceCapabilities) {
 			caps.trust.runs = adapted
 		}
 	}
+	if legacy, ok := reader.(legacyTrustQualificationCapability); ok {
+		adapted := legacyTrustQualificationAdapter{legacy: legacy}
+		if caps.trust.qualification == nil {
+			caps.trust.qualification = adapted
+		}
+	}
 }
 
 type legacyTrustCapability interface {
@@ -59,8 +73,17 @@ type legacyTrustCapability interface {
 	ListTrustRuns(ctx context.Context, limit int) ([]store.TrustRun, error)
 }
 
+type legacyTrustQualificationCapability interface {
+	GetTrustQualifications(ctx context.Context, pubkeys []string, policy store.TrustQualificationPolicy) (map[string]store.TrustQualification, error)
+	IsTrustedAuthor(ctx context.Context, pubkey string, policy store.TrustQualificationPolicy) (bool, error)
+}
+
 type legacyTrustAdapter struct {
 	legacy legacyTrustCapability
+}
+
+type legacyTrustQualificationAdapter struct {
+	legacy legacyTrustQualificationCapability
 }
 
 func (a legacyTrustAdapter) GetTrustScore(ctx context.Context, pubkey string) (TrustScore, error) {
@@ -101,4 +124,34 @@ func (a legacyTrustAdapter) ListTrustRuns(ctx context.Context, limit int) ([]Tru
 		out = append(out, trustRunFromStore(row))
 	}
 	return out, nil
+}
+
+func (a legacyTrustQualificationAdapter) GetTrustQualifications(
+	ctx context.Context,
+	pubkeys []string,
+	policy TrustQualificationPolicy,
+) (map[string]TrustQualification, error) {
+	rows, err := a.legacy.GetTrustQualifications(ctx, pubkeys, store.TrustQualificationPolicy{
+		MaxHops:      policy.MaxHops,
+		MinimumScore: policy.MinimumScore,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]TrustQualification, len(rows))
+	for pubkey, row := range rows {
+		out[pubkey] = trustQualificationFromStore(row)
+	}
+	return out, nil
+}
+
+func (a legacyTrustQualificationAdapter) IsTrustedAuthor(
+	ctx context.Context,
+	pubkey string,
+	policy TrustQualificationPolicy,
+) (bool, error) {
+	return a.legacy.IsTrustedAuthor(ctx, pubkey, store.TrustQualificationPolicy{
+		MaxHops:      policy.MaxHops,
+		MinimumScore: policy.MinimumScore,
+	})
 }

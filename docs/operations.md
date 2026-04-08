@@ -338,6 +338,20 @@ Useful endpoints:
 
 Full rebuilds are the version-promotion path. Narrow rebuild scopes exist for single-event, pubkey, and time-range repair.
 
+Discovery projection rebuild order (when recovering discovery surfaces end-to-end):
+
+1. `event_hashtags`
+2. `note_discovery_stats`
+3. `follower_edges` (recomputed from canonical kind `3` events via contact-list derivation)
+4. `profile_public_stats`
+5. `profile_discovery_stats`
+
+Notes:
+
+- The order keeps dependency ownership explicit (`profile_*` depends on lower-layer interaction/follow projections).
+- Rebuilds consume canonical Postgres data and do not require live relay access.
+- Truncating these derived tables is safe if you rerun the sequence above.
+
 ### Trust runs
 
 Trust computation is run by `trust_worker` and publishes durable global trust output into Postgres.
