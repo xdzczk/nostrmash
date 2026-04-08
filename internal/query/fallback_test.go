@@ -1,9 +1,11 @@
 package query
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -154,11 +156,11 @@ func TestGetProfile_LocalMissRelaySuccess(t *testing.T) {
 		},
 	}, ServiceOptions{
 		FallbackReader: fakeFallbackReader{
-			fetchProfilesByPubkeysFn: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+			fetchProfilesByPubkeysFn: func(_ context.Context, pubkeys []string) (map[string]Profile, error) {
 				if len(pubkeys) != 1 || pubkeys[0] != "pk-1" {
 					t.Fatalf("unexpected pubkeys for fallback: %#v", pubkeys)
 				}
-				return map[string]store.ProfileProjection{
+				return map[string]Profile{
 					"pk-1": {
 						Pubkey:            "pk-1",
 						MetadataEventID:   "meta-1",
@@ -187,8 +189,8 @@ func TestGetProfiles_LocalMissRelayMissPreservesMissing(t *testing.T) {
 		},
 	}, ServiceOptions{
 		FallbackReader: fakeFallbackReader{
-			fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]store.ProfileProjection, error) {
-				return map[string]store.ProfileProjection{}, nil
+			fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]Profile, error) {
+				return map[string]Profile{}, nil
 			},
 		},
 	})
@@ -213,8 +215,8 @@ func TestGetProfiles_LocalMissRelayPartialSuccessPreservesMissing(t *testing.T) 
 		},
 	}, ServiceOptions{
 		FallbackReader: fakeFallbackReader{
-			fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]store.ProfileProjection, error) {
-				return map[string]store.ProfileProjection{
+			fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]Profile, error) {
+				return map[string]Profile{
 					"pk-1": {
 						Pubkey:            "pk-1",
 						MetadataEventID:   "meta-1",
@@ -253,22 +255,22 @@ func TestGetEventByID_FallbackMetricsEmitHit(t *testing.T) {
 		},
 	})
 
-	attemptBefore := fallbackMetricValue(t, "nostrmash_lookup_fallback_total", `surface="event"`, `outcome="attempt"`)
+	attemptBefore := fallbackMetricValue(t, "nostrmash_lookup_fallback_total", `entity="event"`, `result="attempt"`)
 	resultBefore := fallbackMetricValue(
 		t,
 		"nostrmash_lookup_fallback_total",
-		`surface="event"`,
-		`outcome="success"`,
+		`entity="event"`,
+		`result="hit"`,
 	)
 	if _, err := svc.GetEventByID(context.Background(), "evt-hit"); err != nil {
 		t.Fatalf("GetEventByID returned error: %v", err)
 	}
-	attemptAfter := fallbackMetricValue(t, "nostrmash_lookup_fallback_total", `surface="event"`, `outcome="attempt"`)
+	attemptAfter := fallbackMetricValue(t, "nostrmash_lookup_fallback_total", `entity="event"`, `result="attempt"`)
 	resultAfter := fallbackMetricValue(
 		t,
 		"nostrmash_lookup_fallback_total",
-		`surface="event"`,
-		`outcome="success"`,
+		`entity="event"`,
+		`result="hit"`,
 	)
 	if attemptAfter <= attemptBefore {
 		t.Fatalf("expected fallback attempt metric increment for event")
@@ -294,15 +296,15 @@ func TestGetEventByID_FallbackMetricsEmitMiss(t *testing.T) {
 	resultBefore := fallbackMetricValue(
 		t,
 		"nostrmash_lookup_fallback_total",
-		`surface="event"`,
-		`outcome="miss"`,
+		`entity="event"`,
+		`result="miss"`,
 	)
 	_, _ = svc.GetEventByID(context.Background(), "evt-miss")
 	resultAfter := fallbackMetricValue(
 		t,
 		"nostrmash_lookup_fallback_total",
-		`surface="event"`,
-		`outcome="miss"`,
+		`entity="event"`,
+		`result="miss"`,
 	)
 	if resultAfter <= resultBefore {
 		t.Fatalf("expected fallback miss result metric increment for event")
@@ -316,7 +318,7 @@ func TestGetProfile_FallbackMetricsEmitError(t *testing.T) {
 		},
 	}, ServiceOptions{
 		FallbackReader: fakeFallbackReader{
-			fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]store.ProfileProjection, error) {
+			fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]Profile, error) {
 				return nil, errors.New("dial relay wss://relay.example: i/o timeout")
 			},
 		},
@@ -325,29 +327,114 @@ func TestGetProfile_FallbackMetricsEmitError(t *testing.T) {
 	resultBefore := fallbackMetricValue(
 		t,
 		"nostrmash_lookup_fallback_total",
-		`surface="profile"`,
-		`outcome="failure"`,
+		`entity="profile"`,
+		`result="error"`,
 	)
 	_, _ = svc.GetProfile(context.Background(), "pk-error")
 	resultAfter := fallbackMetricValue(
 		t,
 		"nostrmash_lookup_fallback_total",
-		`surface="profile"`,
-		`outcome="failure"`,
+		`entity="profile"`,
+		`result="error"`,
 	)
 	if resultAfter <= resultBefore {
 		t.Fatalf("expected fallback error result metric increment for profile")
 	}
 }
 
+func TestGetEventByID_FallbackErrorDegradedToNotFoundStillEmitsErrorMetric(t *testing.T) {
+	logOutput, restore := captureDefaultSlogJSON()
+	defer restore()
+
+	svc := NewServiceWithOptions(fakeReader{
+		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+			return nil, store.ErrNotFound
+		},
+	}, ServiceOptions{
+		FallbackReader: fakeFallbackReader{
+			fetchEventsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
+				return nil, errors.New("dial relay wss://relay.example: i/o timeout")
+			},
+		},
+	})
+
+	resultBefore := fallbackMetricValue(
+		t,
+		"nostrmash_lookup_fallback_total",
+		`entity="event"`,
+		`result="error"`,
+	)
+	_, err := svc.GetEventByID(context.Background(), "evt-error")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store.ErrNotFound, got %v", err)
+	}
+	resultAfter := fallbackMetricValue(
+		t,
+		"nostrmash_lookup_fallback_total",
+		`entity="event"`,
+		`result="error"`,
+	)
+	if resultAfter <= resultBefore {
+		t.Fatalf("expected fallback error metric increment when degraded to not-found")
+	}
+
+	body := logOutput.String()
+	if !strings.Contains(body, `"query_fallback_lookup_failed"`) {
+		t.Fatalf("expected fallback infra failure log, got %q", body)
+	}
+	if !strings.Contains(body, `"entity_type":"event"`) {
+		t.Fatalf("expected event entity_type in fallback log, got %q", body)
+	}
+	if !strings.Contains(body, `"entity_key":"evt-error"`) {
+		t.Fatalf("expected entity_key in fallback log, got %q", body)
+	}
+	if !strings.Contains(body, `"error_class":"transport"`) {
+		t.Fatalf("expected error_class in fallback log, got %q", body)
+	}
+	if !strings.Contains(body, `"degraded_to_not_found":true`) {
+		t.Fatalf("expected degraded_to_not_found=true in fallback log, got %q", body)
+	}
+}
+
+func TestFallbackMetricsUseBoundedEntityAndResultLabels(t *testing.T) {
+	svc := NewServiceWithOptions(fakeReader{
+		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+			return nil, store.ErrNotFound
+		},
+	}, ServiceOptions{
+		FallbackReader: fakeFallbackReader{
+			fetchEventsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
+				return map[string]json.RawMessage{}, nil
+			},
+		},
+	})
+	_, _ = svc.GetEventByID(context.Background(), "evt-bounded-labels")
+
+	body := fallbackMetricsBody(t)
+	lines := strings.Split(body, "\n")
+	foundFallbackLine := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || !strings.HasPrefix(line, "nostrmash_lookup_fallback_total") {
+			continue
+		}
+		foundFallbackLine = true
+		if !strings.Contains(line, `entity="`) || !strings.Contains(line, `result="`) {
+			t.Fatalf("expected entity/result labels in fallback metric line: %q", line)
+		}
+		if strings.Contains(line, `surface="`) || strings.Contains(line, `outcome="`) {
+			t.Fatalf("unexpected unbounded/legacy labels in fallback metric line: %q", line)
+		}
+	}
+	if !foundFallbackLine {
+		t.Fatalf("expected fallback metric line in /metrics output")
+	}
+}
+
 func fallbackMetricValue(t *testing.T, metricName string, labelFragments ...string) float64 {
 	t.Helper()
 
-	req := httptest.NewRequest("GET", "/metrics", nil)
-	rec := httptest.NewRecorder()
-	metrics.Handler().ServeHTTP(rec, req)
-
-	body := rec.Body.String()
+	body := fallbackMetricsBody(t)
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -379,6 +466,23 @@ func fallbackMetricValue(t *testing.T, metricName string, labelFragments ...stri
 	return 0
 }
 
+func fallbackMetricsBody(t *testing.T) string {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(rec, req)
+	return rec.Body.String()
+}
+
+func captureDefaultSlogJSON() (*bytes.Buffer, func()) {
+	buf := &bytes.Buffer{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
+	return buf, func() {
+		slog.SetDefault(prev)
+	}
+}
+
 type fakeReader struct {
 	getEventRawByIDFn      func(context.Context, string) (json.RawMessage, error)
 	getEventRawsByIDsFn    func(context.Context, []string) (map[string]json.RawMessage, error)
@@ -393,8 +497,8 @@ func (f fakeReader) GetEventRawByID(ctx context.Context, id string) (json.RawMes
 	return nil, store.ErrNotFound
 }
 
-func (f fakeReader) GetEventWithProvenance(context.Context, string) (store.EventWithProvenance, error) {
-	return store.EventWithProvenance{}, store.ErrNotFound
+func (f fakeReader) GetEventWithProvenance(context.Context, string) (EventWithProvenance, error) {
+	return EventWithProvenance{}, store.ErrNotFound
 }
 
 func (f fakeReader) GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
@@ -408,18 +512,30 @@ func (f fakeReader) GetEventSeenOn(context.Context, string) ([]model.EventRelay,
 	return []model.EventRelay{}, nil
 }
 
-func (f fakeReader) GetProfileByPubkey(ctx context.Context, pubkey string) (store.ProfileProjection, error) {
+func (f fakeReader) GetProfileByPubkey(ctx context.Context, pubkey string) (Profile, error) {
 	if f.getProfileByPubkeyFn != nil {
-		return f.getProfileByPubkeyFn(ctx, pubkey)
+		row, err := f.getProfileByPubkeyFn(ctx, pubkey)
+		if err != nil {
+			return Profile{}, err
+		}
+		return profileFromStore(row), nil
 	}
-	return store.ProfileProjection{}, store.ErrNotFound
+	return Profile{}, store.ErrNotFound
 }
 
-func (f fakeReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+func (f fakeReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {
 	if f.getProfilesByPubkeysFn != nil {
-		return f.getProfilesByPubkeysFn(ctx, pubkeys)
+		rows, err := f.getProfilesByPubkeysFn(ctx, pubkeys)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[string]Profile, len(rows))
+		for pubkey, row := range rows {
+			out[pubkey] = profileFromStore(row)
+		}
+		return out, nil
 	}
-	return map[string]store.ProfileProjection{}, nil
+	return map[string]Profile{}, nil
 }
 
 func (f fakeReader) GetAuthorRecentEvents(context.Context, string, int) ([]json.RawMessage, error) {
@@ -430,11 +546,11 @@ func (f fakeReader) GetAuthorReplies(context.Context, string, int) ([]json.RawMe
 	return []json.RawMessage{}, nil
 }
 
-func (f fakeReader) GetEventCounts(context.Context, string) (store.EventCounts, error) {
-	return store.EventCounts{}, nil
+func (f fakeReader) GetEventCounts(context.Context, string) (EventCounts, error) {
+	return EventCounts{}, nil
 }
 
-func (f fakeReader) GetEventReplies(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error) {
+func (f fakeReader) GetEventReplies(context.Context, string, int, *EventCursor) ([]json.RawMessage, *EventCursor, error) {
 	return []json.RawMessage{}, nil, nil
 }
 
@@ -446,20 +562,20 @@ func (f fakeReader) ListRelayHealth(context.Context) ([]model.IngestCheckpoint, 
 	return []model.IngestCheckpoint{}, nil
 }
 
-func (f fakeReader) GetContactListByPubkey(context.Context, string) (store.ContactListProjection, error) {
-	return store.ContactListProjection{}, store.ErrNotFound
+func (f fakeReader) GetContactListByPubkey(context.Context, string) (ContactList, error) {
+	return ContactList{}, store.ErrNotFound
 }
 
-func (f fakeReader) GetRelayListByPubkey(context.Context, string) (store.RelayListProjection, error) {
-	return store.RelayListProjection{}, store.ErrNotFound
+func (f fakeReader) GetRelayListByPubkey(context.Context, string) (RelayList, error) {
+	return RelayList{}, store.ErrNotFound
 }
 
 func (f fakeReader) SearchEventsByContent(context.Context, string, int) ([]json.RawMessage, error) {
 	return []json.RawMessage{}, nil
 }
 
-func (f fakeReader) SearchProfiles(context.Context, string, int) ([]store.ProfileProjection, error) {
-	return []store.ProfileProjection{}, nil
+func (f fakeReader) SearchProfiles(context.Context, string, int) ([]Profile, error) {
+	return []Profile{}, nil
 }
 
 func (f fakeReader) GetRecentEventsByKindAndPubkey(context.Context, int, string, int) ([]json.RawMessage, error) {

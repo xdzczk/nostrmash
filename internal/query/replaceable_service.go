@@ -18,7 +18,7 @@ func (s Service) GetBookmarks(ctx context.Context, pubkey string, limit int) ([]
 	type replaceableEventReader interface {
 		GetParameterizedReplaceableEvent(ctx context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error)
 	}
-	if r, ok := s.reader.(replaceableEventReader); ok {
+	if r, ok := s.rawReader.(replaceableEventReader); ok {
 		latest, err := r.GetParameterizedReplaceableEvent(ctx, pubkey, 10003, "")
 		if err == nil {
 			return []json.RawMessage{latest}, nil
@@ -40,7 +40,7 @@ func (s Service) GetLongForm(ctx context.Context, pubkey string, limit int) ([]j
 	type replaceableReader interface {
 		GetParameterizedReplaceableList(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error)
 	}
-	if r, ok := s.reader.(replaceableReader); ok {
+	if r, ok := s.rawReader.(replaceableReader); ok {
 		return r.GetParameterizedReplaceableList(ctx, pubkey, 30023, limit)
 	}
 	return s.reader.GetRecentEventsByKindAndPubkey(ctx, 30023, pubkey, limit)
@@ -50,7 +50,7 @@ func (s Service) GetParameterizedReplaceableList(ctx context.Context, pubkey str
 	type replaceableReader interface {
 		GetParameterizedReplaceableList(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error)
 	}
-	if r, ok := s.reader.(replaceableReader); ok {
+	if r, ok := s.rawReader.(replaceableReader); ok {
 		return r.GetParameterizedReplaceableList(ctx, pubkey, kind, limit)
 	}
 	return []json.RawMessage{}, nil
@@ -60,7 +60,7 @@ func (s Service) GetParameterizedReplaceableListByIdentifier(ctx context.Context
 	type replaceableReader interface {
 		GetParameterizedReplaceableListByIdentifier(ctx context.Context, pubkey string, kind int, identifier string, limit int) ([]json.RawMessage, error)
 	}
-	if r, ok := s.reader.(replaceableReader); ok {
+	if r, ok := s.rawReader.(replaceableReader); ok {
 		return r.GetParameterizedReplaceableListByIdentifier(ctx, pubkey, kind, identifier, limit)
 	}
 	return []json.RawMessage{}, nil
@@ -70,7 +70,7 @@ func (s Service) GetParameterizedReplaceableEvent(ctx context.Context, pubkey st
 	type replaceableReader interface {
 		GetParameterizedReplaceableEvent(ctx context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error)
 	}
-	if r, ok := s.reader.(replaceableReader); ok {
+	if r, ok := s.rawReader.(replaceableReader); ok {
 		return r.GetParameterizedReplaceableEvent(ctx, pubkey, kind, dTag)
 	}
 	return nil, store.ErrNotFound
@@ -80,7 +80,7 @@ func (s Service) GetParameterizedReplaceableEvents(ctx context.Context, kind int
 	type replaceableReader interface {
 		GetParameterizedReplaceableEvents(ctx context.Context, kind int, dTag string, limit int) ([]json.RawMessage, error)
 	}
-	if r, ok := s.reader.(replaceableReader); ok {
+	if r, ok := s.rawReader.(replaceableReader); ok {
 		return r.GetParameterizedReplaceableEvents(ctx, kind, dTag, limit)
 	}
 	return []json.RawMessage{}, nil
@@ -135,7 +135,7 @@ func (s Service) GetLongFormThreadATagReplies(
 	if limit > 5000 {
 		limit = 5000
 	}
-	if r, ok := s.reader.(longFormATagRepliesReader); ok {
+	if r, ok := s.rawReader.(longFormATagRepliesReader); ok {
 		target := fmt.Sprintf("%d:%s:%s", kind, pubkey, identifier)
 		return r.GetEventsByATagAndKind(ctx, 1, target, limit)
 	}

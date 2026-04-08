@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/relayurl"
 	"github.com/xdzczk/nostrmash/internal/store/failure"
 )
 
@@ -373,26 +373,7 @@ func mustNormalizeURLs(urls []string) []string {
 }
 
 func normalizeRelayURL(raw string) (string, error) {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return "", err
-	}
-	if parsed.Host == "" {
-		return "", fmt.Errorf("host is required")
-	}
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "ws" && scheme != "wss" {
-		return "", fmt.Errorf("scheme must be ws or wss")
-	}
-	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", fmt.Errorf("relay url must not contain user/query/fragment")
-	}
-
-	path := strings.TrimSpace(parsed.EscapedPath())
-	if path == "/" {
-		path = ""
-	}
-	return fmt.Sprintf("%s://%s%s", scheme, strings.ToLower(parsed.Host), path), nil
+	return relayurl.Normalize(raw, relayurl.NormalizeOptions{RequireTLS: false})
 }
 
 func sleepContext(ctx context.Context, d time.Duration) bool {

@@ -20,7 +20,7 @@ func (s Service) GetTrustScore(ctx context.Context, pubkey string) (TrustScore, 
 	if pubkey == "" {
 		return TrustScore{}, fmt.Errorf("pubkey is required")
 	}
-	reader, ok := s.reader.(trustReader)
+	reader, ok := s.rawReader.(trustReader)
 	if !ok {
 		return TrustScore{}, fmt.Errorf("trust reads are not configured")
 	}
@@ -35,7 +35,7 @@ func (s Service) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustS
 	if limit <= 0 {
 		limit = 50
 	}
-	reader, ok := s.reader.(trustReader)
+	reader, ok := s.rawReader.(trustReader)
 	if !ok {
 		return nil, fmt.Errorf("trust reads are not configured")
 	}
@@ -54,7 +54,7 @@ func (s Service) GetTrustRun(ctx context.Context, runID int64) (TrustRun, error)
 	if runID <= 0 {
 		return TrustRun{}, fmt.Errorf("run id must be > 0")
 	}
-	reader, ok := s.reader.(trustReader)
+	reader, ok := s.rawReader.(trustReader)
 	if !ok {
 		return TrustRun{}, fmt.Errorf("trust reads are not configured")
 	}
@@ -69,7 +69,7 @@ func (s Service) ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, erro
 	if limit <= 0 {
 		limit = 50
 	}
-	reader, ok := s.reader.(trustReader)
+	reader, ok := s.rawReader.(trustReader)
 	if !ok {
 		return nil, fmt.Errorf("trust reads are not configured")
 	}

@@ -82,7 +82,7 @@ func main() {
 	}
 
 	queryStore := store.NewPostgresStore(pool)
-	var fallbackReader query.FallbackReader
+	var fallbackReader any
 	if cfg.RelayFallback.Enabled {
 		fallbackReader = relaylookup.NewClient(cfg.RelayFallback.URLs, cfg.RelayFallback.Timeout, cfg.RelayFallback.MaxFanout)
 		log.Info(

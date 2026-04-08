@@ -2,14 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
-	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -19,9 +15,8 @@ import (
 	"github.com/xdzczk/nostrmash/internal/jobs"
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/runtimebootstrap"
 	"github.com/xdzczk/nostrmash/internal/store"
-	"github.com/xdzczk/nostrmash/internal/store/failure"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 	"github.com/xdzczk/nostrmash/internal/trust"
 )
 
@@ -65,24 +60,22 @@ func main() {
 		}
 	}
 
-	appVersion := os.Getenv("APP_VERSION")
-	if appVersion == "" {
-		appVersion = "dev"
-	}
-	version := resolveBuildVersion(appVersion)
-	if err := traceutil.Init(ctx, cfg.Shared.ServiceName, "trust_worker", version, cfg.Shared.Environment); err != nil {
+	appVersion := runtimebootstrap.ResolveAppVersion()
+	version := runtimebootstrap.ResolveBuildVersion(appVersion, buildVersion)
+	if err := runtimebootstrap.InitTracing(ctx, log, cfg.Shared.ServiceName, "trust_worker", version, cfg.Shared.Environment); err != nil {
 		log.Error("tracing_init", "error", err)
 		os.Exit(1)
 	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := traceutil.Shutdown(shutdownCtx); err != nil {
-			log.Error("tracing_shutdown", "error", err)
-		}
-	}()
-	metrics.RegisterBuildInfo("trust_worker", version, strings.TrimSpace(buildCommit), strings.TrimSpace(buildTime))
-	metrics.RegisterDeploymentInfo("trust_worker", cfg.Shared.ServiceName, cfg.Shared.Environment)
+	defer runtimebootstrap.ShutdownTracing(log)
+	runtimebootstrap.RegisterBuildAndDeployment(
+		log,
+		"trust_worker",
+		cfg.Shared.ServiceName,
+		cfg.Shared.Environment,
+		version,
+		buildCommit,
+		buildTime,
+	)
 
 	if err := store.Migrate(ctx, pool, appVersion); err != nil {
 		log.Error("migrate", "error", err)
@@ -117,8 +110,8 @@ func main() {
 	}
 	workerID := resolveWorkerID()
 
-	runMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
-	runDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
+	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
+	runtimebootstrap.StartDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
 	go runTrustMetricsReporter(ctx, log, pool, 30*time.Second)
 	go runStaleRecoveryLoop(ctx, log, queue, jobs.WorkerPoolTrust, cfg.JobRecovery)
 
@@ -134,104 +127,6 @@ func main() {
 		cfg.RetryDelay,
 		runtime.ProcessJob,
 	)
-}
-
-type workerQueue interface {
-	ClaimAvailableForPool(ctx context.Context, workerID, workerPool string, limit int) ([]jobs.Job, error)
-	CompleteJob(ctx context.Context, jobID int64, workerID string) error
-	FailJob(ctx context.Context, jobID int64, workerID string, errMsg string, retryDelay time.Duration) (jobs.FailureResult, error)
-	RecoverStaleRunningJobs(ctx context.Context, olderThan time.Time, limit int) (jobs.RecoveryResult, error)
-}
-
-func runClaimLoop(
-	ctx context.Context,
-	log interface {
-		Info(msg string, args ...any)
-		Error(msg string, args ...any)
-	},
-	queue workerQueue,
-	workerID string,
-	workerPool string,
-	batchSize int,
-	concurrency int,
-	pollInterval time.Duration,
-	retryDelay time.Duration,
-	processJob func(jobCtx context.Context, job jobs.Job) error,
-) {
-	if concurrency <= 0 {
-		concurrency = 1
-	}
-	jobQueue := make(chan jobs.Job, batchSize*concurrency)
-	var wg sync.WaitGroup
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range jobQueue {
-				workerCtx := context.WithoutCancel(ctx)
-				started := time.Now()
-				err := runJobWithRecovery(workerCtx, job, processJob)
-				if err == nil {
-					if completeErr := queue.CompleteJob(workerCtx, job.ID, workerID); completeErr != nil {
-						log.Error("job_complete_failed", "job_id", job.ID, "error", completeErr)
-						continue
-					}
-					metrics.IncWorkerJob(job.JobType, "succeeded")
-					metrics.ObserveWorkerJobExecution(job.JobType, "succeeded", time.Since(started))
-					continue
-				}
-				failState, failErr := queue.FailJob(workerCtx, job.ID, workerID, err.Error(), retryDelay)
-				if failErr != nil {
-					log.Error("job_fail_mark_failed", "job_id", job.ID, "error", failErr)
-					continue
-				}
-				if failState.Status == jobs.StatusDead {
-					metrics.IncWorkerJob(job.JobType, "dead")
-					metrics.ObserveWorkerJobExecution(job.JobType, "dead", time.Since(started))
-					log.Error("job_dead_lettered", "job_id", job.ID, "job_type", job.JobType, "error", err)
-					continue
-				}
-				metrics.IncWorkerJob(job.JobType, "retry")
-				metrics.ObserveWorkerJobExecution(job.JobType, "retry", time.Since(started))
-				log.Error("job_failed_retry_scheduled", "job_id", job.ID, "job_type", job.JobType, "error", err)
-			}
-		}()
-	}
-	defer func() {
-		close(jobQueue)
-		wg.Wait()
-	}()
-
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		claimed, err := queue.ClaimAvailableForPool(ctx, workerID, workerPool, batchSize)
-		if err != nil {
-			log.Error("job_claim_failed", "error", err)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(pollInterval):
-				continue
-			}
-		}
-		if len(claimed) == 0 {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(pollInterval):
-				continue
-			}
-		}
-		for _, job := range claimed {
-			select {
-			case <-ctx.Done():
-				return
-			case jobQueue <- job:
-			}
-		}
-	}
 }
 
 func runStaleRecoveryLoop(ctx context.Context, log interface {
@@ -265,7 +160,7 @@ func runStaleRecoveryLoop(ctx context.Context, log interface {
 		case <-ticker.C:
 			olderThan := time.Now().UTC().Add(-cfg.RunningTimeout)
 			started := time.Now()
-			result, err := queue.RecoverStaleRunningJobs(ctx, olderThan, cfg.StaleRecoveryBatchLimit)
+			result, err := queue.RecoverStaleRunningJobs(ctx, workerPool, olderThan, cfg.StaleRecoveryBatchLimit)
 			recoveryResult := "ok"
 			if err != nil {
 				recoveryResult = "error"
@@ -351,68 +246,6 @@ func runTrustMetricsReporter(ctx context.Context, log interface {
 	}
 }
 
-func runMetricsEndpoint(ctx context.Context, log interface {
-	Info(msg string, args ...any)
-	Error(msg string, args ...any)
-}, addr string) {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		return
-	}
-	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", metrics.Handler())
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-	go func() {
-		log.Info("metrics_listening", "addr", addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("metrics_server", "error", err)
-		}
-	}()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-}
-
-func runDebugEndpoint(ctx context.Context, log interface {
-	Info(msg string, args ...any)
-	Error(msg string, args ...any)
-}, addr string) {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		return
-	}
-	mux := http.NewServeMux()
-	registerPprofHandlers(mux)
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-	go func() {
-		log.Info("debug_listening", "addr", addr, "surface", "pprof", "auth", "none_bind_private_addr")
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("debug_server", "error", err)
-		}
-	}()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-}
-
 func resolveWorkerID() string {
 	host, err := os.Hostname()
 	if err != nil {
@@ -423,36 +256,6 @@ func resolveWorkerID() string {
 		host = "unknown-host"
 	}
 	return fmt.Sprintf("%s:%d", host, os.Getpid())
-}
-
-func runJobWithRecovery(ctx context.Context, job jobs.Job, processJob func(jobCtx context.Context, job jobs.Job) error) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = failure.FromPanic(recovered)
-		}
-	}()
-	return processJob(ctx, job)
-}
-
-func registerPprofHandlers(mux *http.ServeMux) {
-	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
-	mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
-	mux.Handle("GET /debug/pprof/allocs", pprof.Handler("allocs"))
-	mux.Handle("GET /debug/pprof/block", pprof.Handler("block"))
-	mux.Handle("GET /debug/pprof/goroutine", pprof.Handler("goroutine"))
-	mux.Handle("GET /debug/pprof/heap", pprof.Handler("heap"))
-	mux.Handle("GET /debug/pprof/mutex", pprof.Handler("mutex"))
-	mux.Handle("GET /debug/pprof/threadcreate", pprof.Handler("threadcreate"))
-}
-
-func resolveBuildVersion(appVersion string) string {
-	if v := strings.TrimSpace(buildVersion); v != "" {
-		return v
-	}
-	return strings.TrimSpace(appVersion)
 }
 
 func trustWorkerModeLabel(enableRedisSync, enableScoreCompute bool) string {
@@ -466,4 +269,8 @@ func trustWorkerModeLabel(enableRedisSync, enableScoreCompute bool) string {
 	default:
 		return "invalid"
 	}
+}
+
+func resolveBuildVersion(appVersion string) string {
+	return runtimebootstrap.ResolveBuildVersion(appVersion, buildVersion)
 }

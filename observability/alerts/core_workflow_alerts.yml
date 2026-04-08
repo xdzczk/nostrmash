@@ -135,18 +135,18 @@ groups:
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashFallbackFailureRatioHigh
-        expr: nostrmash:lookup:fallback_failure_or_miss_ratio5m_by_surface > 0.30 and nostrmash:lookup:fallback_attempt_rate5m_by_surface > 0.05
+        expr: nostrmash:lookup:fallback_error_ratio5m_by_entity > 0.10 and nostrmash:lookup:fallback_attempt_rate5m_by_entity > 0.05
         for: 15m
         labels:
           severity: warning
           slo: api-latency
         annotations:
-          summary: "Relay fallback failures/misses are sustained"
-          description: "Fallback failure+miss ratio exceeds 30% with meaningful traffic for 15m. Inspect relay health, fallback timeout/fanout, and local miss behavior."
+          summary: "Relay fallback infra errors are sustained"
+          description: "Fallback error ratio exceeds 10% with meaningful traffic for 15m. Inspect relay health, timeout/fanout tuning, and degraded_to_not_found fallback logs."
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashFallbackLatencyHigh
-        expr: nostrmash:lookup:fallback_latency_p95_seconds:5m_by_surface > 1.5 and nostrmash:lookup:fallback_attempt_rate5m_by_surface > 0.05
+        expr: nostrmash:lookup:fallback_latency_p95_seconds:5m_by_entity > 1.5 and nostrmash:lookup:fallback_attempt_rate5m_by_entity > 0.05
         for: 10m
         labels:
           severity: warning

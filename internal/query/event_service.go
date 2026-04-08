@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/store/traceutil"
@@ -55,41 +53,7 @@ func (s eventService) GetEvent(ctx context.Context, id string) (json.RawMessage,
 	if trimmedID == "" {
 		return nil, fmt.Errorf("event id is required")
 	}
-	raw, err := s.reader.GetEventRawByID(ctx, trimmedID)
-	if err == nil {
-		metrics.ObserveLookupLocal("event_by_id", true)
-		return raw, nil
-	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return nil, err
-	}
-	metrics.ObserveLookupLocal("event_by_id", false)
-	if s.fallback == nil {
-		return nil, err
-	}
-
-	started := time.Now()
-	metrics.IncLookupFallbackAttempt("event_by_id")
-	observeFallbackAttemptByEntity(fallbackEntityEvent)
-	fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_event_by_id.fallback", traceutil.KV("fallback.surface", "event_by_id"))
-	foundByID, fallbackErr := s.fallback.FetchEventsByIDs(fallbackCtx, []string{trimmedID})
-	fallbackSpan.End(fallbackErr)
-	metrics.ObserveLookupFallbackLatency("event_by_id", time.Since(started))
-	if fallbackErr != nil {
-		metrics.IncLookupFallbackFailure("event_by_id")
-		observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultError, time.Since(started))
-		logFallbackInfraFailure(ctx, "event_by_id", fallbackEntityEvent, trimmedID, fallbackErr, true)
-		return nil, err
-	}
-	raw, ok := foundByID[trimmedID]
-	if !ok {
-		metrics.IncLookupFallbackMiss("event_by_id")
-		observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultMiss, time.Since(started))
-		return nil, err
-	}
-	metrics.IncLookupFallbackSuccess("event_by_id")
-	observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultHit, time.Since(started))
-	return raw, nil
+	return s.getEventWithFallback(ctx, trimmedID)
 }
 
 func (s Service) GetEvents(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
@@ -105,62 +69,7 @@ func (s eventService) GetEvents(ctx context.Context, ids []string) (map[string]j
 	if err != nil {
 		return nil, err
 	}
-
-	missing := make([]string, 0)
-	for _, id := range normalized {
-		if _, ok := found[id]; ok {
-			continue
-		}
-		missing = append(missing, id)
-	}
-	if len(missing) == 0 {
-		metrics.ObserveLookupLocal("event_batch", true)
-		return found, nil
-	}
-	metrics.ObserveLookupLocal("event_batch", false)
-	if s.fallback == nil {
-		return found, nil
-	}
-
-	started := time.Now()
-	metrics.IncLookupFallbackAttempt("event_batch")
-	observeFallbackAttemptByEntity(fallbackEntityEvent)
-	fallbackCtx, fallbackSpan := traceutil.StartSpan(ctx, "query.get_event_batch.fallback", traceutil.KV("fallback.surface", "event_batch"))
-	fallbackFound, fallbackErr := s.fallback.FetchEventsByIDs(fallbackCtx, missing)
-	fallbackSpan.End(fallbackErr)
-	metrics.ObserveLookupFallbackLatency("event_batch", time.Since(started))
-	if fallbackErr != nil {
-		metrics.IncLookupFallbackFailure("event_batch")
-		observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultError, time.Since(started))
-		logFallbackBatchInfraFailure(ctx, "event_batch", fallbackEntityEvent, missing, fallbackErr, true)
-		return found, nil
-	}
-	if len(fallbackFound) == 0 {
-		metrics.IncLookupFallbackMiss("event_batch")
-		observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultMiss, time.Since(started))
-		return found, nil
-	}
-	recovered := 0
-	for _, id := range missing {
-		if _, ok := fallbackFound[id]; ok {
-			recovered++
-		}
-	}
-	if recovered == 0 {
-		metrics.IncLookupFallbackMiss("event_batch")
-		observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultMiss, time.Since(started))
-		return found, nil
-	}
-	if recovered < len(missing) {
-		metrics.IncLookupFallbackPartialSuccess("event_batch")
-	} else {
-		metrics.IncLookupFallbackSuccess("event_batch")
-	}
-	observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultHit, time.Since(started))
-	for id, raw := range fallbackFound {
-		found[id] = raw
-	}
-	return found, nil
+	return s.mergeEventsWithFallback(ctx, normalized, found)
 }
 
 func (s Service) GetEventActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
@@ -200,11 +109,7 @@ func (s Service) Search(ctx context.Context, text string, limit int) (out Search
 	if err != nil {
 		return SearchResult{}, err
 	}
-	mappedProfiles := make([]Profile, 0, len(profiles))
-	for _, profile := range profiles {
-		mappedProfiles = append(mappedProfiles, profileFromStore(profile))
-	}
-	return SearchResult{Events: events, Profiles: mappedProfiles}, nil
+	return SearchResult{Events: events, Profiles: profiles}, nil
 }
 
 func (s Service) GetAuthorEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
@@ -256,14 +161,14 @@ func (s Service) GetEventReplies(ctx context.Context, eventID string, limit int,
 	if limit > 100 {
 		limit = 100
 	}
-	replies, nextCursor, err := s.reader.GetEventReplies(ctx, eventID, limit, eventCursorToStore(cursor))
+	replies, nextCursor, err := s.reader.GetEventReplies(ctx, eventID, limit, cursor)
 	if err != nil {
 		return EventRepliesResult{}, err
 	}
 	return EventRepliesResult{
 		EventID:     eventID,
 		Replies:     replies,
-		NextCursor:  eventCursorFromStore(nextCursor),
+		NextCursor:  nextCursor,
 		Consistency: "eventual",
 	}, nil
 }
@@ -371,7 +276,7 @@ func (s Service) GetZaps(ctx context.Context, pubkey string, limit int) ([]json.
 	type receiverZapsReader interface {
 		GetUserZaps(ctx context.Context, pubkey string, limit int, sortBySats bool) ([]json.RawMessage, error)
 	}
-	if r, ok := s.reader.(receiverZapsReader); ok {
+	if r, ok := s.rawReader.(receiverZapsReader); ok {
 		return r.GetUserZaps(ctx, pubkey, limit, false)
 	}
 	return s.reader.GetRecentEventsByKindAndPubkey(ctx, 9735, pubkey, limit)
@@ -385,7 +290,7 @@ func (s Service) GetHighlightsByEventID(ctx context.Context, eventID string, lim
 	type highlightsByEventReader interface {
 		GetHighlightsByEventID(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error)
 	}
-	if r, ok := s.reader.(highlightsByEventReader); ok {
+	if r, ok := s.rawReader.(highlightsByEventReader); ok {
 		return r.GetHighlightsByEventID(ctx, eventID, limit)
 	}
 	return []json.RawMessage{}, nil
@@ -401,7 +306,7 @@ func (s Service) GetHighlightsByATarget(
 	type highlightsByATargetReader interface {
 		GetHighlightsByATarget(ctx context.Context, kind int, pubkey string, identifier string, limit int) ([]json.RawMessage, error)
 	}
-	if r, ok := s.reader.(highlightsByATargetReader); ok {
+	if r, ok := s.rawReader.(highlightsByATargetReader); ok {
 		return r.GetHighlightsByATarget(ctx, kind, pubkey, identifier, limit)
 	}
 	return []json.RawMessage{}, nil
@@ -411,7 +316,7 @@ func (s Service) GetUserZapsBySats(ctx context.Context, pubkey string, limit int
 	type receiverZapsReader interface {
 		GetUserZaps(ctx context.Context, pubkey string, limit int, sortBySats bool) ([]json.RawMessage, error)
 	}
-	if r, ok := s.reader.(receiverZapsReader); ok {
+	if r, ok := s.rawReader.(receiverZapsReader); ok {
 		return r.GetUserZaps(ctx, pubkey, limit, true)
 	}
 	return s.GetZaps(ctx, pubkey, limit)
@@ -421,7 +326,7 @@ func (s Service) GetEventZapsBySats(ctx context.Context, eventID string, limit i
 	type eventZapsReader interface {
 		GetEventZapsBySats(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error)
 	}
-	if r, ok := s.reader.(eventZapsReader); ok {
+	if r, ok := s.rawReader.(eventZapsReader); ok {
 		return r.GetEventZapsBySats(ctx, eventID, limit)
 	}
 	return []json.RawMessage{}, nil

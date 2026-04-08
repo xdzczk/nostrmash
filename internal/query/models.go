@@ -76,6 +76,19 @@ type EventWithProvenanceResult struct {
 	Consistency string
 }
 
+type EventWithProvenance struct {
+	Event  json.RawMessage
+	Relays []model.EventRelay
+}
+
+type EventCounts struct {
+	EventID       string
+	ReplyCount    int64
+	ReactionCount int64
+	RepostCount   int64
+	Consistency   string
+}
+
 type EventSeenOnResult struct {
 	EventID string
 	SeenOn  []model.EventRelay
@@ -86,6 +99,45 @@ type Profile struct {
 	MetadataEventID   string
 	MetadataCreatedAt int64
 	ProfileJSON       json.RawMessage
+}
+
+type ContactList struct {
+	Pubkey          string
+	EventID         string
+	CreatedAt       int64
+	DerivationVer   int
+	ContactsJSONRaw json.RawMessage
+}
+
+type RelayList struct {
+	Pubkey        string
+	EventID       string
+	CreatedAt     int64
+	DerivationVer int
+	RelaysJSONRaw json.RawMessage
+}
+
+type NetworkStats struct {
+	Events   int64 `json:"events"`
+	Profiles int64 `json:"profiles"`
+	Relays   int64 `json:"relays"`
+}
+
+type CuratedRecommendedRead struct {
+	EventID string `json:"event_id"`
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Rank    int    `json:"rank"`
+}
+
+type CuratedReadsTopic struct {
+	Topic string `json:"topic"`
+	Rank  int    `json:"rank"`
+}
+
+type CuratedFeaturedAuthor struct {
+	Pubkey string `json:"pubkey"`
+	Rank   int    `json:"rank"`
 }
 
 type TrustScore struct {

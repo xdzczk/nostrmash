@@ -1,26 +1,20 @@
 package api_primal
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 
-	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/query"
-	"github.com/xdzczk/nostrmash/internal/store"
-	"github.com/xdzczk/nostrmash/internal/transport/httpx"
 )
 
-// EventReader is the narrow query surface required by the compatibility adapter.
-type EventReader = query.Reader
+// EventReader accepts query-native or legacy store-backed readers.
+type EventReader = any
 
 // Handlers translates Primal-compatible requests/responses at the boundary only.
 type Handlers struct {
-	store        EventReader
 	service      query.Service
 	maxBatchSize int
 }
@@ -30,18 +24,17 @@ type HandlersOptions struct {
 	QueryOptions query.ServiceOptions
 }
 
-func NewHandlers(store EventReader, maxBatchSize int) Handlers {
-	return NewHandlersWithOptions(store, HandlersOptions{MaxBatchSize: maxBatchSize})
+func NewHandlers(reader EventReader, maxBatchSize int) Handlers {
+	return NewHandlersWithOptions(reader, HandlersOptions{MaxBatchSize: maxBatchSize})
 }
 
-func NewHandlersWithOptions(store EventReader, options HandlersOptions) Handlers {
+func NewHandlersWithOptions(reader EventReader, options HandlersOptions) Handlers {
 	maxBatchSize := options.MaxBatchSize
 	if maxBatchSize <= 0 {
 		maxBatchSize = 200
 	}
 	return Handlers{
-		store:        store,
-		service:      query.NewServiceWithOptions(store, options.QueryOptions),
+		service:      query.NewServiceWithOptions(reader, options.QueryOptions),
 		maxBatchSize: maxBatchSize,
 	}
 }
@@ -59,7 +52,7 @@ func (h Handlers) GetEventByID(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := h.service.GetEvent(r.Context(), eventID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
 			return
 		}
@@ -147,7 +140,7 @@ func (h Handlers) GetProfileByPubkey(w http.ResponseWriter, r *http.Request) {
 
 	profile, err := h.service.GetProfile(r.Context(), pubkey)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "profile not found")
 			return
 		}
@@ -289,7 +282,7 @@ func (h Handlers) GetEventActions(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "event id is required")
 		return
 	}
-	counts, err := h.store.GetEventCounts(r.Context(), eventID)
+	counts, err := h.service.GetEventActionCounts(r.Context(), eventID)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
@@ -311,7 +304,7 @@ func (h Handlers) GetContactList(w http.ResponseWriter, r *http.Request) {
 	}
 	entry, err := h.service.GetContactList(r.Context(), pubkey)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "contact list not found")
 			return
 		}
@@ -336,7 +329,7 @@ func (h Handlers) GetRelayList(w http.ResponseWriter, r *http.Request) {
 	}
 	entry, err := h.service.GetRelayList(r.Context(), pubkey)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "relay list not found")
 			return
 		}
@@ -351,86 +344,4 @@ func (h Handlers) GetRelayList(w http.ResponseWriter, r *http.Request) {
 		"consistency":  "eventual",
 		"projection_v": entry.DerivationVer,
 	})
-}
-
-func parseBoundedPositiveInt(raw string, defaultValue int, maxValue int) int {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return defaultValue
-	}
-	parsed, err := strconv.Atoi(raw)
-	if err != nil || parsed <= 0 {
-		return defaultValue
-	}
-	if parsed > maxValue {
-		return maxValue
-	}
-	return parsed
-}
-
-func encodeEventCursor(cursor *query.EventCursor) (string, error) {
-	if cursor == nil {
-		return "", nil
-	}
-	return httpx.EncodeEventCursorPayload(httpx.EventCursorPayload{
-		CreatedAt: cursor.CreatedAt,
-		ID:        cursor.ID,
-	})
-}
-
-func decodeEventCursor(value string) (*query.EventCursor, error) {
-	payload, err := httpx.DecodeEventCursorPayload(value)
-	if err != nil {
-		return nil, err
-	}
-	if payload == nil {
-		return nil, nil
-	}
-	return &query.EventCursor{
-		CreatedAt: payload.CreatedAt,
-		ID:        payload.ID,
-	}, nil
-}
-
-type apiErrorEnvelope struct {
-	Error apiErrorBody `json:"error"`
-}
-
-type apiErrorBody struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	RequestID string `json:"request_id"`
-}
-
-func writeError(ctx context.Context, w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, apiErrorEnvelope{
-		Error: apiErrorBody{
-			Code:      code,
-			Message:   message,
-			RequestID: logging.RequestIDFromContext(ctx),
-		},
-	})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func normalizeUniqueValues(values []string) []string {
-	out := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
-		}
-		if _, ok := seen[trimmed]; ok {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		out = append(out, trimmed)
-	}
-	return out
 }

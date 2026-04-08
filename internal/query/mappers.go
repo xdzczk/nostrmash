@@ -1,6 +1,9 @@
 package query
 
-import "github.com/xdzczk/nostrmash/internal/store"
+import (
+	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/store"
+)
 
 func eventCursorFromStore(cursor *store.EventOrderCursor) *EventCursor {
 	if cursor == nil {
@@ -28,6 +31,82 @@ func profileFromStore(row store.ProfileProjection) Profile {
 		MetadataEventID:   row.MetadataEventID,
 		MetadataCreatedAt: row.MetadataCreatedAt,
 		ProfileJSON:       row.ProfileJSON,
+	}
+}
+
+func contactListFromStore(row store.ContactListProjection) ContactList {
+	return ContactList{
+		Pubkey:          row.Pubkey,
+		EventID:         row.EventID,
+		CreatedAt:       row.CreatedAt,
+		DerivationVer:   row.DerivationVer,
+		ContactsJSONRaw: row.ContactsJSONRaw,
+	}
+}
+
+func relayListFromStore(row store.RelayListProjection) RelayList {
+	return RelayList{
+		Pubkey:        row.Pubkey,
+		EventID:       row.EventID,
+		CreatedAt:     row.CreatedAt,
+		DerivationVer: row.DerivationVer,
+		RelaysJSONRaw: row.RelaysJSONRaw,
+	}
+}
+
+func networkStatsFromStore(row store.NetworkStats) NetworkStats {
+	return NetworkStats{
+		Events:   row.Events,
+		Profiles: row.Profiles,
+		Relays:   row.Relays,
+	}
+}
+
+func curatedRecommendedReadFromStore(row store.CuratedRecommendedRead) CuratedRecommendedRead {
+	return CuratedRecommendedRead{
+		EventID: row.EventID,
+		Title:   row.Title,
+		URL:     row.URL,
+		Rank:    row.Rank,
+	}
+}
+
+func curatedReadsTopicFromStore(row store.CuratedReadsTopic) CuratedReadsTopic {
+	return CuratedReadsTopic{
+		Topic: row.Topic,
+		Rank:  row.Rank,
+	}
+}
+
+func curatedFeaturedAuthorFromStore(row store.CuratedFeaturedAuthor) CuratedFeaturedAuthor {
+	return CuratedFeaturedAuthor{
+		Pubkey: row.Pubkey,
+		Rank:   row.Rank,
+	}
+}
+
+func eventWithProvenanceFromStore(row store.EventWithProvenance) EventWithProvenance {
+	relays := make([]model.EventRelay, 0, len(row.Relays))
+	for _, relay := range row.Relays {
+		relays = append(relays, model.EventRelay{
+			EventID:  relay.EventID,
+			RelayURL: relay.RelayURL,
+			SeenAt:   relay.SeenAt.UTC(),
+		})
+	}
+	return EventWithProvenance{
+		Event:  row.Event,
+		Relays: relays,
+	}
+}
+
+func eventCountsFromStore(row store.EventCounts) EventCounts {
+	return EventCounts{
+		EventID:       row.EventID,
+		ReplyCount:    row.ReplyCount,
+		ReactionCount: row.ReactionCount,
+		RepostCount:   row.RepostCount,
+		Consistency:   row.Consistency,
 	}
 }
 

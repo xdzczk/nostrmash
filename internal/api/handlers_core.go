@@ -40,10 +40,9 @@ func Ready(pool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-type EventReader = query.Reader
+type EventReader = any
 
 type Handlers struct {
-	store        EventReader
 	service      query.Service
 	maxBatchSize int
 }
@@ -55,18 +54,17 @@ type HandlersOptions struct {
 	QueryOptions query.ServiceOptions
 }
 
-func NewHandlers(store EventReader, maxBatchSize int) Handlers {
-	return NewHandlersWithOptions(store, HandlersOptions{MaxBatchSize: maxBatchSize})
+func NewHandlers(reader EventReader, maxBatchSize int) Handlers {
+	return NewHandlersWithOptions(reader, HandlersOptions{MaxBatchSize: maxBatchSize})
 }
 
-func NewHandlersWithOptions(store EventReader, options HandlersOptions) Handlers {
+func NewHandlersWithOptions(reader EventReader, options HandlersOptions) Handlers {
 	maxBatchSize := options.MaxBatchSize
 	if maxBatchSize <= 0 {
 		maxBatchSize = 200
 	}
 	return Handlers{
-		store:        store,
-		service:      query.NewServiceWithOptions(store, options.QueryOptions),
+		service:      query.NewServiceWithOptions(reader, options.QueryOptions),
 		maxBatchSize: maxBatchSize,
 	}
 }

@@ -24,6 +24,7 @@ type fakeWorkerQueue struct {
 	completedIDs []int64
 	failedIDs    []int64
 	recoverCalls int
+	recoverPools []string
 }
 
 func (f *fakeWorkerQueue) ClaimAvailableForPool(ctx context.Context, _ string, _ string, _ int) ([]jobs.Job, error) {
@@ -60,10 +61,11 @@ func (f *fakeWorkerQueue) PurgeTerminalJobs(_ context.Context, _ time.Time, _ ti
 	return 0, nil
 }
 
-func (f *fakeWorkerQueue) RecoverStaleRunningJobs(_ context.Context, _ time.Time, _ int) (jobs.RecoveryResult, error) {
+func (f *fakeWorkerQueue) RecoverStaleRunningJobs(_ context.Context, workerPool string, _ time.Time, _ int) (jobs.RecoveryResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recoverCalls++
+	f.recoverPools = append(f.recoverPools, workerPool)
 	return jobs.RecoveryResult{}, nil
 }
 
@@ -212,8 +214,14 @@ func TestRunStaleRecoveryLoop_InvokesQueueRecoveryPeriodically(t *testing.T) {
 	for time.Now().Before(deadline) {
 		queue.mu.Lock()
 		calls := queue.recoverCalls
+		pools := append([]string(nil), queue.recoverPools...)
 		queue.mu.Unlock()
 		if calls >= 2 {
+			for _, pool := range pools {
+				if pool != jobs.WorkerPoolDefault {
+					t.Fatalf("expected stale recovery pool %q, got %q", jobs.WorkerPoolDefault, pool)
+				}
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

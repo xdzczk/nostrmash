@@ -25,16 +25,10 @@ func observeFallbackAttemptByEntity(entityType string) {
 }
 
 func observeFallbackResultByEntity(entityType, resultClass string, d time.Duration) {
-	switch resultClass {
-	case fallbackResultHit:
-		metrics.IncLookupFallbackSuccess(entityType)
-	case fallbackResultMiss:
-		metrics.IncLookupFallbackMiss(entityType)
-	case fallbackResultError:
-		metrics.IncLookupFallbackFailure(entityType)
-	default:
-		metrics.IncLookupFallbackPartialSuccess(entityType)
+	if resultClass != fallbackResultHit && resultClass != fallbackResultMiss && resultClass != fallbackResultError {
+		resultClass = fallbackResultError
 	}
+	metrics.IncLookupFallbackResult(entityType, resultClass)
 	metrics.ObserveLookupFallbackLatency(entityType, d)
 }
 

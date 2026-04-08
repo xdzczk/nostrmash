@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 type fakeThreadReader struct {
 	getEventRawByIDFn   func(ctx context.Context, id string) (json.RawMessage, error)
 	getEventAncestorsFn func(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error)
-	getEventRepliesFn   func(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	getEventRepliesFn   func(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error)
 }
 
 func (f fakeThreadReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -21,7 +19,7 @@ func (f fakeThreadReader) GetEventRawByID(ctx context.Context, id string) (json.
 	return json.RawMessage(`{}`), nil
 }
 
-func (f fakeThreadReader) GetEventReplies(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error) {
+func (f fakeThreadReader) GetEventReplies(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error) {
 	if f.getEventRepliesFn != nil {
 		return f.getEventRepliesFn(ctx, eventID, limit, cursor)
 	}
@@ -36,24 +34,24 @@ func (f fakeThreadReader) GetEventAncestors(ctx context.Context, eventID string,
 }
 
 type fakeProfileReader struct {
-	getProfilesByPubkeysFn func(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+	getProfilesByPubkeysFn func(ctx context.Context, pubkeys []string) (map[string]Profile, error)
 }
 
-func (f fakeProfileReader) GetProfileByPubkey(context.Context, string) (store.ProfileProjection, error) {
-	return store.ProfileProjection{}, nil
+func (f fakeProfileReader) GetProfileByPubkey(context.Context, string) (Profile, error) {
+	return Profile{}, nil
 }
 
-func (f fakeProfileReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+func (f fakeProfileReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {
 	if f.getProfilesByPubkeysFn != nil {
 		return f.getProfilesByPubkeysFn(ctx, pubkeys)
 	}
-	return map[string]store.ProfileProjection{}, nil
+	return map[string]Profile{}, nil
 }
 
 type fakeEventReader struct {
 	getEventByIDFn   func(ctx context.Context, id string) (json.RawMessage, error)
 	getEventBatchFn  func(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
-	getEventCountsFn func(ctx context.Context, eventID string) (store.EventCounts, error)
+	getEventCountsFn func(ctx context.Context, eventID string) (EventCounts, error)
 }
 
 func (f fakeEventReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -70,11 +68,11 @@ func (f fakeEventReader) GetEventRawsByIDs(ctx context.Context, ids []string) (m
 	return map[string]json.RawMessage{}, nil
 }
 
-func (f fakeEventReader) GetEventCounts(ctx context.Context, eventID string) (store.EventCounts, error) {
+func (f fakeEventReader) GetEventCounts(ctx context.Context, eventID string) (EventCounts, error) {
 	if f.getEventCountsFn != nil {
 		return f.getEventCountsFn(ctx, eventID)
 	}
-	return store.EventCounts{}, nil
+	return EventCounts{}, nil
 }
 
 func makeRepliesRange(start, end int) []json.RawMessage {
@@ -87,7 +85,7 @@ func makeRepliesRange(start, end int) []json.RawMessage {
 
 type fakeFallbackReader struct {
 	fetchEventsByIDsFn       func(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
-	fetchProfilesByPubkeysFn func(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+	fetchProfilesByPubkeysFn func(ctx context.Context, pubkeys []string) (map[string]Profile, error)
 }
 
 func (f fakeFallbackReader) FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
@@ -97,9 +95,9 @@ func (f fakeFallbackReader) FetchEventsByIDs(ctx context.Context, ids []string) 
 	return f.fetchEventsByIDsFn(ctx, ids)
 }
 
-func (f fakeFallbackReader) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+func (f fakeFallbackReader) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {
 	if f.fetchProfilesByPubkeysFn == nil {
-		return map[string]store.ProfileProjection{}, nil
+		return map[string]Profile{}, nil
 	}
 	return f.fetchProfilesByPubkeysFn(ctx, pubkeys)
 }

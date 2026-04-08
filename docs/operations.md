@@ -226,10 +226,18 @@ Storage/fallback operating gauges and counters:
 - `nostrmash_storage_table_bytes{table}`
 - `nostrmash_storage_table_rows{table}`
 - `nostrmash_lookup_local_total{surface,result}`
-- `nostrmash_lookup_fallback_total{surface,outcome}`
-- `nostrmash_lookup_fallback_latency_seconds{surface}`
+- `nostrmash_lookup_fallback_total{entity,result}`
+- `nostrmash_lookup_fallback_latency_seconds{entity}`
 
-Fallback `outcome` now distinguishes `success` (full batch recovery) from `partial_success` (only some missing entities were recovered).
+Fallback `result` is normalized to:
+
+- `attempt`: fallback was attempted for the entity type
+- `hit`: fallback recovered at least one requested missing entity
+- `miss`: fallback completed but recovered none of the requested missing entities
+- `error`: fallback infra/system failure; client-facing response may still degrade to not-found
+
+Fallback labels are intentionally low-cardinality. Do not add relay URL, pubkey, event ID, identifier, or raw error string labels.
+Use structured logs for incident details (`query_fallback_lookup_failed` with `entity_type`, `entity_key`/`entity_keys`, `error_class`, and `degraded_to_not_found`).
 
 Storage/retention signal ownership:
 
@@ -301,6 +309,7 @@ Jobs live in Postgres and move through:
 - `dead`
 
 The worker claims jobs with `FOR UPDATE SKIP LOCKED`, pushes claimed work to a bounded in-process worker pool, retries failures, and dead-letters after the configured max attempts.
+Stale running-job recovery is worker-pool scoped: `worker` only recovers `jobs.worker_pool='default'` and `trust_worker` only recovers `jobs.worker_pool='trust'`.
 
 Worker throughput tuning:
 
@@ -505,10 +514,10 @@ Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use 
   - Meaning: trust sync/compute/promote phases are retrying at an unhealthy rate.
   - Check next: retry-heavy `job_type` values, trust phase error fields, Redis reachability, and backing store latency.
 - `NostrMashFallbackFailureRatioHigh`
-  - Meaning: per-surface fallback miss/failure ratio is elevated.
-  - Check next: relay availability, timeout/fanout tuning, and local miss distribution by lookup surface.
+  - Meaning: per-entity fallback `error` ratio is elevated relative to `attempt`.
+  - Check next: relay availability, timeout/fanout tuning, and `query_fallback_lookup_failed` logs (especially `error_class` + `degraded_to_not_found`).
 - `NostrMashFallbackLatencyHigh`
-  - Meaning: per-surface fallback p95 latency is elevated.
+  - Meaning: per-entity fallback p95 latency is elevated.
   - Check next: relay response speed, network path, and fallback timeout budget.
 - `NostrMashLocalMissRatioHigh`
   - Meaning: per-surface local cache/index hit ratio degraded for fallback-enabled lookups.

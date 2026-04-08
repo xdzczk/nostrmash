@@ -264,13 +264,14 @@ func TestRecoverStaleRunningJobs_RequeuesStaleRunningJob(t *testing.T) {
 		t,
 		ctx,
 		pool,
+		jobs.WorkerPoolDefault,
 		1,
 		3,
 		time.Now().UTC().Add(-2*time.Minute),
 		"lost-worker-a",
 	)
 
-	result, err := queue.RecoverStaleRunningJobs(ctx, time.Now().UTC().Add(-30*time.Second), 10)
+	result, err := queue.RecoverStaleRunningJobs(ctx, jobs.WorkerPoolDefault, time.Now().UTC().Add(-30*time.Second), 10)
 	if err != nil {
 		t.Fatalf("recover stale jobs: %v", err)
 	}
@@ -315,13 +316,14 @@ func TestRecoverStaleRunningJobs_DeadLettersWhenAttemptsExhausted(t *testing.T) 
 		t,
 		ctx,
 		pool,
+		jobs.WorkerPoolDefault,
 		2,
 		3,
 		time.Now().UTC().Add(-3*time.Minute),
 		"lost-worker-b",
 	)
 
-	result, err := queue.RecoverStaleRunningJobs(ctx, time.Now().UTC().Add(-1*time.Minute), 10)
+	result, err := queue.RecoverStaleRunningJobs(ctx, jobs.WorkerPoolDefault, time.Now().UTC().Add(-1*time.Minute), 10)
 	if err != nil {
 		t.Fatalf("recover stale jobs: %v", err)
 	}
@@ -363,13 +365,14 @@ func TestRecoverStaleRunningJobs_DoesNotTouchFreshRunningJob(t *testing.T) {
 		t,
 		ctx,
 		pool,
+		jobs.WorkerPoolDefault,
 		0,
 		5,
 		time.Now().UTC().Add(-3*time.Second),
 		"active-worker",
 	)
 
-	result, err := queue.RecoverStaleRunningJobs(ctx, time.Now().UTC().Add(-10*time.Second), 10)
+	result, err := queue.RecoverStaleRunningJobs(ctx, jobs.WorkerPoolDefault, time.Now().UTC().Add(-10*time.Second), 10)
 	if err != nil {
 		t.Fatalf("recover stale jobs: %v", err)
 	}
@@ -397,12 +400,12 @@ func TestRecoverStaleRunningJobs_RespectsBatchLimit(t *testing.T) {
 	}
 	queue := jobs.NewQueue(pool)
 	ids := []int64{
-		insertRunningJobForRecoveryTest(t, ctx, pool, 0, 5, time.Now().UTC().Add(-3*time.Minute), "lost-worker-1"),
-		insertRunningJobForRecoveryTest(t, ctx, pool, 0, 5, time.Now().UTC().Add(-2*time.Minute), "lost-worker-2"),
-		insertRunningJobForRecoveryTest(t, ctx, pool, 0, 5, time.Now().UTC().Add(-1*time.Minute), "lost-worker-3"),
+		insertRunningJobForRecoveryTest(t, ctx, pool, jobs.WorkerPoolDefault, 0, 5, time.Now().UTC().Add(-3*time.Minute), "lost-worker-1"),
+		insertRunningJobForRecoveryTest(t, ctx, pool, jobs.WorkerPoolDefault, 0, 5, time.Now().UTC().Add(-2*time.Minute), "lost-worker-2"),
+		insertRunningJobForRecoveryTest(t, ctx, pool, jobs.WorkerPoolDefault, 0, 5, time.Now().UTC().Add(-1*time.Minute), "lost-worker-3"),
 	}
 
-	result, err := queue.RecoverStaleRunningJobs(ctx, time.Now().UTC().Add(-30*time.Second), 2)
+	result, err := queue.RecoverStaleRunningJobs(ctx, jobs.WorkerPoolDefault, time.Now().UTC().Add(-30*time.Second), 2)
 	if err != nil {
 		t.Fatalf("recover stale jobs: %v", err)
 	}
@@ -424,6 +427,73 @@ func TestRecoverStaleRunningJobs_RespectsBatchLimit(t *testing.T) {
 	}
 	if remaining.Status != jobs.StatusRunning {
 		t.Fatalf("expected one running job to remain after limited batch, got %q", remaining.Status)
+	}
+}
+
+func TestRecoverStaleRunningJobs_OnlyRecoversTargetPool(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+	defaultJob := insertRunningJobForRecoveryTest(
+		t,
+		ctx,
+		pool,
+		jobs.WorkerPoolDefault,
+		0,
+		5,
+		time.Now().UTC().Add(-2*time.Minute),
+		"lost-default-worker",
+	)
+	trustJob := insertRunningJobForRecoveryTest(
+		t,
+		ctx,
+		pool,
+		jobs.WorkerPoolTrust,
+		0,
+		5,
+		time.Now().UTC().Add(-2*time.Minute),
+		"lost-trust-worker",
+	)
+
+	result, err := queue.RecoverStaleRunningJobs(ctx, jobs.WorkerPoolDefault, time.Now().UTC().Add(-30*time.Second), 10)
+	if err != nil {
+		t.Fatalf("recover stale jobs for default pool: %v", err)
+	}
+	if result.Recovered != 1 || result.DeadLettered != 0 {
+		t.Fatalf("unexpected recovery result: %+v", result)
+	}
+
+	defaultStored, err := queue.GetJobByID(ctx, defaultJob)
+	if err != nil {
+		t.Fatalf("load default pool job: %v", err)
+	}
+	if defaultStored.Status != jobs.StatusPending {
+		t.Fatalf("expected default pool stale job to be recovered, got %q", defaultStored.Status)
+	}
+
+	trustStored, err := queue.GetJobByID(ctx, trustJob)
+	if err != nil {
+		t.Fatalf("load trust pool job: %v", err)
+	}
+	if trustStored.Status != jobs.StatusRunning {
+		t.Fatalf("expected trust pool job to remain running, got %q", trustStored.Status)
+	}
+}
+
+func TestRecoverStaleRunningJobs_RequiresWorkerPool(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+
+	_, err := queue.RecoverStaleRunningJobs(ctx, "   ", time.Now().UTC().Add(-30*time.Second), 10)
+	if err == nil {
+		t.Fatal("expected error when worker pool is empty")
 	}
 }
 
@@ -473,12 +543,17 @@ func insertRunningJobForRecoveryTest(
 	t *testing.T,
 	ctx context.Context,
 	pool *pgxpool.Pool,
+	workerPool string,
 	attempts int,
 	maxAttempts int,
 	lockedAt time.Time,
 	lockedBy string,
 ) int64 {
 	t.Helper()
+	jobType := jobs.JobTypeDeriveEventBundle
+	if workerPool == jobs.WorkerPoolTrust {
+		jobType = jobs.JobTypeTrustComputeGlobalScore
+	}
 	var id int64
 	err := pool.QueryRow(ctx, `
 		INSERT INTO jobs (
@@ -493,9 +568,11 @@ func insertRunningJobForRecoveryTest(
 			locked_by,
 			updated_at
 		)
-		VALUES ('derive_profile', 'default', '{}'::jsonb, $1, $2, $3, now(), $4, $5, now())
+		VALUES ($1, $2, '{}'::jsonb, $3, $4, $5, now(), $6, $7, now())
 		RETURNING id
 	`,
+		jobType,
+		workerPool,
 		jobs.StatusRunning,
 		attempts,
 		maxAttempts,

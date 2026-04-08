@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-
-	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 func BenchmarkServiceGetUserInfos(b *testing.B) {
@@ -16,10 +14,10 @@ func BenchmarkServiceGetUserInfos(b *testing.B) {
 	}
 	pubkeys = append(pubkeys, "pk_010", "pk_010", "", "   ", "pk_199")
 
-	profiles := make(map[string]store.ProfileProjection, 200)
+	profiles := make(map[string]Profile, 200)
 	for i := 0; i < 160; i++ {
 		key := fmt.Sprintf("pk_%03d", i)
-		profiles[key] = store.ProfileProjection{
+		profiles[key] = Profile{
 			Pubkey:            key,
 			MetadataEventID:   fmt.Sprintf("meta_%03d", i),
 			MetadataCreatedAt: int64(1700000000 + i),
@@ -28,8 +26,8 @@ func BenchmarkServiceGetUserInfos(b *testing.B) {
 	}
 
 	svc := NewProfileService(fakeProfileReader{
-		getProfilesByPubkeysFn: func(_ context.Context, keys []string) (map[string]store.ProfileProjection, error) {
-			out := make(map[string]store.ProfileProjection, len(keys))
+		getProfilesByPubkeysFn: func(_ context.Context, keys []string) (map[string]Profile, error) {
+			out := make(map[string]Profile, len(keys))
 			for _, key := range keys {
 				if profile, ok := profiles[key]; ok {
 					out[key] = profile

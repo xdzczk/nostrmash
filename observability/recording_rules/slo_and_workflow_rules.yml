@@ -65,17 +65,17 @@ groups:
       - record: nostrmash:trust:phase_retry_ratio15m
         expr: sum(increase(nostrmash_worker_jobs_total{job_type=~"trust_.*",outcome="retry"}[15m])) / clamp_min(sum(increase(nostrmash_worker_jobs_total{job_type=~"trust_.*",outcome=~"succeeded|dead|retry"}[15m])), 1)
 
-      - record: nostrmash:lookup:fallback_attempt_rate5m_by_surface
-        expr: sum by (surface) (rate(nostrmash_lookup_fallback_total{outcome="attempt"}[5m]))
+      - record: nostrmash:lookup:fallback_attempt_rate5m_by_entity
+        expr: sum by (entity) (rate(nostrmash_lookup_fallback_total{result="attempt"}[5m]))
 
-      - record: nostrmash:lookup:fallback_failure_or_miss_ratio5m_by_surface
-        expr: sum by (surface) (rate(nostrmash_lookup_fallback_total{outcome=~"failure|miss"}[5m])) / clamp_min(nostrmash:lookup:fallback_attempt_rate5m_by_surface, 0.001)
+      - record: nostrmash:lookup:fallback_error_ratio5m_by_entity
+        expr: sum by (entity) (rate(nostrmash_lookup_fallback_total{result="error"}[5m])) / clamp_min(nostrmash:lookup:fallback_attempt_rate5m_by_entity, 0.001)
 
-      - record: nostrmash:lookup:fallback_partial_ratio5m_by_surface
-        expr: sum by (surface) (rate(nostrmash_lookup_fallback_total{outcome="partial_success"}[5m])) / clamp_min(nostrmash:lookup:fallback_attempt_rate5m_by_surface, 0.001)
+      - record: nostrmash:lookup:fallback_miss_ratio5m_by_entity
+        expr: sum by (entity) (rate(nostrmash_lookup_fallback_total{result="miss"}[5m])) / clamp_min(nostrmash:lookup:fallback_attempt_rate5m_by_entity, 0.001)
 
-      - record: nostrmash:lookup:fallback_latency_p95_seconds:5m_by_surface
-        expr: histogram_quantile(0.95, sum by (surface, le) (rate(nostrmash_lookup_fallback_latency_seconds_bucket[5m])))
+      - record: nostrmash:lookup:fallback_latency_p95_seconds:5m_by_entity
+        expr: histogram_quantile(0.95, sum by (entity, le) (rate(nostrmash_lookup_fallback_latency_seconds_bucket[5m])))
 
       - record: nostrmash:lookup:local_total_rate5m_by_surface
         expr: sum by (surface) (rate(nostrmash_lookup_local_total[5m]))

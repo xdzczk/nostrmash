@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-
-	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 func BenchmarkServiceGetThreadWindow(b *testing.B) {
@@ -20,12 +18,12 @@ func BenchmarkServiceGetThreadWindow(b *testing.B) {
 		getEventAncestorsFn: func(_ context.Context, _ string, _ int) ([]json.RawMessage, []string, error) {
 			return []json.RawMessage{}, []string{}, nil
 		},
-		getEventRepliesFn: func(_ context.Context, _ string, _ int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error) {
+		getEventRepliesFn: func(_ context.Context, _ string, _ int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error) {
 			switch {
 			case cursor == nil:
-				return pageOne, &store.EventOrderCursor{CreatedAt: 100, ID: "reply_100"}, nil
+				return pageOne, &EventCursor{CreatedAt: 100, ID: "reply_100"}, nil
 			case cursor.ID == "reply_100":
-				return pageTwo, &store.EventOrderCursor{CreatedAt: 200, ID: "reply_200"}, nil
+				return pageTwo, &EventCursor{CreatedAt: 200, ID: "reply_200"}, nil
 			case cursor.ID == "reply_200":
 				return pageThree, nil, nil
 			default:

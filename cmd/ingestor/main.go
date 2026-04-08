@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,8 +19,8 @@ import (
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/replay"
+	"github.com/xdzczk/nostrmash/internal/runtimebootstrap"
 	"github.com/xdzczk/nostrmash/internal/store"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
 )
 
 var (
@@ -51,30 +49,21 @@ func main() {
 	defer pool.Close()
 	metrics.RegisterDBPool(pool)
 
-	appVersion := os.Getenv("APP_VERSION")
-	if appVersion == "" {
-		appVersion = "dev"
-	}
-	version := resolveBuildVersion(appVersion)
-	if err := traceutil.Init(ctx, cfg.Shared.ServiceName, "ingestor", version, cfg.Shared.Environment); err != nil {
+	appVersion := runtimebootstrap.ResolveAppVersion()
+	version := runtimebootstrap.ResolveBuildVersion(appVersion, buildVersion)
+	if err := runtimebootstrap.InitTracing(ctx, log, cfg.Shared.ServiceName, "ingestor", version, cfg.Shared.Environment); err != nil {
 		log.Error("tracing_init", "error", err)
 		os.Exit(1)
 	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := traceutil.Shutdown(shutdownCtx); err != nil {
-			log.Error("tracing_shutdown", "error", err)
-		}
-	}()
-	metrics.RegisterBuildInfo("ingestor", version, strings.TrimSpace(buildCommit), strings.TrimSpace(buildTime))
-	metrics.RegisterDeploymentInfo("ingestor", cfg.Shared.ServiceName, cfg.Shared.Environment)
-	log.Info("build_info",
-		"binary_role", "ingestor",
-		"version", version,
-		"commit", strings.TrimSpace(buildCommit),
-		"build_time", strings.TrimSpace(buildTime),
-		"environment", cfg.Shared.Environment,
+	defer runtimebootstrap.ShutdownTracing(log)
+	runtimebootstrap.RegisterBuildAndDeployment(
+		log,
+		"ingestor",
+		cfg.Shared.ServiceName,
+		cfg.Shared.Environment,
+		version,
+		buildCommit,
+		buildTime,
 	)
 	if err := store.Migrate(ctx, pool, appVersion); err != nil {
 		log.Error("migrate", "error", err)
@@ -95,7 +84,7 @@ func main() {
 	}
 	var checkpointTracker *live.CheckpointTracker
 	var sinceResolver relay.SinceResolver
-	runMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
+	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 
 	go runMetricsLogger(ctx, log, processor, 30*time.Second)
 
@@ -324,34 +313,6 @@ func runMetricsLogger(ctx context.Context, log *slog.Logger, processor *live.Pro
 	}
 }
 
-func runMetricsEndpoint(ctx context.Context, log *slog.Logger, addr string) {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		return
-	}
-	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", metrics.Handler())
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-	go func() {
-		log.Info("metrics_listening", "addr", addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("metrics_server", "error", err)
-		}
-	}()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-}
-
 func runCheckpointFreshnessReporter(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, filterGroup string, every time.Duration) {
 	if pool == nil || every <= 0 {
 		return
@@ -385,8 +346,5 @@ func runCheckpointFreshnessReporter(ctx context.Context, log *slog.Logger, pool 
 }
 
 func resolveBuildVersion(appVersion string) string {
-	if v := strings.TrimSpace(buildVersion); v != "" {
-		return v
-	}
-	return strings.TrimSpace(appVersion)
+	return runtimebootstrap.ResolveBuildVersion(appVersion, buildVersion)
 }

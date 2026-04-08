@@ -2,12 +2,14 @@ package archtest
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -293,6 +295,121 @@ func TestNativeProductReadHandlersStayQueryOrchestrated(t *testing.T) {
 	}
 }
 
+func TestPrimalProductReadHandlersStayQueryOrchestrated(t *testing.T) {
+	root := repoRoot(t)
+	fset := token.NewFileSet()
+	for _, tc := range []struct {
+		file     string
+		funcName string
+	}{
+		{file: "internal/api_primal/handlers.go", funcName: "GetEventByID"},
+		{file: "internal/api_primal/handlers.go", funcName: "BatchGetEvents"},
+		{file: "internal/api_primal/handlers.go", funcName: "GetProfileByPubkey"},
+		{file: "internal/api_primal/handlers.go", funcName: "BatchGetUserInfos"},
+		{file: "internal/api_primal/handlers.go", funcName: "GetThreadView"},
+		{file: "internal/api_primal/handlers.go", funcName: "GetAuthorEvents"},
+		{file: "internal/api_primal/handlers.go", funcName: "GetAuthorReplies"},
+		{file: "internal/api_primal/handlers.go", funcName: "GetEventActions"},
+		{file: "internal/api_primal/handlers.go", funcName: "GetContactList"},
+		{file: "internal/api_primal/handlers.go", funcName: "GetRelayList"},
+	} {
+		parsed := parseFile(t, fset, filepath.Join(root, tc.file))
+		fn := mustFindFunc(t, parsed, tc.funcName)
+		if hasFieldMethodCall(fn.Body, "h", "store", "") {
+			t.Fatalf("%s %s must not call h.store methods directly; keep primal product read orchestration in internal/query", tc.file, tc.funcName)
+		}
+		if !hasFieldMethodCall(fn.Body, "h", "service", "") {
+			t.Fatalf("%s %s must delegate product reads through h.service query methods", tc.file, tc.funcName)
+		}
+	}
+}
+
+func TestProductHandlerFilesDoNotUseDirectStoreReads(t *testing.T) {
+	root := repoRoot(t)
+	fset := token.NewFileSet()
+
+	rules := []struct {
+		name      string
+		relDir    string
+		include   func(base string) bool
+		allowlist map[string]string
+	}{
+		{
+			name:   "native product handlers",
+			relDir: filepath.ToSlash("internal/api"),
+			include: func(base string) bool {
+				return true
+			},
+			// Keep transport-owned store exceptions explicit and tiny. Add entries only
+			// when a handler must remain store-facing for intentional admin/ops reasons.
+			allowlist: map[string]string{
+				"internal/api/admin_relays.go":  "admin relay candidate diagnostics intentionally construct store reader",
+				"internal/api/admin_storage.go": "admin storage stats endpoint intentionally uses store-level collector",
+				"internal/api/admin_trust.go":   "admin trust run endpoints intentionally read trust-run projections directly",
+			},
+		},
+		{
+			name:   "primal product handlers",
+			relDir: filepath.ToSlash("internal/api_primal"),
+			include: func(base string) bool {
+				return true
+			},
+			// Keep transport-only internal exceptions explicit here if any remain.
+			allowlist: map[string]string{},
+		},
+	}
+
+	var violations []string
+	for _, rule := range rules {
+		dir := filepath.Join(root, filepath.FromSlash(rule.relDir))
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() {
+				return nil
+			}
+			base := filepath.Base(path)
+			if !strings.HasSuffix(base, ".go") || strings.HasSuffix(base, "_test.go") {
+				return nil
+			}
+			if !rule.include(base) {
+				return nil
+			}
+
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			rel = filepath.ToSlash(rel)
+			if _, allowlisted := rule.allowlist[rel]; allowlisted {
+				return nil
+			}
+
+			file := parseFile(t, fset, path)
+			if hasImport(file, "github.com/xdzczk/nostrmash/internal/store") {
+				violations = append(violations,
+					fmt.Sprintf("%s imports internal/store directly (%s); product reads must go through query service orchestration", rel, rule.name))
+			}
+
+			storeCalls := findFieldMethodCalls(fset, file, "store")
+			if len(storeCalls) > 0 {
+				violations = append(violations,
+					fmt.Sprintf("%s directly calls store methods (%s); delegate reads through query service (rule: %s)", rel, strings.Join(storeCalls, ", "), rule.name))
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", rule.relDir, err)
+		}
+	}
+
+	if len(violations) > 0 {
+		sort.Strings(violations)
+		t.Fatalf("product handler store-access architecture violations:\n- %s\n\nIf an intentional exception is required, add the exact file path to the allowlist in TestProductHandlerFilesDoNotUseDirectStoreReads with a concrete reason.", strings.Join(violations, "\n- "))
+	}
+}
+
 func isException(path string, exceptions []string) bool {
 	for _, exception := range exceptions {
 		if strings.HasPrefix(path, exception) {
@@ -475,4 +592,47 @@ func hasReceiverMethodCallInStmts(stmts []ast.Stmt, receiverName, methodName str
 		}
 	}
 	return false
+}
+
+func hasImport(file *ast.File, importPath string) bool {
+	for _, spec := range file.Imports {
+		if strings.Trim(spec.Path.Value, "\"") == importPath {
+			return true
+		}
+	}
+	return false
+}
+
+func findFieldMethodCalls(fset *token.FileSet, node ast.Node, fieldName string) []string {
+	seen := map[string]struct{}{}
+	ast.Inspect(node, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		fieldSelector, ok := sel.X.(*ast.SelectorExpr)
+		if !ok || fieldSelector.Sel.Name != fieldName {
+			return true
+		}
+
+		receiverName := "<expr>"
+		if ident, ok := fieldSelector.X.(*ast.Ident); ok {
+			receiverName = ident.Name
+		}
+		pos := fset.Position(call.Pos())
+		callSig := fmt.Sprintf("%s.%s.%s@L%d", receiverName, fieldName, sel.Sel.Name, pos.Line)
+		seen[callSig] = struct{}{}
+		return true
+	})
+
+	calls := make([]string, 0, len(seen))
+	for sig := range seen {
+		calls = append(calls, sig)
+	}
+	sort.Strings(calls)
+	return calls
 }

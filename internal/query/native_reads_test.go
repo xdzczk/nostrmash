@@ -20,8 +20,8 @@ func TestGetEventWithProvenance_LocalHitIsStrong(t *testing.T) {
 	})
 	svc.reader = readerWithProvenance{
 		Reader: svc.reader,
-		getEventWithProvenanceFn: func(context.Context, string) (store.EventWithProvenance, error) {
-			return store.EventWithProvenance{
+		getEventWithProvenanceFn: func(context.Context, string) (EventWithProvenance, error) {
+			return EventWithProvenance{
 				Event: json.RawMessage(`{"id":"evt-1"}`),
 				Relays: []model.EventRelay{
 					{EventID: "evt-1", RelayURL: "wss://relay.example", SeenAt: time.Date(2026, 4, 7, 12, 0, 0, 0, time.FixedZone("X", 3600))},
@@ -49,8 +49,8 @@ func TestGetEventWithProvenance_LocalMissUsesFallback(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getEventWithProvenanceFn: func(context.Context, string) (store.EventWithProvenance, error) {
-			return store.EventWithProvenance{}, store.ErrNotFound
+		getEventWithProvenanceFn: func(context.Context, string) (EventWithProvenance, error) {
+			return EventWithProvenance{}, store.ErrNotFound
 		},
 	}, ServiceOptions{
 		FallbackReader: fakeFallbackReader{
@@ -81,7 +81,7 @@ func TestGetEventReplies_NormalizesLimit(t *testing.T) {
 	})
 	svc.reader = readerWithReplies{
 		Reader: svc.reader,
-		getEventRepliesFn: func(_ context.Context, _ string, limit int, _ *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error) {
+		getEventRepliesFn: func(_ context.Context, _ string, limit int, _ *EventCursor) ([]json.RawMessage, *EventCursor, error) {
 			calledLimit = limit
 			return []json.RawMessage{json.RawMessage(`{"id":"reply-1"}`)}, nil, nil
 		},
@@ -122,22 +122,22 @@ func TestGetBookmarks_UsesReplaceableBeforeKindFallback(t *testing.T) {
 
 type readerWithProvenance struct {
 	Reader
-	getEventWithProvenanceFn func(context.Context, string) (store.EventWithProvenance, error)
+	getEventWithProvenanceFn func(context.Context, string) (EventWithProvenance, error)
 }
 
-func (r readerWithProvenance) GetEventWithProvenance(ctx context.Context, id string) (store.EventWithProvenance, error) {
+func (r readerWithProvenance) GetEventWithProvenance(ctx context.Context, id string) (EventWithProvenance, error) {
 	if r.getEventWithProvenanceFn == nil {
-		return store.EventWithProvenance{}, store.ErrNotFound
+		return EventWithProvenance{}, store.ErrNotFound
 	}
 	return r.getEventWithProvenanceFn(ctx, id)
 }
 
 type readerWithReplies struct {
 	Reader
-	getEventRepliesFn func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	getEventRepliesFn func(context.Context, string, int, *EventCursor) ([]json.RawMessage, *EventCursor, error)
 }
 
-func (r readerWithReplies) GetEventReplies(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error) {
+func (r readerWithReplies) GetEventReplies(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error) {
 	if r.getEventRepliesFn == nil {
 		return []json.RawMessage{}, nil, nil
 	}
@@ -168,7 +168,7 @@ func (r bookmarksReader) GetEventRawByID(ctx context.Context, id string) (json.R
 	return r.fakeReader.GetEventRawByID(ctx, id)
 }
 
-func (r bookmarksReader) GetEventWithProvenance(ctx context.Context, id string) (store.EventWithProvenance, error) {
+func (r bookmarksReader) GetEventWithProvenance(ctx context.Context, id string) (EventWithProvenance, error) {
 	return r.fakeReader.GetEventWithProvenance(ctx, id)
 }
 
@@ -180,11 +180,11 @@ func (r bookmarksReader) GetEventSeenOn(ctx context.Context, id string) ([]model
 	return r.fakeReader.GetEventSeenOn(ctx, id)
 }
 
-func (r bookmarksReader) GetProfileByPubkey(ctx context.Context, pubkey string) (store.ProfileProjection, error) {
+func (r bookmarksReader) GetProfileByPubkey(ctx context.Context, pubkey string) (Profile, error) {
 	return r.fakeReader.GetProfileByPubkey(ctx, pubkey)
 }
 
-func (r bookmarksReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+func (r bookmarksReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {
 	return r.fakeReader.GetProfilesByPubkeys(ctx, pubkeys)
 }
 
@@ -196,11 +196,11 @@ func (r bookmarksReader) GetAuthorReplies(ctx context.Context, pubkey string, li
 	return r.fakeReader.GetAuthorReplies(ctx, pubkey, limit)
 }
 
-func (r bookmarksReader) GetEventCounts(ctx context.Context, eventID string) (store.EventCounts, error) {
+func (r bookmarksReader) GetEventCounts(ctx context.Context, eventID string) (EventCounts, error) {
 	return r.fakeReader.GetEventCounts(ctx, eventID)
 }
 
-func (r bookmarksReader) GetEventReplies(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error) {
+func (r bookmarksReader) GetEventReplies(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error) {
 	return r.fakeReader.GetEventReplies(ctx, eventID, limit, cursor)
 }
 
@@ -212,11 +212,11 @@ func (r bookmarksReader) ListRelayHealth(ctx context.Context) ([]model.IngestChe
 	return r.fakeReader.ListRelayHealth(ctx)
 }
 
-func (r bookmarksReader) GetContactListByPubkey(ctx context.Context, pubkey string) (store.ContactListProjection, error) {
+func (r bookmarksReader) GetContactListByPubkey(ctx context.Context, pubkey string) (ContactList, error) {
 	return r.fakeReader.GetContactListByPubkey(ctx, pubkey)
 }
 
-func (r bookmarksReader) GetRelayListByPubkey(ctx context.Context, pubkey string) (store.RelayListProjection, error) {
+func (r bookmarksReader) GetRelayListByPubkey(ctx context.Context, pubkey string) (RelayList, error) {
 	return r.fakeReader.GetRelayListByPubkey(ctx, pubkey)
 }
 
@@ -224,7 +224,7 @@ func (r bookmarksReader) SearchEventsByContent(ctx context.Context, query string
 	return r.fakeReader.SearchEventsByContent(ctx, query, limit)
 }
 
-func (r bookmarksReader) SearchProfiles(ctx context.Context, query string, limit int) ([]store.ProfileProjection, error) {
+func (r bookmarksReader) SearchProfiles(ctx context.Context, query string, limit int) ([]Profile, error) {
 	return r.fakeReader.SearchProfiles(ctx, query, limit)
 }
 
@@ -244,8 +244,8 @@ func TestGetEventWithProvenance_LocalMissFallbackMissReturnsNotFound(t *testing.
 				return nil, store.ErrNotFound
 			},
 		},
-		getEventWithProvenanceFn: func(context.Context, string) (store.EventWithProvenance, error) {
-			return store.EventWithProvenance{}, store.ErrNotFound
+		getEventWithProvenanceFn: func(context.Context, string) (EventWithProvenance, error) {
+			return EventWithProvenance{}, store.ErrNotFound
 		},
 	}, ServiceOptions{
 		FallbackReader: fakeFallbackReader{

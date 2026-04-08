@@ -12,21 +12,21 @@ import (
 
 type Reader interface {
 	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
-	GetEventWithProvenance(ctx context.Context, id string) (store.EventWithProvenance, error)
+	GetEventWithProvenance(ctx context.Context, id string) (EventWithProvenance, error)
 	GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
 	GetEventSeenOn(ctx context.Context, id string) ([]model.EventRelay, error)
-	GetProfileByPubkey(ctx context.Context, pubkey string) (store.ProfileProjection, error)
-	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+	GetProfileByPubkey(ctx context.Context, pubkey string) (Profile, error)
+	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error)
 	GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
 	GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
-	GetEventCounts(ctx context.Context, eventID string) (store.EventCounts, error)
-	GetEventReplies(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	GetEventCounts(ctx context.Context, eventID string) (EventCounts, error)
+	GetEventReplies(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error)
 	GetEventAncestors(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error)
 	ListRelayHealth(ctx context.Context) ([]model.IngestCheckpoint, error)
-	GetContactListByPubkey(ctx context.Context, pubkey string) (store.ContactListProjection, error)
-	GetRelayListByPubkey(ctx context.Context, pubkey string) (store.RelayListProjection, error)
+	GetContactListByPubkey(ctx context.Context, pubkey string) (ContactList, error)
+	GetRelayListByPubkey(ctx context.Context, pubkey string) (RelayList, error)
 	SearchEventsByContent(ctx context.Context, query string, limit int) ([]json.RawMessage, error)
-	SearchProfiles(ctx context.Context, query string, limit int) ([]store.ProfileProjection, error)
+	SearchProfiles(ctx context.Context, query string, limit int) ([]Profile, error)
 	GetRecentEventsByKindAndPubkey(ctx context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error)
 	GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error)
 	GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error)
@@ -35,7 +35,7 @@ type Reader interface {
 // ThreadReader is the minimal dependency needed for thread assembly orchestration.
 type ThreadReader interface {
 	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
-	GetEventReplies(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	GetEventReplies(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error)
 	GetEventAncestors(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error)
 }
 
@@ -43,38 +43,40 @@ type ThreadReader interface {
 type EventReader interface {
 	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
 	GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
-	GetEventCounts(ctx context.Context, eventID string) (store.EventCounts, error)
+	GetEventCounts(ctx context.Context, eventID string) (EventCounts, error)
 }
 
 // ProfileReader is the minimal dependency needed for profile/user-info orchestration.
 type ProfileReader interface {
-	GetProfileByPubkey(ctx context.Context, pubkey string) (store.ProfileProjection, error)
-	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+	GetProfileByPubkey(ctx context.Context, pubkey string) (Profile, error)
+	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error)
 }
 
 type Service struct {
-	reader   Reader
-	fallback FallbackReader
+	reader    Reader
+	rawReader any
+	fallback  FallbackReader
 }
 
 // FallbackReader fetches entity-shaped data from configured relays on local miss.
 type FallbackReader interface {
 	FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
-	FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+	FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error)
 }
 
 type ServiceOptions struct {
-	FallbackReader FallbackReader
+	FallbackReader any
 }
 
-func NewService(reader Reader) Service {
+func NewService(reader any) Service {
 	return NewServiceWithOptions(reader, ServiceOptions{})
 }
 
-func NewServiceWithOptions(reader Reader, options ServiceOptions) Service {
+func NewServiceWithOptions(reader any, options ServiceOptions) Service {
 	return Service{
-		reader:   reader,
-		fallback: options.FallbackReader,
+		reader:    adaptReader(reader),
+		rawReader: reader,
+		fallback:  adaptFallbackReader(options.FallbackReader),
 	}
 }
 

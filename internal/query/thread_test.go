@@ -24,7 +24,7 @@ func TestGetThreadUsesRequestModel(t *testing.T) {
 			gotDepth = maxDepth
 			return []json.RawMessage{json.RawMessage(`{"id":"ancestor"}`)}, []string{}, nil
 		},
-		getEventRepliesFn: func(_ context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error) {
+		getEventRepliesFn: func(_ context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error) {
 			gotLimit = limit
 			return []json.RawMessage{json.RawMessage(`{"id":"reply"}`)}, nil, nil
 		},
@@ -74,13 +74,13 @@ func TestGetThreadWindowBuildsDescendingPage(t *testing.T) {
 		getEventAncestorsFn: func(_ context.Context, _ string, _ int) ([]json.RawMessage, []string, error) {
 			return []json.RawMessage{}, []string{}, nil
 		},
-		getEventRepliesFn: func(_ context.Context, _ string, _ int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error) {
+		getEventRepliesFn: func(_ context.Context, _ string, _ int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error) {
 			switch {
 			case cursor == nil:
 				return []json.RawMessage{
 					json.RawMessage(`{"id":"reply_1","created_at":1}`),
 					json.RawMessage(`{"id":"reply_2","created_at":2}`),
-				}, &store.EventOrderCursor{CreatedAt: 2, ID: "reply_2"}, nil
+				}, &EventCursor{CreatedAt: 2, ID: "reply_2"}, nil
 			case cursor.ID == "reply_2":
 				return []json.RawMessage{
 					json.RawMessage(`{"id":"reply_3","created_at":3}`),

@@ -43,7 +43,7 @@ func (s threadService) GetThread(ctx context.Context, req ThreadRequest) (out Th
 	if err != nil {
 		return out, err
 	}
-	replies, next, err := s.reader.GetEventReplies(ctx, eventID, req.Limit, eventCursorToStore(req.Cursor))
+	replies, next, err := s.reader.GetEventReplies(ctx, eventID, req.Limit, req.Cursor)
 	if err != nil {
 		return out, err
 	}
@@ -51,7 +51,7 @@ func (s threadService) GetThread(ctx context.Context, req ThreadRequest) (out Th
 	out.Ancestors = ancestors
 	out.MissingAncestorIDs = missing
 	out.Replies = replies
-	out.NextCursor = eventCursorFromStore(next)
+	out.NextCursor = next
 	return out, nil
 }
 
@@ -78,7 +78,7 @@ func (s threadService) GetThreadWindow(ctx context.Context, req ThreadWindowRequ
 	if err != nil {
 		return ThreadView{}, err
 	}
-	var ascCursor *store.EventOrderCursor
+	var ascCursor *EventCursor
 	collected := make([]json.RawMessage, 0, fetchPageSize)
 	type cursorKey struct {
 		createdAt int64
@@ -139,7 +139,7 @@ func (s Service) GetThreadView(
 	if err != nil {
 		return out, err
 	}
-	replies, next, err := s.reader.GetEventReplies(ctx, eventID, limit, eventCursorToStore(cursor))
+	replies, next, err := s.reader.GetEventReplies(ctx, eventID, limit, cursor)
 	if err != nil {
 		return out, err
 	}
@@ -147,6 +147,6 @@ func (s Service) GetThreadView(
 	out.Ancestors = ancestors
 	out.MissingAncestorIDs = missing
 	out.Replies = replies
-	out.NextCursor = eventCursorFromStore(next)
+	out.NextCursor = next
 	return out, nil
 }
