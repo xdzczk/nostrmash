@@ -245,15 +245,22 @@ func TestMigratedThreadPathsStayQueryOrchestrated(t *testing.T) {
 			failHelperQueryMsg: "internal/api_primal/cacheDispatchUserInfos must call g.query.GetUserInfos",
 		},
 	} {
-		caseBody := mustFindSwitchCaseBody(t, dispatchCacheCall, wsCase.name)
-		if hasFieldMethodCallInStmts(caseBody, "g", "store", "") {
-			t.Fatal(wsCase.failStoreMsg)
-		}
-		if hasFieldMethodCallInStmts(caseBody, "g", "query", wsCase.queryMethod) {
-			continue
-		}
-		if !hasReceiverMethodCallInStmts(caseBody, "g", wsCase.helperMethod) {
-			t.Fatal(wsCase.failHelperRouteMsg)
+		caseBody, hasSwitchCase := findSwitchCaseBody(dispatchCacheCall, wsCase.name)
+		if hasSwitchCase {
+			if hasFieldMethodCallInStmts(caseBody, "g", "store", "") {
+				t.Fatal(wsCase.failStoreMsg)
+			}
+			if hasFieldMethodCallInStmts(caseBody, "g", "query", wsCase.queryMethod) {
+				continue
+			}
+			if !hasReceiverMethodCallInStmts(caseBody, "g", wsCase.helperMethod) {
+				t.Fatal(wsCase.failHelperRouteMsg)
+			}
+		} else {
+			handlerMethod := mustFindMapHandlerMethod(t, wsFile, "cacheCallHandlers", wsCase.name)
+			if handlerMethod != wsCase.helperMethod {
+				t.Fatalf("internal/api_primal/primal_cache_dispatch.go %s route must use %s (got %s)", wsCase.name, wsCase.helperMethod, handlerMethod)
+			}
 		}
 		helperFn := mustFindFuncInDir(t, root, filepath.ToSlash("internal/api_primal"), wsCase.helperMethod)
 		if hasFieldMethodCall(helperFn.Body, "g", "store", "") {
@@ -490,8 +497,7 @@ func mustFindFuncInDir(t *testing.T, root, relDir, funcName string) *ast.FuncDec
 	return found
 }
 
-func mustFindSwitchCaseBody(t *testing.T, fn *ast.FuncDecl, caseValue string) []ast.Stmt {
-	t.Helper()
+func findSwitchCaseBody(fn *ast.FuncDecl, caseValue string) ([]ast.Stmt, bool) {
 	for _, stmt := range fn.Body.List {
 		switchStmt, ok := stmt.(*ast.SwitchStmt)
 		if !ok {
@@ -512,13 +518,64 @@ func mustFindSwitchCaseBody(t *testing.T, fn *ast.FuncDecl, caseValue string) []
 					continue
 				}
 				if value == caseValue {
-					return caseClause.Body
+					return caseClause.Body, true
 				}
 			}
 		}
 	}
-	t.Fatalf("switch case %q not found in %s", caseValue, fn.Name.Name)
-	return nil
+	return nil, false
+}
+
+func mustFindMapHandlerMethod(t *testing.T, file *ast.File, mapName, key string) string {
+	t.Helper()
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			valSpec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for idx, ident := range valSpec.Names {
+				if ident == nil || ident.Name != mapName {
+					continue
+				}
+				if idx >= len(valSpec.Values) {
+					continue
+				}
+				lit, ok := valSpec.Values[idx].(*ast.CompositeLit)
+				if !ok {
+					continue
+				}
+				for _, elt := range lit.Elts {
+					entry, ok := elt.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					keyLit, ok := entry.Key.(*ast.BasicLit)
+					if !ok || keyLit.Kind != token.STRING {
+						continue
+					}
+					entryKey, err := strconv.Unquote(keyLit.Value)
+					if err != nil || entryKey != key {
+						continue
+					}
+					sel, ok := entry.Value.(*ast.SelectorExpr)
+					if !ok {
+						t.Fatalf("%s[%q] must be a selector expression", mapName, key)
+					}
+					if sel.Sel == nil {
+						t.Fatalf("%s[%q] selector missing method name", mapName, key)
+					}
+					return sel.Sel.Name
+				}
+			}
+		}
+	}
+	t.Fatalf("%s[%q] entry not found", mapName, key)
+	return ""
 }
 
 func hasFieldMethodCall(node ast.Node, receiverName, fieldName, methodName string) bool {
