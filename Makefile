@@ -10,6 +10,7 @@ LDFLAGS_API := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMM
 LDFLAGS_WORKER := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)'
 LDFLAGS_INGESTOR := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)'
 LDFLAGS_TRUST_WORKER := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)'
+BUILD_OUTPUT_DIR ?= bin
 
 lint:
 	$(GOLANGCI_LINT) run --config .golangci.yml
@@ -94,10 +95,11 @@ loadtest-replay-rebuild:
 	bash ./loadtest/run.sh replay-rebuild-pressure
 
 build:
-	go build -ldflags "$(LDFLAGS_API)" ./cmd/api
-	go build -ldflags "$(LDFLAGS_INGESTOR)" ./cmd/ingestor
-	go build -ldflags "$(LDFLAGS_WORKER)" ./cmd/worker
-	go build -ldflags "$(LDFLAGS_TRUST_WORKER)" ./cmd/trust_worker
+	mkdir -p "$(BUILD_OUTPUT_DIR)"
+	go build -ldflags "$(LDFLAGS_API)" -o "$(BUILD_OUTPUT_DIR)/api" ./cmd/api
+	go build -ldflags "$(LDFLAGS_INGESTOR)" -o "$(BUILD_OUTPUT_DIR)/ingestor" ./cmd/ingestor
+	go build -ldflags "$(LDFLAGS_WORKER)" -o "$(BUILD_OUTPUT_DIR)/worker" ./cmd/worker
+	go build -ldflags "$(LDFLAGS_TRUST_WORKER)" -o "$(BUILD_OUTPUT_DIR)/trust_worker" ./cmd/trust_worker
 
 mod-verify:
 	go mod verify

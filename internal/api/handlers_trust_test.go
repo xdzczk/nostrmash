@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
@@ -136,5 +137,34 @@ func TestListTopTrustScores_DefaultLimitAndInternalError(t *testing.T) {
 	mux.ServeHTTP(errRec, errReq)
 	if errRec.Code != http.StatusInternalServerError {
 		t.Fatalf("unexpected status for internal error: got %d want %d", errRec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestTrustHandlers_ReturnNotImplementedForUnsupportedCapability(t *testing.T) {
+	h := NewHandlers(fakeEventReader{
+		getTrustScoreFn: func(_ context.Context, pubkey string) (store.TrustGlobalScore, error) {
+			return store.TrustGlobalScore{}, errors.Join(query.ErrUnsupportedCapability, errors.New("query: trust score unsupported"))
+		},
+		listTopTrustFn: func(_ context.Context, limit int) ([]store.TrustGlobalScore, error) {
+			return nil, errors.Join(query.ErrUnsupportedCapability, errors.New("query: top trusted pubkeys unsupported"))
+		},
+	}, 200)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/trust/scores/{pubkey}", h.GetTrustScore)
+	mux.HandleFunc("GET /api/v1/trust/scores", h.ListTopTrustScores)
+
+	scoreReq := httptest.NewRequest(http.MethodGet, "/api/v1/trust/scores/abc", nil)
+	scoreRec := httptest.NewRecorder()
+	mux.ServeHTTP(scoreRec, scoreReq)
+	if scoreRec.Code != http.StatusNotImplemented {
+		t.Fatalf("unexpected status: got %d want %d", scoreRec.Code, http.StatusNotImplemented)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/trust/scores?limit=2", nil)
+	listRec := httptest.NewRecorder()
+	mux.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusNotImplemented {
+		t.Fatalf("unexpected status: got %d want %d", listRec.Code, http.StatusNotImplemented)
 	}
 }

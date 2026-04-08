@@ -145,21 +145,15 @@ func (s Service) GetRelayList(ctx context.Context, pubkey string) (RelayList, er
 }
 
 func (s Service) IsUserFollowing(ctx context.Context, followerPubkey string, followedPubkey string) (bool, error) {
-	type followingReader interface {
-		IsUserFollowing(ctx context.Context, followerPubkey string, followedPubkey string) (bool, error)
-	}
-	if r, ok := s.rawReader.(followingReader); ok {
+	if r := s.capabilities.social.userFollowing; r != nil {
 		return r.IsUserFollowing(ctx, followerPubkey, followedPubkey)
 	}
-	return false, nil
+	return false, unsupportedCapabilityError("is user following")
 }
 
 func (s Service) GetMutualFollows(ctx context.Context, leftPubkey string, rightPubkey string, limit int) ([]string, error) {
-	type mutualReader interface {
-		GetMutualFollows(ctx context.Context, leftPubkey string, rightPubkey string, limit int) ([]string, error)
-	}
-	if r, ok := s.rawReader.(mutualReader); ok {
+	if r := s.capabilities.social.mutualFollows; r != nil {
 		return r.GetMutualFollows(ctx, leftPubkey, rightPubkey, limit)
 	}
-	return []string{}, nil
+	return nil, unsupportedCapabilityError("mutual follows")
 }

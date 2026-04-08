@@ -38,6 +38,8 @@ func writePrimalDMCompatError(r *http.Request, w http.ResponseWriter, err error)
 		"event is too old",
 		"event from the future":
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+	case "feature unavailable":
+		writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "feature is not available on this deployment")
 	default:
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 	}

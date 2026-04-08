@@ -16,7 +16,7 @@ Use this page for the day-to-day local workflow: starting services, replaying in
 
 Prerequisites:
 
-- Go `1.25`
+- Go `1.26+` (recommended `1.26.2`; matches `go.mod` toolchain directive and CI/Docker pin)
 - Docker and Docker Compose
 - Either the Compose-managed Postgres on `localhost:5432` for local `go run` / `go test`, or the full container stack via `docker compose up --build`
 

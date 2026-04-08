@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/model"
@@ -53,9 +54,9 @@ type ProfileReader interface {
 }
 
 type Service struct {
-	reader    Reader
-	rawReader any
-	fallback  FallbackReader
+	reader       Reader
+	capabilities serviceCapabilities
+	fallback     FallbackReader
 }
 
 // FallbackReader fetches entity-shaped data from configured relays on local miss.
@@ -74,9 +75,9 @@ func NewService(reader any) Service {
 
 func NewServiceWithOptions(reader any, options ServiceOptions) Service {
 	return Service{
-		reader:    adaptReader(reader),
-		rawReader: reader,
-		fallback:  adaptFallbackReader(options.FallbackReader),
+		reader:       adaptReader(reader),
+		capabilities: adaptServiceCapabilities(reader),
+		fallback:     adaptFallbackReader(options.FallbackReader),
 	}
 }
 
@@ -91,6 +92,10 @@ var (
 	// This is intentionally narrower than store.ErrNotFound so transports can preserve
 	// historical status code behavior for non-root thread fetch failures.
 	ErrThreadEventNotFound = errors.New("thread event not found")
+
+	// ErrUnsupportedCapability marks optional reader capabilities that are absent.
+	// Query methods should wrap this sentinel with stable context.
+	ErrUnsupportedCapability = errors.New("unsupported capability")
 )
 
 func normalizeUniqueStrings(values []string) []string {
@@ -112,4 +117,16 @@ func normalizeUniqueStrings(values []string) []string {
 
 func IsNotFound(err error) bool {
 	return errors.Is(err, store.ErrNotFound)
+}
+
+func unsupportedCapabilityError(feature string) error {
+	feature = strings.TrimSpace(feature)
+	if feature == "" {
+		return ErrUnsupportedCapability
+	}
+	return fmt.Errorf("query: %s unsupported: %w", feature, ErrUnsupportedCapability)
+}
+
+func IsUnsupportedCapability(err error) bool {
+	return errors.Is(err, ErrUnsupportedCapability)
 }

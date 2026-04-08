@@ -6,6 +6,8 @@ Use this page when you need to decide what to run for a change. It is the execut
 
 If you are unsure what to run:
 
+Prerequisite toolchain: Go `1.26+` (CI/Docker pin `1.26.2`; local recommendation is `1.26.2`).
+
 1. Run `make ci` for full local parity with core CI checks.
 2. Add targeted checks from this page based on your change type (race, fuzz, benchmark, contract drift).
 3. For schema/compatibility/release-sensitive changes, pair this page with:

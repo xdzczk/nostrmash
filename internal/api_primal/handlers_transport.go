@@ -3,6 +3,7 @@ package api_primal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -92,4 +93,14 @@ func normalizeUniqueValues(values []string) []string {
 		out = append(out, trimmed)
 	}
 	return out
+}
+
+func wrapPrimalRequestError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if query.IsUnsupportedCapability(err) {
+		return errors.New("feature unavailable")
+	}
+	return errors.New("request failed")
 }

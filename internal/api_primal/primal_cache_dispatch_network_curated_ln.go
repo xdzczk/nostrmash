@@ -3,14 +3,15 @@ package api_primal
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/query"
 )
 
 func (g WSGateway) cacheDispatchNetworkStats(ctx context.Context, kwargs map[string]any) ([]any, error) {
 	stats, err := g.query.GetNetworkStats(ctx)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{stats}, nil
 }
@@ -24,7 +25,7 @@ func (g WSGateway) cacheDispatchRecommendedReads(ctx context.Context, kwargs map
 	limit := toInt(kwargs["limit"], 20)
 	values, err := g.query.GetCuratedRecommendedReads(ctx, limit)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{buildCuratedListEvent(primalKindRecommendedRead, map[string]any{
 		"reads": values,
@@ -35,7 +36,7 @@ func (g WSGateway) cacheDispatchReadsTopics(ctx context.Context, kwargs map[stri
 	limit := toInt(kwargs["limit"], 20)
 	values, err := g.query.GetCuratedReadsTopics(ctx, limit)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{buildCuratedListEvent(primalKindReadsTopics, map[string]any{
 		"topics": values,
@@ -46,7 +47,7 @@ func (g WSGateway) cacheDispatchFeaturedAuthors(ctx context.Context, kwargs map[
 	limit := toInt(kwargs["limit"], 20)
 	values, err := g.query.GetCuratedFeaturedAuthors(ctx, limit)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	pubkeys := make([]string, 0, len(values))
 	for _, value := range values {
@@ -82,12 +83,12 @@ func (g WSGateway) cacheDispatchCreatorPaidTiers(ctx context.Context, kwargs map
 		}
 		return out, nil
 	}
-	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "not implemented") {
-		return nil, errors.New("request failed")
+	if err != nil && !query.IsUnsupportedCapability(err) {
+		return nil, wrapPrimalRequestError(err)
 	}
 	tiers, err := g.query.GetCreatorPaidTiers(ctx, pubkey)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	tierPayloads := make([]any, 0, len(tiers))
 	for _, tier := range tiers {
@@ -107,7 +108,7 @@ func (g WSGateway) cacheDispatchUserOfLNAddress(ctx context.Context, kwargs map[
 	address, _ := kwargs["ln_address"].(string)
 	result, metadata, ok, err := g.resolveUserOfLNAddress(ctx, address)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	if !ok {
 		return []any{}, nil

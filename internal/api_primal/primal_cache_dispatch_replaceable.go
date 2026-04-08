@@ -16,7 +16,11 @@ func (g WSGateway) cacheDispatchParameterizedReplaceableList(ctx context.Context
 		return nil, errors.New("request failed")
 	}
 	// Primal list semantics are identifier-scoped in categorized people namespace.
-	return rawMessagesToAnyMust(g.query.GetParameterizedReplaceableListByIdentifier(ctx, pubkey, parameterizedListKind, identifier, limit))
+	values, err := g.query.GetParameterizedReplaceableListByIdentifier(ctx, pubkey, parameterizedListKind, identifier, limit)
+	if err != nil {
+		return nil, wrapPrimalRequestError(err)
+	}
+	return rawMessagesToAny(values), nil
 }
 
 func (g WSGateway) cacheDispatchParametrizedReplaceableEvent(ctx context.Context, kwargs map[string]any) ([]any, error) {
@@ -28,7 +32,7 @@ func (g WSGateway) cacheDispatchParametrizedReplaceableEvent(ctx context.Context
 	}
 	event, err := g.query.GetParameterizedReplaceableEvent(ctx, pubkey, kind, identifier)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{event}, nil
 }
@@ -46,7 +50,7 @@ func (g WSGateway) cacheDispatchParametrizedReplaceableEvents(ctx context.Contex
 				if query.IsNotFound(err) {
 					continue
 				}
-				return nil, errors.New("request failed")
+				return nil, wrapPrimalRequestError(err)
 			}
 			out = append(out, event)
 		}
@@ -55,5 +59,9 @@ func (g WSGateway) cacheDispatchParametrizedReplaceableEvents(ctx context.Contex
 	kind := toInt(kwargs["kind"], 30000)
 	dTag, _ := kwargs["d_tag"].(string)
 	limit := toInt(kwargs["limit"], 20)
-	return rawMessagesToAnyMust(g.query.GetParameterizedReplaceableEvents(ctx, kind, dTag, limit))
+	values, err := g.query.GetParameterizedReplaceableEvents(ctx, kind, dTag, limit)
+	if err != nil {
+		return nil, wrapPrimalRequestError(err)
+	}
+	return rawMessagesToAny(values), nil
 }

@@ -3,7 +3,6 @@ package api_primal
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 )
 
@@ -45,7 +44,7 @@ func rawMessagesToAny(values []json.RawMessage) []any {
 
 func rawMessagesToAnyMust(values []json.RawMessage, err error) ([]any, error) {
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return rawMessagesToAny(values), nil
 }

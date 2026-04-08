@@ -6,7 +6,7 @@ Run your own Nostr data plane with durable ingest, rebuildable read models, and 
 
 [![CI](https://github.com/xdzczk/nostrmash/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xdzczk/nostrmash/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/xdzczk/nostrmash?display_name=tag)](https://github.com/xdzczk/nostrmash/releases)
-[![Go 1.25+](https://img.shields.io/badge/go-1.25%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go 1.26+](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Postgres primary](https://img.shields.io/badge/postgres-primary-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Docker first](https://img.shields.io/badge/docker-first-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Primal compatibility](https://img.shields.io/badge/primal-cache_compatibility-8B5CF6)](docs/primal_compatibility_matrix.md)
@@ -26,7 +26,7 @@ If you want durable local ownership, operational visibility, and a realistic mig
 
 | Area | Value |
 | --- | --- |
-| Runtime | Go `1.25+` |
+| Runtime | Go `1.26+` (CI/Docker pin `1.26.2`) |
 | Primary datastore | Postgres (canonical) |
 | Trust working state | Redis |
 | Deployment posture | Docker-first, self-hostable |
@@ -171,6 +171,36 @@ Common follow-up commands:
 ```bash
 make format
 make cover
+```
+
+## Go toolchain policy
+
+- Minimum supported language/runtime version: Go `1.26` (`go.mod` uses `go 1.26`)
+- Recommended local toolchain: Go `1.26.2` (`go.mod` uses `toolchain go1.26.2`)
+- CI and Docker builders are pinned to Go `1.26.2` for reproducible verification
+
+Why this split:
+
+- `go` directive communicates the minimum supported major/minor line for contributors
+- exact patch pinning is handled by CI/Docker, while the `toolchain` directive keeps local behavior consistent when your installed Go supports toolchain auto-selection
+
+## Local verification commands
+
+Use these when validating changes against the intended Go `1.26.x` policy:
+
+```bash
+# Build
+make build
+
+# Test (full)
+make test
+
+# Lint
+make lint
+
+# Integration-backed parity (requires Postgres)
+export TEST_DATABASE_URL=postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+make ci
 ```
 
 Integration test note:

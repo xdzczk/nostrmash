@@ -6,23 +6,17 @@ import (
 )
 
 func (s Service) GetDirectMessages(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
-	type directMessagesReader interface {
-		GetDirectMessages(ctx context.Context, pubkey string, peer string, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(directMessagesReader); ok {
+	if r := s.capabilities.dm.directMessages; r != nil {
 		return r.GetDirectMessages(ctx, pubkey, "", limit)
 	}
 	return s.reader.GetRecentEventsByKindAndPubkey(ctx, 4, pubkey, limit)
 }
 
 func (s Service) GetDirectMessageContacts(ctx context.Context, pubkey string, limit int) ([]string, error) {
-	type dmContactsReader interface {
-		GetDirectMessageContacts(ctx context.Context, pubkey string, limit int) ([]string, error)
-	}
-	if r, ok := s.rawReader.(dmContactsReader); ok {
+	if r := s.capabilities.dm.contacts; r != nil {
 		return r.GetDirectMessageContacts(ctx, pubkey, limit)
 	}
-	return []string{}, nil
+	return nil, unsupportedCapabilityError("direct message contacts")
 }
 
 func (s Service) GetDirectMessageContactsDetailed(
@@ -33,20 +27,14 @@ func (s Service) GetDirectMessageContactsDetailed(
 	since int64,
 	until int64,
 ) ([]json.RawMessage, error) {
-	type dmContactsDetailedReader interface {
-		GetDirectMessageContactsDetailed(ctx context.Context, receiver string, limit int, offset int, since int64, until int64) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(dmContactsDetailedReader); ok {
+	if r := s.capabilities.dm.contactsDetailed; r != nil {
 		return r.GetDirectMessageContactsDetailed(ctx, pubkey, limit, offset, since, until)
 	}
-	return []json.RawMessage{}, nil
+	return nil, unsupportedCapabilityError("direct message contacts detailed")
 }
 
 func (s Service) GetDirectMessagesByPeer(ctx context.Context, pubkey string, peer string, limit int) ([]json.RawMessage, error) {
-	type dmReader interface {
-		GetDirectMessages(ctx context.Context, pubkey string, peer string, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(dmReader); ok {
+	if r := s.capabilities.dm.directMessages; r != nil {
 		return r.GetDirectMessages(ctx, pubkey, peer, limit)
 	}
 	return s.GetDirectMessages(ctx, pubkey, limit)
@@ -61,61 +49,43 @@ func (s Service) GetDirectMessagesWithRange(
 	limit int,
 	offset int,
 ) ([]json.RawMessage, error) {
-	type dmReader interface {
-		GetDirectMessagesWithRange(ctx context.Context, pubkey string, peer string, since int64, until int64, limit int, offset int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(dmReader); ok {
+	if r := s.capabilities.dm.withRange; r != nil {
 		return r.GetDirectMessagesWithRange(ctx, pubkey, peer, since, until, limit, offset)
 	}
 	return s.GetDirectMessagesByPeer(ctx, pubkey, peer, limit)
 }
 
 func (s Service) GetDirectMessageUnreadCounts(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
-	type dmUnreadReader interface {
-		GetDirectMessageUnreadCounts(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(dmUnreadReader); ok {
+	if r := s.capabilities.dm.unreadCounts; r != nil {
 		return r.GetDirectMessageUnreadCounts(ctx, pubkey, limit)
 	}
-	return []json.RawMessage{}, nil
+	return nil, unsupportedCapabilityError("direct message unread counts")
 }
 
 func (s Service) ResetDirectMessageUnread(ctx context.Context, pubkey string, peer string) error {
-	type dmResetReader interface {
-		ResetDirectMessageUnread(ctx context.Context, pubkey string, peer string) error
-	}
-	if r, ok := s.rawReader.(dmResetReader); ok {
+	if r := s.capabilities.dm.unreadReset; r != nil {
 		return r.ResetDirectMessageUnread(ctx, pubkey, peer)
 	}
-	return nil
+	return unsupportedCapabilityError("direct message unread reset")
 }
 
 func (s Service) GetDirectMessageCount(ctx context.Context, receiver string, sender string) (int64, error) {
-	type dmCountReader interface {
-		GetDirectMessageCount(ctx context.Context, receiver string, sender string) (int64, error)
-	}
-	if r, ok := s.rawReader.(dmCountReader); ok {
+	if r := s.capabilities.dm.count; r != nil {
 		return r.GetDirectMessageCount(ctx, receiver, sender)
 	}
-	return 0, nil
+	return 0, unsupportedCapabilityError("direct message count")
 }
 
 func (s Service) ResetDirectMessageCount(ctx context.Context, receiver string, sender string) error {
-	type dmResetReader interface {
-		ResetDirectMessageCount(ctx context.Context, receiver string, sender string) error
-	}
-	if r, ok := s.rawReader.(dmResetReader); ok {
+	if r := s.capabilities.dm.directMessageCountOps; r != nil {
 		return r.ResetDirectMessageCount(ctx, receiver, sender)
 	}
-	return nil
+	return unsupportedCapabilityError("direct message count reset")
 }
 
 func (s Service) ResetDirectMessageCounts(ctx context.Context, receiver string) error {
-	type dmResetReader interface {
-		ResetDirectMessageCounts(ctx context.Context, receiver string) error
-	}
-	if r, ok := s.rawReader.(dmResetReader); ok {
+	if r := s.capabilities.dm.directMessageCountOps; r != nil {
 		return r.ResetDirectMessageCounts(ctx, receiver)
 	}
-	return nil
+	return unsupportedCapabilityError("direct message counts reset")
 }

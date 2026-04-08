@@ -152,6 +152,129 @@ func (s *PostgresStore) GetEventReplies(
 	return events, nextCursor, nil
 }
 
+// GetEventRepliesDescending returns one cursor-paginated page of direct replies ordered by created_at desc, id desc.
+// Cursor semantics match query descending windows: when cursor is provided, return replies strictly older than cursor.
+func (s *PostgresStore) GetEventRepliesDescending(
+	ctx context.Context,
+	eventID string,
+	limit int,
+	cursor *EventOrderCursor,
+	offset int,
+) (events []json.RawMessage, nextCursor *EventOrderCursor, err error) {
+	started := time.Now()
+	ctx, span := traceutil.StartSpan(ctx, "store.get_event_replies_descending")
+	defer func() {
+		span.End(err)
+		metrics.ObserveDBOperation("get_event_replies_descending", dbResultFromErr(err), time.Since(started))
+	}()
+	if s == nil || s.pool == nil {
+		return nil, nil, fmt.Errorf("store is not initialized")
+	}
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return nil, nil, fmt.Errorf("event id is required")
+	}
+	if limit <= 0 {
+		return []json.RawMessage{}, nil, nil
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	exists, err := s.eventExists(ctx, eventID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !exists {
+		return nil, nil, ErrNotFound
+	}
+
+	type replyRow struct {
+		id        string
+		createdAt int64
+		raw       string
+	}
+	rowsOut := make([]replyRow, 0, limit+1)
+
+	var rows pgx.Rows
+	if cursor == nil {
+		rows, err = s.pool.Query(ctx, `
+			SELECT te.child_event_id, te.child_created_at, e.raw_json::text
+			FROM thread_edges te
+			INNER JOIN events e ON e.id = te.child_event_id
+			WHERE te.parent_event_id = $1
+			ORDER BY te.child_created_at DESC, te.child_event_id DESC
+			OFFSET $2
+			LIMIT $3
+		`, eventID, offset, limit+1)
+	} else {
+		var cursorExists bool
+		cursorID := strings.TrimSpace(cursor.ID)
+		if cursorID == "" {
+			return []json.RawMessage{}, nil, nil
+		}
+		if err := s.pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM thread_edges te
+				WHERE te.parent_event_id = $1
+				  AND te.child_created_at = $2
+				  AND te.child_event_id = $3
+			)
+		`, eventID, cursor.CreatedAt, cursorID).Scan(&cursorExists); err != nil {
+			return nil, nil, fmt.Errorf("lookup descending cursor existence: %w", err)
+		}
+		if !cursorExists {
+			return []json.RawMessage{}, nil, nil
+		}
+		rows, err = s.pool.Query(ctx, `
+			SELECT te.child_event_id, te.child_created_at, e.raw_json::text
+			FROM thread_edges te
+			INNER JOIN events e ON e.id = te.child_event_id
+			WHERE te.parent_event_id = $1
+			  AND (te.child_created_at, te.child_event_id) < ($2, $3)
+			ORDER BY te.child_created_at DESC, te.child_event_id DESC
+			LIMIT $4
+		`, eventID, cursor.CreatedAt, cursorID, limit+1)
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get event replies descending: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var row replyRow
+		if err := rows.Scan(&row.id, &row.createdAt, &row.raw); err != nil {
+			return nil, nil, fmt.Errorf("scan event replies descending row: %w", err)
+		}
+		rowsOut = append(rowsOut, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("read event replies descending rows: %w", err)
+	}
+
+	hasMore := len(rowsOut) > limit
+	if hasMore {
+		rowsOut = rowsOut[:limit]
+	}
+	events = make([]json.RawMessage, 0, len(rowsOut))
+	for _, row := range rowsOut {
+		events = append(events, json.RawMessage(row.raw))
+	}
+
+	if hasMore && len(rowsOut) > 0 {
+		last := rowsOut[len(rowsOut)-1]
+		nextCursor = &EventOrderCursor{
+			CreatedAt: last.createdAt,
+			ID:        last.id,
+		}
+	}
+	return events, nextCursor, nil
+}
+
 // GetEventAncestors returns ancestors ordered root -> ... -> parent for one event.
 func (s *PostgresStore) GetEventAncestors(
 	ctx context.Context,

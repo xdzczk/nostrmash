@@ -8,10 +8,7 @@ import (
 )
 
 func (s Service) GetMuteList(ctx context.Context, pubkey string) ([]string, error) {
-	type listReader interface {
-		GetModerationList(ctx context.Context, pubkey string, kind int) ([]string, error)
-	}
-	if r, ok := s.rawReader.(listReader); ok {
+	if r := s.capabilities.moderation.listByKind; r != nil {
 		values, err := r.GetModerationList(ctx, pubkey, 10000)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -21,14 +18,11 @@ func (s Service) GetMuteList(ctx context.Context, pubkey string) ([]string, erro
 		}
 		return values, nil
 	}
-	return []string{}, nil
+	return nil, unsupportedCapabilityError("moderation list lookup")
 }
 
 func (s Service) GetAllowList(ctx context.Context, pubkey string) ([]string, error) {
-	type listReader interface {
-		GetModerationList(ctx context.Context, pubkey string, kind int) ([]string, error)
-	}
-	if r, ok := s.rawReader.(listReader); ok {
+	if r := s.capabilities.moderation.listByKind; r != nil {
 		values, err := r.GetModerationList(ctx, pubkey, 10001)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -38,14 +32,11 @@ func (s Service) GetAllowList(ctx context.Context, pubkey string) ([]string, err
 		}
 		return values, nil
 	}
-	return []string{}, nil
+	return nil, unsupportedCapabilityError("moderation list lookup")
 }
 
 func (s Service) GetMuteLists(ctx context.Context, pubkey string) ([]string, error) {
-	type listReader interface {
-		GetModerationListByIdentifier(ctx context.Context, pubkey string, identifier string) ([]string, error)
-	}
-	if r, ok := s.rawReader.(listReader); ok {
+	if r := s.capabilities.moderation.listByIdentifier; r != nil {
 		values, err := r.GetModerationListByIdentifier(ctx, pubkey, "mutelists")
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -55,14 +46,11 @@ func (s Service) GetMuteLists(ctx context.Context, pubkey string) ([]string, err
 		}
 		return values, nil
 	}
-	return []string{}, nil
+	return nil, unsupportedCapabilityError("moderation list by identifier lookup")
 }
 
 func (s Service) GetIdentifierAllowList(ctx context.Context, pubkey string) ([]string, error) {
-	type listReader interface {
-		GetModerationListByIdentifier(ctx context.Context, pubkey string, identifier string) ([]string, error)
-	}
-	if r, ok := s.rawReader.(listReader); ok {
+	if r := s.capabilities.moderation.listByIdentifier; r != nil {
 		values, err := r.GetModerationListByIdentifier(ctx, pubkey, "allowlist")
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -72,15 +60,12 @@ func (s Service) GetIdentifierAllowList(ctx context.Context, pubkey string) ([]s
 		}
 		return values, nil
 	}
-	return []string{}, nil
+	return nil, unsupportedCapabilityError("moderation list by identifier lookup")
 }
 
 func (s Service) IsHiddenByContentModeration(ctx context.Context, viewerPubkey string, eventID string) (bool, string, error) {
-	type moderationReader interface {
-		IsHiddenByContentModeration(ctx context.Context, viewerPubkey string, eventID string) (bool, string, error)
-	}
-	if r, ok := s.rawReader.(moderationReader); ok {
+	if r := s.capabilities.moderation.hiddenByContent; r != nil {
 		return r.IsHiddenByContentModeration(ctx, viewerPubkey, eventID)
 	}
-	return false, "", nil
+	return false, "", unsupportedCapabilityError("content moderation visibility lookup")
 }

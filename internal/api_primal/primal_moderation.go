@@ -3,7 +3,6 @@ package api_primal
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/query"
@@ -30,7 +29,7 @@ type moderationTag struct {
 func (g WSGateway) buildModerationListResponse(ctx context.Context, pubkey string, listKind moderationListKind) ([]any, error) {
 	events, err := g.getModerationListEvents(ctx, pubkey, listKind)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	out := rawMessagesToAny(events)
 	pubkeys := moderationTagValues(events, "p")
@@ -46,11 +45,11 @@ func (g WSGateway) buildSearchFilterlistResponse(ctx context.Context, kwargs map
 	}
 	muteEvents, err := g.getModerationListEvents(ctx, viewerPubkey, moderationListMute)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	allowEvents, err := g.getModerationListEvents(ctx, viewerPubkey, moderationListAllowlist)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 
 	var reason map[string]any
@@ -115,11 +114,11 @@ func (g WSGateway) buildHiddenByContentModerationResponse(ctx context.Context, k
 		var err error
 		muteEvents, err = g.getModerationListEvents(ctx, viewer, moderationListMute)
 		if err != nil {
-			return nil, errors.New("request failed")
+			return nil, wrapPrimalRequestError(err)
 		}
 		allowEvents, err = g.getModerationListEvents(ctx, viewer, moderationListAllowlist)
 		if err != nil {
-			return nil, errors.New("request failed")
+			return nil, wrapPrimalRequestError(err)
 		}
 	}
 	for _, pubkey := range pubkeys {
@@ -147,7 +146,13 @@ func (g WSGateway) buildHiddenByContentModerationResponse(ctx context.Context, k
 				eventReasons[eventID] = ""
 				continue
 			}
-			return nil, errors.New("request failed")
+			if query.IsUnsupportedCapability(err) {
+				// Compatibility: legacy clients expect this cache call to resolve with a payload.
+				eventHidden[eventID] = false
+				eventReasons[eventID] = ""
+				continue
+			}
+			return nil, wrapPrimalRequestError(err)
 		}
 		eventHidden[eventID] = hidden
 		eventReasons[eventID] = reason
@@ -233,7 +238,11 @@ func (g WSGateway) getModerationReplaceableEvent(ctx context.Context, pubkey str
 	if err == nil {
 		return event, true, nil
 	}
-	if query.IsNotFound(err) || strings.Contains(strings.ToLower(err.Error()), "not implemented") {
+	if query.IsNotFound(err) {
+		return nil, false, nil
+	}
+	if query.IsUnsupportedCapability(err) {
+		// Compatibility: keep historical empty-list behavior for moderation list calls.
 		return nil, false, nil
 	}
 	return nil, false, err

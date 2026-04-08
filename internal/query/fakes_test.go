@@ -7,9 +7,10 @@ import (
 )
 
 type fakeThreadReader struct {
-	getEventRawByIDFn   func(ctx context.Context, id string) (json.RawMessage, error)
-	getEventAncestorsFn func(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error)
-	getEventRepliesFn   func(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error)
+	getEventRawByIDFn           func(ctx context.Context, id string) (json.RawMessage, error)
+	getEventAncestorsFn         func(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error)
+	getEventRepliesFn           func(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error)
+	getEventRepliesDescendingFn func(ctx context.Context, eventID string, limit int, cursor *EventCursor, offset int) ([]json.RawMessage, *EventCursor, error)
 }
 
 func (f fakeThreadReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -31,6 +32,13 @@ func (f fakeThreadReader) GetEventAncestors(ctx context.Context, eventID string,
 		return f.getEventAncestorsFn(ctx, eventID, maxDepth)
 	}
 	return []json.RawMessage{}, []string{}, nil
+}
+
+func (f fakeThreadReader) GetEventRepliesDescending(ctx context.Context, eventID string, limit int, cursor *EventCursor, offset int) ([]json.RawMessage, *EventCursor, error) {
+	if f.getEventRepliesDescendingFn != nil {
+		return f.getEventRepliesDescendingFn(ctx, eventID, limit, cursor, offset)
+	}
+	return nil, nil, unsupportedCapabilityError("thread descending replies")
 }
 
 type fakeProfileReader struct {

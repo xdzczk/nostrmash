@@ -20,7 +20,7 @@ func (g WSGateway) resolveHighlightsResponse(ctx context.Context, kwargs map[str
 	if eventID := strings.TrimSpace(stringValue(kwargs["event_id"])); eventID != "" {
 		values, err := g.query.GetHighlightsByEventID(ctx, eventID, limit)
 		if err != nil {
-			return nil, errors.New("request failed")
+			return nil, wrapPrimalRequestError(err)
 		}
 		return g.buildEventsWithMetadataAndRange(ctx, values, "created_at"), nil
 	}
@@ -30,13 +30,13 @@ func (g WSGateway) resolveHighlightsResponse(ctx context.Context, kwargs map[str
 		kind := toInt(kwargs["kind"], 30023)
 		values, err := g.query.GetHighlightsByATarget(ctx, kind, pubkey, identifier, limit)
 		if err != nil {
-			return nil, errors.New("request failed")
+			return nil, wrapPrimalRequestError(err)
 		}
 		return g.buildEventsWithMetadataAndRange(ctx, values, "created_at"), nil
 	}
 	values, err := g.query.GetHighlights(ctx, pubkey, limit)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return g.buildEventsWithMetadataAndRange(ctx, values, "created_at"), nil
 }
@@ -49,7 +49,7 @@ func (g WSGateway) resolveLongFormContentFeed(ctx context.Context, kwargs map[st
 	case "", "authored":
 		values, err := g.query.GetLongForm(ctx, pubkey, limit)
 		if err != nil {
-			return nil, errors.New("request failed")
+			return nil, wrapPrimalRequestError(err)
 		}
 		return g.buildEventsWithMetadataAndRange(ctx, values, "created_at"), nil
 	case "follows":
@@ -58,14 +58,14 @@ func (g WSGateway) resolveLongFormContentFeed(ctx context.Context, kwargs map[st
 		}
 		contactList, err := g.query.GetContactList(ctx, pubkey)
 		if err != nil && !query.IsNotFound(err) {
-			return nil, errors.New("request failed")
+			return nil, wrapPrimalRequestError(err)
 		}
 		follows := parseContactListPubkeys(contactList.ContactsJSONRaw)
 		collected := make([]json.RawMessage, 0, limit)
 		for followed := range follows {
 			values, fetchErr := g.query.GetLongForm(ctx, followed, limit)
 			if fetchErr != nil {
-				return nil, errors.New("request failed")
+				return nil, wrapPrimalRequestError(fetchErr)
 			}
 			collected = append(collected, values...)
 		}

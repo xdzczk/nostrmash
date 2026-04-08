@@ -42,7 +42,7 @@ func (g WSGateway) cacheDispatchFeed(ctx context.Context, kwargs map[string]any)
 	limit := toInt(kwargs["limit"], 20)
 	events, err := g.query.GetAuthorEvents(ctx, pubkey, limit)
 	if err != nil {
-		return nil, errors.New("author events fetch failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return rawMessagesToAny(events), nil
 }
@@ -52,7 +52,7 @@ func (g WSGateway) cacheDispatchAuthorReplies(ctx context.Context, kwargs map[st
 	limit := toInt(kwargs["limit"], 20)
 	events, err := g.query.GetAuthorReplies(ctx, pubkey, limit)
 	if err != nil {
-		return nil, errors.New("author replies fetch failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return rawMessagesToAny(events), nil
 }
@@ -61,7 +61,7 @@ func (g WSGateway) cacheDispatchEventActions(ctx context.Context, kwargs map[str
 	eventID, _ := kwargs["event_id"].(string)
 	counts, err := g.query.GetActionCounts(ctx, eventID)
 	if err != nil {
-		return nil, errors.New("event actions fetch failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{counts}, nil
 }
@@ -70,7 +70,7 @@ func (g WSGateway) cacheDispatchContactList(ctx context.Context, kwargs map[stri
 	pubkey, _ := kwargs["pubkey"].(string)
 	entry, err := g.query.GetContactList(ctx, pubkey)
 	if err != nil {
-		return nil, errors.New("contact list fetch failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{map[string]any{
 		"pubkey":     entry.Pubkey,
@@ -84,7 +84,7 @@ func (g WSGateway) cacheDispatchRelayList(ctx context.Context, kwargs map[string
 	pubkey, _ := kwargs["pubkey"].(string)
 	entry, err := g.query.GetRelayList(ctx, pubkey)
 	if err != nil {
-		return nil, errors.New("relay list fetch failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{map[string]any{
 		"pubkey":     entry.Pubkey,

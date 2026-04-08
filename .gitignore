@@ -1,0 +1,40 @@
+# OS junk
+.DS_Store
+**/.DS_Store
+
+# Editor/IDE temp files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local environment overrides
+.env
+.env.local
+
+# Build outputs and binaries
+/api
+/ingestor
+/worker
+/trust_worker
+/bin/
+/dist/
+/build/
+/out/
+**/bin/
+**/dist/
+**/build/
+**/out/
+
+# Test, coverage, and debug outputs
+coverage.out
+coverage*.out
+*.coverprofile
+*.test
+*.prof
+*.pprof
+*.trace
+*.log
+/tmp/
+/.tmp/

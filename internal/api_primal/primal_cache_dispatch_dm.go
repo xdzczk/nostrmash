@@ -2,7 +2,6 @@ package api_primal
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 )
@@ -22,7 +21,7 @@ func (g WSGateway) cacheDispatchDirectMessageContacts(ctx context.Context, kwarg
 	until := toInt64(kwargs["until"], time.Now().Unix())
 	values, err := g.query.GetDirectMessageContactsDetailed(ctx, pubkey, limit, offset, since, until)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return g.buildDirectMessageContactsPayload(ctx, pubkey, relation, values)
 }
@@ -45,7 +44,7 @@ func (g WSGateway) cacheDispatchDirectMessages(ctx context.Context, kwargs map[s
 	offset := toInt(kwargs["offset"], 0)
 	values, err := g.query.GetDirectMessagesWithRange(ctx, pubkey, peer, since, until, limit, offset)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return g.buildDirectMessagesPayload(ctx, pubkey, peer, values), nil
 }
@@ -63,7 +62,7 @@ func (g WSGateway) cacheDispatchDirectMessageCount(ctx context.Context, kwargs m
 	}
 	count, err := g.query.GetDirectMessageCount(ctx, pubkey, sender)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{buildDirectMessageCountEvent(count)}, nil
 }
@@ -81,7 +80,7 @@ func (g WSGateway) cacheDispatchDirectMessageCount2(ctx context.Context, kwargs 
 	}
 	count, err := g.query.GetDirectMessageCount(ctx, pubkey, sender)
 	if err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{buildDirectMessageCount2Event(count)}, nil
 }
@@ -92,10 +91,10 @@ func (g WSGateway) cacheDispatchResetDirectMessageCount(ctx context.Context, kwa
 		return nil, err
 	}
 	if err := g.query.ResetDirectMessageCount(ctx, receiver, sender); err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	if err := g.query.ResetDirectMessageUnread(ctx, receiver, sender); err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{}, nil
 }
@@ -106,7 +105,7 @@ func (g WSGateway) cacheDispatchResetDirectMessageCounts(ctx context.Context, kw
 		return nil, err
 	}
 	if err := g.query.ResetDirectMessageCounts(ctx, receiver); err != nil {
-		return nil, errors.New("request failed")
+		return nil, wrapPrimalRequestError(err)
 	}
 	return []any{}, nil
 }

@@ -35,6 +35,10 @@ type legacyReaderAdapter struct {
 	legacy legacyReader
 }
 
+type legacyDescendingThreadWindowReader interface {
+	GetEventRepliesDescending(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor, offset int) ([]json.RawMessage, *store.EventOrderCursor, error)
+}
+
 func adaptReader(reader any) Reader {
 	if adapted, ok := reader.(Reader); ok {
 		return adapted
@@ -103,6 +107,18 @@ func (a legacyReaderAdapter) GetEventCounts(ctx context.Context, eventID string)
 
 func (a legacyReaderAdapter) GetEventReplies(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error) {
 	replies, next, err := a.legacy.GetEventReplies(ctx, eventID, limit, eventCursorToStore(cursor))
+	if err != nil {
+		return nil, nil, err
+	}
+	return replies, eventCursorFromStore(next), nil
+}
+
+func (a legacyReaderAdapter) GetEventRepliesDescending(ctx context.Context, eventID string, limit int, cursor *EventCursor, offset int) ([]json.RawMessage, *EventCursor, error) {
+	descReader, ok := a.legacy.(legacyDescendingThreadWindowReader)
+	if !ok {
+		return nil, nil, unsupportedCapabilityError("thread descending replies")
+	}
+	replies, next, err := descReader.GetEventRepliesDescending(ctx, eventID, limit, eventCursorToStore(cursor), offset)
 	if err != nil {
 		return nil, nil, err
 	}

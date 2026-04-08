@@ -30,28 +30,70 @@ func main() {
 	defer stop()
 
 	log := logging.New("worker")
+	if err := runWorker(ctx, log); err != nil {
+		os.Exit(1)
+	}
+}
 
+type workerBootstrap struct {
+	cfg                config.WorkerConfig
+	pool               *pgxpool.Pool
+	queue              workerQueue
+	invalidEventsStore invalidEventRetentionStore
+	processJob         func(context.Context, jobs.Job) error
+	workerID           string
+}
+
+func runWorker(ctx context.Context, log interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}) error {
+	cfg, ok := loadWorkerConfig(log)
+	if !ok {
+		return fmt.Errorf("worker config load failed")
+	}
+	bootstrap, shutdown, ok := bootstrapWorkerRuntime(ctx, log, cfg)
+	if !ok {
+		return fmt.Errorf("worker runtime bootstrap failed")
+	}
+	defer shutdown()
+	runWorkerLifecycle(ctx, log, bootstrap)
+	return nil
+}
+
+func loadWorkerConfig(log interface {
+	Error(msg string, args ...any)
+}) (config.WorkerConfig, bool) {
 	cfg, err := config.LoadWorker()
 	if err != nil {
 		log.Error("config", "error", err)
-		os.Exit(1)
+		return config.WorkerConfig{}, false
 	}
+	return cfg, true
+}
 
+func bootstrapWorkerRuntime(
+	ctx context.Context,
+	log interface {
+		Info(msg string, args ...any)
+		Error(msg string, args ...any)
+	},
+	cfg config.WorkerConfig,
+) (workerBootstrap, func(), bool) {
 	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL)
 	if err != nil {
 		log.Error("db_connect", "error", err)
-		os.Exit(1)
+		return workerBootstrap{}, func() {}, false
 	}
-	defer pool.Close()
 	metrics.RegisterDBPool(pool)
 
 	appVersion := runtimebootstrap.ResolveAppVersion()
 	version := runtimebootstrap.ResolveBuildVersion(appVersion, buildVersion)
 	if err := runtimebootstrap.InitTracing(ctx, log, cfg.Shared.ServiceName, "worker", version, cfg.Shared.Environment); err != nil {
 		log.Error("tracing_init", "error", err)
-		os.Exit(1)
+		pool.Close()
+		return workerBootstrap{}, func() {}, false
 	}
-	defer runtimebootstrap.ShutdownTracing(log)
 	runtimebootstrap.RegisterBuildAndDeployment(
 		log,
 		"worker",
@@ -63,42 +105,67 @@ func main() {
 	)
 	if err := store.Migrate(ctx, pool, appVersion); err != nil {
 		log.Error("migrate", "error", err)
-		os.Exit(1)
+		runtimebootstrap.ShutdownTracing(log)
+		pool.Close()
+		return workerBootstrap{}, func() {}, false
 	}
 
 	queue := jobs.NewQueue(pool)
 	postgresStore := store.NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
-	workerID := resolveWorkerID()
-	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
-	runtimebootstrap.StartDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
-	go runQueueAndRebuildMetricsReporter(ctx, log, pool, 30*time.Second)
-	go runStaleRecoveryLoop(ctx, log, queue, jobs.WorkerPoolDefault, cfg.JobRecovery)
-	go runJobRetentionLoop(ctx, log, queue, cfg.JobRetention)
-	go runInvalidEventsRetentionLoop(ctx, log, postgresStore, cfg.InvalidEventRetention)
+
+	bootstrap := workerBootstrap{
+		cfg:                cfg,
+		pool:               pool,
+		queue:              queue,
+		invalidEventsStore: postgresStore,
+		processJob: func(jobCtx context.Context, job jobs.Job) error {
+			return derivation.ProcessJob(jobCtx, handlers, derivation.Job{
+				JobType: job.JobType,
+				Payload: job.Payload,
+			})
+		},
+		workerID: resolveWorkerID(),
+	}
+	shutdown := func() {
+		runtimebootstrap.ShutdownTracing(log)
+		pool.Close()
+	}
+	return bootstrap, shutdown, true
+}
+
+func runWorkerLifecycle(
+	ctx context.Context,
+	log interface {
+		Info(msg string, args ...any)
+		Error(msg string, args ...any)
+	},
+	bootstrap workerBootstrap,
+) {
+	runtimebootstrap.StartMetricsEndpoint(ctx, log, bootstrap.cfg.Shared.Observability.MetricsAddr)
+	runtimebootstrap.StartDebugEndpoint(ctx, log, bootstrap.cfg.Shared.Observability.DebugAddr)
+	go runQueueAndRebuildMetricsReporter(ctx, log, bootstrap.pool, 30*time.Second)
+	go runStaleRecoveryLoop(ctx, log, bootstrap.queue, jobs.WorkerPoolDefault, bootstrap.cfg.JobRecovery)
+	go runJobRetentionLoop(ctx, log, bootstrap.queue, bootstrap.cfg.JobRetention)
+	go runInvalidEventsRetentionLoop(ctx, log, bootstrap.invalidEventsStore, bootstrap.cfg.InvalidEventRetention)
 	const (
 		claimBatchSize = 10
 		pollInterval   = 1 * time.Second
 		retryDelay     = 5 * time.Second
 	)
 
-	log.Info("worker_started", "worker_id", workerID, "claim_batch_size", claimBatchSize)
+	log.Info("worker_started", "worker_id", bootstrap.workerID, "claim_batch_size", claimBatchSize)
 	runClaimLoop(
 		ctx,
 		log,
-		queue,
-		workerID,
+		bootstrap.queue,
+		bootstrap.workerID,
 		jobs.WorkerPoolDefault,
 		claimBatchSize,
-		cfg.Concurrency,
+		bootstrap.cfg.Concurrency,
 		pollInterval,
 		retryDelay,
-		func(jobCtx context.Context, job jobs.Job) error {
-			return derivation.ProcessJob(jobCtx, handlers, derivation.Job{
-				JobType: job.JobType,
-				Payload: job.Payload,
-			})
-		},
+		bootstrap.processJob,
 	)
 
 	<-ctx.Done()

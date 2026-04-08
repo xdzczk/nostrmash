@@ -34,28 +34,63 @@ func main() {
 	defer stop()
 
 	log := logging.New("ingestor")
+	if err := runIngestor(ctx, log); err != nil {
+		os.Exit(1)
+	}
+}
 
+type ingestorRunner struct {
+	eventStore *store.PostgresStore
+	processor  *live.Processor
+	kinds      []int
+}
+
+func runIngestor(ctx context.Context, log *slog.Logger) error {
+	cfg, ok := loadIngestorConfig(log)
+	if !ok {
+		return fmt.Errorf("ingestor config load failed")
+	}
+	pool, shutdown, ok := bootstrapIngestorRuntime(ctx, log, cfg)
+	if !ok {
+		return fmt.Errorf("ingestor runtime bootstrap failed")
+	}
+	defer shutdown()
+
+	runner, ok := buildIngestorRunner(log, cfg, pool)
+	if !ok {
+		return fmt.Errorf("ingestor runner construction failed")
+	}
+	return runIngestorLifecycle(ctx, log, cfg, pool, runner)
+}
+
+func loadIngestorConfig(log *slog.Logger) (config.IngestorConfig, bool) {
 	cfg, err := config.LoadIngestor()
 	if err != nil {
 		log.Error("config", "error", err)
-		os.Exit(1)
+		return config.IngestorConfig{}, false
 	}
+	return cfg, true
+}
 
+func bootstrapIngestorRuntime(
+	ctx context.Context,
+	log *slog.Logger,
+	cfg config.IngestorConfig,
+) (*pgxpool.Pool, func(), bool) {
 	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL)
 	if err != nil {
 		log.Error("db_connect", "error", err)
-		os.Exit(1)
+		return nil, func() {}, false
 	}
-	defer pool.Close()
 	metrics.RegisterDBPool(pool)
 
 	appVersion := runtimebootstrap.ResolveAppVersion()
 	version := runtimebootstrap.ResolveBuildVersion(appVersion, buildVersion)
 	if err := runtimebootstrap.InitTracing(ctx, log, cfg.Shared.ServiceName, "ingestor", version, cfg.Shared.Environment); err != nil {
 		log.Error("tracing_init", "error", err)
-		os.Exit(1)
+		pool.Close()
+		return nil, func() {}, false
 	}
-	defer runtimebootstrap.ShutdownTracing(log)
 	runtimebootstrap.RegisterBuildAndDeployment(
 		log,
 		"ingestor",
@@ -67,37 +102,67 @@ func main() {
 	)
 	if err := store.Migrate(ctx, pool, appVersion); err != nil {
 		log.Error("migrate", "error", err)
-		os.Exit(1)
+		runtimebootstrap.ShutdownTracing(log)
+		pool.Close()
+		return nil, func() {}, false
 	}
+	shutdown := func() {
+		runtimebootstrap.ShutdownTracing(log)
+		pool.Close()
+	}
+	return pool, shutdown, true
+}
 
+func buildIngestorRunner(
+	log *slog.Logger,
+	cfg config.IngestorConfig,
+	pool *pgxpool.Pool,
+) (ingestorRunner, bool) {
 	kinds, err := resolveLiveKinds(cfg.Relay)
 	if err != nil {
 		log.Error("ingestor_filter_group", "error", err)
-		os.Exit(1)
+		return ingestorRunner{}, false
 	}
 
 	eventStore := store.NewPostgresStore(pool)
 	processor, err := live.NewProcessor(log, eventStore, nostr.Options{})
 	if err != nil {
 		log.Error("ingestor_processor", "error", err)
-		os.Exit(1)
+		return ingestorRunner{}, false
 	}
-	var checkpointTracker *live.CheckpointTracker
-	var sinceResolver relay.SinceResolver
-	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 
-	go runMetricsLogger(ctx, log, processor, 30*time.Second)
+	return ingestorRunner{
+		eventStore: eventStore,
+		processor:  processor,
+		kinds:      kinds,
+	}, true
+}
+
+func runIngestorLifecycle(
+	ctx context.Context,
+	log *slog.Logger,
+	cfg config.IngestorConfig,
+	pool *pgxpool.Pool,
+	runner ingestorRunner,
+) error {
+	var (
+		checkpointTracker *live.CheckpointTracker
+		sinceResolver     relay.SinceResolver
+		err               error
+	)
+	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
+	go runMetricsLogger(ctx, log, runner.processor, 30*time.Second)
 
 	if cfg.Runtime.Mode == "replay" {
-		replayRunner, err := replay.NewRunner(log, pool, nostr.Options{})
-		if err != nil {
-			log.Error("replay_runner_init", "error", err)
-			os.Exit(1)
+		replayRunner, replayErr := replay.NewRunner(log, pool, nostr.Options{})
+		if replayErr != nil {
+			log.Error("replay_runner_init", "error", replayErr)
+			return replayErr
 		}
-		result, err := replayRunner.ReplayFixturePath(ctx, cfg.Replay.FixturePath)
-		if err != nil {
-			log.Error("replay_failed", "error", err)
-			os.Exit(1)
+		result, replayErr := replayRunner.ReplayFixturePath(ctx, cfg.Replay.FixturePath)
+		if replayErr != nil {
+			log.Error("replay_failed", "error", replayErr)
+			return replayErr
 		}
 		log.Info(
 			"replay_completed",
@@ -108,29 +173,29 @@ func main() {
 			"duplicate_total", result.IngestCounters.Duplicate,
 			"invalid_total", result.IngestCounters.Invalid,
 		)
-		return
+		return nil
 	}
 
 	checkpointTracker, err = live.NewCheckpointTracker(
 		log,
-		eventStore,
+		runner.eventStore,
 		cfg.Relay.ActiveFilterGroup,
 		5*time.Second,
 	)
 	if err != nil {
 		log.Error("live_checkpoint_tracker", "error", err)
-		os.Exit(1)
+		return err
 	}
-	processor.SetCheckpointWriter(checkpointTracker)
+	runner.processor.SetCheckpointWriter(checkpointTracker)
 	sinceResolver, err = live.NewResumeSinceResolver(
-		eventStore,
+		runner.eventStore,
 		cfg.Relay.ActiveFilterGroup,
 		cfg.Relay.LiveBootstrapLookbackSeconds,
 		cfg.Relay.LiveResumeOverlapSeconds,
 	)
 	if err != nil {
 		log.Error("live_since_resolver", "error", err)
-		os.Exit(1)
+		return err
 	}
 	log.Info(
 		"ingestor_live_startup",
@@ -160,33 +225,33 @@ func main() {
 	}
 
 	if cfg.Backfill.Enabled {
-		backfillRunner, err := backfill.NewRunner(
+		backfillRunner, backfillErr := backfill.NewRunner(
 			log,
 			backfill.Config{
 				Relays:       prioritizedRelays,
 				FilterGroup:  cfg.Relay.ActiveFilterGroup,
-				Kinds:        kinds,
+				Kinds:        runner.kinds,
 				Mode:         cfg.Backfill.Mode,
 				Since:        cfg.Backfill.Since,
 				Until:        cfg.Backfill.Until,
 				PageLimit:    cfg.Backfill.PageLimit,
 				EmptyPageMax: cfg.Backfill.EmptyPageMax,
 			},
-			eventStore,
+			runner.eventStore,
 			backfill.WebsocketFetcher{
 				Log:            log,
 				ConnectTimeout: cfg.Backfill.ConnectTimeout,
 				IdleTimeout:    cfg.Backfill.IdleTimeout,
 			},
-			processor.Handle,
+			runner.processor.Handle,
 		)
-		if err != nil {
-			log.Error("backfill_runner_config", "error", err)
-			os.Exit(1)
+		if backfillErr != nil {
+			log.Error("backfill_runner_config", "error", backfillErr)
+			return backfillErr
 		}
-		if err := backfillRunner.Run(ctx); err != nil {
-			log.Error("backfill_runner", "error", err)
-			os.Exit(1)
+		if backfillErr := backfillRunner.Run(ctx); backfillErr != nil {
+			log.Error("backfill_runner", "error", backfillErr)
+			return backfillErr
 		}
 		log.Info("backfill_completed", "relay_count", len(prioritizedRelays))
 	}
@@ -195,7 +260,7 @@ func main() {
 		go runTrustTargetedFetchLoop(
 			ctx,
 			log,
-			eventStore,
+			runner.eventStore,
 			cfg.TrustPrioritization,
 			cfg.TrustFetch,
 			prioritizedRelays,
@@ -204,7 +269,7 @@ func main() {
 				ConnectTimeout: cfg.Backfill.ConnectTimeout,
 				IdleTimeout:    cfg.Backfill.IdleTimeout,
 			},
-			processor.Handle,
+			runner.processor.Handle,
 		)
 		log.Info(
 			"trust_fetch_started",
@@ -227,16 +292,16 @@ func main() {
 		},
 		relay.NostrConnector{
 			Log:           log,
-			Kinds:         kinds,
+			Kinds:         runner.kinds,
 			FilterGroup:   cfg.Relay.ActiveFilterGroup,
 			SinceResolver: sinceResolver,
 		},
-		processor.Handle,
+		runner.processor.Handle,
 		log,
 	)
 	if err != nil {
 		log.Error("relay_config", "error", err)
-		os.Exit(1)
+		return err
 	}
 	go relayManager.Start(ctx)
 	log.Info("relay_manager_started", "relay_count", len(prioritizedRelays))
@@ -244,15 +309,15 @@ func main() {
 	<-ctx.Done()
 	if checkpointTracker != nil {
 		for _, relayURL := range cfg.Relay.URLs {
-			if err := checkpointTracker.SetRelayStatus(context.Background(), relayURL, relay.StateDisconnected, ""); err != nil {
-				log.Warn("live_checkpoint_disconnect_shutdown", "relay_url", relayURL, "error", err)
+			if setErr := checkpointTracker.SetRelayStatus(context.Background(), relayURL, relay.StateDisconnected, ""); setErr != nil {
+				log.Warn("live_checkpoint_disconnect_shutdown", "relay_url", relayURL, "error", setErr)
 			}
 		}
-		if err := checkpointTracker.FlushAll(context.Background()); err != nil {
-			log.Warn("live_checkpoint_flush_shutdown", "error", err)
+		if flushErr := checkpointTracker.FlushAll(context.Background()); flushErr != nil {
+			log.Warn("live_checkpoint_flush_shutdown", "error", flushErr)
 		}
 	}
-	final := processor.Snapshot()
+	final := runner.processor.Snapshot()
 	log.Info(
 		"ingest_metrics_final",
 		"valid_total", final.Valid,
@@ -260,6 +325,7 @@ func main() {
 		"invalid_total", final.Invalid,
 	)
 	log.Info("shutdown_complete")
+	return nil
 }
 
 func prioritizeRelaysByTrust(ctx context.Context, pool *pgxpool.Pool, relays []string, topPubkeys int) ([]string, error) {

@@ -15,15 +15,12 @@ func (s Service) GetBookmarks(ctx context.Context, pubkey string, limit int) ([]
 	if pubkey == "" {
 		return nil, fmt.Errorf("pubkey is required")
 	}
-	type replaceableEventReader interface {
-		GetParameterizedReplaceableEvent(ctx context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(replaceableEventReader); ok {
+	if r := s.capabilities.replaceable.event; r != nil {
 		latest, err := r.GetParameterizedReplaceableEvent(ctx, pubkey, 10003, "")
 		if err == nil {
 			return []json.RawMessage{latest}, nil
 		}
-		if !errors.Is(err, store.ErrNotFound) {
+		if !errors.Is(err, store.ErrNotFound) && !IsUnsupportedCapability(err) {
 			return nil, err
 		}
 	}
@@ -37,53 +34,38 @@ func (s Service) GetBookmarks(ctx context.Context, pubkey string, limit int) ([]
 }
 
 func (s Service) GetLongForm(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
-	type replaceableReader interface {
-		GetParameterizedReplaceableList(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(replaceableReader); ok {
+	if r := s.capabilities.replaceable.list; r != nil {
 		return r.GetParameterizedReplaceableList(ctx, pubkey, 30023, limit)
 	}
 	return s.reader.GetRecentEventsByKindAndPubkey(ctx, 30023, pubkey, limit)
 }
 
 func (s Service) GetParameterizedReplaceableList(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error) {
-	type replaceableReader interface {
-		GetParameterizedReplaceableList(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(replaceableReader); ok {
+	if r := s.capabilities.replaceable.list; r != nil {
 		return r.GetParameterizedReplaceableList(ctx, pubkey, kind, limit)
 	}
-	return []json.RawMessage{}, nil
+	return nil, unsupportedCapabilityError("parameterized replaceable list")
 }
 
 func (s Service) GetParameterizedReplaceableListByIdentifier(ctx context.Context, pubkey string, kind int, identifier string, limit int) ([]json.RawMessage, error) {
-	type replaceableReader interface {
-		GetParameterizedReplaceableListByIdentifier(ctx context.Context, pubkey string, kind int, identifier string, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(replaceableReader); ok {
+	if r := s.capabilities.replaceable.listByIdentifier; r != nil {
 		return r.GetParameterizedReplaceableListByIdentifier(ctx, pubkey, kind, identifier, limit)
 	}
-	return []json.RawMessage{}, nil
+	return nil, unsupportedCapabilityError("parameterized replaceable list by identifier")
 }
 
 func (s Service) GetParameterizedReplaceableEvent(ctx context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
-	type replaceableReader interface {
-		GetParameterizedReplaceableEvent(ctx context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(replaceableReader); ok {
+	if r := s.capabilities.replaceable.event; r != nil {
 		return r.GetParameterizedReplaceableEvent(ctx, pubkey, kind, dTag)
 	}
-	return nil, store.ErrNotFound
+	return nil, unsupportedCapabilityError("parameterized replaceable event")
 }
 
 func (s Service) GetParameterizedReplaceableEvents(ctx context.Context, kind int, dTag string, limit int) ([]json.RawMessage, error) {
-	type replaceableReader interface {
-		GetParameterizedReplaceableEvents(ctx context.Context, kind int, dTag string, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(replaceableReader); ok {
+	if r := s.capabilities.replaceable.events; r != nil {
 		return r.GetParameterizedReplaceableEvents(ctx, kind, dTag, limit)
 	}
-	return []json.RawMessage{}, nil
+	return nil, unsupportedCapabilityError("parameterized replaceable events")
 }
 
 func (s Service) GetLongFormThreadView(
@@ -118,9 +100,6 @@ func (s Service) GetLongFormThreadATagReplies(
 	identifier string,
 	limit int,
 ) ([]json.RawMessage, error) {
-	type longFormATagRepliesReader interface {
-		GetEventsByATagAndKind(ctx context.Context, kind int, aTagValue string, limit int) ([]json.RawMessage, error)
-	}
 	if kind <= 0 {
 		return []json.RawMessage{}, nil
 	}
@@ -135,9 +114,9 @@ func (s Service) GetLongFormThreadATagReplies(
 	if limit > 5000 {
 		limit = 5000
 	}
-	if r, ok := s.rawReader.(longFormATagRepliesReader); ok {
+	if r := s.capabilities.replaceable.longFormATagReplies; r != nil {
 		target := fmt.Sprintf("%d:%s:%s", kind, pubkey, identifier)
 		return r.GetEventsByATagAndKind(ctx, 1, target, limit)
 	}
-	return []json.RawMessage{}, nil
+	return nil, unsupportedCapabilityError("long form replies by a-tag")
 }

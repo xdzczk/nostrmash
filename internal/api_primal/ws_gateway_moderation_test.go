@@ -3,21 +3,20 @@ package api_primal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
+	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 func TestWSGateway_ModerationEmptyListsReturnEvents(t *testing.T) {
 	gateway := NewWSGateway(fakeEventReader{
-		getModerationFn: func(_ context.Context, pubkey string, kind int) ([]string, error) {
-			return nil, store.ErrNotFound
-		},
-		getModerationByIdentifierFn: func(_ context.Context, pubkey string, identifier string) ([]string, error) {
+		getParamEventFn: func(_ context.Context, pubkey string, kind int, dTag string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
 	}, WSGatewayOptions{})
@@ -329,5 +328,48 @@ func TestWSGateway_IsHiddenByContentModerationSupportsTagAwarePubkeysAndReasons(
 	}
 	if _, _, err := conn.ReadMessage(); err != nil {
 		t.Fatalf("read hidden moderation eose: %v", err)
+	}
+}
+
+func TestWSGateway_HiddenByContentUnsupportedKeepsCompatVisiblePayload(t *testing.T) {
+	gateway := NewWSGateway(fakeEventReader{
+		isHiddenFn: func(_ context.Context, viewerPubkey string, eventID string) (bool, string, error) {
+			return false, "", errors.Join(query.ErrUnsupportedCapability, errors.New("query: content moderation visibility lookup unsupported"))
+		},
+	}, WSGatewayOptions{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /primal/ws", gateway.Handle)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON([]any{"REQ", "sub_hidden_unsupported", map[string]any{"cache": []any{"is_hidden_by_content_moderation", map[string]any{
+		"user_pubkey": "pk",
+		"event_id":    "evt_1",
+	}}}}); err != nil {
+		t.Fatalf("write req: %v", err)
+	}
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read frame: %v", err)
+	}
+	var frame []any
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("decode frame: %v", err)
+	}
+	if len(frame) < 3 || frame[0] != "EVENT" {
+		t.Fatalf("unexpected first frame: %s", string(raw))
+	}
+	event, ok := frame[2].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected event payload: %#v", frame[2])
+	}
+	if hidden, _ := event["hidden"].(bool); hidden {
+		t.Fatalf("expected hidden=false for unsupported capability fallback")
 	}
 }

@@ -53,6 +53,9 @@ func TestWSGateway_ModerationAndCuratedCacheCalls(t *testing.T) {
 		getCreatorPaidTiersFn: func(_ context.Context, pubkey string) ([]json.RawMessage, error) {
 			return []json.RawMessage{json.RawMessage(`{"tier_id":"gold","title":"Gold","price_sats":1000}`)}, nil
 		},
+		getByKindPubkeyFn: func(_ context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error) {
+			return []json.RawMessage{}, nil
+		},
 		getPubkeyByLNAddressFn: func(_ context.Context, lnAddress string) (string, error) {
 			return "pk_ln", nil
 		},

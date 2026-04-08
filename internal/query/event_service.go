@@ -273,10 +273,7 @@ func (s Service) GetRelaysHealth(ctx context.Context) ([]model.IngestCheckpoint,
 }
 
 func (s Service) GetZaps(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
-	type receiverZapsReader interface {
-		GetUserZaps(ctx context.Context, pubkey string, limit int, sortBySats bool) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(receiverZapsReader); ok {
+	if r := s.capabilities.event.userZaps; r != nil {
 		return r.GetUserZaps(ctx, pubkey, limit, false)
 	}
 	return s.reader.GetRecentEventsByKindAndPubkey(ctx, 9735, pubkey, limit)
@@ -287,13 +284,10 @@ func (s Service) GetHighlights(ctx context.Context, pubkey string, limit int) ([
 }
 
 func (s Service) GetHighlightsByEventID(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
-	type highlightsByEventReader interface {
-		GetHighlightsByEventID(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(highlightsByEventReader); ok {
+	if r := s.capabilities.event.highlightsByEventID; r != nil {
 		return r.GetHighlightsByEventID(ctx, eventID, limit)
 	}
-	return []json.RawMessage{}, nil
+	return nil, unsupportedCapabilityError("highlights by event id")
 }
 
 func (s Service) GetHighlightsByATarget(
@@ -303,31 +297,22 @@ func (s Service) GetHighlightsByATarget(
 	identifier string,
 	limit int,
 ) ([]json.RawMessage, error) {
-	type highlightsByATargetReader interface {
-		GetHighlightsByATarget(ctx context.Context, kind int, pubkey string, identifier string, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(highlightsByATargetReader); ok {
+	if r := s.capabilities.event.highlightsByATarget; r != nil {
 		return r.GetHighlightsByATarget(ctx, kind, pubkey, identifier, limit)
 	}
-	return []json.RawMessage{}, nil
+	return nil, unsupportedCapabilityError("highlights by a-target")
 }
 
 func (s Service) GetUserZapsBySats(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
-	type receiverZapsReader interface {
-		GetUserZaps(ctx context.Context, pubkey string, limit int, sortBySats bool) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(receiverZapsReader); ok {
+	if r := s.capabilities.event.userZaps; r != nil {
 		return r.GetUserZaps(ctx, pubkey, limit, true)
 	}
 	return s.GetZaps(ctx, pubkey, limit)
 }
 
 func (s Service) GetEventZapsBySats(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
-	type eventZapsReader interface {
-		GetEventZapsBySats(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error)
-	}
-	if r, ok := s.rawReader.(eventZapsReader); ok {
+	if r := s.capabilities.event.eventZapsBySats; r != nil {
 		return r.GetEventZapsBySats(ctx, eventID, limit)
 	}
-	return []json.RawMessage{}, nil
+	return nil, unsupportedCapabilityError("event zaps by sats")
 }

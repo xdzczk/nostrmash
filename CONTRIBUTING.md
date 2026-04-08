@@ -15,6 +15,14 @@ Use this page as the contributor entrypoint. It is the shortest path from local 
 
 ## Local start
 
+Go toolchain policy:
+
+- Minimum supported version: Go `1.26` (`go.mod` `go` directive)
+- Recommended local toolchain: Go `1.26.2` (`go.mod` `toolchain go1.26.2`)
+- CI and Docker builders pin Go `1.26.2` for reproducible checks
+
+If your local Go supports toolchain auto-selection, the `toolchain` directive helps keep local behavior aligned with CI patch-level behavior while preserving a clear minimum-version policy.
+
 Use either full containers or host `go run` workflow:
 
 ```bash
@@ -37,6 +45,11 @@ If you are working on trust or relay-suggestion behavior locally, also run:
 go run ./cmd/trust_worker
 ```
 
+Local binary build output convention:
+
+- `make build` writes service binaries to `./bin/` (`bin/api`, `bin/ingestor`, `bin/worker`, `bin/trust_worker`).
+- Keep generated binaries and coverage artifacts out of the repository root.
+
 For details and replay mode, see `docs/development.md`.
 
 ## Before opening a PR
@@ -50,6 +63,23 @@ make ci
 `make ci` runs the same blocking gates as CI (`fmt-check`, `imports-check`, `lint`, `mod-verify`, `vulncheck`, `test-race-policy`, `cover`, `coverage-policy`, `contract-drift`, `rules-check`, `configdoc-check`, `build`).
 
 Blocking race policy now runs `go test -race ./...`.
+
+Local verification commands (explicit):
+
+```bash
+# Build
+make build
+
+# Test
+make test
+
+# Lint
+make lint
+
+# Integration-backed parity path (requires Postgres)
+export TEST_DATABASE_URL=postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+make ci
+```
 
 If formatting/import checks fail:
 
