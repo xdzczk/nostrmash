@@ -14,7 +14,7 @@ import (
 
 func TestSearchDedicatedRoutes_Success(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		searchNotesFn: func(_ context.Context, q string, sort string, window *time.Duration, limit int, offset int) ([]json.RawMessage, error) {
+		searchNotesFn: func(_ context.Context, q string, sort string, window *time.Duration, language string, limit int, offset int) ([]json.RawMessage, error) {
 			if q != "nostr" {
 				t.Fatalf("unexpected notes query: %q", q)
 			}
@@ -23,6 +23,9 @@ func TestSearchDedicatedRoutes_Success(t *testing.T) {
 			}
 			if window == nil || *window != 7*24*time.Hour {
 				t.Fatalf("unexpected notes window: %#v", window)
+			}
+			if language != "en" {
+				t.Fatalf("unexpected notes language: %q", language)
 			}
 			if limit != 2 || offset != 1 {
 				t.Fatalf("unexpected notes pagination: limit=%d offset=%d", limit, offset)
@@ -85,7 +88,7 @@ func TestSearchDedicatedRoutes_Success(t *testing.T) {
 	mux.HandleFunc("GET /api/v1/search/profiles", h.SearchProfiles)
 	mux.HandleFunc("GET /api/v1/search/suggest", h.SearchSuggest)
 
-	notesReq := httptest.NewRequest(http.MethodGet, "/api/v1/search/notes?q=nostr&sort=latest&window=7d&limit=2&offset=1", nil)
+	notesReq := httptest.NewRequest(http.MethodGet, "/api/v1/search/notes?q=nostr&sort=latest&window=7d&lang=en&limit=2&offset=1", nil)
 	notesRec := httptest.NewRecorder()
 	mux.ServeHTTP(notesRec, notesReq)
 	if notesRec.Code != http.StatusOK {
@@ -98,6 +101,7 @@ func TestSearchDedicatedRoutes_Success(t *testing.T) {
 		Notes        []json.RawMessage `json:"notes"`
 		Limit        int               `json:"limit"`
 		Offset       int               `json:"offset"`
+		Lang         string            `json:"lang"`
 		TrustMode    string            `json:"trust_mode"`
 		TrustApplied bool              `json:"trust_applied"`
 		ResultScope  string            `json:"result_scope"`
@@ -105,7 +109,7 @@ func TestSearchDedicatedRoutes_Success(t *testing.T) {
 	if err := json.Unmarshal(notesRec.Body.Bytes(), &notesBody); err != nil {
 		t.Fatalf("decode notes response: %v", err)
 	}
-	if notesBody.Query != "nostr" || notesBody.Sort != "latest" || notesBody.Window != "7d" {
+	if notesBody.Query != "nostr" || notesBody.Sort != "latest" || notesBody.Window != "7d" || notesBody.Lang != "en" {
 		t.Fatalf("unexpected notes contract values: %#v", notesBody)
 	}
 	if len(notesBody.Notes) != 2 || notesBody.Limit != 2 || notesBody.Offset != 1 {
@@ -189,6 +193,7 @@ func TestSearchDedicatedRoutes_Validation(t *testing.T) {
 		"/api/v1/search/notes?q=",
 		"/api/v1/search/notes?q=ok&sort=top",
 		"/api/v1/search/notes?q=ok&window=30d",
+		"/api/v1/search/notes?q=ok&lang=en-US",
 		"/api/v1/search/notes?q=ok&offset=-1",
 		"/api/v1/search/profiles?q=",
 		"/api/v1/search/profiles?q=ok&sort=latest",

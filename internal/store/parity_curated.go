@@ -65,6 +65,16 @@ func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hash
 		Last24h: last24hAuthors,
 		Last7d:  last7dAuthors,
 	}
+	topLanguages24h, err := s.getTopLanguages(ctx, now.Add(-24*time.Hour).Unix(), 8)
+	if err != nil {
+		return out, err
+	}
+	topLanguages7d, err := s.getTopLanguages(ctx, now.Add(-7*24*time.Hour).Unix(), 8)
+	if err != nil {
+		return out, err
+	}
+	out.TopLanguages24h = topLanguages24h
+	out.TopLanguages7d = topLanguages7d
 
 	top24h, err := s.GetTrendingHashtags(ctx, 24*time.Hour, hashtagLimit, 0)
 	if err != nil {
@@ -83,6 +93,38 @@ func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hash
 	out.TopHashtags = &TrendingHashtagWindows{
 		Last24h: top24h,
 		Last7d:  top7d,
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) getTopLanguages(ctx context.Context, minCreatedAt int64, limit int) ([]LanguageSummary, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			COALESCE(primary_language, 'und') AS language,
+			COUNT(*)::bigint AS count_value
+		FROM note_discovery_stats
+		WHERE created_at >= $1
+		GROUP BY COALESCE(primary_language, 'und')
+		ORDER BY count_value DESC, language ASC
+		LIMIT $2
+	`, minCreatedAt, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get top languages: %w", err)
+	}
+	defer rows.Close()
+	out := make([]LanguageSummary, 0, limit)
+	for rows.Next() {
+		var row LanguageSummary
+		if err := rows.Scan(&row.Language, &row.Count); err != nil {
+			return nil, fmt.Errorf("scan top language row: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read top language rows: %w", err)
 	}
 	return out, nil
 }

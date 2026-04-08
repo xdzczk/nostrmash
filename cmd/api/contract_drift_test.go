@@ -73,9 +73,17 @@ components:
 func TestContractOwnedRoutes_DeclareDiscoveryNamespace(t *testing.T) {
 	required := []string{
 		"GET /api/v1/discovery/notes/trending",
+		"GET /api/v1/discovery/conversations/hot",
+		"GET /api/v1/discovery/home",
 		"GET /api/v1/discovery/profiles/trending",
 		"GET /api/v1/discovery/profiles/rising",
 		"GET /api/v1/discovery/hashtags/trending",
+		"GET /api/v1/discovery/hashtags/{hashtag}",
+		"GET /api/v1/discovery/hashtags/{hashtag}/notes",
+		"GET /api/v1/discovery/hashtags/{hashtag}/related",
+		"GET /api/v1/discovery/domains/trending",
+		"GET /api/v1/discovery/domains/{domain}",
+		"GET /api/v1/discovery/domains/{domain}/notes",
 		"GET /api/v1/discovery/stats/network",
 		"GET /api/v1/discovery/stats/content",
 		"GET /api/v1/discovery/stats/relays",
@@ -93,6 +101,73 @@ func TestContractOwnedRoutes_DeclareDiscoveryNamespace(t *testing.T) {
 		}
 		if !owns {
 			t.Fatalf("required discovery route must own contract: %s", pattern)
+		}
+	}
+}
+
+func TestContractOwnedRoutes_DeclareNotePageNamespace(t *testing.T) {
+	required := []string{
+		"GET /api/v1/notes/{event_id}/summary",
+		"GET /api/v1/notes/{event_id}/related",
+	}
+	ownsByPattern := make(map[string]bool)
+	for _, def := range contractOwnedRoutes() {
+		ownsByPattern[strings.TrimSpace(def.Pattern)] = def.OwnsContract
+	}
+	for _, pattern := range required {
+		owns, ok := ownsByPattern[pattern]
+		if !ok {
+			t.Fatalf("missing required note route declaration: %s", pattern)
+		}
+		if !owns {
+			t.Fatalf("required note route must own contract: %s", pattern)
+		}
+	}
+}
+
+func TestContractOwnedRoutes_DeclareThreadNamespace(t *testing.T) {
+	required := []string{
+		"GET /api/v1/threads/{eventId}",
+		"GET /api/v1/threads/{root_event_id}/summary",
+		"GET /api/v1/threads/{root_event_id}/activity",
+	}
+	ownsByPattern := make(map[string]bool)
+	for _, def := range contractOwnedRoutes() {
+		ownsByPattern[strings.TrimSpace(def.Pattern)] = def.OwnsContract
+	}
+	for _, pattern := range required {
+		owns, ok := ownsByPattern[pattern]
+		if !ok {
+			t.Fatalf("missing required thread route declaration: %s", pattern)
+		}
+		if !owns {
+			t.Fatalf("required thread route must own contract: %s", pattern)
+		}
+	}
+}
+
+func TestContractOwnedRoutes_DeclareAuthorAnalyticsNamespace(t *testing.T) {
+	required := []string{
+		"GET /api/v1/authors/{pubkey}/analytics/summary",
+		"GET /api/v1/authors/{pubkey}/analytics/topics",
+		"GET /api/v1/authors/{pubkey}/analytics/media-mix",
+		"GET /api/v1/authors/{pubkey}/analytics/activity-windows",
+		"GET /api/v1/authors/{pubkey}/analytics/posting-patterns",
+		"GET /api/v1/authors/{pubkey}/analytics/top-notes",
+		"GET /api/v1/authors/{pubkey}/analytics/performance-summary",
+		"GET /api/v1/authors/{pubkey}/analytics/recycle-candidates",
+	}
+	ownsByPattern := make(map[string]bool)
+	for _, def := range contractOwnedRoutes() {
+		ownsByPattern[strings.TrimSpace(def.Pattern)] = def.OwnsContract
+	}
+	for _, pattern := range required {
+		owns, ok := ownsByPattern[pattern]
+		if !ok {
+			t.Fatalf("missing required author analytics route declaration: %s", pattern)
+		}
+		if !owns {
+			t.Fatalf("required author analytics route must own contract: %s", pattern)
 		}
 	}
 }

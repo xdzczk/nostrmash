@@ -132,6 +132,42 @@ func TestWithHTTPRateLimit_ExemptsHealthAndLimitsSearch(t *testing.T) {
 	}
 }
 
+func TestWithHTTPRateLimit_ClassifiedPublicBuckets(t *testing.T) {
+	limited := WithHTTPRateLimit(HTTPRateLimitOptions{
+		DefaultRPM:     100,
+		DefaultBurst:   1,
+		SearchRPM:      100,
+		DiscoveryRPM:   1,
+		SuggestRPM:     1,
+		PublicStatsRPM: 1,
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	ip := "127.0.0.1:5555"
+	for _, path := range []string{
+		"/api/v1/discovery/notes/trending",
+		"/api/v1/search/suggest?q=nost",
+		"/api/v1/discovery/stats/network",
+	} {
+		first := httptest.NewRequest(http.MethodGet, path, nil)
+		first.RemoteAddr = ip
+		firstRec := httptest.NewRecorder()
+		limited.ServeHTTP(firstRec, first)
+		if firstRec.Code != http.StatusNoContent {
+			t.Fatalf("unexpected first status for %s: got %d want %d", path, firstRec.Code, http.StatusNoContent)
+		}
+
+		second := httptest.NewRequest(http.MethodGet, path, nil)
+		second.RemoteAddr = ip
+		secondRec := httptest.NewRecorder()
+		limited.ServeHTTP(secondRec, second)
+		if secondRec.Code != http.StatusTooManyRequests {
+			t.Fatalf("unexpected second status for %s: got %d want %d", path, secondRec.Code, http.StatusTooManyRequests)
+		}
+	}
+}
+
 func TestWithHTTPRateLimit_ConcurrentRequestsShareBucket(t *testing.T) {
 	limited := WithHTTPRateLimit(HTTPRateLimitOptions{
 		DefaultRPM:   1,
@@ -172,6 +208,51 @@ func TestWithHTTPRateLimit_ConcurrentRequestsShareBucket(t *testing.T) {
 	}
 	if denied < 1 {
 		t.Fatalf("expected at least one denied request, got %d", denied)
+	}
+}
+
+func TestWithPublicRequestGuards_RejectsInvalidAndHighCostParams(t *testing.T) {
+	guarded := WithPublicRequestGuards(PublicRequestGuardOptions{
+		MaxResultLimit:          20,
+		MaxPageSize:             20,
+		MaxPageOffset:           200,
+		MaxSearchWindowHours:    24,
+		MaxDiscoveryWindowHours: 7 * 24,
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for _, path := range []string{
+		"/api/v1/search/notes?q=nostr&limit=21",
+		"/api/v1/search/notes?q=nostr&window=7d",
+		"/api/v1/discovery/hashtags/trending?offset=201",
+		"/api/v1/discovery/hashtags/nostr/notes?window=all",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		guarded.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("unexpected guard status for %s: got %d want %d", path, rec.Code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestWithPublicRequestGuards_DoesNotAffectAdminPaths(t *testing.T) {
+	guarded := WithPublicRequestGuards(PublicRequestGuardOptions{
+		MaxResultLimit:          1,
+		MaxPageSize:             1,
+		MaxPageOffset:           1,
+		MaxSearchWindowHours:    1,
+		MaxDiscoveryWindowHours: 1,
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/v1/jobs?limit=9999&window=all&offset=9999", nil)
+	rec := httptest.NewRecorder()
+	guarded.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("unexpected admin status: got %d want %d", rec.Code, http.StatusNoContent)
 	}
 }
 

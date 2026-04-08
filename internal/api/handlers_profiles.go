@@ -55,6 +55,34 @@ func (h Handlers) GetProfileByPubkey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h Handlers) GetProfileTopics(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	window := strings.TrimSpace(r.URL.Query().Get("window"))
+	items, windowDays, err := h.service.GetAuthorTopicStats(r.Context(), pubkey, window, limit)
+	if err != nil {
+		if strings.Contains(err.Error(), "window must be one of") {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey": pubkey,
+		"window": formatWindowDays(windowDays),
+		"items":  items,
+	})
+}
+
 type batchProfilesRequest struct {
 	Pubkeys []string `json:"pubkeys"`
 }

@@ -32,8 +32,48 @@ type trendingHashtagsCapability interface {
 	GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingHashtag, error)
 }
 
+type hashtagSummaryCapability interface {
+	GetHashtagSummary(ctx context.Context, hashtag string) (HashtagSummary, error)
+}
+
+type hashtagNotesCapability interface {
+	GetHashtagNotes(ctx context.Context, hashtag string, sort string, window string, limit int, offset int) ([]TrendingNote, error)
+}
+
+type relatedHashtagsCapability interface {
+	GetRelatedHashtags(ctx context.Context, hashtag string, limit int) ([]RelatedHashtag, error)
+}
+
+type eventLinkedDomainsCapability interface {
+	GetEventLinkedDomains(ctx context.Context, eventID string, limit int) ([]EventDomainLink, error)
+}
+
+type topDomainsCapability interface {
+	GetTopDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]DomainStat, error)
+}
+
+type topDomainsByAuthorCapability interface {
+	GetTopDomainsByAuthor(ctx context.Context, pubkey string, window time.Duration, limit int, offset int) ([]DomainStat, error)
+}
+
+type trendingDomainsCapability interface {
+	GetTrendingDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]DomainSummary, error)
+}
+
+type domainSummaryCapability interface {
+	GetDomainSummary(ctx context.Context, domain string, recentLimit int, topLimit int) (DomainSummary, error)
+}
+
+type domainNotesCapability interface {
+	GetDomainNotes(ctx context.Context, domain string, sort string, window string, limit int, offset int) ([]TrendingNote, error)
+}
+
 type trendingNotesCapability interface {
 	GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error)
+}
+
+type hotConversationsCapability interface {
+	GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]HotConversation, error)
 }
 
 type trustQualifiedTrendingNotesCapability interface {
@@ -110,10 +150,60 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	} else if legacy, ok := reader.(legacyTrendingHashtagsCapability); ok {
 		caps.curated.trendingHashtags = legacyTrendingHashtagsAdapter{legacy: legacy}
 	}
+	if r, ok := reader.(hashtagSummaryCapability); ok {
+		caps.curated.hashtagSummary = r
+	} else if legacy, ok := reader.(legacyHashtagSummaryCapability); ok {
+		caps.curated.hashtagSummary = legacyHashtagSummaryAdapter{legacy: legacy}
+	}
+	if r, ok := reader.(hashtagNotesCapability); ok {
+		caps.curated.hashtagNotes = r
+	} else if legacy, ok := reader.(legacyHashtagNotesCapability); ok {
+		caps.curated.hashtagNotes = legacyHashtagNotesAdapter{legacy: legacy}
+	}
+	if r, ok := reader.(relatedHashtagsCapability); ok {
+		caps.curated.relatedHashtags = r
+	} else if legacy, ok := reader.(legacyRelatedHashtagsCapability); ok {
+		caps.curated.relatedHashtags = legacyRelatedHashtagsAdapter{legacy: legacy}
+	}
+	if r, ok := reader.(eventLinkedDomainsCapability); ok {
+		caps.curated.eventLinkedDomains = r
+	} else if legacy, ok := reader.(legacyEventLinkedDomainsCapability); ok {
+		caps.curated.eventLinkedDomains = legacyEventLinkedDomainsAdapter{legacy: legacy}
+	}
+	if r, ok := reader.(topDomainsCapability); ok {
+		caps.curated.topDomains = r
+	} else if legacy, ok := reader.(legacyTopDomainsCapability); ok {
+		caps.curated.topDomains = legacyTopDomainsAdapter{legacy: legacy}
+	}
+	if r, ok := reader.(topDomainsByAuthorCapability); ok {
+		caps.curated.topDomainsByAuthor = r
+	} else if legacy, ok := reader.(legacyTopDomainsByAuthorCapability); ok {
+		caps.curated.topDomainsByAuthor = legacyTopDomainsByAuthorAdapter{legacy: legacy}
+	}
+	if r, ok := reader.(trendingDomainsCapability); ok {
+		caps.curated.trendingDomains = r
+	} else if legacy, ok := reader.(legacyTrendingDomainsCapability); ok {
+		caps.curated.trendingDomains = legacyTrendingDomainsAdapter{legacy: legacy}
+	}
+	if r, ok := reader.(domainSummaryCapability); ok {
+		caps.curated.domainSummary = r
+	} else if legacy, ok := reader.(legacyDomainSummaryCapability); ok {
+		caps.curated.domainSummary = legacyDomainSummaryAdapter{legacy: legacy}
+	}
+	if r, ok := reader.(domainNotesCapability); ok {
+		caps.curated.domainNotes = r
+	} else if legacy, ok := reader.(legacyDomainNotesCapability); ok {
+		caps.curated.domainNotes = legacyDomainNotesAdapter{legacy: legacy}
+	}
 	if r, ok := reader.(trendingNotesCapability); ok {
 		caps.curated.trendingNotes = r
 	} else if legacy, ok := reader.(legacyTrendingNotesCapability); ok {
 		caps.curated.trendingNotes = legacyTrendingNotesAdapter{legacy: legacy}
+	}
+	if r, ok := reader.(hotConversationsCapability); ok {
+		caps.curated.hotConversations = r
+	} else if legacy, ok := reader.(legacyHotConversationsCapability); ok {
+		caps.curated.hotConversations = legacyHotConversationsAdapter{legacy: legacy}
 	}
 	if r, ok := reader.(trustQualifiedTrendingNotesCapability); ok {
 		caps.curated.trustQualifiedNotes = r
@@ -268,8 +358,223 @@ func (a legacyTrendingHashtagsAdapter) GetTrendingHashtags(
 	return out, nil
 }
 
+type legacyHashtagSummaryCapability interface {
+	GetHashtagSummary(ctx context.Context, hashtag string) (store.HashtagSummary, error)
+}
+
+type legacyHashtagSummaryAdapter struct {
+	legacy legacyHashtagSummaryCapability
+}
+
+func (a legacyHashtagSummaryAdapter) GetHashtagSummary(ctx context.Context, hashtag string) (HashtagSummary, error) {
+	row, err := a.legacy.GetHashtagSummary(ctx, hashtag)
+	if err != nil {
+		return HashtagSummary{}, err
+	}
+	return hashtagSummaryFromStore(row), nil
+}
+
+type legacyHashtagNotesCapability interface {
+	GetHashtagNotes(ctx context.Context, hashtag string, sort string, window string, limit int, offset int) ([]store.TrendingNote, error)
+}
+
+type legacyHashtagNotesAdapter struct {
+	legacy legacyHashtagNotesCapability
+}
+
+func (a legacyHashtagNotesAdapter) GetHashtagNotes(
+	ctx context.Context,
+	hashtag string,
+	sort string,
+	window string,
+	limit int,
+	offset int,
+) ([]TrendingNote, error) {
+	rows, err := a.legacy.GetHashtagNotes(ctx, hashtag, sort, window, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TrendingNote, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, trendingNoteFromStore(row))
+	}
+	return out, nil
+}
+
+type legacyRelatedHashtagsCapability interface {
+	GetRelatedHashtags(ctx context.Context, hashtag string, limit int) ([]store.RelatedHashtag, error)
+}
+
+type legacyEventLinkedDomainsCapability interface {
+	GetEventLinkedDomains(ctx context.Context, eventID string, limit int) ([]store.EventDomainLinkProjection, error)
+}
+
+type legacyTopDomainsCapability interface {
+	GetTopDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]store.DomainStatProjection, error)
+}
+
+type legacyTopDomainsByAuthorCapability interface {
+	GetTopDomainsByAuthor(ctx context.Context, pubkey string, window time.Duration, limit int, offset int) ([]store.DomainStatProjection, error)
+}
+
+type legacyTrendingDomainsCapability interface {
+	GetTrendingDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]store.DomainSummaryProjection, error)
+}
+
+type legacyDomainSummaryCapability interface {
+	GetDomainSummary(ctx context.Context, domain string, recentLimit int, topLimit int) (store.DomainSummaryProjection, error)
+}
+
+type legacyDomainNotesCapability interface {
+	GetDomainNotes(ctx context.Context, domain string, sort string, window string, limit int, offset int) ([]store.TrendingNote, error)
+}
+
+type legacyRelatedHashtagsAdapter struct {
+	legacy legacyRelatedHashtagsCapability
+}
+
+func (a legacyRelatedHashtagsAdapter) GetRelatedHashtags(ctx context.Context, hashtag string, limit int) ([]RelatedHashtag, error) {
+	rows, err := a.legacy.GetRelatedHashtags(ctx, hashtag, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RelatedHashtag, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, relatedHashtagFromStore(row))
+	}
+	return out, nil
+}
+
+type legacyEventLinkedDomainsAdapter struct {
+	legacy legacyEventLinkedDomainsCapability
+}
+
+func (a legacyEventLinkedDomainsAdapter) GetEventLinkedDomains(
+	ctx context.Context,
+	eventID string,
+	limit int,
+) ([]EventDomainLink, error) {
+	rows, err := a.legacy.GetEventLinkedDomains(ctx, eventID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EventDomainLink, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, eventDomainLinkFromStore(row))
+	}
+	return out, nil
+}
+
+type legacyTopDomainsAdapter struct {
+	legacy legacyTopDomainsCapability
+}
+
+func (a legacyTopDomainsAdapter) GetTopDomains(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]DomainStat, error) {
+	rows, err := a.legacy.GetTopDomains(ctx, window, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DomainStat, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domainStatFromStore(row))
+	}
+	return out, nil
+}
+
+type legacyTopDomainsByAuthorAdapter struct {
+	legacy legacyTopDomainsByAuthorCapability
+}
+
+func (a legacyTopDomainsByAuthorAdapter) GetTopDomainsByAuthor(
+	ctx context.Context,
+	pubkey string,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]DomainStat, error) {
+	rows, err := a.legacy.GetTopDomainsByAuthor(ctx, pubkey, window, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DomainStat, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domainStatFromStore(row))
+	}
+	return out, nil
+}
+
+type legacyTrendingDomainsAdapter struct {
+	legacy legacyTrendingDomainsCapability
+}
+
+func (a legacyTrendingDomainsAdapter) GetTrendingDomains(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]DomainSummary, error) {
+	rows, err := a.legacy.GetTrendingDomains(ctx, window, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DomainSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domainSummaryFromStore(row))
+	}
+	return out, nil
+}
+
+type legacyDomainSummaryAdapter struct {
+	legacy legacyDomainSummaryCapability
+}
+
+func (a legacyDomainSummaryAdapter) GetDomainSummary(
+	ctx context.Context,
+	domain string,
+	recentLimit int,
+	topLimit int,
+) (DomainSummary, error) {
+	row, err := a.legacy.GetDomainSummary(ctx, domain, recentLimit, topLimit)
+	if err != nil {
+		return DomainSummary{}, err
+	}
+	return domainSummaryFromStore(row), nil
+}
+
+type legacyDomainNotesAdapter struct {
+	legacy legacyDomainNotesCapability
+}
+
+func (a legacyDomainNotesAdapter) GetDomainNotes(
+	ctx context.Context,
+	domain string,
+	sort string,
+	window string,
+	limit int,
+	offset int,
+) ([]TrendingNote, error) {
+	rows, err := a.legacy.GetDomainNotes(ctx, domain, sort, window, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TrendingNote, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, trendingNoteFromStore(row))
+	}
+	return out, nil
+}
+
 type legacyTrendingNotesCapability interface {
 	GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingNote, error)
+}
+
+type legacyHotConversationsCapability interface {
+	GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]store.HotConversation, error)
 }
 
 type legacyTrustQualifiedTrendingNotesCapability interface {
@@ -288,6 +593,10 @@ type legacyTrendingNotesAdapter struct {
 	legacy legacyTrendingNotesCapability
 }
 
+type legacyHotConversationsAdapter struct {
+	legacy legacyHotConversationsCapability
+}
+
 func (a legacyTrendingNotesAdapter) GetTrendingNotes(
 	ctx context.Context,
 	window time.Duration,
@@ -301,6 +610,23 @@ func (a legacyTrendingNotesAdapter) GetTrendingNotes(
 	out := make([]TrendingNote, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, trendingNoteFromStore(row))
+	}
+	return out, nil
+}
+
+func (a legacyHotConversationsAdapter) GetHotConversations(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]HotConversation, error) {
+	rows, err := a.legacy.GetHotConversations(ctx, window, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]HotConversation, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, hotConversationFromStore(row))
 	}
 	return out, nil
 }

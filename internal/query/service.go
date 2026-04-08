@@ -20,6 +20,30 @@ type Reader interface {
 	GetProfileByPubkey(ctx context.Context, pubkey string) (Profile, error)
 	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error)
 	GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (ProfilePublicStats, error)
+	GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) (AuthorAnalyticsSummary, error)
+	GetAuthorQuoteRepostRecentActivity(ctx context.Context, pubkey string, limit int) ([]QuoteRepostActivity, error)
+	GetAuthorTopicStats(ctx context.Context, pubkey string, windowDays int, limit int) ([]AuthorTopicStat, error)
+	GetAuthorTopLanguages(ctx context.Context, pubkey string, windowDays int, limit int) ([]LanguageSummary, error)
+	GetAuthorMediaMixStats(ctx context.Context, pubkey string, windowDays int) (AuthorAnalyticsMediaMix, error)
+	GetAuthorActivityWindows(ctx context.Context, pubkey string, windowDays int) (AuthorActivityWindows, error)
+	GetAuthorPostingPatterns(ctx context.Context, pubkey string, windowDays int) (AuthorPostingPatterns, error)
+	GetAuthorTopNotes(ctx context.Context, pubkey string, windowDays int, limit int) ([]AuthorTopNote, error)
+	GetAuthorRecycleCandidates(
+		ctx context.Context,
+		pubkey string,
+		windowDays int,
+		minAgeDays int,
+		minPerformancePercentile float64,
+		includeReplies bool,
+		excludeRecentlyReposted bool,
+		recentRepostWindowDays int,
+		limit int,
+	) ([]AuthorRecycleCandidate, error)
+	GetAuthorPerformanceSummary(
+		ctx context.Context,
+		pubkey string,
+		windowDays int,
+	) (AuthorPerformanceSummary, error)
 	GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
 	GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
 	GetEventCounts(ctx context.Context, eventID string) (EventCounts, error)
@@ -209,6 +233,8 @@ var (
 	// ErrUnsupportedCapability marks optional reader capabilities that are absent.
 	// Query methods should wrap this sentinel with stable context.
 	ErrUnsupportedCapability = errors.New("unsupported capability")
+	ErrInvalidHashtag        = errors.New("invalid hashtag")
+	ErrInvalidDomain         = errors.New("invalid domain")
 )
 
 func normalizeUniqueStrings(values []string) []string {

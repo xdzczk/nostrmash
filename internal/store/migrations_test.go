@@ -23,7 +23,13 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 	}
 
 	expectedTables := []string{
+		"author_activity_daily",
+		"author_activity_windows",
+		"author_engagement_stats",
 		"author_recent_events",
+		"author_media_mix_stats",
+		"author_posting_patterns",
+		"author_topic_stats",
 		"contact_lists_latest",
 		"curated_creator_paid_tiers",
 		"curated_featured_authors",
@@ -36,6 +42,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"dm_read_cursors",
 		"event_references",
 		"event_hashtags",
+		"event_urls",
 		"events",
 		"event_relays",
 		"event_tags",
@@ -62,6 +69,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"replaceable_state",
 		"schema_migrations_audit",
 		"thread_edges",
+		"thread_summaries",
 		"trust_runs",
 		"trust_relay_suggestions",
 		"trust_graph_snapshot",

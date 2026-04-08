@@ -49,6 +49,31 @@ type EventCounts struct {
 	Consistency   string
 }
 
+type ThreadSummaryProjection struct {
+	RootEventID      string
+	ReplyCount       int64
+	ParticipantCount int
+	MaxDepth         int
+	LastActivityAt   int64
+	Replies24h       int64
+	Replies7d        int64
+	Consistency      string
+}
+
+type HotConversation struct {
+	RootEventID      string
+	AuthorPubkey     string
+	CreatedAt        int64
+	Content          string
+	ReplyCount       int64
+	ParticipantCount int
+	LastActivityAt   int64
+	Replies24h       int64
+	Replies7d        int64
+	VelocityScore    float64
+	Consistency      string
+}
+
 type EventWithProvenance struct {
 	Event  json.RawMessage
 	Relays []model.EventRelay
@@ -57,6 +82,179 @@ type EventWithProvenance struct {
 type EventOrderCursor struct {
 	CreatedAt int64
 	ID        string
+}
+
+type AuthorAnalyticsSummaryProjection struct {
+	Pubkey                   string
+	WindowDays               int
+	PostCount                int64
+	NoteCount                int64
+	ReplyCount               int64
+	ActiveDays               int
+	EngagementReceived       int64
+	EngagementGiven          int64
+	CadencePostsPerDay       float64
+	CadencePostsPerActiveDay float64
+	RecentActivityAt         *int64
+	MediaMix                 AuthorMediaMixStatsProjection
+	QuoteRepost              AuthorQuoteRepostWindowProjection
+}
+
+type AuthorQuoteRepostWindowProjection struct {
+	QuotesMade      int64
+	RepostsMade     int64
+	QuotesReceived  int64
+	RepostsReceived int64
+}
+
+type QuoteRepostLinkedNoteProjection struct {
+	EventID      string
+	AuthorPubkey string
+	CreatedAt    int64
+	Content      string
+}
+
+type QuoteRepostActivityProjection struct {
+	EventID     string
+	ActorPubkey string
+	CreatedAt   int64
+	Action      string
+	Quote       string
+	LinkedNote  QuoteRepostLinkedNoteProjection
+}
+
+type NoteQuoteRepostLinkageProjection struct {
+	EventID        string
+	QuoteCount     int64
+	RepostCount    int64
+	RecentActivity []QuoteRepostActivityProjection
+}
+
+type AuthorTopicStatsProjection struct {
+	Pubkey     string
+	WindowDays int
+	Hashtag    string
+	UsageCount int64
+	ActiveDays int
+}
+
+type EventDomainLinkProjection struct {
+	EventID string
+	URL     string
+	Domain  string
+}
+
+type DomainStatProjection struct {
+	Domain        string
+	LinkCount     int64
+	NoteCount     int64
+	UniqueAuthors int64
+}
+
+type DomainActivityProjection struct {
+	LinkCount     int64
+	NoteCount     int64
+	UniqueAuthors int64
+}
+
+type DomainActivityStatsProjection struct {
+	Last24h DomainActivityProjection
+	Last7d  DomainActivityProjection
+	Last30d DomainActivityProjection
+	All     DomainActivityProjection
+}
+
+type DomainSummaryProjection struct {
+	Domain        string
+	LatestEventAt *int64
+	Activity      DomainActivityStatsProjection
+	RecentNotes   []TrendingNote
+	TopNotes      []TrendingNote
+}
+
+type AuthorMediaMixStatsProjection struct {
+	Pubkey               string
+	WindowDays           int
+	TotalPosts           int64
+	WithImageCount       int64
+	WithVideoCount       int64
+	WithLinkCount        int64
+	WithArticleCount     int64
+	TextOnlyCount        int64
+	TotalAttachmentCount int64
+}
+
+type AuthorActivityWindowBucketProjection struct {
+	Pubkey             string
+	WindowDays         int
+	DayOfWeek          int
+	HourOfDay          int
+	EngagementReceived int64
+	ReplyReceived      int64
+	ReactionReceived   int64
+	RepostReceived     int64
+	ZapReceived        int64
+}
+
+type AuthorPostingPatternBucketProjection struct {
+	Pubkey     string
+	WindowDays int
+	DayOfWeek  int
+	HourOfDay  int
+	PostCount  int64
+	NoteCount  int64
+	ReplyCount int64
+}
+
+type AuthorTopNoteProjection struct {
+	EventID             string
+	CreatedAt           int64
+	Content             string
+	ReplyCount          int64
+	ReactionCount       int64
+	RepostCount         int64
+	ZapCount            int64
+	ZapMSats            int64
+	WeightedEngagement  float64
+	MediaSegment        string
+	PrimaryTopicHashtag *string
+}
+
+type AuthorRecycleCandidateProjection struct {
+	EventID               string
+	CreatedAt             int64
+	Content               string
+	ReplyCount            int64
+	ReactionCount         int64
+	RepostCount           int64
+	ZapCount              int64
+	ZapMSats              int64
+	WeightedEngagement    float64
+	PerformancePercentile float64
+	HasRecentRepostMarker bool
+	IsReply               bool
+	MediaSegment          string
+	PrimaryTopicHashtag   *string
+}
+
+type AuthorPerformanceAggregateProjection struct {
+	NoteCount                 int64
+	TotalWeightedEngagement   float64
+	AverageWeightedEngagement float64
+	MedianWeightedEngagement  float64
+	TotalReplyCount           int64
+	TotalReactionCount        int64
+	TotalRepostCount          int64
+	TotalZapCount             int64
+	TotalZapMSats             int64
+	AverageReplyCount         float64
+	AverageReactionCount      float64
+	AverageRepostCount        float64
+	AverageZapCount           float64
+	MedianReplyCount          float64
+	MedianReactionCount       float64
+	MedianRepostCount         float64
+	MedianZapCount            float64
 }
 
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {

@@ -179,6 +179,7 @@ type notesSearchReader interface {
 		query string,
 		sort string,
 		window *time.Duration,
+		language string,
 		limit int,
 		offset int,
 	) ([]json.RawMessage, error)
@@ -228,7 +229,29 @@ func normalizeNotesSearchParams(params NotesSearchParams) (NotesSearchParams, er
 		return NotesSearchParams{}, fmt.Errorf("sort must be one of: relevant, latest")
 	}
 	params.Sort = sort
+	lang := strings.ToLower(strings.TrimSpace(params.Language))
+	if lang != "" {
+		if !isValidLanguageToken(lang) {
+			return NotesSearchParams{}, fmt.Errorf("language must be \"und\" or a 2-8 letter code")
+		}
+	}
+	params.Language = lang
 	return params, nil
+}
+
+func isValidLanguageToken(value string) bool {
+	if value == "und" {
+		return true
+	}
+	if len(value) < 2 || len(value) > 8 {
+		return false
+	}
+	for _, r := range value {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeSuggestionParams(query string, limit int) (suggestionParams, error) {

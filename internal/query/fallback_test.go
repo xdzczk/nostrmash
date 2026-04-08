@@ -666,6 +666,46 @@ func (f fakeReader) GetProfilePublicStatsByPubkey(ctx context.Context, pubkey st
 	return ProfilePublicStats{Pubkey: pubkey}, nil
 }
 
+func (f fakeReader) GetAuthorAnalyticsSummary(context.Context, string) (AuthorAnalyticsSummary, error) {
+	return AuthorAnalyticsSummary{Windows: []AuthorAnalyticsWindowSummary{}}, nil
+}
+
+func (f fakeReader) GetAuthorQuoteRepostRecentActivity(context.Context, string, int) ([]QuoteRepostActivity, error) {
+	return []QuoteRepostActivity{}, nil
+}
+
+func (f fakeReader) GetAuthorTopicStats(context.Context, string, int, int) ([]AuthorTopicStat, error) {
+	return []AuthorTopicStat{}, nil
+}
+
+func (f fakeReader) GetAuthorTopLanguages(context.Context, string, int, int) ([]LanguageSummary, error) {
+	return []LanguageSummary{}, nil
+}
+
+func (f fakeReader) GetAuthorMediaMixStats(context.Context, string, int) (AuthorAnalyticsMediaMix, error) {
+	return AuthorAnalyticsMediaMix{}, nil
+}
+
+func (f fakeReader) GetAuthorActivityWindows(context.Context, string, int) (AuthorActivityWindows, error) {
+	return AuthorActivityWindows{Timezone: "UTC"}, nil
+}
+
+func (f fakeReader) GetAuthorPostingPatterns(context.Context, string, int) (AuthorPostingPatterns, error) {
+	return AuthorPostingPatterns{Timezone: "UTC"}, nil
+}
+
+func (f fakeReader) GetAuthorTopNotes(context.Context, string, int, int) ([]AuthorTopNote, error) {
+	return []AuthorTopNote{}, nil
+}
+
+func (f fakeReader) GetAuthorRecycleCandidates(context.Context, string, int, int, float64, bool, bool, int, int) ([]AuthorRecycleCandidate, error) {
+	return []AuthorRecycleCandidate{}, nil
+}
+
+func (f fakeReader) GetAuthorPerformanceSummary(context.Context, string, int) (AuthorPerformanceSummary, error) {
+	return AuthorPerformanceSummary{}, nil
+}
+
 func (f fakeReader) GetAuthorRecentEvents(context.Context, string, int) ([]json.RawMessage, error) {
 	return []json.RawMessage{}, nil
 }

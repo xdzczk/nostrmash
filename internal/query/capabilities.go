@@ -8,6 +8,8 @@ type serviceCapabilities struct {
 	replaceable replaceableCapabilities
 	social      socialCapabilities
 	event       eventCapabilities
+	thread      threadCapabilities
+	notePage    notePageCapabilities
 }
 
 type dmCapabilities struct {
@@ -34,8 +36,18 @@ type curatedCapabilities struct {
 	recommendedReads       curatedRecommendedReadsCapability
 	readsTopics            curatedReadsTopicsCapability
 	trendingNotes          trendingNotesCapability
+	hotConversations       hotConversationsCapability
 	trustQualifiedNotes    trustQualifiedTrendingNotesCapability
 	trendingHashtags       trendingHashtagsCapability
+	hashtagSummary         hashtagSummaryCapability
+	hashtagNotes           hashtagNotesCapability
+	relatedHashtags        relatedHashtagsCapability
+	eventLinkedDomains     eventLinkedDomainsCapability
+	topDomains             topDomainsCapability
+	topDomainsByAuthor     topDomainsByAuthorCapability
+	trendingDomains        trendingDomainsCapability
+	domainSummary          domainSummaryCapability
+	domainNotes            domainNotesCapability
 	trendingProfiles       trendingProfilesCapability
 	trustQualifiedProfiles trustQualifiedTrendingProfilesCapability
 	risingProfiles         risingProfilesCapability
@@ -72,6 +84,17 @@ type eventCapabilities struct {
 	eventZapsBySats     eventZapsBySatsCapability
 }
 
+type threadCapabilities struct {
+	summary threadSummaryCapability
+}
+
+type notePageCapabilities struct {
+	noteStats            noteStatsCapability
+	conversationVelocity noteConversationVelocityCapability
+	relatedNotes         relatedNotesCapability
+	quoteRepostLinkage   noteQuoteRepostLinkageCapability
+}
+
 func adaptServiceCapabilities(reader any) serviceCapabilities {
 	caps := serviceCapabilities{}
 	adaptDMCapabilities(reader, &caps)
@@ -81,5 +104,7 @@ func adaptServiceCapabilities(reader any) serviceCapabilities {
 	adaptReplaceableCapabilities(reader, &caps)
 	adaptSocialCapabilities(reader, &caps)
 	adaptEventCapabilities(reader, &caps)
+	adaptThreadCapabilities(reader, &caps)
+	adaptNotePageCapabilities(reader, &caps)
 	return caps
 }

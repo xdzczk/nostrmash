@@ -33,6 +33,7 @@ var (
 	lookupLocalTotal                 *prometheus.CounterVec
 	lookupFallbackTotal              *prometheus.CounterVec
 	lookupFallbackLatency            *prometheus.HistogramVec
+	publicResponseCacheLookupsTotal  *prometheus.CounterVec
 )
 
 func Handler() http.Handler {
@@ -171,6 +172,13 @@ func registerCoreMetrics() {
 		},
 		[]string{"entity"},
 	)
+	publicResponseCacheLookupsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_public_response_cache_lookups_total",
+			Help: "Public endpoint response cache lookups by family, endpoint, and result.",
+		},
+		[]string{"family", "endpoint", "result"},
+	)
 
 	registry.MustRegister(
 		apiRequestsTotal,
@@ -188,6 +196,7 @@ func registerCoreMetrics() {
 		lookupLocalTotal,
 		lookupFallbackTotal,
 		lookupFallbackLatency,
+		publicResponseCacheLookupsTotal,
 	)
 }
 
@@ -289,4 +298,13 @@ func IncLookupFallbackFailure(entity string) {
 func ObserveLookupFallbackLatency(entity string, d time.Duration) {
 	ensureRegistered()
 	lookupFallbackLatency.WithLabelValues(entity).Observe(d.Seconds())
+}
+
+func ObservePublicResponseCacheLookup(family, endpoint string, hit bool) {
+	ensureRegistered()
+	result := "miss"
+	if hit {
+		result = "hit"
+	}
+	publicResponseCacheLookupsTotal.WithLabelValues(family, endpoint, result).Inc()
 }

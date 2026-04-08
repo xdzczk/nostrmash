@@ -11,6 +11,11 @@ type WindowedCount struct {
 	Last7d  int64 `json:"7d"`
 }
 
+type LanguageSummary struct {
+	Language string `json:"language"`
+	Count    int64  `json:"count"`
+}
+
 type TrendingHashtagWindows struct {
 	Last24h []TrendingHashtag `json:"24h"`
 	Last7d  []TrendingHashtag `json:"7d"`
@@ -23,6 +28,8 @@ type PublicDiscoveryNetworkStats struct {
 	ActiveAuthors     WindowedCount           `json:"active_authors"`
 	NoteVolume        WindowedCount           `json:"note_volume"`
 	TopHashtags       *TrendingHashtagWindows `json:"top_hashtags,omitempty"`
+	TopLanguages24h   []LanguageSummary       `json:"top_languages_24h,omitempty"`
+	TopLanguages7d    []LanguageSummary       `json:"top_languages_7d,omitempty"`
 }
 
 type CuratedRecommendedRead struct {
@@ -48,11 +55,36 @@ type TrendingHashtag struct {
 	UniqueAuthors int64  `json:"unique_authors"`
 }
 
+type HashtagActivity struct {
+	EventCount    int64 `json:"event_count"`
+	UniqueAuthors int64 `json:"unique_authors"`
+}
+
+type HashtagActivityStats struct {
+	Last24h HashtagActivity `json:"24h"`
+	Last7d  HashtagActivity `json:"7d"`
+	Last30d HashtagActivity `json:"30d"`
+	All     HashtagActivity `json:"all"`
+}
+
+type HashtagSummary struct {
+	Hashtag       string               `json:"hashtag"`
+	LatestEventAt *int64               `json:"latest_event_at,omitempty"`
+	Activity      HashtagActivityStats `json:"activity"`
+}
+
+type RelatedHashtag struct {
+	Hashtag             string `json:"hashtag"`
+	CoOccurrenceCount   int64  `json:"co_occurrence_count"`
+	CoOccurrenceAuthors int64  `json:"co_occurrence_authors"`
+}
+
 type TrendingNote struct {
 	EventID       string `json:"event_id"`
 	AuthorPubkey  string `json:"author_pubkey"`
 	CreatedAt     int64  `json:"created_at"`
 	Content       string `json:"content"`
+	Language      string `json:"language,omitempty"`
 	ReplyCount    int64  `json:"reply_count"`
 	RepostCount   int64  `json:"repost_count"`
 	ReactionCount int64  `json:"reaction_count"`

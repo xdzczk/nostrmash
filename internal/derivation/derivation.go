@@ -43,6 +43,7 @@ const (
 	DerivationFollowerEdges           = "follower_edges"
 	DerivationRelayListsLatest        = "relay_lists_latest"
 	DerivationEventHashtags           = "event_hashtags"
+	DerivationEventURLs               = "event_urls"
 	DerivationNoteDiscoveryStats      = "note_discovery_stats"
 	DerivationProfileDiscoveryStats   = "profile_discovery_stats"
 	DerivationTrustedNoteDiscovery    = "trusted_note_discovery_candidates"
@@ -50,7 +51,14 @@ const (
 	DerivationDMUnreadCounts          = "dm_unread_counts"
 	DerivationZapReceipts             = "zap_receipts"
 	DerivationProfilePublicStats      = "profile_public_stats"
+	DerivationAuthorActivityDaily     = "author_activity_daily"
+	DerivationAuthorEngagementStats   = "author_engagement_stats"
+	DerivationAuthorTopicStats        = "author_topic_stats"
+	DerivationAuthorMediaMixStats     = "author_media_mix_stats"
+	DerivationAuthorActivityWindows   = "author_activity_windows"
+	DerivationAuthorPostingPatterns   = "author_posting_patterns"
 	DerivationThreadProjection        = "thread_projection"
+	DerivationThreadSummary           = "thread_summary"
 	DerivationTrustScoresGlobal       = "trust_scores_global"
 )
 
@@ -69,14 +77,22 @@ const (
 	FollowerEdgesVersion           = 1
 	RelayListsLatestVersion        = 1
 	EventHashtagsVersion           = 1
-	NoteDiscoveryStatsVersion      = 1
+	EventURLsVersion               = 1
+	NoteDiscoveryStatsVersion      = 3
 	ProfileDiscoveryStatsVersion   = 1
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1
 	ZapReceiptsVersion             = 1
 	ProfilePublicStatsVersion      = 1
+	AuthorActivityDailyVersion     = 1
+	AuthorEngagementStatsVersion   = 1
+	AuthorTopicStatsVersion        = 1
+	AuthorMediaMixStatsVersion     = 2
+	AuthorActivityWindowsVersion   = 1
+	AuthorPostingPatternsVersion   = 1
 	ThreadProjectionVersion        = 1
+	ThreadSummaryVersion           = 1
 	TrustScoresGlobalVersion       = 3
 )
 

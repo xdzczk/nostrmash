@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ var (
 	errInvalidNotesSearchSort    = errors.New("sort must be one of: relevant, latest")
 	errInvalidProfilesSearchSort = errors.New("sort must be one of: relevant")
 	errInvalidNotesSearchWindow  = errors.New("window must be one of: 24h, 7d")
+	errInvalidNotesSearchLang    = errors.New("lang must be \"und\" or a 2-8 letter code")
 )
 
 // Search returns a best-effort combined event/profile search.
@@ -72,12 +72,18 @@ func (h Handlers) SearchNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	language, err := parseOptionalNotesSearchLanguage(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	events, err := h.service.SearchNotes(r.Context(), query.NotesSearchParams{
-		Query:  queryText,
-		Limit:  limit,
-		Offset: offset,
-		Sort:   sort,
-		Window: window,
+		Query:    queryText,
+		Limit:    limit,
+		Offset:   offset,
+		Sort:     sort,
+		Language: language,
+		Window:   window,
 	})
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
@@ -98,6 +104,9 @@ func (h Handlers) SearchNotes(w http.ResponseWriter, r *http.Request) {
 	}
 	if windowLabel != "" {
 		response["window"] = windowLabel
+	}
+	if language != "" {
+		response["lang"] = language
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -163,8 +172,11 @@ func (h Handlers) SearchSuggest(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	cacheKey := fmt.Sprintf("search:suggest:q=%s:limit=%d", queryText, limit)
-	if h.writeDiscoveryCachedResponse(w, cacheKey) {
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilySuggestion, "search_suggest", map[string]any{
+		"q":     normalizeCacheFolded(queryText),
+		"limit": limit,
+	})
+	if h.writePublicCachedResponse(w, cachePolicy) {
 		return
 	}
 	result, err := h.service.SearchSuggestions(r.Context(), queryText, limit)
@@ -190,7 +202,7 @@ func (h Handlers) SearchSuggest(w http.ResponseWriter, r *http.Request) {
 		"hashtags":    hashtags,
 		"consistency": "eventual",
 	}
-	h.cacheDiscoveryPayload(cacheKey, payload, h.cacheConfig.TrendingTTL)
+	h.cachePublicPayload(cachePolicy, payload)
 	writeJSON(w, http.StatusOK, payload)
 }
 
@@ -237,6 +249,25 @@ func parseOptionalNotesSearchWindow(r *http.Request) (*time.Duration, string, er
 	default:
 		return nil, "", errInvalidNotesSearchWindow
 	}
+}
+
+func parseOptionalNotesSearchLanguage(r *http.Request) (string, error) {
+	lang := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("lang")))
+	if lang == "" {
+		return "", nil
+	}
+	if lang == "und" {
+		return lang, nil
+	}
+	if len(lang) < 2 || len(lang) > 8 {
+		return "", errInvalidNotesSearchLang
+	}
+	for _, ch := range lang {
+		if ch < 'a' || ch > 'z' {
+			return "", errInvalidNotesSearchLang
+		}
+	}
+	return lang, nil
 }
 
 func projectProfiles(rows []query.Profile) []profileResponse {

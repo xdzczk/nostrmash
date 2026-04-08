@@ -95,6 +95,12 @@ func TestGetPublicDiscoveryNetworkStats_ComputesWindowedCounts(t *testing.T) {
 	if len(stats.TopHashtags.Last7d) == 0 || stats.TopHashtags.Last7d[0].Hashtag != "nostr" {
 		t.Fatalf("unexpected 7d top hashtags: %#v", stats.TopHashtags.Last7d)
 	}
+	if len(stats.TopLanguages24h) == 0 || stats.TopLanguages24h[0].Language != "und" {
+		t.Fatalf("unexpected 24h top languages: %#v", stats.TopLanguages24h)
+	}
+	if len(stats.TopLanguages7d) == 0 || stats.TopLanguages7d[0].Language != "und" {
+		t.Fatalf("unexpected 7d top languages: %#v", stats.TopLanguages7d)
+	}
 }
 
 func TestGetPublicDiscoveryNetworkStats_HandlesMissingHashtagsProjection(t *testing.T) {

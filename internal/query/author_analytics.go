@@ -1,0 +1,266 @@
+package query
+
+import (
+	"context"
+	"fmt"
+	"strings"
+)
+
+var authorAnalyticsWindowByLabel = map[string]int{
+	"7d":  7,
+	"30d": 30,
+	"90d": 90,
+}
+
+var authorAnalyticsAgeByLabel = map[string]int{
+	"3d":   3,
+	"7d":   7,
+	"14d":  14,
+	"30d":  30,
+	"60d":  60,
+	"90d":  90,
+	"180d": 180,
+	"365d": 365,
+}
+
+func (s Service) GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) (AuthorAnalyticsSummary, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return AuthorAnalyticsSummary{}, fmt.Errorf("pubkey is required")
+	}
+	summary, err := s.reader.GetAuthorAnalyticsSummary(ctx, pubkey)
+	if err != nil {
+		return AuthorAnalyticsSummary{}, err
+	}
+	topLanguages, langErr := s.reader.GetAuthorTopLanguages(ctx, pubkey, 30, 8)
+	if langErr == nil {
+		summary.TopLanguages = topLanguages
+	}
+	return summary, nil
+}
+
+func (s Service) GetAuthorTopicStats(
+	ctx context.Context,
+	pubkey string,
+	window string,
+	limit int,
+) ([]AuthorTopicStat, int, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return nil, 0, fmt.Errorf("pubkey is required")
+	}
+	windowDays, err := normalizeAuthorAnalyticsWindow(window)
+	if err != nil {
+		return nil, 0, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.reader.GetAuthorTopicStats(ctx, pubkey, windowDays, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rows, windowDays, nil
+}
+
+func (s Service) GetAuthorMediaMix(
+	ctx context.Context,
+	pubkey string,
+	window string,
+) (AuthorAnalyticsMediaMix, int, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return AuthorAnalyticsMediaMix{}, 0, fmt.Errorf("pubkey is required")
+	}
+	windowDays, err := normalizeAuthorAnalyticsWindow(window)
+	if err != nil {
+		return AuthorAnalyticsMediaMix{}, 0, err
+	}
+	row, err := s.reader.GetAuthorMediaMixStats(ctx, pubkey, windowDays)
+	if err != nil {
+		return AuthorAnalyticsMediaMix{}, 0, err
+	}
+	return row, windowDays, nil
+}
+
+func (s Service) GetAuthorActivityWindows(
+	ctx context.Context,
+	pubkey string,
+	window string,
+) (AuthorActivityWindows, int, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return AuthorActivityWindows{}, 0, fmt.Errorf("pubkey is required")
+	}
+	windowDays, err := normalizeAuthorAnalyticsWindow(window)
+	if err != nil {
+		return AuthorActivityWindows{}, 0, err
+	}
+	row, err := s.reader.GetAuthorActivityWindows(ctx, pubkey, windowDays)
+	if err != nil {
+		return AuthorActivityWindows{}, 0, err
+	}
+	return row, windowDays, nil
+}
+
+func (s Service) GetAuthorPostingPatterns(
+	ctx context.Context,
+	pubkey string,
+	window string,
+) (AuthorPostingPatterns, int, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return AuthorPostingPatterns{}, 0, fmt.Errorf("pubkey is required")
+	}
+	windowDays, err := normalizeAuthorAnalyticsWindow(window)
+	if err != nil {
+		return AuthorPostingPatterns{}, 0, err
+	}
+	row, err := s.reader.GetAuthorPostingPatterns(ctx, pubkey, windowDays)
+	if err != nil {
+		return AuthorPostingPatterns{}, 0, err
+	}
+	return row, windowDays, nil
+}
+
+func (s Service) GetAuthorTopNotes(
+	ctx context.Context,
+	pubkey string,
+	window string,
+	limit int,
+) ([]AuthorTopNote, int, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return nil, 0, fmt.Errorf("pubkey is required")
+	}
+	windowDays, err := normalizeAuthorAnalyticsWindow(window)
+	if err != nil {
+		return nil, 0, err
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	rows, err := s.reader.GetAuthorTopNotes(ctx, pubkey, windowDays, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rows, windowDays, nil
+}
+
+func (s Service) GetAuthorRecycleCandidates(
+	ctx context.Context,
+	pubkey string,
+	window string,
+	minAge string,
+	limit int,
+	minPerformancePercentile float64,
+	includeReplies bool,
+) ([]AuthorRecycleCandidate, AuthorRecycleCandidateFilter, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return nil, AuthorRecycleCandidateFilter{}, fmt.Errorf("pubkey is required")
+	}
+	if strings.TrimSpace(window) == "" {
+		window = "90d"
+	}
+	windowDays, err := normalizeAuthorAnalyticsWindow(window)
+	if err != nil {
+		return nil, AuthorRecycleCandidateFilter{}, err
+	}
+	minAgeDays, minAgeLabel, err := normalizeAuthorAnalyticsAge(minAge, windowDays)
+	if err != nil {
+		return nil, AuthorRecycleCandidateFilter{}, err
+	}
+	if minAgeDays >= windowDays {
+		return nil, AuthorRecycleCandidateFilter{}, fmt.Errorf("min_age must be less than window")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if minPerformancePercentile < 0 || minPerformancePercentile > 100 {
+		return nil, AuthorRecycleCandidateFilter{}, fmt.Errorf("min_performance_percentile must be between 0 and 100")
+	}
+	recentRepostWindowDays := 30
+	rows, err := s.reader.GetAuthorRecycleCandidates(
+		ctx,
+		pubkey,
+		windowDays,
+		minAgeDays,
+		minPerformancePercentile,
+		includeReplies,
+		true,
+		recentRepostWindowDays,
+		limit,
+	)
+	if err != nil {
+		return nil, AuthorRecycleCandidateFilter{}, err
+	}
+	return rows, AuthorRecycleCandidateFilter{
+		Window:                   fmt.Sprintf("%dd", windowDays),
+		MinAge:                   minAgeLabel,
+		MinPerformancePercentile: minPerformancePercentile,
+		IncludeReplies:           includeReplies,
+		ExcludeRecentlyReposted:  true,
+		RecentRepostWindow:       fmt.Sprintf("%dd", recentRepostWindowDays),
+	}, nil
+}
+
+func (s Service) GetAuthorPerformanceSummary(
+	ctx context.Context,
+	pubkey string,
+	window string,
+) (AuthorPerformanceSummary, int, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return AuthorPerformanceSummary{}, 0, fmt.Errorf("pubkey is required")
+	}
+	windowDays, err := normalizeAuthorAnalyticsWindow(window)
+	if err != nil {
+		return AuthorPerformanceSummary{}, 0, err
+	}
+	row, err := s.reader.GetAuthorPerformanceSummary(ctx, pubkey, windowDays)
+	if err != nil {
+		return AuthorPerformanceSummary{}, 0, err
+	}
+	return row, windowDays, nil
+}
+
+func normalizeAuthorAnalyticsWindow(window string) (int, error) {
+	normalized := strings.ToLower(strings.TrimSpace(window))
+	if normalized == "" {
+		normalized = "30d"
+	}
+	windowDays, ok := authorAnalyticsWindowByLabel[normalized]
+	if !ok {
+		return 0, fmt.Errorf("window must be one of: 7d, 30d, 90d")
+	}
+	return windowDays, nil
+}
+
+func normalizeAuthorAnalyticsAge(minAge string, windowDays int) (int, string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(minAge))
+	if normalized == "" {
+		switch {
+		case windowDays <= 7:
+			normalized = "3d"
+		case windowDays <= 30:
+			normalized = "14d"
+		default:
+			normalized = "30d"
+		}
+	}
+	days, ok := authorAnalyticsAgeByLabel[normalized]
+	if !ok {
+		return 0, "", fmt.Errorf("min_age must be one of: 3d, 7d, 14d, 30d, 60d, 90d, 180d, 365d")
+	}
+	return days, normalized, nil
+}

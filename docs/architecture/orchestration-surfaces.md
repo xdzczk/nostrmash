@@ -38,6 +38,7 @@ High-risk edits are those that change shared thread/event/profile assembly seman
   - `GET /api/v1/events/{id}/replies` -> `internal/api.Handlers.GetEventReplies`
   - `GET /api/v1/events/{id}/ancestors` -> `internal/api.Handlers.GetEventAncestors`
   - `GET /api/v1/threads/{eventId}` -> `internal/api.Handlers.GetThread`
+  - `GET /api/v1/threads/{root_event_id}/summary` -> `internal/api.Handlers.GetThreadSummary`
   - `GET /api/v1/search` -> `internal/api.Handlers.Search`
 - Primal HTTP:
   - `GET /primal/v1/events/{id}` -> `internal/api_primal.Handlers.GetEventByID`
@@ -116,6 +117,20 @@ High-risk edits are those that change shared thread/event/profile assembly seman
   - native HTTP uses it for `GET /api/v1/threads/{eventId}`
   - Primal HTTP uses it for `GET /primal/v1/threads/{eventId}`
   - Primal WebSocket uses `GetThreadWindow` for descending lookup assembly, but still owns stream framing/metadata/range shaping
+
+### Thread summary projection
+
+- Transport entrypoint:
+  - `GET /api/v1/threads/{root_event_id}/summary` -> `internal/api.Handlers.GetThreadSummary`
+- Downstream calls:
+  - `query.Service.GetThreadSummary`
+  - `store.PostgresStore.GetThreadSummary`
+- Where orchestration/business assembly happens:
+  - Thread summary primitives are projection-backed in `thread_summaries`, rebuilt by derivation `thread_summary` and refreshed alongside `thread_projection`.
+  - Returned primitives are bounded and reusable: `root_event_id`, `reply_count`, `participant_count`, `max_depth`, `last_activity_at`, and cheap velocity hints (`replies_24h`, `replies_7d`).
+- Why this boundary matters:
+  - Products can ask conversation-level questions without re-materializing full thread trees on each read.
+  - Rebuild scope tooling can recompute this projection deterministically when derivation versions change.
 
 ## Event lookup and event assembly
 
@@ -386,6 +401,8 @@ The `internal/query` package now exposes focused, transport-agnostic interfaces 
 - `ThreadService`
   - `GetThread(ctx, ThreadRequest) (ThreadView, error)`
   - `GetThreadWindow(ctx, ThreadWindowRequest) (ThreadView, error)`
+- Additional thread primitive on `query.Service`:
+  - `GetThreadSummary(ctx, rootEventID string) (ThreadSummary, error)`
 - `EventService`
   - `GetEvent(ctx, id)`
   - `GetEvents(ctx, ids)`

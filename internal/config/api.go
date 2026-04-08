@@ -17,13 +17,21 @@ type APIConfig struct {
 }
 
 type APIHTTPConfig struct {
-	Addr               string
-	MaxBatchSize       int
-	RateLimitRPM       int
-	RateLimitBurst     int
-	SearchRateLimitRPM int
-	BatchRateLimitRPM  int
-	AdminBearerToken   string
+	Addr                        string
+	MaxBatchSize                int
+	RateLimitRPM                int
+	RateLimitBurst              int
+	SearchRateLimitRPM          int
+	BatchRateLimitRPM           int
+	DiscoveryRateLimitRPM       int
+	SuggestRateLimitRPM         int
+	PublicStatsRateLimitRPM     int
+	PublicMaxResultLimit        int
+	PublicMaxPageSize           int
+	PublicMaxPageOffset         int
+	PublicMaxSearchWindowHrs    int
+	PublicMaxDiscoveryWindowHrs int
+	AdminBearerToken            string
 }
 
 type APIPrimalWSConfig struct {
@@ -52,7 +60,11 @@ type APIRelayFallbackConfig struct {
 type APIDiscoveryCacheConfig struct {
 	Enabled        bool
 	MaxEntries     int
+	BundleTTL      time.Duration
+	DiscoveryTTL   time.Duration
+	SuggestionTTL  time.Duration
 	TrendingTTL    time.Duration
+	StatsTTL       time.Duration
 	PublicStatsTTL time.Duration
 }
 
@@ -80,6 +92,38 @@ func LoadAPI() (APIConfig, error) {
 		return APIConfig{}, err
 	}
 	httpBatchRateLimitRPM, err := getEnvPositiveIntStrict("HTTP_BATCH_RATE_LIMIT_RPM", 40)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	httpDiscoveryRateLimitRPM, err := getEnvPositiveIntStrict("HTTP_DISCOVERY_RATE_LIMIT_RPM", 90)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	httpSuggestRateLimitRPM, err := getEnvPositiveIntStrict("HTTP_SUGGEST_RATE_LIMIT_RPM", 120)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	httpPublicStatsRateLimitRPM, err := getEnvPositiveIntStrict("HTTP_PUBLIC_STATS_RATE_LIMIT_RPM", 120)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	publicMaxResultLimit, err := getEnvPositiveIntStrict("HTTP_PUBLIC_MAX_RESULT_LIMIT", 100)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	publicMaxPageSize, err := getEnvPositiveIntStrict("HTTP_PUBLIC_MAX_PAGE_SIZE", 100)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	publicMaxPageOffset, err := getEnvPositiveIntStrict("HTTP_PUBLIC_MAX_PAGE_OFFSET", 5000)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	publicMaxSearchWindowHours, err := getEnvPositiveIntStrict("HTTP_PUBLIC_MAX_SEARCH_WINDOW_HOURS", 7*24)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	publicMaxDiscoveryWindowHours, err := getEnvPositiveIntStrict("HTTP_PUBLIC_MAX_DISCOVERY_WINDOW_HOURS", 30*24)
 	if err != nil {
 		return APIConfig{}, err
 	}
@@ -123,6 +167,22 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	discoveryBundleTTL, err := getEnvPositiveDurationStrict("API_DISCOVERY_CACHE_BUNDLE_TTL", discoveryTrendingTTL)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	discoveryDiscoveryTTL, err := getEnvPositiveDurationStrict("API_DISCOVERY_CACHE_DISCOVERY_TTL", discoveryTrendingTTL)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	discoverySuggestionTTL, err := getEnvPositiveDurationStrict("API_DISCOVERY_CACHE_SUGGESTION_TTL", discoveryTrendingTTL)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	discoveryStatsTTL, err := getEnvPositiveDurationStrict("API_DISCOVERY_CACHE_STATS_TTL", discoveryPublicStatsTTL)
+	if err != nil {
+		return APIConfig{}, err
+	}
 	fallbackURLs := parseCSVEnv("API_RELAY_FALLBACK_URLS")
 	if len(fallbackURLs) == 0 {
 		fallbackURLs = parseCSVEnv("INGESTOR_RELAY_URLS")
@@ -135,13 +195,21 @@ func LoadAPI() (APIConfig, error) {
 	cfg := APIConfig{
 		Shared: shared,
 		HTTP: APIHTTPConfig{
-			Addr:               getEnv("HTTP_ADDR", ":8080"),
-			MaxBatchSize:       maxBatchSize,
-			RateLimitRPM:       httpRateLimitRPM,
-			RateLimitBurst:     httpRateLimitBurst,
-			SearchRateLimitRPM: httpSearchRateLimitRPM,
-			BatchRateLimitRPM:  httpBatchRateLimitRPM,
-			AdminBearerToken:   strings.TrimSpace(getEnv("ADMIN_BEARER_TOKEN", "")),
+			Addr:                        getEnv("HTTP_ADDR", ":8080"),
+			MaxBatchSize:                maxBatchSize,
+			RateLimitRPM:                httpRateLimitRPM,
+			RateLimitBurst:              httpRateLimitBurst,
+			SearchRateLimitRPM:          httpSearchRateLimitRPM,
+			BatchRateLimitRPM:           httpBatchRateLimitRPM,
+			DiscoveryRateLimitRPM:       httpDiscoveryRateLimitRPM,
+			SuggestRateLimitRPM:         httpSuggestRateLimitRPM,
+			PublicStatsRateLimitRPM:     httpPublicStatsRateLimitRPM,
+			PublicMaxResultLimit:        publicMaxResultLimit,
+			PublicMaxPageSize:           publicMaxPageSize,
+			PublicMaxPageOffset:         publicMaxPageOffset,
+			PublicMaxSearchWindowHrs:    publicMaxSearchWindowHours,
+			PublicMaxDiscoveryWindowHrs: publicMaxDiscoveryWindowHours,
+			AdminBearerToken:            strings.TrimSpace(getEnv("ADMIN_BEARER_TOKEN", "")),
 		},
 		PrimalWS: APIPrimalWSConfig{
 			MaxSubscriptions:     primalMaxSubscriptions,
@@ -165,7 +233,11 @@ func LoadAPI() (APIConfig, error) {
 		DiscoveryCache: APIDiscoveryCacheConfig{
 			Enabled:        getEnvBool("API_DISCOVERY_CACHE_ENABLED", true),
 			MaxEntries:     discoveryCacheMaxEntries,
+			BundleTTL:      discoveryBundleTTL,
+			DiscoveryTTL:   discoveryDiscoveryTTL,
+			SuggestionTTL:  discoverySuggestionTTL,
 			TrendingTTL:    discoveryTrendingTTL,
+			StatsTTL:       discoveryStatsTTL,
 			PublicStatsTTL: discoveryPublicStatsTTL,
 		},
 	}

@@ -228,6 +228,14 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	t.Setenv("HTTP_RATE_LIMIT_BURST", "")
 	t.Setenv("HTTP_SEARCH_RATE_LIMIT_RPM", "")
 	t.Setenv("HTTP_BATCH_RATE_LIMIT_RPM", "")
+	t.Setenv("HTTP_DISCOVERY_RATE_LIMIT_RPM", "")
+	t.Setenv("HTTP_SUGGEST_RATE_LIMIT_RPM", "")
+	t.Setenv("HTTP_PUBLIC_STATS_RATE_LIMIT_RPM", "")
+	t.Setenv("HTTP_PUBLIC_MAX_RESULT_LIMIT", "")
+	t.Setenv("HTTP_PUBLIC_MAX_PAGE_SIZE", "")
+	t.Setenv("HTTP_PUBLIC_MAX_PAGE_OFFSET", "")
+	t.Setenv("HTTP_PUBLIC_MAX_SEARCH_WINDOW_HOURS", "")
+	t.Setenv("HTTP_PUBLIC_MAX_DISCOVERY_WINDOW_HOURS", "")
 	t.Setenv("PRIMAL_WS_MAX_SUBSCRIPTIONS", "")
 	t.Setenv("PRIMAL_WS_REQUEST_TIMEOUT", "")
 	t.Setenv("PRIMAL_WS_MAX_MESSAGE_BYTES", "")
@@ -237,6 +245,10 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	t.Setenv("PRIMAL_WS_ALLOW_ANY_ORIGIN", "")
 	t.Setenv("API_DISCOVERY_CACHE_ENABLED", "")
 	t.Setenv("API_DISCOVERY_CACHE_MAX_ENTRIES", "")
+	t.Setenv("API_DISCOVERY_CACHE_BUNDLE_TTL", "")
+	t.Setenv("API_DISCOVERY_CACHE_DISCOVERY_TTL", "")
+	t.Setenv("API_DISCOVERY_CACHE_SUGGESTION_TTL", "")
+	t.Setenv("API_DISCOVERY_CACHE_STATS_TTL", "")
 	t.Setenv("API_DISCOVERY_CACHE_TRENDING_TTL", "")
 	t.Setenv("API_DISCOVERY_CACHE_PUBLIC_STATS_TTL", "")
 
@@ -246,6 +258,16 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	}
 	if cfg.HTTP.MaxBatchSize != 200 || cfg.HTTP.RateLimitRPM != 240 || cfg.HTTP.RateLimitBurst != 60 {
 		t.Fatalf("unexpected api defaults: %#v", cfg.HTTP)
+	}
+	if cfg.HTTP.DiscoveryRateLimitRPM != 90 ||
+		cfg.HTTP.SuggestRateLimitRPM != 120 ||
+		cfg.HTTP.PublicStatsRateLimitRPM != 120 ||
+		cfg.HTTP.PublicMaxResultLimit != 100 ||
+		cfg.HTTP.PublicMaxPageSize != 100 ||
+		cfg.HTTP.PublicMaxPageOffset != 5000 ||
+		cfg.HTTP.PublicMaxSearchWindowHrs != 7*24 ||
+		cfg.HTTP.PublicMaxDiscoveryWindowHrs != 30*24 {
+		t.Fatalf("unexpected api public guard defaults: %#v", cfg.HTTP)
 	}
 	if cfg.PrimalWS.MaxSubscriptions != 200 || cfg.PrimalWS.MaxReqPerMinute != 240 {
 		t.Fatalf("unexpected ws defaults: %#v", cfg.PrimalWS)
@@ -257,11 +279,24 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 		t.Fatalf("expected API metrics addr to be ignored, got %q", cfg.Shared.Observability.MetricsAddr)
 	}
 	if !cfg.DiscoveryCache.Enabled || cfg.DiscoveryCache.MaxEntries != 256 ||
-		cfg.DiscoveryCache.TrendingTTL != 60*time.Second || cfg.DiscoveryCache.PublicStatsTTL != 10*time.Minute {
+		cfg.DiscoveryCache.BundleTTL != 60*time.Second ||
+		cfg.DiscoveryCache.DiscoveryTTL != 60*time.Second ||
+		cfg.DiscoveryCache.SuggestionTTL != 60*time.Second ||
+		cfg.DiscoveryCache.StatsTTL != 10*time.Minute ||
+		cfg.DiscoveryCache.TrendingTTL != 60*time.Second ||
+		cfg.DiscoveryCache.PublicStatsTTL != 10*time.Minute {
 		t.Fatalf("unexpected discovery cache defaults: %#v", cfg.DiscoveryCache)
 	}
 
 	t.Setenv("API_MAX_BATCH_SIZE", "75")
+	t.Setenv("HTTP_DISCOVERY_RATE_LIMIT_RPM", "88")
+	t.Setenv("HTTP_SUGGEST_RATE_LIMIT_RPM", "77")
+	t.Setenv("HTTP_PUBLIC_STATS_RATE_LIMIT_RPM", "66")
+	t.Setenv("HTTP_PUBLIC_MAX_RESULT_LIMIT", "55")
+	t.Setenv("HTTP_PUBLIC_MAX_PAGE_SIZE", "44")
+	t.Setenv("HTTP_PUBLIC_MAX_PAGE_OFFSET", "3333")
+	t.Setenv("HTTP_PUBLIC_MAX_SEARCH_WINDOW_HOURS", "72")
+	t.Setenv("HTTP_PUBLIC_MAX_DISCOVERY_WINDOW_HOURS", "240")
 	t.Setenv("PRIMAL_WS_MAX_SUBSCRIPTIONS", "50")
 	t.Setenv("PRIMAL_WS_REQUEST_TIMEOUT", "2s")
 	t.Setenv("PRIMAL_WS_MAX_MESSAGE_BYTES", "2048")
@@ -272,6 +307,10 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	t.Setenv("DEBUG_ADDR", "127.0.0.1:6060")
 	t.Setenv("API_DISCOVERY_CACHE_ENABLED", "false")
 	t.Setenv("API_DISCOVERY_CACHE_MAX_ENTRIES", "120")
+	t.Setenv("API_DISCOVERY_CACHE_BUNDLE_TTL", "20s")
+	t.Setenv("API_DISCOVERY_CACHE_DISCOVERY_TTL", "30s")
+	t.Setenv("API_DISCOVERY_CACHE_SUGGESTION_TTL", "15s")
+	t.Setenv("API_DISCOVERY_CACHE_STATS_TTL", "5m")
 	t.Setenv("API_DISCOVERY_CACHE_TRENDING_TTL", "45s")
 	t.Setenv("API_DISCOVERY_CACHE_PUBLIC_STATS_TTL", "7m")
 
@@ -282,6 +321,16 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	if cfg.HTTP.MaxBatchSize != 75 {
 		t.Fatalf("unexpected max batch size: %d", cfg.HTTP.MaxBatchSize)
 	}
+	if cfg.HTTP.DiscoveryRateLimitRPM != 88 ||
+		cfg.HTTP.SuggestRateLimitRPM != 77 ||
+		cfg.HTTP.PublicStatsRateLimitRPM != 66 ||
+		cfg.HTTP.PublicMaxResultLimit != 55 ||
+		cfg.HTTP.PublicMaxPageSize != 44 ||
+		cfg.HTTP.PublicMaxPageOffset != 3333 ||
+		cfg.HTTP.PublicMaxSearchWindowHrs != 72 ||
+		cfg.HTTP.PublicMaxDiscoveryWindowHrs != 240 {
+		t.Fatalf("unexpected api public guard env config: %#v", cfg.HTTP)
+	}
 	if cfg.PrimalWS.MaxSubscriptions != 50 || cfg.PrimalWS.MaxMessageBytes != 2048 || cfg.PrimalWS.MaxReqPerMinute != 33 {
 		t.Fatalf("unexpected ws env config: %#v", cfg.PrimalWS)
 	}
@@ -290,6 +339,10 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	}
 	if cfg.DiscoveryCache.Enabled ||
 		cfg.DiscoveryCache.MaxEntries != 120 ||
+		cfg.DiscoveryCache.BundleTTL != 20*time.Second ||
+		cfg.DiscoveryCache.DiscoveryTTL != 30*time.Second ||
+		cfg.DiscoveryCache.SuggestionTTL != 15*time.Second ||
+		cfg.DiscoveryCache.StatsTTL != 5*time.Minute ||
 		cfg.DiscoveryCache.TrendingTTL != 45*time.Second ||
 		cfg.DiscoveryCache.PublicStatsTTL != 7*time.Minute {
 		t.Fatalf("unexpected discovery cache env config: %#v", cfg.DiscoveryCache)

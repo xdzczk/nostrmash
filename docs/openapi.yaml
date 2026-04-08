@@ -196,6 +196,77 @@ paths:
       responses:
         '200':
           description: Thread view
+  /api/v1/threads/{root_event_id}/summary:
+    get:
+      tags: [public]
+      summary: Get root-level thread summary projection
+      parameters:
+        - in: path
+          name: root_event_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Thread summary primitives and velocity hints
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/threads/{root_event_id}/activity:
+    get:
+      tags: [public]
+      summary: Get root-level thread activity hotspot metrics
+      parameters:
+        - in: path
+          name: root_event_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 24h }
+      responses:
+        '200':
+          description: Thread activity snapshot with velocity score
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/notes/{event_id}/summary:
+    get:
+      tags: [public]
+      summary: Product-shaped summary payload for one note page
+      parameters:
+        - in: path
+          name: event_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: include_activity
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Note payload with author summary, counts, thread context, quote/repost context, and optional conversation activity
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/notes/{event_id}/related:
+    get:
+      tags: [public]
+      summary: Bounded related notes for one focal note
+      parameters:
+        - in: path
+          name: event_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Related note cards with bounded heuristic reasons
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
   /api/v1/profiles/{pubkey}:
     get:
       tags: [public]
@@ -209,6 +280,26 @@ paths:
         '200':
           description: Profile projection
         '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/profiles/{pubkey}/topics:
+    get:
+      tags: [public]
+      summary: Profile topic affinity rows from author analytics rollups
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 30d }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Profile topic usage rows for the selected window
+        '400':
           $ref: '#/components/responses/Error'
   /api/v1/profiles/batch:
     post:
@@ -260,6 +351,155 @@ paths:
       responses:
         '200':
           description: Reply list
+  /api/v1/authors/{pubkey}/analytics/summary:
+    get:
+      tags: [public]
+      summary: Windowed author analytics summary for account intelligence
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Author analytics windows with cadence, engagement, and media mix
+  /api/v1/authors/{pubkey}/analytics/topics:
+    get:
+      tags: [public]
+      summary: Top author hashtags for selected analytics window
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 30d }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Author topic usage rows for the selected window
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/authors/{pubkey}/analytics/media-mix:
+    get:
+      tags: [public]
+      summary: Author media mix for selected analytics window
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 30d }
+      responses:
+        '200':
+          description: Author media mix counts for the selected window
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/authors/{pubkey}/analytics/activity-windows:
+    get:
+      tags: [public]
+      summary: Author audience activity windows by UTC hour/day over rolling windows
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 30d }
+      responses:
+        '200':
+          description: Engagement timing aggregates (UTC) by hour, day, and heatmap buckets
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/authors/{pubkey}/analytics/posting-patterns:
+    get:
+      tags: [public]
+      summary: Author posting cadence by UTC hour/day over rolling windows
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 30d }
+      responses:
+        '200':
+          description: Posting cadence aggregates (UTC) by hour, day, and heatmap buckets
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/authors/{pubkey}/analytics/top-notes:
+    get:
+      tags: [public]
+      summary: Top-performing authored notes by explicit weighted engagement
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 30d }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Ranked top notes with weighted engagement scores, media segment, and primary topic
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/authors/{pubkey}/analytics/performance-summary:
+    get:
+      tags: [public]
+      summary: Recent author performance summary with averages, medians, totals, and prior-window comparison
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 30d }
+      responses:
+        '200':
+          description: Window-scoped performance summary with weighted engagement formula and comparison deltas
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/authors/{pubkey}/analytics/recycle-candidates:
+    get:
+      tags: [public]
+      summary: Bounded list of older authored notes suitable for repost/recycle workflows
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 90d }
+        - in: query
+          name: min_age
+          schema: { type: string, enum: [3d, 7d, 14d, 30d, 60d, 90d, 180d, 365d], default: 30d }
+        - in: query
+          name: min_performance_percentile
+          schema: { type: number, minimum: 0, maximum: 100, default: 70 }
+        - in: query
+          name: include_replies
+          schema: { type: boolean, default: false }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200':
+          description: Ranked recycle candidates filtered by age, percentile, and recent repost markers
+        '400':
+          $ref: '#/components/responses/Error'
   /api/v1/relays/health:
     get:
       tags: [public]
@@ -397,6 +637,52 @@ paths:
           description: Ranked trending notes with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
           $ref: '#/components/responses/Error'
+  /api/v1/discovery/conversations/hot:
+    get:
+      tags: [public]
+      summary: Hot conversations from projection-backed thread activity windows
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 24h }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Active conversation hotspots ranked by velocity score and recency
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/home:
+    get:
+      tags: [public]
+      summary: Product-shaped homepage discovery bundle for nostrmash.com
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 24h }
+        - in: query
+          name: notes_limit
+          schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
+        - in: query
+          name: hashtags_limit
+          schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
+        - in: query
+          name: profiles_limit
+          schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
+        - in: query
+          name: hashtag_stat_limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Homepage discovery bundle with bounded notes, hashtags, profiles, and network summary sections
+        '400':
+          $ref: '#/components/responses/Error'
+        '501':
+          $ref: '#/components/responses/Error'
   /api/v1/discovery/profiles/trending:
     get:
       tags: [public]
@@ -453,6 +739,130 @@ paths:
         '200':
           description: Ranked trending hashtags with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/hashtags/{hashtag}:
+    get:
+      tags: [public]
+      summary: Hashtag page summary with bounded activity stats
+      parameters:
+        - in: path
+          name: hashtag
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Hashtag summary and recent activity windows with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/hashtags/{hashtag}/notes:
+    get:
+      tags: [public]
+      summary: Hashtag notes feed (latest or top) over bounded windows
+      parameters:
+        - in: path
+          name: hashtag
+          required: true
+          schema: { type: string }
+        - in: query
+          name: sort
+          schema: { type: string, enum: [latest, top], default: latest }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d, all], default: 24h }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Hashtag notes list with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/hashtags/{hashtag}/related:
+    get:
+      tags: [public]
+      summary: Bounded related hashtags for one hashtag
+      parameters:
+        - in: path
+          name: hashtag
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Related hashtags with co-occurrence counts and trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/domains/trending:
+    get:
+      tags: [public]
+      summary: Trending linked domains over rolling windows
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 24h }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Ranked trending domains with bounded trend windows and trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/domains/{domain}:
+    get:
+      tags: [public]
+      summary: Domain summary page with trend windows and recent/top notes
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Domain summary with link/note/author counts and recent/top note lists
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/domains/{domain}/notes:
+    get:
+      tags: [public]
+      summary: Domain-linked notes feed (latest or top) over bounded windows
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema: { type: string }
+        - in: query
+          name: sort
+          schema: { type: string, enum: [latest, top], default: latest }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d, all], default: 24h }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Domain-linked note list with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/stats/network:
     get:

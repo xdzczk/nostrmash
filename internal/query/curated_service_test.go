@@ -161,6 +161,7 @@ func TestGetTrendingNotesMapsLegacyStoreModel(t *testing.T) {
 				AuthorPubkey:  "pk-1",
 				CreatedAt:     1700000000,
 				Content:       "hello",
+				Language:      "en",
 				ReplyCount:    3,
 				RepostCount:   2,
 				ReactionCount: 5,
@@ -174,8 +175,41 @@ func TestGetTrendingNotesMapsLegacyStoreModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTrendingNotes returned error: %v", err)
 	}
-	if len(out) != 1 || out[0].EventID != "note-1" || out[0].Score != 12.75 || out[0].ZapMSats != 21000 {
+	if len(out) != 1 || out[0].EventID != "note-1" || out[0].Score != 12.75 || out[0].ZapMSats != 21000 || out[0].Language != "en" {
 		t.Fatalf("unexpected trending notes: %#v", out)
+	}
+}
+
+func TestGetHotConversationsMapsLegacyStoreModel(t *testing.T) {
+	t.Parallel()
+	svc := mustNewService(t, curatedLegacyReader{
+		fakeReader: fakeReader{
+			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+				return nil, store.ErrNotFound
+			},
+		},
+		getHotConversationsFn: func(context.Context, time.Duration, int, int) ([]store.HotConversation, error) {
+			return []store.HotConversation{{
+				RootEventID:      "root-1",
+				AuthorPubkey:     "pk-1",
+				CreatedAt:        1700000000,
+				Content:          "hot thread",
+				ReplyCount:       8,
+				ParticipantCount: 5,
+				LastActivityAt:   1700000300,
+				Replies24h:       4,
+				Replies7d:        8,
+				VelocityScore:    4.75,
+				Consistency:      "eventual",
+			}}, nil
+		},
+	})
+	out, err := svc.GetHotConversations(context.Background(), 24*time.Hour, 5, 0)
+	if err != nil {
+		t.Fatalf("GetHotConversations returned error: %v", err)
+	}
+	if len(out) != 1 || out[0].RootEventID != "root-1" || out[0].VelocityScore != 4.75 || out[0].Replies24h != 4 {
+		t.Fatalf("unexpected hot conversations: %#v", out)
 	}
 }
 
@@ -373,6 +407,7 @@ type curatedLegacyReader struct {
 	getCuratedRecommendedReadsFn        func(context.Context, int) ([]store.CuratedRecommendedRead, error)
 	getCuratedReadsTopicsFn             func(context.Context, int) ([]store.CuratedReadsTopic, error)
 	getTrendingNotesFn                  func(context.Context, time.Duration, int, int) ([]store.TrendingNote, error)
+	getHotConversationsFn               func(context.Context, time.Duration, int, int) ([]store.HotConversation, error)
 	getTrustQualifiedTrendingNotesFn    func(context.Context, time.Duration, int, int, string, store.TrustQualificationPolicy, time.Duration) ([]store.TrustQualifiedTrendingNote, bool, error)
 	getTrendingHashtagsFn               func(context.Context, time.Duration, int, int) ([]store.TrendingHashtag, error)
 	getTrendingProfilesFn               func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error)
@@ -452,6 +487,18 @@ func (r curatedLegacyReader) GetTrendingNotes(
 		return []store.TrendingNote{}, nil
 	}
 	return r.getTrendingNotesFn(ctx, window, limit, offset)
+}
+
+func (r curatedLegacyReader) GetHotConversations(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]store.HotConversation, error) {
+	if r.getHotConversationsFn == nil {
+		return []store.HotConversation{}, nil
+	}
+	return r.getHotConversationsFn(ctx, window, limit, offset)
 }
 
 func (r curatedLegacyReader) GetTrustQualifiedTrendingNotes(

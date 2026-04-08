@@ -368,3 +368,55 @@ func (s *PostgresStore) GetEventAncestors(
 	slices.Sort(missingIDs)
 	return ancestors, missingIDs, nil
 }
+
+// GetThreadSummary returns projection-backed root-level thread summary primitives.
+func (s *PostgresStore) GetThreadSummary(ctx context.Context, rootEventID string) (ThreadSummaryProjection, error) {
+	out := ThreadSummaryProjection{Consistency: "eventual"}
+	if s == nil || s.pool == nil {
+		return out, fmt.Errorf("store is not initialized")
+	}
+	rootEventID = strings.TrimSpace(rootEventID)
+	if rootEventID == "" {
+		return out, fmt.Errorf("root event id is required")
+	}
+	out.RootEventID = rootEventID
+	var kind int
+	if err := s.pool.QueryRow(ctx, `
+		SELECT kind
+		FROM events
+		WHERE id = $1
+	`, rootEventID).Scan(&kind); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return out, ErrNotFound
+		}
+		return out, fmt.Errorf("load thread summary root event: %w", err)
+	}
+	if kind != 1 {
+		return out, ErrNotFound
+	}
+	if err := s.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(ts.reply_count, 0),
+			COALESCE(ts.participant_count, 1),
+			COALESCE(ts.max_depth, 0),
+			COALESCE(ts.last_activity_at, e.created_at),
+			COALESCE(ts.replies_24h, 0),
+			COALESCE(ts.replies_7d, 0)
+		FROM events e
+		LEFT JOIN thread_summaries ts ON ts.root_event_id = e.id
+		WHERE e.id = $1
+	`, rootEventID).Scan(
+		&out.ReplyCount,
+		&out.ParticipantCount,
+		&out.MaxDepth,
+		&out.LastActivityAt,
+		&out.Replies24h,
+		&out.Replies7d,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return out, ErrNotFound
+		}
+		return out, fmt.Errorf("get thread summary: %w", err)
+	}
+	return out, nil
+}

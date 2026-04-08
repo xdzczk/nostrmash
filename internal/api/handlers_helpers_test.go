@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,43 +31,63 @@ func mustNewHandlersWithOptions(tb testing.TB, reader EventReader, options Handl
 }
 
 type fakeEventReader struct {
-	getEventRawByIDFn             func(context.Context, string) (json.RawMessage, error)
-	getEventWithProvFn            func(context.Context, string) (store.EventWithProvenance, error)
-	getEventRawsByIDs             func(context.Context, []string) (map[string]json.RawMessage, error)
-	getEventSeenOnByID            func(context.Context, string) ([]model.EventRelay, error)
-	getProfileByPubkey            func(context.Context, string) (store.ProfileProjection, error)
-	getProfilesByBatch            func(context.Context, []string) (map[string]store.ProfileProjection, error)
-	getProfilePublicStatsByPubkey func(context.Context, string) (store.ProfilePublicStatsProjection, error)
-	getAuthorEventsFn             func(context.Context, string, int) ([]json.RawMessage, error)
-	getAuthorRepliesFn            func(context.Context, string, int) ([]json.RawMessage, error)
-	getEventCountsFn              func(context.Context, string) (store.EventCounts, error)
-	getEventRepliesFn             func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
-	getEventAncestors             func(context.Context, string, int) ([]json.RawMessage, []string, error)
-	listRelayHealthFn             func(context.Context) ([]model.IngestCheckpoint, error)
-	getContactListFn              func(context.Context, string) (store.ContactListProjection, error)
-	getRelayListFn                func(context.Context, string) (store.RelayListProjection, error)
-	searchEventsFn                func(context.Context, string, int) ([]json.RawMessage, error)
-	searchProfilesFn              func(context.Context, string, int) ([]store.ProfileProjection, error)
-	searchNotesFn                 func(context.Context, string, string, *time.Duration, int, int) ([]json.RawMessage, error)
-	searchProfilesWithOptionsFn   func(context.Context, string, string, int, int) ([]store.ProfileProjection, error)
-	suggestProfilesFn             func(context.Context, string, int) ([]store.ProfileProjection, error)
-	suggestHashtagsFn             func(context.Context, string, int) ([]store.TrendingHashtag, error)
-	getByKindPubkeyFn             func(context.Context, int, string, int) ([]json.RawMessage, error)
-	getRefsPubkeyFn               func(context.Context, string, int) ([]json.RawMessage, error)
-	getFollowersFn                func(context.Context, string, int) ([]json.RawMessage, error)
-	getTrustScoreFn               func(context.Context, string) (store.TrustGlobalScore, error)
-	listTopTrustFn                func(context.Context, int) ([]store.TrustGlobalScore, error)
-	getTrustRunFn                 func(context.Context, int64) (store.TrustRun, error)
-	listTrustRunsFn               func(context.Context, int) ([]store.TrustRun, error)
-	getNetworkStatsFn             func(context.Context) (store.NetworkStats, error)
-	getPublicNetworkStatsFn       func(context.Context, int) (store.PublicDiscoveryNetworkStats, error)
-	getCuratedReadsFn             func(context.Context, int) ([]store.CuratedRecommendedRead, error)
-	getCuratedTopicsFn            func(context.Context, int) ([]store.CuratedReadsTopic, error)
-	getTrendingNotesFn            func(context.Context, time.Duration, int, int) ([]store.TrendingNote, error)
-	getTrendingTagsFn             func(context.Context, time.Duration, int, int) ([]store.TrendingHashtag, error)
-	getTrendingProfilesFn         func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error)
-	getRisingProfilesFn           func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error)
-	getCuratedPubsFn              func(context.Context, int) ([]store.CuratedFeaturedAuthor, error)
+	getEventRawByIDFn                func(context.Context, string) (json.RawMessage, error)
+	getEventWithProvFn               func(context.Context, string) (store.EventWithProvenance, error)
+	getEventRawsByIDs                func(context.Context, []string) (map[string]json.RawMessage, error)
+	getEventSeenOnByID               func(context.Context, string) ([]model.EventRelay, error)
+	getProfileByPubkey               func(context.Context, string) (store.ProfileProjection, error)
+	getProfilesByBatch               func(context.Context, []string) (map[string]store.ProfileProjection, error)
+	getProfilePublicStatsByPubkey    func(context.Context, string) (store.ProfilePublicStatsProjection, error)
+	getAuthorAnalyticsSummaryFn      func(context.Context, string) ([]store.AuthorAnalyticsSummaryProjection, error)
+	getAuthorTopicStatsFn            func(context.Context, string, int, int) ([]store.AuthorTopicStatsProjection, error)
+	getAuthorMediaMixStatsFn         func(context.Context, string, int) (store.AuthorMediaMixStatsProjection, error)
+	getAuthorActivityWindowBucketsFn func(context.Context, string, int) ([]store.AuthorActivityWindowBucketProjection, error)
+	getAuthorPostingPatternBucketsFn func(context.Context, string, int) ([]store.AuthorPostingPatternBucketProjection, error)
+	getAuthorTopNotesFn              func(context.Context, string, int, int) ([]store.AuthorTopNoteProjection, error)
+	getAuthorRecycleCandidatesFn     func(context.Context, string, int, int, float64, bool, bool, int, int) ([]store.AuthorRecycleCandidateProjection, error)
+	getAuthorPerformanceAggregateFn  func(context.Context, string, int) (store.AuthorPerformanceAggregateProjection, store.AuthorPerformanceAggregateProjection, error)
+	getAuthorEventsFn                func(context.Context, string, int) ([]json.RawMessage, error)
+	getAuthorRepliesFn               func(context.Context, string, int) ([]json.RawMessage, error)
+	getEventCountsFn                 func(context.Context, string) (store.EventCounts, error)
+	getEventRepliesFn                func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	getEventAncestors                func(context.Context, string, int) ([]json.RawMessage, []string, error)
+	getThreadSummaryFn               func(context.Context, string) (store.ThreadSummaryProjection, error)
+	listRelayHealthFn                func(context.Context) ([]model.IngestCheckpoint, error)
+	getContactListFn                 func(context.Context, string) (store.ContactListProjection, error)
+	getRelayListFn                   func(context.Context, string) (store.RelayListProjection, error)
+	searchEventsFn                   func(context.Context, string, int) ([]json.RawMessage, error)
+	searchProfilesFn                 func(context.Context, string, int) ([]store.ProfileProjection, error)
+	searchNotesFn                    func(context.Context, string, string, *time.Duration, string, int, int) ([]json.RawMessage, error)
+	searchProfilesWithOptionsFn      func(context.Context, string, string, int, int) ([]store.ProfileProjection, error)
+	suggestProfilesFn                func(context.Context, string, int) ([]store.ProfileProjection, error)
+	suggestHashtagsFn                func(context.Context, string, int) ([]store.TrendingHashtag, error)
+	getByKindPubkeyFn                func(context.Context, int, string, int) ([]json.RawMessage, error)
+	getRefsPubkeyFn                  func(context.Context, string, int) ([]json.RawMessage, error)
+	getFollowersFn                   func(context.Context, string, int) ([]json.RawMessage, error)
+	getTrustScoreFn                  func(context.Context, string) (store.TrustGlobalScore, error)
+	listTopTrustFn                   func(context.Context, int) ([]store.TrustGlobalScore, error)
+	getTrustRunFn                    func(context.Context, int64) (store.TrustRun, error)
+	listTrustRunsFn                  func(context.Context, int) ([]store.TrustRun, error)
+	getNetworkStatsFn                func(context.Context) (store.NetworkStats, error)
+	getPublicNetworkStatsFn          func(context.Context, int) (store.PublicDiscoveryNetworkStats, error)
+	getCuratedReadsFn                func(context.Context, int) ([]store.CuratedRecommendedRead, error)
+	getCuratedTopicsFn               func(context.Context, int) ([]store.CuratedReadsTopic, error)
+	getTrendingNotesFn               func(context.Context, time.Duration, int, int) ([]store.TrendingNote, error)
+	getHotConversationsFn            func(context.Context, time.Duration, int, int) ([]store.HotConversation, error)
+	getTrendingTagsFn                func(context.Context, time.Duration, int, int) ([]store.TrendingHashtag, error)
+	getHashtagSummaryFn              func(context.Context, string) (store.HashtagSummary, error)
+	getHashtagNotesFn                func(context.Context, string, string, string, int, int) ([]store.TrendingNote, error)
+	getRelatedHashtagsFn             func(context.Context, string, int) ([]store.RelatedHashtag, error)
+	getTrendingDomainsFn             func(context.Context, time.Duration, int, int) ([]store.DomainSummaryProjection, error)
+	getDomainSummaryFn               func(context.Context, string, int, int) (store.DomainSummaryProjection, error)
+	getDomainNotesFn                 func(context.Context, string, string, string, int, int) ([]store.TrendingNote, error)
+	getTrendingProfilesFn            func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error)
+	getRisingProfilesFn              func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error)
+	getCuratedPubsFn                 func(context.Context, int) ([]store.CuratedFeaturedAuthor, error)
+	getNoteStatsFn                   func(context.Context, string) (store.NoteStats, error)
+	getNoteConversationVelocityFn    func(context.Context, string) (store.NoteConversationVelocity, error)
+	getNoteQuoteRepostLinkageFn      func(context.Context, string, int) (store.NoteQuoteRepostLinkageProjection, error)
+	getRelatedNotesFn                func(context.Context, string, int) ([]store.RelatedNote, error)
 }
 
 type trustQualifiedFakeReader struct {
@@ -131,6 +152,111 @@ func (f fakeEventReader) GetAuthorRecentEvents(ctx context.Context, pubkey strin
 	return f.getAuthorEventsFn(ctx, pubkey, limit)
 }
 
+func (f fakeEventReader) GetAuthorAnalyticsSummary(
+	ctx context.Context,
+	pubkey string,
+) ([]store.AuthorAnalyticsSummaryProjection, error) {
+	if f.getAuthorAnalyticsSummaryFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getAuthorAnalyticsSummaryFn(ctx, pubkey)
+}
+
+func (f fakeEventReader) GetAuthorTopicStats(
+	ctx context.Context,
+	pubkey string,
+	windowDays int,
+	limit int,
+) ([]store.AuthorTopicStatsProjection, error) {
+	if f.getAuthorTopicStatsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getAuthorTopicStatsFn(ctx, pubkey, windowDays, limit)
+}
+
+func (f fakeEventReader) GetAuthorMediaMixStats(
+	ctx context.Context,
+	pubkey string,
+	windowDays int,
+) (store.AuthorMediaMixStatsProjection, error) {
+	if f.getAuthorMediaMixStatsFn == nil {
+		return store.AuthorMediaMixStatsProjection{Pubkey: pubkey, WindowDays: windowDays}, nil
+	}
+	return f.getAuthorMediaMixStatsFn(ctx, pubkey, windowDays)
+}
+
+func (f fakeEventReader) GetAuthorActivityWindowBuckets(
+	ctx context.Context,
+	pubkey string,
+	windowDays int,
+) ([]store.AuthorActivityWindowBucketProjection, error) {
+	if f.getAuthorActivityWindowBucketsFn == nil {
+		return []store.AuthorActivityWindowBucketProjection{}, nil
+	}
+	return f.getAuthorActivityWindowBucketsFn(ctx, pubkey, windowDays)
+}
+
+func (f fakeEventReader) GetAuthorPostingPatternBuckets(
+	ctx context.Context,
+	pubkey string,
+	windowDays int,
+) ([]store.AuthorPostingPatternBucketProjection, error) {
+	if f.getAuthorPostingPatternBucketsFn == nil {
+		return []store.AuthorPostingPatternBucketProjection{}, nil
+	}
+	return f.getAuthorPostingPatternBucketsFn(ctx, pubkey, windowDays)
+}
+
+func (f fakeEventReader) GetAuthorTopNotes(
+	ctx context.Context,
+	pubkey string,
+	windowDays int,
+	limit int,
+) ([]store.AuthorTopNoteProjection, error) {
+	if f.getAuthorTopNotesFn == nil {
+		return []store.AuthorTopNoteProjection{}, nil
+	}
+	return f.getAuthorTopNotesFn(ctx, pubkey, windowDays, limit)
+}
+
+func (f fakeEventReader) GetAuthorRecycleCandidates(
+	ctx context.Context,
+	pubkey string,
+	windowDays int,
+	minAgeDays int,
+	minPerformancePercentile float64,
+	includeReplies bool,
+	excludeRecentlyReposted bool,
+	recentRepostWindowDays int,
+	limit int,
+) ([]store.AuthorRecycleCandidateProjection, error) {
+	if f.getAuthorRecycleCandidatesFn == nil {
+		return []store.AuthorRecycleCandidateProjection{}, nil
+	}
+	return f.getAuthorRecycleCandidatesFn(
+		ctx,
+		pubkey,
+		windowDays,
+		minAgeDays,
+		minPerformancePercentile,
+		includeReplies,
+		excludeRecentlyReposted,
+		recentRepostWindowDays,
+		limit,
+	)
+}
+
+func (f fakeEventReader) GetAuthorPerformanceAggregate(
+	ctx context.Context,
+	pubkey string,
+	windowDays int,
+) (store.AuthorPerformanceAggregateProjection, store.AuthorPerformanceAggregateProjection, error) {
+	if f.getAuthorPerformanceAggregateFn == nil {
+		return store.AuthorPerformanceAggregateProjection{}, store.AuthorPerformanceAggregateProjection{}, nil
+	}
+	return f.getAuthorPerformanceAggregateFn(ctx, pubkey, windowDays)
+}
+
 func (f fakeEventReader) GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
 	if f.getAuthorRepliesFn == nil {
 		return nil, errors.New("not implemented")
@@ -162,6 +288,13 @@ func (f fakeEventReader) GetEventAncestors(ctx context.Context, eventID string, 
 		return nil, nil, errors.New("not implemented")
 	}
 	return f.getEventAncestors(ctx, eventID, maxDepth)
+}
+
+func (f fakeEventReader) GetThreadSummary(ctx context.Context, rootEventID string) (store.ThreadSummaryProjection, error) {
+	if f.getThreadSummaryFn == nil {
+		return store.ThreadSummaryProjection{}, errors.New("not implemented")
+	}
+	return f.getThreadSummaryFn(ctx, rootEventID)
 }
 
 func (f fakeEventReader) ListRelayHealth(ctx context.Context) ([]model.IngestCheckpoint, error) {
@@ -204,13 +337,14 @@ func (f fakeEventReader) SearchNotes(
 	query string,
 	sort string,
 	window *time.Duration,
+	language string,
 	limit int,
 	offset int,
 ) ([]json.RawMessage, error) {
 	if f.searchNotesFn != nil {
-		return f.searchNotesFn(ctx, query, sort, window, limit, offset)
+		return f.searchNotesFn(ctx, query, sort, window, language, limit, offset)
 	}
-	if f.searchEventsFn != nil && sort == "relevant" && window == nil && offset == 0 {
+	if f.searchEventsFn != nil && sort == "relevant" && window == nil && offset == 0 && strings.TrimSpace(language) == "" {
 		return f.searchEventsFn(ctx, query, limit)
 	}
 	return nil, errors.New("not implemented")
@@ -347,6 +481,84 @@ func (f fakeEventReader) GetTrendingNotes(
 	return f.getTrendingNotesFn(ctx, window, limit, offset)
 }
 
+func (f fakeEventReader) GetHotConversations(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]store.HotConversation, error) {
+	if f.getHotConversationsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getHotConversationsFn(ctx, window, limit, offset)
+}
+
+func (f fakeEventReader) GetHashtagSummary(ctx context.Context, hashtag string) (store.HashtagSummary, error) {
+	if f.getHashtagSummaryFn == nil {
+		return store.HashtagSummary{}, errors.New("not implemented")
+	}
+	return f.getHashtagSummaryFn(ctx, hashtag)
+}
+
+func (f fakeEventReader) GetHashtagNotes(
+	ctx context.Context,
+	hashtag string,
+	sort string,
+	window string,
+	limit int,
+	offset int,
+) ([]store.TrendingNote, error) {
+	if f.getHashtagNotesFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getHashtagNotesFn(ctx, hashtag, sort, window, limit, offset)
+}
+
+func (f fakeEventReader) GetRelatedHashtags(ctx context.Context, hashtag string, limit int) ([]store.RelatedHashtag, error) {
+	if f.getRelatedHashtagsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getRelatedHashtagsFn(ctx, hashtag, limit)
+}
+
+func (f fakeEventReader) GetTrendingDomains(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]store.DomainSummaryProjection, error) {
+	if f.getTrendingDomainsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getTrendingDomainsFn(ctx, window, limit, offset)
+}
+
+func (f fakeEventReader) GetDomainSummary(
+	ctx context.Context,
+	domain string,
+	recentLimit int,
+	topLimit int,
+) (store.DomainSummaryProjection, error) {
+	if f.getDomainSummaryFn == nil {
+		return store.DomainSummaryProjection{}, errors.New("not implemented")
+	}
+	return f.getDomainSummaryFn(ctx, domain, recentLimit, topLimit)
+}
+
+func (f fakeEventReader) GetDomainNotes(
+	ctx context.Context,
+	domain string,
+	sort string,
+	window string,
+	limit int,
+	offset int,
+) ([]store.TrendingNote, error) {
+	if f.getDomainNotesFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getDomainNotesFn(ctx, domain, sort, window, limit, offset)
+}
+
 func (f fakeEventReader) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
 	if f.getCuratedPubsFn == nil {
 		return nil, errors.New("not implemented")
@@ -376,6 +588,38 @@ func (f fakeEventReader) GetRisingProfiles(
 		return nil, errors.New("not implemented")
 	}
 	return f.getRisingProfilesFn(ctx, window, limit, offset)
+}
+
+func (f fakeEventReader) GetNoteStats(ctx context.Context, eventID string) (store.NoteStats, error) {
+	if f.getNoteStatsFn == nil {
+		return store.NoteStats{}, errors.New("not implemented")
+	}
+	return f.getNoteStatsFn(ctx, eventID)
+}
+
+func (f fakeEventReader) GetNoteConversationVelocity(ctx context.Context, eventID string) (store.NoteConversationVelocity, error) {
+	if f.getNoteConversationVelocityFn == nil {
+		return store.NoteConversationVelocity{}, errors.New("not implemented")
+	}
+	return f.getNoteConversationVelocityFn(ctx, eventID)
+}
+
+func (f fakeEventReader) GetNoteQuoteRepostLinkage(
+	ctx context.Context,
+	eventID string,
+	recentLimit int,
+) (store.NoteQuoteRepostLinkageProjection, error) {
+	if f.getNoteQuoteRepostLinkageFn == nil {
+		return store.NoteQuoteRepostLinkageProjection{EventID: eventID}, nil
+	}
+	return f.getNoteQuoteRepostLinkageFn(ctx, eventID, recentLimit)
+}
+
+func (f fakeEventReader) GetRelatedNotes(ctx context.Context, eventID string, limit int) ([]store.RelatedNote, error) {
+	if f.getRelatedNotesFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getRelatedNotesFn(ctx, eventID, limit)
 }
 
 func (f trustQualifiedFakeReader) GetTrustQualifications(

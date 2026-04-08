@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -58,6 +59,54 @@ func (s Service) GetTrendingHashtags(ctx context.Context, window time.Duration, 
 	return nil, unsupportedCapabilityError("trending hashtags")
 }
 
+func (s Service) GetHashtagSummary(ctx context.Context, hashtag string) (HashtagSummary, error) {
+	normalized, err := normalizeHashtagToken(hashtag)
+	if err != nil {
+		return HashtagSummary{}, err
+	}
+	if r := s.capabilities.curated.hashtagSummary; r != nil {
+		return r.GetHashtagSummary(ctx, normalized)
+	}
+	return HashtagSummary{}, unsupportedCapabilityError("hashtag summary")
+}
+
+func (s Service) GetHashtagNotes(
+	ctx context.Context,
+	hashtag string,
+	sort string,
+	window string,
+	limit int,
+	offset int,
+) ([]TrendingNote, error) {
+	normalized, err := normalizeHashtagToken(hashtag)
+	if err != nil {
+		return nil, err
+	}
+	if r := s.capabilities.curated.hashtagNotes; r != nil {
+		return r.GetHashtagNotes(ctx, normalized, sort, window, limit, offset)
+	}
+	return nil, unsupportedCapabilityError("hashtag notes")
+}
+
+func (s Service) GetRelatedHashtags(ctx context.Context, hashtag string, limit int) ([]RelatedHashtag, error) {
+	normalized, err := normalizeHashtagToken(hashtag)
+	if err != nil {
+		return nil, err
+	}
+	if r := s.capabilities.curated.relatedHashtags; r != nil {
+		return r.GetRelatedHashtags(ctx, normalized, limit)
+	}
+	return nil, unsupportedCapabilityError("related hashtags")
+}
+
+func normalizeHashtagToken(value string) (string, error) {
+	normalized := normalizeHashtagForLookup(value)
+	if normalized == "" {
+		return "", fmt.Errorf("hashtag is invalid: %w", ErrInvalidHashtag)
+	}
+	return normalized, nil
+}
+
 func (s Service) GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
 	if r := s.capabilities.curated.trendingNotes; r != nil {
 		if s.discoveryTrustMode == trustModeOpen {
@@ -66,6 +115,13 @@ func (s Service) GetTrendingNotes(ctx context.Context, window time.Duration, lim
 		return s.getTrendingNotesTrustAware(ctx, window, limit, offset)
 	}
 	return nil, unsupportedCapabilityError("trending notes")
+}
+
+func (s Service) GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]HotConversation, error) {
+	if r := s.capabilities.curated.hotConversations; r != nil {
+		return r.GetHotConversations(ctx, window, limit, offset)
+	}
+	return nil, unsupportedCapabilityError("hot conversations")
 }
 
 func (s Service) GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {

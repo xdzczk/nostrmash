@@ -2,6 +2,7 @@ package derivation_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +67,66 @@ func TestProjectNoteDiscoveryStats_CountAccumulationAndScoreUpdate(t *testing.T)
 	}
 }
 
+func TestProjectNoteDiscoveryStats_DerivesMediaFlags(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	note := newEventForTest(
+		"note_media_target",
+		"author_media",
+		now.Add(-45*time.Minute).Unix(),
+		1,
+		[][]string{
+			{"image", "https://cdn.example/photo.jpg"},
+			{"video", "https://cdn.example/video.mp4"},
+			{"r", "https://example.com/article"},
+		},
+		"see https://example.com/preview.webp and https://example.com/watch.mp4",
+		now.Add(-45*time.Minute),
+	)
+	longform := newEventForTest(
+		"note_media_article",
+		"author_media",
+		now.Add(-30*time.Minute).Unix(),
+		30023,
+		nil,
+		strings.Repeat("x", 1300),
+		now.Add(-30*time.Minute),
+	)
+
+	for _, event := range []model.Event{note, longform} {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+
+	row := readNoteDiscoveryStatsRow(t, ctx, pool, "note_media_target")
+	if !row.HasImage || !row.HasVideo || !row.HasLink {
+		t.Fatalf("expected image/video/link media flags: %#v", row)
+	}
+	if row.HasArticle {
+		t.Fatalf("did not expect article flag on regular note: %#v", row)
+	}
+	if row.AttachmentCount < 3 {
+		t.Fatalf("expected attachment count >= 3, got %d", row.AttachmentCount)
+	}
+
+	articleRow := readNoteDiscoveryStatsRow(t, ctx, pool, "note_media_article")
+	if !articleRow.HasArticle {
+		t.Fatalf("expected article flag for longform note: %#v", articleRow)
+	}
+}
+
 func TestProjectionRebuildScopes_NoteDiscoveryStatsFullRebuild(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
@@ -86,7 +147,7 @@ func TestProjectionRebuildScopes_NoteDiscoveryStatsFullRebuild(t *testing.T) {
 
 	run, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
 		DerivationName: derivation.DerivationNoteDiscoveryStats,
-		TargetVersion:  2,
+		TargetVersion:  3,
 		Scope: derivation.ProjectionRebuildScope{
 			Type: derivation.RebuildScopeFull,
 		},
@@ -98,32 +159,136 @@ func TestProjectionRebuildScopes_NoteDiscoveryStatsFullRebuild(t *testing.T) {
 		t.Fatalf("execute note discovery rebuild: %v", err)
 	}
 	assertRebuildRunSucceeded(t, ctx, handlers, run.ID)
-	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationNoteDiscoveryStats, 2, 2)
+	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationNoteDiscoveryStats, 3, 3)
 
 	var version int
 	if err := pool.QueryRow(ctx, `SELECT derivation_version FROM note_discovery_stats WHERE event_id = $1`, note.ID).Scan(&version); err != nil {
 		t.Fatalf("query note discovery derivation version: %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("unexpected note discovery derivation version: got=%d want=2", version)
+	if version != 3 {
+		t.Fatalf("unexpected note discovery derivation version: got=%d want=3", version)
+	}
+}
+
+func TestProjectNoteDiscoveryStats_LanguageClassificationFixtures(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_ENABLED", "true")
+	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_MIN_CHARS", "10")
+	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_MIN_CONFIDENCE", "0.55")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	fixtures := []struct {
+		id       string
+		content  string
+		expected string
+	}{
+		{id: "lang_note_en", content: "This is a simple note about nostr and how the network grows.", expected: "en"},
+		{id: "lang_note_es", content: "Hola amigos, este es un mensaje para la comunidad de nostr.", expected: "es"},
+		{id: "lang_note_ja", content: "こんにちは、これはノストルの言語判定テストです。", expected: "ja"},
+	}
+	for idx, fixture := range fixtures {
+		ts := now.Add(-time.Duration(idx+1) * time.Minute)
+		note := newEventForTest(fixture.id, "author_"+fixture.id, ts.Unix(), 1, nil, fixture.content, ts)
+		if err := pgStore.InsertCanonicalEvent(ctx, note, extractTagsFromRaw(t, note.RawJSON), "wss://relay.one", note.FirstSeenAt); err != nil {
+			t.Fatalf("insert note %s: %v", fixture.id, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, note.ID); err != nil {
+			t.Fatalf("derive note %s: %v", fixture.id, err)
+		}
+		row := readNoteDiscoveryStatsRow(t, ctx, pool, note.ID)
+		if row.PrimaryLanguage == nil || *row.PrimaryLanguage != fixture.expected {
+			t.Fatalf("unexpected language for %s: got=%v want=%s", fixture.id, row.PrimaryLanguage, fixture.expected)
+		}
+		if row.LanguageConf == nil || *row.LanguageConf <= 0 {
+			t.Fatalf("expected language confidence for %s, got=%v", fixture.id, row.LanguageConf)
+		}
+	}
+}
+
+func TestProjectNoteDiscoveryStats_LanguageUnknownShortAndDisabled(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_ENABLED", "true")
+	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_MIN_CHARS", "20")
+
+	short := newEventForTest("lang_short_note", "author_short", now.Add(-2*time.Minute).Unix(), 1, nil, "gm", now.Add(-2*time.Minute))
+	if err := pgStore.InsertCanonicalEvent(ctx, short, extractTagsFromRaw(t, short.RawJSON), "wss://relay.one", short.FirstSeenAt); err != nil {
+		t.Fatalf("insert short note: %v", err)
+	}
+	if err := handlers.DeriveEventBundle(ctx, short.ID); err != nil {
+		t.Fatalf("derive short note: %v", err)
+	}
+	shortRow := readNoteDiscoveryStatsRow(t, ctx, pool, short.ID)
+	if shortRow.PrimaryLanguage != nil || shortRow.LanguageConf != nil {
+		t.Fatalf("expected unknown language for short text, got=%#v", shortRow)
+	}
+
+	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_ENABLED", "false")
+	disabled := newEventForTest("lang_disabled_note", "author_disabled", now.Add(-time.Minute).Unix(), 1, nil, "This sentence is long enough for detection.", now.Add(-time.Minute))
+	if err := pgStore.InsertCanonicalEvent(ctx, disabled, extractTagsFromRaw(t, disabled.RawJSON), "wss://relay.one", disabled.FirstSeenAt); err != nil {
+		t.Fatalf("insert disabled note: %v", err)
+	}
+	if err := handlers.DeriveEventBundle(ctx, disabled.ID); err != nil {
+		t.Fatalf("derive disabled note: %v", err)
+	}
+	disabledRow := readNoteDiscoveryStatsRow(t, ctx, pool, disabled.ID)
+	if disabledRow.PrimaryLanguage != nil || disabledRow.LanguageConf != nil {
+		t.Fatalf("expected nil language when detection disabled, got=%#v", disabledRow)
 	}
 }
 
 type noteDiscoveryRow struct {
-	ReplyCount    int64
-	RepostCount   int64
-	ReactionCount int64
-	ZapCount      int64
-	ZapMSats      int64
-	Score24h      float64
-	Score7d       float64
+	ReplyCount      int64
+	RepostCount     int64
+	ReactionCount   int64
+	ZapCount        int64
+	ZapMSats        int64
+	HasImage        bool
+	HasVideo        bool
+	HasLink         bool
+	HasArticle      bool
+	AttachmentCount int
+	PrimaryLanguage *string
+	LanguageConf    *float64
+	Score24h        float64
+	Score7d         float64
 }
 
 func readNoteDiscoveryStatsRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string) noteDiscoveryRow {
 	t.Helper()
 	var out noteDiscoveryRow
 	if err := pool.QueryRow(ctx, `
-		SELECT reply_count, repost_count, reaction_count, zap_count, zap_msats, score_24h, score_7d
+		SELECT
+			reply_count,
+			repost_count,
+			reaction_count,
+			zap_count,
+			zap_msats,
+			has_image,
+			has_video,
+			has_link,
+			has_article,
+			attachment_count,
+			primary_language,
+			language_confidence,
+			score_24h,
+			score_7d
 		FROM note_discovery_stats
 		WHERE event_id = $1
 	`, eventID).Scan(
@@ -132,6 +297,13 @@ func readNoteDiscoveryStatsRow(t *testing.T, ctx context.Context, pool *pgxpool.
 		&out.ReactionCount,
 		&out.ZapCount,
 		&out.ZapMSats,
+		&out.HasImage,
+		&out.HasVideo,
+		&out.HasLink,
+		&out.HasArticle,
+		&out.AttachmentCount,
+		&out.PrimaryLanguage,
+		&out.LanguageConf,
 		&out.Score24h,
 		&out.Score7d,
 	); err != nil {

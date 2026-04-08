@@ -13,13 +13,16 @@ func TestSearchNotes_AdvancedSortWindowAndPagination(t *testing.T) {
 	var called bool
 	svc.reader = readerWithAdvancedSearch{
 		Reader: svc.reader,
-		searchNotesFn: func(_ context.Context, q string, sort string, window *time.Duration, limit int, offset int) ([]json.RawMessage, error) {
+		searchNotesFn: func(_ context.Context, q string, sort string, window *time.Duration, language string, limit int, offset int) ([]json.RawMessage, error) {
 			called = true
 			if q != "nostr" || sort != "latest" {
 				t.Fatalf("unexpected notes args: q=%q sort=%q", q, sort)
 			}
 			if window == nil || *window != 7*24*time.Hour {
 				t.Fatalf("unexpected notes window: %#v", window)
+			}
+			if language != "en" {
+				t.Fatalf("unexpected notes language: %q", language)
 			}
 			if limit != 3 || offset != 2 {
 				t.Fatalf("unexpected notes pagination: limit=%d offset=%d", limit, offset)
@@ -29,11 +32,12 @@ func TestSearchNotes_AdvancedSortWindowAndPagination(t *testing.T) {
 	}
 	window := 7 * 24 * time.Hour
 	out, err := svc.SearchNotes(context.Background(), NotesSearchParams{
-		Query:  "nostr",
-		Sort:   "latest",
-		Window: &window,
-		Limit:  3,
-		Offset: 2,
+		Query:    "nostr",
+		Sort:     "latest",
+		Window:   &window,
+		Language: "en",
+		Limit:    3,
+		Offset:   2,
 	})
 	if err != nil {
 		t.Fatalf("SearchNotes returned error: %v", err)
@@ -43,6 +47,17 @@ func TestSearchNotes_AdvancedSortWindowAndPagination(t *testing.T) {
 	}
 	if len(out) != 1 {
 		t.Fatalf("unexpected notes output length: %d", len(out))
+	}
+}
+
+func TestSearchNotes_RejectsInvalidLanguageFilter(t *testing.T) {
+	svc := mustNewService(t, fakeReader{})
+	_, err := svc.SearchNotes(context.Background(), NotesSearchParams{
+		Query:    "nostr",
+		Language: "en-US",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid language filter")
 	}
 }
 
@@ -194,7 +209,7 @@ func TestSearchNotes_TrustModePreferTrustedBoostsAndPaginates(t *testing.T) {
 	var trustCalls int
 	reader := readerWithAdvancedSearch{
 		Reader: fakeReader{},
-		searchNotesFn: func(_ context.Context, _ string, _ string, _ *time.Duration, limit int, offset int) ([]json.RawMessage, error) {
+		searchNotesFn: func(_ context.Context, _ string, _ string, _ *time.Duration, _ string, limit int, offset int) ([]json.RawMessage, error) {
 			if offset >= len(base) {
 				return []json.RawMessage{}, nil
 			}
@@ -239,7 +254,7 @@ func TestSearchNotes_TrustModePreferTrustedBoostsAndPaginates(t *testing.T) {
 func TestSearchNotes_TrustModeTrustedOnlyCanReturnEmpty(t *testing.T) {
 	reader := readerWithAdvancedSearch{
 		Reader: fakeReader{},
-		searchNotesFn: func(_ context.Context, _ string, _ string, _ *time.Duration, _ int, _ int) ([]json.RawMessage, error) {
+		searchNotesFn: func(_ context.Context, _ string, _ string, _ *time.Duration, _ string, _ int, _ int) ([]json.RawMessage, error) {
 			return []json.RawMessage{
 				mustRawEvent(t, "n1", "u1"),
 				mustRawEvent(t, "n2", "u2"),
@@ -349,7 +364,7 @@ func TestSearchProfiles_TrustModeTrustedOnlyFilters(t *testing.T) {
 
 type readerWithAdvancedSearch struct {
 	Reader
-	searchNotesFn            func(context.Context, string, string, *time.Duration, int, int) ([]json.RawMessage, error)
+	searchNotesFn            func(context.Context, string, string, *time.Duration, string, int, int) ([]json.RawMessage, error)
 	searchProfilesFn         func(context.Context, string, string, int, int) ([]Profile, error)
 	getTrustQualificationsFn func(context.Context, []string, TrustQualificationPolicy) (map[string]TrustQualification, error)
 	isTrustedAuthorFn        func(context.Context, string, TrustQualificationPolicy) (bool, error)
@@ -360,13 +375,14 @@ func (r readerWithAdvancedSearch) SearchNotes(
 	query string,
 	sort string,
 	window *time.Duration,
+	language string,
 	limit int,
 	offset int,
 ) ([]json.RawMessage, error) {
 	if r.searchNotesFn == nil {
 		return nil, nil
 	}
-	return r.searchNotesFn(ctx, query, sort, window, limit, offset)
+	return r.searchNotesFn(ctx, query, sort, window, language, limit, offset)
 }
 
 func (r readerWithAdvancedSearch) SearchProfilesWithOptions(

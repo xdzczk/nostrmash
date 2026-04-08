@@ -183,11 +183,12 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 	var authorPubkey string
 	var noteCreatedAt int64
 	var noteKind int
+	var noteContent string
 	if err := tx.QueryRow(ctx, `
-		SELECT pubkey, created_at, kind
+		SELECT pubkey, created_at, kind, COALESCE(content, '')
 		FROM events
 		WHERE id = $1
-	`, noteID).Scan(&authorPubkey, &noteCreatedAt, &noteKind); err != nil {
+	`, noteID).Scan(&authorPubkey, &noteCreatedAt, &noteKind, &noteContent); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			if _, delErr := tx.Exec(ctx, `DELETE FROM note_discovery_stats WHERE event_id = $1`, noteID); delErr != nil {
 				return fmt.Errorf("delete stale note discovery row for missing event: %w", delErr)
@@ -240,8 +241,13 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 	if err != nil {
 		return err
 	}
+	hasImage, hasVideo, hasLink, hasArticle, attachmentCount, err := loadNoteMediaFlagsTx(ctx, tx, noteID)
+	if err != nil {
+		return err
+	}
 	score24h := computeTrendingScore(24*time.Hour, nowUnix, noteCreatedAt, reply24h, repost24h, reaction24h, zapCount24h, zapMSats24h)
 	score7d := computeTrendingScore(7*24*time.Hour, nowUnix, noteCreatedAt, reply7d, repost7d, reaction7d, zapCount7d, zapMSats7d)
+	primaryLanguage, languageConfidence := detectPrimaryLanguage(noteContent)
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO note_discovery_stats (
@@ -253,12 +259,19 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 			reaction_count,
 			zap_count,
 			zap_msats,
+			has_image,
+			has_video,
+			has_link,
+			has_article,
+			attachment_count,
+			primary_language,
+			language_confidence,
 			score_24h,
 			score_7d,
 			last_scored_at,
 			derivation_version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now(), $18)
 		ON CONFLICT (event_id) DO UPDATE
 		SET author_pubkey = EXCLUDED.author_pubkey,
 		    created_at = EXCLUDED.created_at,
@@ -267,12 +280,19 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		    reaction_count = EXCLUDED.reaction_count,
 		    zap_count = EXCLUDED.zap_count,
 		    zap_msats = EXCLUDED.zap_msats,
+		    has_image = EXCLUDED.has_image,
+		    has_video = EXCLUDED.has_video,
+		    has_link = EXCLUDED.has_link,
+		    has_article = EXCLUDED.has_article,
+		    attachment_count = EXCLUDED.attachment_count,
+		    primary_language = EXCLUDED.primary_language,
+		    language_confidence = EXCLUDED.language_confidence,
 		    score_24h = EXCLUDED.score_24h,
 		    score_7d = EXCLUDED.score_7d,
 		    last_scored_at = now(),
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
-	`, noteID, authorPubkey, noteCreatedAt, replyCount, repostCount, reactionCount, zapCount, zapMSats, score24h, score7d, writeVersion); err != nil {
+	`, noteID, authorPubkey, noteCreatedAt, replyCount, repostCount, reactionCount, zapCount, zapMSats, hasImage, hasVideo, hasLink, hasArticle, attachmentCount, primaryLanguage, languageConfidence, score24h, score7d, writeVersion); err != nil {
 		return fmt.Errorf("upsert note discovery stats: %w", err)
 	}
 	return nil
@@ -341,6 +361,75 @@ func queryInt64Tx(ctx context.Context, tx pgx.Tx, sql string, args ...any) (int6
 		return 0, err
 	}
 	return value, nil
+}
+
+func loadNoteMediaFlagsTx(ctx context.Context, tx pgx.Tx, noteID string) (bool, bool, bool, bool, int, error) {
+	var hasImage bool
+	var hasVideo bool
+	var hasLink bool
+	var hasArticle bool
+	var attachmentCount int
+	if err := tx.QueryRow(ctx, `
+		WITH note AS (
+			SELECT kind, LOWER(COALESCE(content, '')) AS content
+			FROM events
+			WHERE id = $1
+		),
+		content_links AS (
+			SELECT DISTINCT m[1] AS url
+			FROM note n,
+			LATERAL regexp_matches(n.content, '(https?://[^[:space:]]+)', 'g') AS m
+		),
+		tag_rows AS (
+			SELECT LOWER(COALESCE(tag_name, '')) AS tag_name, LOWER(COALESCE(value, '')) AS value
+			FROM event_tags
+			WHERE event_id = $1
+		),
+		signal AS (
+			SELECT
+				EXISTS (
+					SELECT 1 FROM tag_rows t
+					WHERE t.tag_name IN ('image', 'thumb')
+				) OR EXISTS (
+					SELECT 1 FROM content_links l
+					WHERE l.url ~ '\.(png|jpe?g|gif|webp)([?#].*)?$'
+				) AS has_image,
+				EXISTS (
+					SELECT 1 FROM tag_rows t
+					WHERE t.tag_name = 'video'
+				) OR EXISTS (
+					SELECT 1 FROM content_links l
+					WHERE l.url ~ '\.(mp4|mov|webm|m4v)([?#].*)?$'
+				) AS has_video,
+				EXISTS (
+					SELECT 1 FROM tag_rows t
+					WHERE t.tag_name = 'r' AND t.value <> ''
+				) OR EXISTS (
+					SELECT 1 FROM content_links
+				) AS has_link,
+				EXISTS (
+					SELECT 1 FROM note n
+					WHERE n.kind = 30023 OR char_length(n.content) >= 1200
+				) AS has_article,
+				(
+					COALESCE((
+						SELECT COUNT(*)
+						FROM tag_rows t
+						WHERE t.tag_name IN ('image', 'thumb', 'video', 'imeta')
+					), 0) +
+					COALESCE((
+						SELECT COUNT(*)
+						FROM content_links l
+						WHERE l.url ~ '\.(png|jpe?g|gif|webp|mp4|mov|webm|m4v)([?#].*)?$'
+					), 0)
+				)::int AS attachment_count
+		)
+		SELECT has_image, has_video, has_link, has_article, attachment_count
+		FROM signal
+	`).Scan(&hasImage, &hasVideo, &hasLink, &hasArticle, &attachmentCount); err != nil {
+		return false, false, false, false, 0, fmt.Errorf("load note media flags: %w", err)
+	}
+	return hasImage, hasVideo, hasLink, hasArticle, attachmentCount, nil
 }
 
 func computeTrendingScore(

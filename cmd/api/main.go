@@ -144,7 +144,11 @@ func main() {
 		DiscoveryCache: &api.DiscoveryCacheOptions{
 			Enabled:        &discoveryCacheEnabled,
 			MaxEntries:     cfg.DiscoveryCache.MaxEntries,
+			BundleTTL:      cfg.DiscoveryCache.BundleTTL,
+			DiscoveryTTL:   cfg.DiscoveryCache.DiscoveryTTL,
+			SuggestionTTL:  cfg.DiscoveryCache.SuggestionTTL,
 			TrendingTTL:    cfg.DiscoveryCache.TrendingTTL,
+			StatsTTL:       cfg.DiscoveryCache.StatsTTL,
 			PublicStatsTTL: cfg.DiscoveryCache.PublicStatsTTL,
 		},
 	})
@@ -192,11 +196,21 @@ func main() {
 	mux.Handle("/admin/", api.RequireBearerToken(strings.TrimSpace(cfg.HTTP.AdminBearerToken), adminMux))
 
 	var handler http.Handler = mux
+	handler = api.WithPublicRequestGuards(api.PublicRequestGuardOptions{
+		MaxResultLimit:          cfg.HTTP.PublicMaxResultLimit,
+		MaxPageSize:             cfg.HTTP.PublicMaxPageSize,
+		MaxPageOffset:           cfg.HTTP.PublicMaxPageOffset,
+		MaxSearchWindowHours:    cfg.HTTP.PublicMaxSearchWindowHrs,
+		MaxDiscoveryWindowHours: cfg.HTTP.PublicMaxDiscoveryWindowHrs,
+	}, handler)
 	handler = api.WithHTTPRateLimit(api.HTTPRateLimitOptions{
-		DefaultRPM:   cfg.HTTP.RateLimitRPM,
-		DefaultBurst: cfg.HTTP.RateLimitBurst,
-		SearchRPM:    cfg.HTTP.SearchRateLimitRPM,
-		BatchRPM:     cfg.HTTP.BatchRateLimitRPM,
+		DefaultRPM:     cfg.HTTP.RateLimitRPM,
+		DefaultBurst:   cfg.HTTP.RateLimitBurst,
+		SearchRPM:      cfg.HTTP.SearchRateLimitRPM,
+		BatchRPM:       cfg.HTTP.BatchRateLimitRPM,
+		DiscoveryRPM:   cfg.HTTP.DiscoveryRateLimitRPM,
+		SuggestRPM:     cfg.HTTP.SuggestRateLimitRPM,
+		PublicStatsRPM: cfg.HTTP.PublicStatsRateLimitRPM,
 	}, handler)
 	handler = api.LogRequests(log, handler)
 	handler = api.WithRequestID(handler)

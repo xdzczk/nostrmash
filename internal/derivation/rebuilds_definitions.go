@@ -99,6 +99,13 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			description:    "Project normalized hashtags from note-like events",
 			rebuildProject: h.projectEventHashtagsWithVersion,
 		}, nil
+	case DerivationEventURLs:
+		return projectionDefinition{
+			name:           DerivationEventURLs,
+			compiled:       EventURLsVersion,
+			description:    "Project normalized URLs/domains from note-like events",
+			rebuildProject: h.projectEventURLsWithVersion,
+		}, nil
 	case DerivationNoteDiscoveryStats:
 		return projectionDefinition{
 			name:           DerivationNoteDiscoveryStats,
@@ -134,6 +141,13 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			description:    "Project reply parent/root edges with unresolved reference tracking",
 			rebuildProject: h.updateThreadProjectionWithVersion,
 		}, nil
+	case DerivationThreadSummary:
+		return projectionDefinition{
+			name:           DerivationThreadSummary,
+			compiled:       ThreadSummaryVersion,
+			description:    "Project root-level thread summary counters and velocity hints",
+			rebuildProject: h.updateThreadSummaryWithVersion,
+		}, nil
 	case DerivationDMUnreadCounts:
 		return projectionDefinition{
 			name:           DerivationDMUnreadCounts,
@@ -154,6 +168,54 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       ProfilePublicStatsVersion,
 			description:    "Project public profile counters and recent activity",
 			rebuildProject: h.projectProfilePublicStatsWithVersion,
+		}, nil
+	case DerivationAuthorActivityDaily:
+		return projectionDefinition{
+			name:           DerivationAuthorActivityDaily,
+			compiled:       AuthorActivityDailyVersion,
+			description:    "Project per-author daily post cadence and engagement aggregates",
+			rebuildProject: h.projectAuthorAnalyticsWithVersion,
+			rebuildFull:    h.rebuildAuthorAnalyticsWithVersion,
+		}, nil
+	case DerivationAuthorEngagementStats:
+		return projectionDefinition{
+			name:           DerivationAuthorEngagementStats,
+			compiled:       AuthorEngagementStatsVersion,
+			description:    "Project windowed per-author engagement and cadence summaries",
+			rebuildProject: h.projectAuthorAnalyticsWithVersion,
+			rebuildFull:    h.rebuildAuthorAnalyticsWithVersion,
+		}, nil
+	case DerivationAuthorTopicStats:
+		return projectionDefinition{
+			name:           DerivationAuthorTopicStats,
+			compiled:       AuthorTopicStatsVersion,
+			description:    "Project windowed per-author hashtag usage summaries",
+			rebuildProject: h.projectAuthorAnalyticsWithVersion,
+			rebuildFull:    h.rebuildAuthorAnalyticsWithVersion,
+		}, nil
+	case DerivationAuthorMediaMixStats:
+		return projectionDefinition{
+			name:           DerivationAuthorMediaMixStats,
+			compiled:       AuthorMediaMixStatsVersion,
+			description:    "Project windowed per-author media mix summaries",
+			rebuildProject: h.projectAuthorAnalyticsWithVersion,
+			rebuildFull:    h.rebuildAuthorAnalyticsWithVersion,
+		}, nil
+	case DerivationAuthorActivityWindows:
+		return projectionDefinition{
+			name:           DerivationAuthorActivityWindows,
+			compiled:       AuthorActivityWindowsVersion,
+			description:    "Project windowed per-author engagement timing buckets by UTC day/hour",
+			rebuildProject: h.projectAuthorAnalyticsWithVersion,
+			rebuildFull:    h.rebuildAuthorAnalyticsWithVersion,
+		}, nil
+	case DerivationAuthorPostingPatterns:
+		return projectionDefinition{
+			name:           DerivationAuthorPostingPatterns,
+			compiled:       AuthorPostingPatternsVersion,
+			description:    "Project windowed per-author posting cadence buckets by UTC day/hour",
+			rebuildProject: h.projectAuthorAnalyticsWithVersion,
+			rebuildFull:    h.rebuildAuthorAnalyticsWithVersion,
 		}, nil
 	default:
 		return projectionDefinition{}, fmt.Errorf("projection rebuild is not supported for derivation %q", normalized)

@@ -9,10 +9,14 @@ Do not hand-edit this file.
 | Env var | Runtime(s) | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `ADMIN_BEARER_TOKEN` | `api` | optional | `-` | Optional bearer token for admin HTTP endpoints. |
+| `API_DISCOVERY_CACHE_BUNDLE_TTL` | `api` | optional | `60s` | TTL for cached homepage/public bundle responses. |
+| `API_DISCOVERY_CACHE_DISCOVERY_TTL` | `api` | optional | `60s` | TTL for cached public discovery responses (trending and discovery detail endpoints). |
 | `API_DISCOVERY_CACHE_ENABLED` | `api` | optional | `true` | Enable short-TTL response caching for public discovery trending and stats endpoints. |
 | `API_DISCOVERY_CACHE_MAX_ENTRIES` | `api` | optional | `256` | Maximum in-memory entries retained by discovery/stats response cache. |
-| `API_DISCOVERY_CACHE_PUBLIC_STATS_TTL` | `api` | optional | `10m` | TTL for cached public discovery stats responses. |
-| `API_DISCOVERY_CACHE_TRENDING_TTL` | `api` | optional | `60s` | TTL for cached discovery trending responses. |
+| `API_DISCOVERY_CACHE_PUBLIC_STATS_TTL` | `api` | optional | `10m` | Compatibility alias for API_DISCOVERY_CACHE_STATS_TTL. |
+| `API_DISCOVERY_CACHE_STATS_TTL` | `api` | optional | `10m` | TTL for cached public stats responses. |
+| `API_DISCOVERY_CACHE_SUGGESTION_TTL` | `api` | optional | `60s` | TTL for cached public suggestion responses. |
+| `API_DISCOVERY_CACHE_TRENDING_TTL` | `api` | optional | `60s` | Compatibility alias for bundle/discovery/suggestion TTL defaults. |
 | `API_MAX_BATCH_SIZE` | `api` | optional | `200` | Maximum IDs accepted by batch event/profile API requests. |
 | `API_RELAY_FALLBACK_ENABLED` | `api` | optional | `false` | Enable best-effort relay fallback for local event/profile misses. |
 | `API_RELAY_FALLBACK_MAX_FANOUT` | `api` | optional | `3` | Maximum number of fallback relays queried per lookup. |
@@ -23,10 +27,18 @@ Do not hand-edit this file.
 | `ENVIRONMENT` | `api, ingestor, trust_worker, worker` | optional | `development` | Deployment environment label. |
 | `HTTP_ADDR` | `api` | optional | `:8080` | HTTP listen address for the API server. |
 | `HTTP_BATCH_RATE_LIMIT_RPM` | `api` | optional | `40` | Per-IP requests per minute for HTTP batch endpoints. |
+| `HTTP_DISCOVERY_RATE_LIMIT_RPM` | `api` | optional | `90` | Per-IP requests per minute for public discovery endpoints. |
 | `HTTP_DM_COMPAT_RATE_LIMIT_RPM` | `api` | optional | `30` | Per-connection requests per minute for DM compatibility calls on the Primal WebSocket gateway. |
+| `HTTP_PUBLIC_MAX_DISCOVERY_WINDOW_HOURS` | `api` | optional | `720` | Maximum discovery/public stats window size in hours for guarded query params. |
+| `HTTP_PUBLIC_MAX_PAGE_OFFSET` | `api` | optional | `5000` | Maximum offset accepted by guarded public pagination endpoints. |
+| `HTTP_PUBLIC_MAX_PAGE_SIZE` | `api` | optional | `100` | Maximum page size accepted by guarded public pagination endpoints. |
+| `HTTP_PUBLIC_MAX_RESULT_LIMIT` | `api` | optional | `100` | Maximum result limit accepted by guarded public discovery/search endpoints. |
+| `HTTP_PUBLIC_MAX_SEARCH_WINDOW_HOURS` | `api` | optional | `168` | Maximum search window size in hours for guarded query params. |
+| `HTTP_PUBLIC_STATS_RATE_LIMIT_RPM` | `api` | optional | `120` | Per-IP requests per minute for public stats endpoints. |
 | `HTTP_RATE_LIMIT_BURST` | `api` | optional | `60` | Burst size for the default HTTP rate limiter. |
 | `HTTP_RATE_LIMIT_RPM` | `api` | optional | `240` | Per-IP requests per minute for default HTTP routes. |
 | `HTTP_SEARCH_RATE_LIMIT_RPM` | `api` | optional | `60` | Per-IP requests per minute for the search endpoint. |
+| `HTTP_SUGGEST_RATE_LIMIT_RPM` | `api` | optional | `120` | Per-IP requests per minute for public suggestion endpoints. |
 | `INGESTOR_BACKFILL_CONNECT_TIMEOUT` | `ingestor` | optional | `10s` | Connection timeout used by backfill relay sessions. |
 | `INGESTOR_BACKFILL_EMPTY_PAGE_MAX` | `ingestor` | optional | `2` | Maximum consecutive empty pages before backfill stops. |
 | `INGESTOR_BACKFILL_ENABLED` | `ingestor` | optional | `false` | Enables bootstrap/backfill mode. |

@@ -59,6 +59,20 @@ func (s threadService) GetThread(ctx context.Context, req ThreadRequest) (out Th
 	return out, nil
 }
 
+func (s Service) GetThreadSummary(ctx context.Context, rootEventID string) (out ThreadSummary, err error) {
+	ctx, span := traceutil.StartSpan(ctx, "query.get_thread_summary")
+	defer func() { span.End(err) }()
+	rootEventID = strings.TrimSpace(rootEventID)
+	if rootEventID == "" {
+		return ThreadSummary{}, fmt.Errorf("root event id is required")
+	}
+	cap := s.capabilities.thread.summary
+	if cap == nil {
+		return ThreadSummary{}, unsupportedCapabilityError("thread summary")
+	}
+	return cap.GetThreadSummary(ctx, rootEventID)
+}
+
 func (s Service) GetThreadWindow(ctx context.Context, req ThreadWindowRequest) (out ThreadView, err error) {
 	return threadService{reader: s.reader}.GetThreadWindow(ctx, req)
 }

@@ -154,9 +154,9 @@ func (s Service) searchProfilesTrustAware(ctx context.Context, params ProfileSea
 
 func (s Service) searchNotesPage(ctx context.Context, params NotesSearchParams) ([]json.RawMessage, error) {
 	if advanced, ok := s.reader.(notesSearchReader); ok {
-		return advanced.SearchNotes(ctx, params.Query, params.Sort, params.Window, params.Limit, params.Offset)
+		return advanced.SearchNotes(ctx, params.Query, params.Sort, params.Window, params.Language, params.Limit, params.Offset)
 	}
-	if params.Sort == "relevant" && params.Window == nil && params.Offset == 0 {
+	if params.Sort == "relevant" && params.Window == nil && params.Offset == 0 && params.Language == "" {
 		return s.reader.SearchEventsByContent(ctx, params.Query, params.Limit)
 	}
 	return nil, unsupportedCapabilityError("advanced notes search")

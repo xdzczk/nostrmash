@@ -86,7 +86,10 @@ Representative implemented native routes include:
 - `POST /api/v1/events/batch`
 - `GET /api/v1/events/{id}/seen-on`
 - `GET /api/v1/profiles/{pubkey}`
+- `GET /api/v1/profiles/{pubkey}/topics`
 - `POST /api/v1/profiles/batch`
+- `GET /api/v1/authors/{pubkey}/analytics/topics`
+- `GET /api/v1/threads/{root_event_id}/summary`
 - `GET /api/v1/users/{pubkey}/summary`
 - `GET /api/v1/search`
 - `GET /api/v1/search/notes`
@@ -95,10 +98,38 @@ Representative implemented native routes include:
 - `GET /api/v1/discovery/stats/network`
 - `GET /api/v1/discovery/stats/content`
 - `GET /api/v1/discovery/stats/relays`
+- `GET /api/v1/discovery/domains/trending`
+- `GET /api/v1/discovery/domains/{domain}`
+- `GET /api/v1/discovery/domains/{domain}/notes`
 
 Compatibility aliases also exist for `GET /api/v1/discovery/network/stats` and `GET /api/v1/discovery/content/stats`.
 
 This is the surface to extend when NostrMash gains new first-class read capabilities.
+
+### Topic affinity primitives
+
+Topic affinity is exposed as deterministic rollups over explicit content signals (primarily hashtags) and intentionally avoids opaque semantic labeling.
+
+- `GET /api/v1/authors/{pubkey}/analytics/topics`
+- `GET /api/v1/profiles/{pubkey}/topics`
+
+Both endpoints support:
+
+- `window`: `7d`, `30d`, or `90d` (default `30d`)
+- `limit`: bounded item count (default `20`, max `100`)
+
+Example response shape:
+
+```json
+{
+  "pubkey": "npub1...",
+  "window": "30d",
+  "items": [
+    { "hashtag": "nostr", "usage_count": 12, "active_days": 8 },
+    { "hashtag": "bitcoin", "usage_count": 4, "active_days": 3 }
+  ]
+}
+```
 
 ## Compatibility API
 

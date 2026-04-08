@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,10 +24,13 @@ const defaultRouteTemplate = "/_unmatched"
 
 // HTTPRateLimitOptions controls API-side per-client request limiting.
 type HTTPRateLimitOptions struct {
-	DefaultRPM   int
-	DefaultBurst int
-	SearchRPM    int
-	BatchRPM     int
+	DefaultRPM     int
+	DefaultBurst   int
+	SearchRPM      int
+	BatchRPM       int
+	DiscoveryRPM   int
+	SuggestRPM     int
+	PublicStatsRPM int
 }
 
 // WithRequestID attaches a request id to the context and response.
@@ -129,6 +133,47 @@ func WithHTTPRateLimit(opts HTTPRateLimitOptions, next http.Handler) http.Handle
 		}
 		if !limiter.allow(clientIP+":"+plan.bucket, plan.rpm, plan.burst, time.Now()) {
 			writeError(r.Context(), w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// PublicRequestGuardOptions controls query-cost limits for public read APIs.
+type PublicRequestGuardOptions struct {
+	MaxResultLimit          int
+	MaxPageSize             int
+	MaxPageOffset           int
+	MaxSearchWindowHours    int
+	MaxDiscoveryWindowHours int
+}
+
+// WithPublicRequestGuards rejects high-cost and malformed query parameters on public endpoints.
+func WithPublicRequestGuards(opts PublicRequestGuardOptions, next http.Handler) http.Handler {
+	if opts.MaxResultLimit <= 0 {
+		opts.MaxResultLimit = 100
+	}
+	if opts.MaxPageSize <= 0 {
+		opts.MaxPageSize = 100
+	}
+	if opts.MaxPageOffset <= 0 {
+		opts.MaxPageOffset = 5000
+	}
+	if opts.MaxSearchWindowHours <= 0 {
+		opts.MaxSearchWindowHours = 7 * 24
+	}
+	if opts.MaxDiscoveryWindowHours <= 0 {
+		opts.MaxDiscoveryWindowHours = 30 * 24
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		endpointClass := classifyPublicEndpoint(r.URL.Path)
+		if endpointClass == publicEndpointClassUnknown {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if err := validatePublicQueryGuards(r, endpointClass, opts); err != nil {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -271,13 +316,28 @@ func newRateLimiter(opts HTTPRateLimitOptions) *rateLimiter {
 func (l *rateLimiter) planForPath(path string) rateLimitPlan {
 	rpm := l.opts.DefaultRPM
 	bucket := "default"
-	switch {
-	case path == "/api/v1/search":
+	switch classifyPublicEndpoint(path) {
+	case publicEndpointClassSearch:
 		if l.opts.SearchRPM > 0 {
 			rpm = l.opts.SearchRPM
 		}
 		bucket = "search"
-	case strings.HasSuffix(path, "/batch"):
+	case publicEndpointClassDiscovery:
+		if l.opts.DiscoveryRPM > 0 {
+			rpm = l.opts.DiscoveryRPM
+		}
+		bucket = "discovery"
+	case publicEndpointClassSuggest:
+		if l.opts.SuggestRPM > 0 {
+			rpm = l.opts.SuggestRPM
+		}
+		bucket = "suggest"
+	case publicEndpointClassPublicStats:
+		if l.opts.PublicStatsRPM > 0 {
+			rpm = l.opts.PublicStatsRPM
+		}
+		bucket = "public_stats"
+	case publicEndpointClassBatch:
 		if l.opts.BatchRPM > 0 {
 			rpm = l.opts.BatchRPM
 		}
@@ -321,4 +381,133 @@ func (l *rateLimiter) allow(key string, rpm int, burst int, now time.Time) bool 
 	b.tokens -= 1.0
 	l.buckets[key] = b
 	return true
+}
+
+type publicEndpointClass string
+
+const (
+	publicEndpointClassUnknown     publicEndpointClass = "unknown"
+	publicEndpointClassSearch      publicEndpointClass = "search"
+	publicEndpointClassSuggest     publicEndpointClass = "suggest"
+	publicEndpointClassDiscovery   publicEndpointClass = "discovery"
+	publicEndpointClassPublicStats publicEndpointClass = "public_stats"
+	publicEndpointClassBatch       publicEndpointClass = "batch"
+)
+
+func classifyPublicEndpoint(path string) publicEndpointClass {
+	path = strings.TrimSpace(path)
+	switch {
+	case path == "/api/v1/search/suggest":
+		return publicEndpointClassSuggest
+	case path == "/api/v1/search", path == "/api/v1/search/notes", path == "/api/v1/search/profiles":
+		return publicEndpointClassSearch
+	case strings.HasSuffix(path, "/batch") && (strings.HasPrefix(path, "/api/v1/") || strings.HasPrefix(path, "/primal/v1/")):
+		return publicEndpointClassBatch
+	case path == "/api/v1/discovery/stats/network",
+		path == "/api/v1/discovery/stats/content",
+		path == "/api/v1/discovery/stats/relays",
+		path == "/api/v1/discovery/network/stats",
+		path == "/api/v1/discovery/content/stats":
+		return publicEndpointClassPublicStats
+	case strings.HasPrefix(path, "/api/v1/discovery/"):
+		return publicEndpointClassDiscovery
+	default:
+		return publicEndpointClassUnknown
+	}
+}
+
+func validatePublicQueryGuards(r *http.Request, endpointClass publicEndpointClass, opts PublicRequestGuardOptions) error {
+	query := r.URL.Query()
+	for _, key := range []string{"limit", "notes_limit", "hashtags_limit", "profiles_limit", "hashtag_stat_limit", "hashtag_limit"} {
+		if err := validatePositiveQueryAtMost(query.Get(key), key, minInt(opts.MaxResultLimit, opts.MaxPageSize)); err != nil {
+			return err
+		}
+	}
+	if err := validateNonNegativeQueryAtMost(query.Get("offset"), "offset", opts.MaxPageOffset); err != nil {
+		return err
+	}
+
+	var maxWindowHours int
+	switch endpointClass {
+	case publicEndpointClassSearch, publicEndpointClassSuggest:
+		maxWindowHours = opts.MaxSearchWindowHours
+	case publicEndpointClassDiscovery, publicEndpointClassPublicStats:
+		maxWindowHours = opts.MaxDiscoveryWindowHours
+	default:
+		maxWindowHours = 0
+	}
+	if maxWindowHours > 0 {
+		if err := validateWindowQuery(query.Get("window"), maxWindowHours); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validatePositiveQueryAtMost(raw string, key string, max int) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return errors.New(key + " must be a positive integer")
+	}
+	if parsed > max {
+		return errors.New(key + " exceeds maximum allowed value")
+	}
+	return nil
+}
+
+func validateNonNegativeQueryAtMost(raw string, key string, max int) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 0 {
+		return errors.New(key + " must be a non-negative integer")
+	}
+	if parsed > max {
+		return errors.New(key + " exceeds maximum allowed value")
+	}
+	return nil
+}
+
+func validateWindowQuery(raw string, maxWindowHours int) error {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return nil
+	}
+	hours, unbounded, err := parseWindowHours(raw)
+	if err != nil {
+		return err
+	}
+	if unbounded || hours > maxWindowHours {
+		return errors.New("window exceeds maximum allowed value")
+	}
+	return nil
+}
+
+func parseWindowHours(raw string) (int, bool, error) {
+	switch raw {
+	case "24h":
+		return 24, false, nil
+	case "7d":
+		return 7 * 24, false, nil
+	case "30d":
+		return 30 * 24, false, nil
+	case "all":
+		return 0, true, nil
+	default:
+		return 0, false, errors.New("window must be one of: 24h, 7d, 30d, all")
+	}
+}
+
+func minInt(a int, b int) int {
+	if a <= b {
+		return a
+	}
+	return b
 }

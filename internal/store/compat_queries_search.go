@@ -10,7 +10,7 @@ import (
 
 // SearchEventsByContent returns note-like events filtered by content text.
 func (s *PostgresStore) SearchEventsByContent(ctx context.Context, query string, limit int) ([]json.RawMessage, error) {
-	return s.SearchNotes(ctx, query, "relevant", nil, limit, 0)
+	return s.SearchNotes(ctx, query, "relevant", nil, "", limit, 0)
 }
 
 // SearchNotes returns note-like events filtered by content text with minimal sorting/filtering options.
@@ -19,6 +19,7 @@ func (s *PostgresStore) SearchNotes(
 	query string,
 	sort string,
 	window *time.Duration,
+	language string,
 	limit int,
 	offset int,
 ) ([]json.RawMessage, error) {
@@ -50,6 +51,10 @@ func (s *PostgresStore) SearchNotes(
 	if offset > 5000 {
 		return nil, fmt.Errorf("offset exceeds maximum allowed value")
 	}
+	language = normalizeLanguageFilter(language)
+	if language == invalidLanguageFilter {
+		return nil, fmt.Errorf("unsupported notes language filter: %s", strings.TrimSpace(language))
+	}
 	var windowSeconds any
 	if window != nil {
 		seconds := int64(window.Seconds())
@@ -60,19 +65,28 @@ func (s *PostgresStore) SearchNotes(
 	rows, err := s.pool.Query(ctx, `
 		WITH ranked AS (
 			SELECT
-				raw_json::text AS raw_text,
-				created_at,
-				id,
+				events.raw_json::text AS raw_text,
+				events.created_at,
+				events.id,
 				ts_rank_cd(
-					to_tsvector('simple', coalesce(content, '')),
+					to_tsvector('simple', coalesce(events.content, '')),
 					websearch_to_tsquery('simple', $1)
 				) AS rank
 			FROM events
-			WHERE kind = 1
-			  AND ($3::bigint IS NULL OR created_at >= (extract(epoch from now())::bigint - $3::bigint))
+			LEFT JOIN note_discovery_stats nds ON nds.event_id = events.id
+			WHERE events.kind = 1
+			  AND ($3::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $3::bigint))
 			  AND (
-				to_tsvector('simple', coalesce(content, '')) @@ websearch_to_tsquery('simple', $1)
-				OR content ILIKE '%' || $1 || '%'
+				$4::text IS NULL OR (
+					CASE
+						WHEN $4::text = 'und' THEN nds.primary_language IS NULL
+						ELSE nds.primary_language = $4::text
+					END
+				)
+			  )
+			  AND (
+				to_tsvector('simple', coalesce(events.content, '')) @@ websearch_to_tsquery('simple', $1)
+				OR events.content ILIKE '%' || $1 || '%'
 			  )
 		)
 		SELECT raw_text
@@ -83,7 +97,7 @@ func (s *PostgresStore) SearchNotes(
 			id DESC
 		LIMIT $4
 		OFFSET $5
-	`, query, sort, windowSeconds, limit, offset)
+	`, query, sort, windowSeconds, nullableLanguageFilter(language), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("search notes: %w", err)
 	}
@@ -101,6 +115,34 @@ func (s *PostgresStore) SearchNotes(
 		return nil, fmt.Errorf("read searched event rows: %w", err)
 	}
 	return out, nil
+}
+
+const invalidLanguageFilter = "__invalid_language_filter__"
+
+func normalizeLanguageFilter(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return ""
+	}
+	if value == "und" {
+		return value
+	}
+	if len(value) < 2 || len(value) > 8 {
+		return invalidLanguageFilter
+	}
+	for _, r := range value {
+		if r < 'a' || r > 'z' {
+			return invalidLanguageFilter
+		}
+	}
+	return value
+}
+
+func nullableLanguageFilter(language string) any {
+	if language == "" {
+		return nil
+	}
+	return language
 }
 
 // SearchProfiles returns latest profile projections matching query.

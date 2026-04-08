@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/logging"
+	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store/failure"
 	"github.com/xdzczk/nostrmash/internal/store/traceutil"
@@ -43,18 +44,20 @@ func Ready(pool *pgxpool.Pool) http.HandlerFunc {
 type EventReader = any
 
 type Handlers struct {
-	service        query.Service
-	maxBatchSize   int
-	discoveryCache *discoveryResponseCache
-	cacheConfig    discoveryCacheConfig
+	service             query.Service
+	maxBatchSize        int
+	discoveryCache      *discoveryResponseCache
+	cacheConfig         discoveryCacheConfig
+	cacheLookupObserver cacheLookupObserver
 }
 
 var apiErrLog = logging.New("api")
 
 type HandlersOptions struct {
-	MaxBatchSize   int
-	QueryOptions   query.ServiceOptions
-	DiscoveryCache *DiscoveryCacheOptions
+	MaxBatchSize        int
+	QueryOptions        query.ServiceOptions
+	DiscoveryCache      *DiscoveryCacheOptions
+	CacheLookupObserver cacheLookupObserver
 }
 
 func NewHandlers(reader EventReader, maxBatchSize int) (Handlers, error) {
@@ -78,11 +81,18 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 	if cacheConfig.Enabled {
 		discoveryCache = newDiscoveryResponseCache(cacheConfig.MaxEntries)
 	}
+	lookupObserver := options.CacheLookupObserver
+	if lookupObserver == nil {
+		lookupObserver = func(family, endpoint string, hit bool) {
+			metrics.ObservePublicResponseCacheLookup(family, endpoint, hit)
+		}
+	}
 	return Handlers{
-		service:        service,
-		maxBatchSize:   maxBatchSize,
-		discoveryCache: discoveryCache,
-		cacheConfig:    cacheConfig,
+		service:             service,
+		maxBatchSize:        maxBatchSize,
+		discoveryCache:      discoveryCache,
+		cacheConfig:         cacheConfig,
+		cacheLookupObserver: lookupObserver,
 	}, nil
 }
 
