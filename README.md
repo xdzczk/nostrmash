@@ -2,7 +2,7 @@
 
 Run your own Nostr data plane with durable ingest, rebuildable read models, and plug-in compatibility for existing clients.
 
-![NostrMash logo](docs/NostrMashLogoTransparent.svg)
+![NostrMash hero](docs/readme-hero.svg)
 
 [![CI](https://github.com/xdzczk/nostrmash/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xdzczk/nostrmash/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/xdzczk/nostrmash?display_name=tag)](https://github.com/xdzczk/nostrmash/releases)

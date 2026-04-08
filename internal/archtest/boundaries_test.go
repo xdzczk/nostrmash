@@ -200,7 +200,7 @@ func TestMigratedThreadPathsStayQueryOrchestrated(t *testing.T) {
 		receiver string
 	}{
 		{file: "internal/api/handlers_threads.go", funcName: "GetThread", receiver: "h"},
-		{file: "internal/api_primal/handlers.go", funcName: "GetThreadView", receiver: "h"},
+		{file: "internal/api_primal/handlers_events.go", funcName: "GetThreadView", receiver: "h"},
 	} {
 		parsed := parseFile(t, fset, filepath.Join(root, tc.file))
 		fn := mustFindFunc(t, parsed, tc.funcName)
@@ -309,16 +309,16 @@ func TestPrimalProductReadHandlersStayQueryOrchestrated(t *testing.T) {
 		file     string
 		funcName string
 	}{
-		{file: "internal/api_primal/handlers.go", funcName: "GetEventByID"},
-		{file: "internal/api_primal/handlers.go", funcName: "BatchGetEvents"},
-		{file: "internal/api_primal/handlers.go", funcName: "GetProfileByPubkey"},
-		{file: "internal/api_primal/handlers.go", funcName: "BatchGetUserInfos"},
-		{file: "internal/api_primal/handlers.go", funcName: "GetThreadView"},
-		{file: "internal/api_primal/handlers.go", funcName: "GetAuthorEvents"},
-		{file: "internal/api_primal/handlers.go", funcName: "GetAuthorReplies"},
-		{file: "internal/api_primal/handlers.go", funcName: "GetEventActions"},
-		{file: "internal/api_primal/handlers.go", funcName: "GetContactList"},
-		{file: "internal/api_primal/handlers.go", funcName: "GetRelayList"},
+		{file: "internal/api_primal/handlers_events.go", funcName: "GetEventByID"},
+		{file: "internal/api_primal/handlers_events.go", funcName: "BatchGetEvents"},
+		{file: "internal/api_primal/handlers_profiles_lists.go", funcName: "GetProfileByPubkey"},
+		{file: "internal/api_primal/handlers_profiles_lists.go", funcName: "BatchGetUserInfos"},
+		{file: "internal/api_primal/handlers_events.go", funcName: "GetThreadView"},
+		{file: "internal/api_primal/handlers_events.go", funcName: "GetAuthorEvents"},
+		{file: "internal/api_primal/handlers_events.go", funcName: "GetAuthorReplies"},
+		{file: "internal/api_primal/handlers_events.go", funcName: "GetEventActions"},
+		{file: "internal/api_primal/handlers_profiles_lists.go", funcName: "GetContactList"},
+		{file: "internal/api_primal/handlers_profiles_lists.go", funcName: "GetRelayList"},
 	} {
 		parsed := parseFile(t, fset, filepath.Join(root, tc.file))
 		fn := mustFindFunc(t, parsed, tc.funcName)
