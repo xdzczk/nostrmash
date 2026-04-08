@@ -31,14 +31,14 @@
       .label { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
       .body { font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #374151; }
       .laneLabel { font: 680 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
-      .arrow { stroke: url(#overviewInk); stroke-width: 4.2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-      .softArrow { stroke: #6b7280; stroke-width: 2.8; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 6; }
+      .arrow { stroke: #435063; stroke-width: 2.25; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .softArrow { stroke: #718094; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 5 6; }
     </style>
-    <marker id="overviewArrowHead" markerWidth="11" markerHeight="11" refX="8" refY="3.8" orient="auto">
-      <polygon points="0 0, 8 3.8, 0 7.6" fill="#111827"/>
+    <marker id="overviewArrowHead" markerWidth="8" markerHeight="8" refX="6.6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <polygon points="0 0, 6.6 3.5, 0 7" fill="#435063"/>
     </marker>
-    <marker id="overviewSoftArrowHead" markerWidth="10" markerHeight="10" refX="7.4" refY="3.5" orient="auto">
-      <polygon points="0 0, 7.4 3.5, 0 7" fill="#6b7280"/>
+    <marker id="overviewSoftArrowHead" markerWidth="8" markerHeight="8" refX="6.6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <polygon points="0 0, 6.6 3.5, 0 7" fill="#718094"/>
     </marker>
   </defs>
 
@@ -88,14 +88,14 @@
   <rect x="992" y="314" width="92" height="42" rx="14" class="compat"/>
   <text x="1038" y="341" class="laneLabel" text-anchor="middle">Primal</text>
 
-  <path d="M220 248 H252" class="arrow" marker-end="url(#overviewArrowHead)"/>
-  <path d="M408 248 H432" class="arrow" marker-end="url(#overviewArrowHead)"/>
-  <path d="M650 248 H676" class="arrow" marker-end="url(#overviewArrowHead)"/>
-  <path d="M786 248 H820" class="arrow" marker-end="url(#overviewArrowHead)"/>
-  <path d="M958 244 H992" class="arrow" marker-end="url(#overviewArrowHead)"/>
+  <path d="M220 246 H247" class="arrow" marker-end="url(#overviewArrowHead)"/>
+  <path d="M408 246 H427" class="arrow" marker-end="url(#overviewArrowHead)"/>
+  <path d="M650 246 H671" class="arrow" marker-end="url(#overviewArrowHead)"/>
+  <path d="M786 246 H815" class="arrow" marker-end="url(#overviewArrowHead)"/>
+  <path d="M958 246 H987" class="arrow" marker-end="url(#overviewArrowHead)"/>
 
-  <path d="M541 294 V328 H676" class="softArrow" marker-end="url(#overviewSoftArrowHead)"/>
-  <path d="M786 335 H810" class="softArrow" marker-end="url(#overviewSoftArrowHead)"/>
+  <path d="M541 294 V335 H671" class="softArrow" marker-end="url(#overviewSoftArrowHead)"/>
+  <path d="M786 335 H805" class="softArrow" marker-end="url(#overviewSoftArrowHead)"/>
 
   <rect x="480" y="301" width="122" height="24" rx="12" fill="#ffffff" stroke="#d3dce8" stroke-width="1.1"/>
   <text x="541" y="317" class="small" text-anchor="middle">Durable truth</text>
