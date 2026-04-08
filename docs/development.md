@@ -73,6 +73,8 @@ Run the same quality gate as CI:
 make ci
 ```
 
+This gate includes formatting/import checks, lint, module verification, vulnerability scan, race-enabled tests, coverage policy, OpenAPI contract drift checks, rule validation, config doc validation, and a full build.
+
 Run the same gate with clean local artifacts (recommended before PR updates):
 
 ```bash

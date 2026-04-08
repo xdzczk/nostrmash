@@ -167,14 +167,14 @@ Trust and ranking are now live repository surfaces in NostrMash, while still rem
 The design direction is:
 
 - Postgres remains the canonical durability and versioning boundary for ingest truth and published derived outputs
-- Redis is now used as disposable working state for trust graph synchronization and score computation
+- Redis is available as disposable working state for trust graph synchronization and score computation when Redis sync is enabled; default local deployments can also run the trust pipeline in a Postgres-only graph mode
 - trust-specific jobs run in a dedicated `trust_worker`, while published trust outputs flow back through shared query and admin surfaces
 - compatibility translation remains boundary-only in `internal/api_primal`; trust outputs should be published through shared query surfaces rather than embedded into transport-specific logic
 
 A few limits are still explicit in the current code:
 
-- only the `default_v1` relay filter group is implemented
-- compatibility support now reaches parity with the legacy `primal-caching-service-main` cache API implemented here, while future ecosystem-specific additions may still roll out in phases
+- `default_v1` is the required built-in relay filter group; additional named groups can be supplied through `INGESTOR_FILTER_GROUPS_JSON`
+- compatibility support currently covers the legacy-shaped surface documented in this repository, while future ecosystem-specific additions may still roll out in phases
 - trust/ranking continues to expand beyond the currently shipped trust worker, scores, relay suggestions, and trust-targeted ingest scheduling
 
 Use [architecture/trust-subsystem.md](architecture/trust-subsystem.md) for the deeper trust design and [architecture/orchestration-surfaces.md](architecture/orchestration-surfaces.md) for transport/query ownership on the read side.

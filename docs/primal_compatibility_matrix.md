@@ -2,7 +2,7 @@
 
 Use this page as the current compatibility inventory. If you need operational guidance, use [compatibility_rollout.md](compatibility_rollout.md); if you need policy, use [compatibility.md](compatibility.md).
 
-The matrix below describes what NostrMash implements today. The compatibility surface in this repository now reaches parity with the legacy `primal-caching-service-main` cache API.
+The matrix below describes what NostrMash implements today. Use it as the source of truth for the currently supported legacy-shaped compatibility surface in this repository.
 
 ## How to read this matrix
 
@@ -18,6 +18,7 @@ The matrix below describes what NostrMash implements today. The compatibility su
 | `user_profile` | supported_now | `GET /primal/v1/profiles/{pubkey}` | Uses projected profile state. |
 | `user_infos` | supported_now | `POST /primal/v1/user_infos` | Batch profile lookup on projected state. |
 | `thread_view` | supported_now | `GET /primal/v1/threads/{eventId}` | Includes cursor pagination via `cursor`/`next_cursor`. |
+| feed | supported_now | `REQ cache:feed` | Compatibility cache dispatch supports feed-style reads on the WebSocket boundary. |
 | author events feed | supported_now | `GET /primal/v1/authors/{pubkey}/events` | Maps to `author_recent_events`. |
 | author replies | supported_now | `GET /primal/v1/authors/{pubkey}/replies` | Maps to derived reply references. |
 | event action counts | supported_now | `GET /primal/v1/events/{id}/actions` | Derived from reply/reaction/repost counts. |
@@ -31,7 +32,7 @@ The matrix below describes what NostrMash implements today. The compatibility su
 | search | supported_now | `REQ search` and `REQ cache:search` | Ranked Postgres-first search with unified payload shape. |
 | zaps | supported_now | `REQ cache:user_zaps*` and `REQ cache:event_zaps_by_satszapped` | Sender/receiver/event zap query paths with sats ranking. |
 | social graph helpers | supported_now | `REQ cache:is_user_following` and `REQ cache:mutual_follows` | Uses durable follower-edge projection. |
-| moderation helpers | supported_now | `REQ cache:mutelist` / `allowlist` / `is_hidden_by_content_moderation` / `search_filterlist` | Replaceable-list backed semantics with explanation payloads. |
+| moderation helpers | supported_now | `REQ cache:mutelist` / `mutelists` / `allowlist` / `is_hidden_by_content_moderation` / `search_filterlist` | Replaceable-list backed semantics with explanation payloads. |
 | bookmarks/highlights | supported_now | native + compatibility WS cache calls | Replaceable and kind-backed product reads. |
 | long-form reads | supported_now | native + compatibility WS cache calls | Long-form and parameterized replaceable query surfaces. |
 | curated/external parity subset | supported_now | `network_stats`, `server_name`, `get_recommended_reads`, `get_reads_topics`, `get_featured_authors`, `creator_paid_tiers`, `user_of_ln_address` | Reads/topics/authors/LN lookup use compatibility kind envelopes (`10000145`/`146`/`148`/`138`); `creator_paid_tiers` prefers event-native kind-`17000` + referenced tier events with curated (`10000147`) fallback; featured-authors and LN lookup include profile metadata events when available. |
@@ -45,4 +46,4 @@ For all `supported_now` capabilities:
 - explicit pagination limits and cursor behavior
 - stable error envelope with machine-readable `error.code`
 - request-id propagation in all error responses
-- fixture/golden test coverage for response shape
+- fixture/golden coverage for contract-owned HTTP routes and targeted WebSocket/cache flows, with the checked-in fixtures representing the currently audited compatibility cases

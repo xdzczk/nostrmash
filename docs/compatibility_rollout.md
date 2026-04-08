@@ -1,6 +1,6 @@
 # Compatibility Operations
 
-Use this page for operating the compatibility layer as it exists today. For the current surface inventory, use [primal_compatibility_matrix.md](primal_compatibility_matrix.md). The repository now implements parity with the legacy `primal-caching-service-main` cache API; this document focuses on how to run and validate that supported surface in production.
+Use this page for operating the compatibility layer as it exists today. For the current surface inventory, use [primal_compatibility_matrix.md](primal_compatibility_matrix.md). This document focuses on how to run and validate the currently supported legacy-shaped compatibility surface in production.
 
 ## Current state
 

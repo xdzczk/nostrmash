@@ -454,7 +454,7 @@ Useful endpoints:
 - Inspect relay checkpoint freshness.
 - Check whether configured relays are disabled or backing off.
 - Verify `INGESTOR_RELAY_URLS`, allowlist, and filter group configuration.
-- Remember that only `default_v1` is implemented today.
+- Remember that `default_v1` must always exist and remain the active-safe baseline, even when you provide additional groups through `INGESTOR_FILTER_GROUPS_JSON`.
 
 ### Raw events exist but projections look stale
 

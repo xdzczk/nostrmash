@@ -61,13 +61,16 @@ It serves:
 - canonical raw event reads
 - relay provenance
 - projected profile reads
+- batch event/profile lookups
 - author event/reply views
 - thread and ancestor/reply views
 - relay health summaries
+- event provenance reads such as `seen-on`
 - projected interaction counts
 - kind-scoped user event reads such as `bookmarks`, `highlights`, `long-form`, and `zaps`
 - `mentions` (p-tag reference events)
 - `followers` (derived follower edges from latest kind:3 contact lists)
+- public profile summaries
 - trust score reads for a single pubkey or the current top-ranked set
 
 Discovery-oriented native reads have an explicit namespace under `/api/v1/discovery/...`.
@@ -76,6 +79,24 @@ Discovery-oriented native reads have an explicit namespace under `/api/v1/discov
 - keep discovery ranking endpoints projection-backed (for example note and hashtag trending windows) instead of on-demand joins over raw event graphs
 - keep search under `/api/v1/search` so full-text querying remains a dedicated surface
 - add new discovery routes through the central declared route list and OpenAPI contract so drift checks protect them
+
+Representative implemented native routes include:
+
+- `GET /api/v1/events/{id}`
+- `POST /api/v1/events/batch`
+- `GET /api/v1/events/{id}/seen-on`
+- `GET /api/v1/profiles/{pubkey}`
+- `POST /api/v1/profiles/batch`
+- `GET /api/v1/users/{pubkey}/summary`
+- `GET /api/v1/search`
+- `GET /api/v1/search/notes`
+- `GET /api/v1/search/profiles`
+- `GET /api/v1/search/suggest`
+- `GET /api/v1/discovery/stats/network`
+- `GET /api/v1/discovery/stats/content`
+- `GET /api/v1/discovery/stats/relays`
+
+Compatibility aliases also exist for `GET /api/v1/discovery/network/stats` and `GET /api/v1/discovery/content/stats`.
 
 This is the surface to extend when NostrMash gains new first-class read capabilities.
 
@@ -107,7 +128,7 @@ How to think about compatibility:
 
 - use it when you need Primal-oriented shapes and request names, not when you are designing new NostrMash-native capabilities
 - expect boundary-specific response shaping, especially on WebSocket request kinds
-- expect parity with the legacy `primal-caching-service-main` compatibility surface implemented here
+- expect the supported surface to preserve the legacy-shaped compatibility behavior documented in this repository
 - treat [primal_compatibility_matrix.md](primal_compatibility_matrix.md) as the current feature inventory
 - treat [compatibility_rollout.md](compatibility_rollout.md) as the operational guide for running the already-supported surface
 
@@ -122,7 +143,7 @@ Current compatibility highlights:
 
 Use compatibility when preserving an external client contract matters more than exposing the cleanest native shape.
 
-This reaches parity with the legacy `primal-caching-service-main` compatibility surface implemented in this repository. Compatibility logic remains boundary-only so protocol-specific models do not leak into core storage and derivation code.
+This implements the currently supported legacy-shaped compatibility surface documented in this repository. Compatibility logic remains boundary-only so protocol-specific models do not leak into core storage and derivation code.
 
 HTTP compatibility contract coverage remains fixture-driven for compatibility routes including:
 
@@ -157,10 +178,12 @@ It exposes inspection and control for:
 - job backlog and failures
 - invalid events
 - rebuild runs
+- rebuild enqueue operations
 - storage footprint
 - runtime/system status
 - derivation versions
 - trust runs and current trust phase metadata
+- trust run enqueue operations
 - published trust score views
 
 Admin endpoints require `ADMIN_BEARER_TOKEN`. If the token is unset, the admin surface is unavailable by design.

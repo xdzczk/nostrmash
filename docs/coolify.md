@@ -128,6 +128,8 @@ Do not expose debug endpoints publicly. If you enable:
 
 bind them only to private/local addresses.
 
+These are deployment-level convenience names used by the Compose/Coolify wiring. The binaries themselves consume `DEBUG_ADDR`, which is why [configuration.md](configuration.md) documents `DEBUG_ADDR` rather than the service-prefixed aliases.
+
 ## Validation checklist
 
 After deployment:

@@ -70,7 +70,7 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Runtimes:     []string{"ingestor"},
 			Required:     false,
 			DefaultValue: "",
-			Description:  "Optional JSON map of relay filter groups; only `default_v1` is currently implemented for live ingest.",
+			Description:  "Optional JSON map of relay filter groups; `default_v1` remains required and must keep the built-in live-ingest kind set.",
 		},
 		{
 			Name:         "INGESTOR_LIVE_BOOTSTRAP_LOOKBACK_SECONDS",

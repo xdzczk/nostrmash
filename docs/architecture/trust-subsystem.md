@@ -1,6 +1,6 @@
 # Trust Subsystem
 
-Use this page when you are working on trust, ranking, relay suggestions, or trust-driven ingest behavior. It describes the deeper trust architecture: Redis-backed working state, staged score computation, and published outputs that still remain rebuildable from Postgres-backed inputs.
+Use this page when you are working on trust, ranking, relay suggestions, or trust-driven ingest behavior. It describes the deeper trust architecture: optional Redis-backed working state, staged score computation, and published outputs that still remain rebuildable from Postgres-backed inputs.
 
 ## Goals
 
@@ -21,6 +21,10 @@ Use this page when you are working on trust, ranking, relay suggestions, or trus
 - Redis is allowed as working state for graph adjacency, random walks, score computation, and cache-friendly trust neighborhoods.
 - Trust computation should be driven from NostrMash-derived graph inputs such as `contact_lists_latest`, `follower_edges`, and `relay_lists_latest`, not from a parallel ingest path.
 - Published trust/ranking results should flow back into Postgres through explicit derivations so they are rebuildable, inspectable, and versioned.
+
+Current runtime note:
+
+- The checked-in local Compose stack starts `redis`, but `trust_worker` defaults to `TRUST_ENABLE_REDIS_SYNC=false`, so trust sync/compute can run in a Postgres-only graph mode until Redis-backed sync is explicitly enabled.
 
 ## Existing inputs in NostrMash
 
@@ -70,7 +74,7 @@ flowchart LR
     class API api;
 ```
 
-Read this diagram left to right: canonical relay data still enters through the normal ingest path, graph-oriented trust work happens off to the side in Redis-backed working state, and only the published outputs flow back into the shared API/query world.
+Read this diagram left to right: canonical relay data still enters through the normal ingest path, graph-oriented trust work can happen off to the side in Redis-backed working state when enabled, and only the published outputs flow back into the shared API/query world. In the default local deployment, the same phases still run but adjacency is loaded directly from Postgres instead of Redis.
 
 ## Subsystem components
 
@@ -90,12 +94,12 @@ Optional later inputs:
 
 ### 2. Trust Publisher (Implemented in `trust_worker`)
 
-A dedicated trust worker publishes graph changes from Postgres into Redis. Rehydration from Postgres is first-class and expected when Redis is cold.
+A dedicated trust worker can publish graph changes from Postgres into Redis. Rehydration from Postgres is first-class and expected when Redis is cold, and the worker can also skip Redis publication entirely when Redis sync is disabled.
 
 Responsibilities:
 
 - read current graph derivations from Postgres
-- project adjacency lists and reverse adjacency into Redis
+- optionally project adjacency lists and reverse adjacency into Redis
 - support scoped rebuilds and full rebuilds
 - stamp version/run metadata so Redis state can be correlated with Postgres derivation state
 
@@ -103,7 +107,7 @@ Current deployment uses a dedicated `trust_worker` binary and `jobs.worker_pool=
 
 ### 3. Redis graph state
 
-Redis is working state, not canonical truth.
+Redis is optional working state, not canonical truth.
 
 Suggested contents:
 
@@ -126,6 +130,8 @@ Expected responsibilities:
 - optionally maintain incremental walk-based state
 - optionally compute per-request or cached personalized scores
 - publish finalized scores back into Postgres
+
+When Redis sync is disabled, the current implementation loads adjacency directly from Postgres and records the run snapshot as `postgres-only`.
 
 Algorithm progression should be staged:
 
@@ -232,7 +238,7 @@ Cons:
 Current path:
 
 - dedicated `trust_worker` runs `trust_sync_graph_redis -> trust_compute_global_scores -> trust_promote_run`
-- each run is correlated with `trust_runs.redis_snapshot_ref`
+- each run is correlated with `trust_runs.redis_snapshot_ref`, which can be `postgres-only` when Redis sync is disabled
 - ingest/backfill relay ordering can be biased from `trust_scores_global` + `relay_lists_latest` while remaining bounded by configured allowlists
 - ingestor can maintain `ingest_pubkey_frontier` and perform bounded trust-targeted author fetches from configured relays
 - operator-facing relay recommendations are exposed via persisted `trust_relay_suggestions`

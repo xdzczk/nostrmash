@@ -28,7 +28,7 @@ Operational rollout/triage context lives in [operations.md](operations.md), and 
 
 ### Primal-compatible surfaces
 
-- The currently shipped compatibility surface reaches parity with the legacy `primal-caching-service-main` cache API implemented here.
+- The currently shipped compatibility surface is the legacy-shaped surface documented in this repository today.
 - Future compatibility additions outside that shipped surface may still expand incrementally.
 - Existing implemented compatibility routes/events should not change in breaking ways without explicit release communication.
 - For `/primal/ws`, maintain frame-type and request/response semantics for currently supported flows unless a major-version change is declared.

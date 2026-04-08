@@ -227,6 +227,7 @@ make ci
 ## Repository layout
 
 - `cmd/api`, `cmd/ingestor`, `cmd/worker`, `cmd/trust_worker`: service entrypoints
+- `cmd/configdoc`, `cmd/rulecheck`: repo maintenance helpers for generated config docs and rule validation
 - `internal/api`: native read API and admin handlers
 - `internal/api_primal`: compatibility HTTP and WebSocket boundary for `/primal`
 - `internal/ingestor`: live relay handling, backfill, and relay lifecycle management
@@ -234,14 +235,15 @@ make ci
 - `internal/store`: Postgres access, migrations, checkpoints, canonical read/write paths
 - `internal/derivation`: projection handlers, versioning, and rebuild orchestration
 - `internal/jobs`: Postgres-backed queue
-- `internal/query`, `internal/config`, `internal/metrics`: shared read orchestration, config, and telemetry
+- `internal/query`, `internal/config`, `internal/metrics`, `internal/runtimebootstrap`: shared read orchestration, config, telemetry, and runtime startup wiring
+- `internal/trust`, `internal/worker`: trust/ranking pipeline and shared worker runtime behavior
 - `internal/replay`, `internal/archtest`: deterministic replay tooling and architectural boundary checks
 - `migrations`: embedded schema migrations
 
 ## Status and scope
 
 - Postgres remains the canonical datastore in this repository today
-- the compatibility HTTP and WebSocket surface now reaches parity with the legacy `primal-caching-service-main` cache API
+- the compatibility HTTP and WebSocket surface implements the currently supported legacy-shaped cache/API surface documented in this repository
 - use [docs/primal_compatibility_matrix.md](docs/primal_compatibility_matrix.md) for the current compatibility inventory and [docs/compatibility_rollout.md](docs/compatibility_rollout.md) for operational guidance
 - trust and ranking are active repository surfaces; the deeper design lives in [docs/architecture/trust-subsystem.md](docs/architecture/trust-subsystem.md)
 
