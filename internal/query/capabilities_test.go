@@ -151,14 +151,51 @@ func TestServiceCapabilities_MissingCapabilityReader(t *testing.T) {
 	}
 }
 
-func TestNewService_PanicsWithoutRequiredReaderCapabilities(t *testing.T) {
+func TestNewServiceWithOptionsE_ReturnsErrorWithoutRequiredReaderCapabilities(t *testing.T) {
 	t.Parallel()
-	defer func() {
-		if recover() == nil {
-			t.Fatalf("expected NewService to panic when required reader capability is missing")
-		}
-	}()
-	_ = NewService(struct{}{})
+	_, err := NewServiceWithOptionsE(struct{}{}, ServiceOptions{})
+	if err == nil {
+		t.Fatalf("expected constructor error when required reader capability is missing")
+	}
+	if got, want := err.Error(), "query: unsupported reader type struct {}"; got != want {
+		t.Fatalf("unexpected constructor error: got %q want %q", got, want)
+	}
+}
+
+func TestNewServiceWithOptionsE_SucceedsWithMixedCapabilities(t *testing.T) {
+	t.Parallel()
+	svc, err := NewServiceWithOptionsE(partialCapabilityReader{
+		fakeReader: fakeReader{
+			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+				return nil, errors.New("unused")
+			},
+		},
+		getCuratedRecommendedReadsFn: func(context.Context, int) ([]CuratedRecommendedRead, error) {
+			return []CuratedRecommendedRead{{EventID: "evt-partial"}}, nil
+		},
+		getRecentEventsByKindAndPubkeyFn: func(_ context.Context, kind int, _ string, _ int) ([]json.RawMessage, error) {
+			return []json.RawMessage{json.RawMessage(`{"kind":9735}`)}, nil
+		},
+	}, ServiceOptions{})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptionsE returned error: %v", err)
+	}
+
+	ctx := context.Background()
+	reads, err := svc.GetCuratedRecommendedReads(ctx, 5)
+	if err != nil {
+		t.Fatalf("GetCuratedRecommendedReads returned error: %v", err)
+	}
+	if len(reads) != 1 || reads[0].EventID != "evt-partial" {
+		t.Fatalf("expected partial capability curated reads, got %#v", reads)
+	}
+	zaps, err := svc.GetZaps(ctx, "pk-1", 5)
+	if err != nil {
+		t.Fatalf("GetZaps returned error: %v", err)
+	}
+	if len(zaps) != 1 || string(zaps[0]) != `{"kind":9735}` {
+		t.Fatalf("expected zaps fallback via base reader, got %#v", zaps)
+	}
 }
 
 func TestGetMuteList_DistinguishesSupportedEmptyUnsupportedAndBackendFailure(t *testing.T) {

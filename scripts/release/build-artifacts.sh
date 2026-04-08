@@ -15,8 +15,8 @@ if [[ -z "${VERSION}" ]]; then
   fi
 fi
 
+rm -rf "${DIST_DIR}"
 mkdir -p "${DIST_DIR}"
-rm -f "${DIST_DIR}"/*.tar.gz "${DIST_DIR}/sha256sums.txt"
 
 SERVICES=(api ingestor worker trust_worker)
 GOOS_TARGET="linux"
@@ -38,3 +38,10 @@ done
   cd "${DIST_DIR}"
   shasum -a 256 ./*.tar.gz > sha256sums.txt
 )
+
+for forbidden in coverage.out coverage*.out *.coverprofile *.prof *.pprof *.trace *.log; do
+  if compgen -G "${DIST_DIR}/${forbidden}" > /dev/null; then
+    echo "unexpected generated artifact in ${DIST_DIR}: pattern ${forbidden}" >&2
+    exit 1
+  fi
+done

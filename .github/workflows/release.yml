@@ -42,6 +42,10 @@ jobs:
           format: spdx-json
           output-file: dist/nostrmash.spdx.json
 
+      - name: Verify dist hygiene
+        run: |
+          ! ls dist/coverage*.out dist/*.prof dist/*.pprof dist/*.trace dist/*.log >/dev/null 2>&1
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -107,7 +111,16 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-security-${{ github.ref_name }}
-          path: dist/
+          path: |
+            dist/*.tar.gz
+            dist/sha256sums.txt
+            dist/sha256sums.txt.sig
+            dist/sha256sums.txt.pem
+            dist/nostrmash.spdx.json
+            dist/nostrmash.spdx.json.sig
+            dist/nostrmash.spdx.json.pem
+            dist/image-digest.txt
+            dist/changelog.md
           retention-days: 90
 
       - name: Publish GitHub release assets

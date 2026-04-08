@@ -37,7 +37,12 @@ type dmLiveSubscription struct {
 	Sender   string
 }
 
+type wsFrameHandler func(*wsConnSession, string, []any) error
+
 const (
+	wsFrameREQ   = "REQ"
+	wsFrameClose = "CLOSE"
+
 	primalKindRange           = 10000113
 	primalKindDirectMsgCount  = 10000117
 	primalKindDirectMsgCounts = 10000118
@@ -52,7 +57,30 @@ const (
 	parameterizedListKind     = 30000
 )
 
+// wsFrameHandlers is the single registration point for supported WS frame kinds.
+var wsFrameHandlers = map[string]wsFrameHandler{
+	wsFrameREQ:   handleWSFrameREQ,
+	wsFrameClose: handleWSFrameClose,
+}
+
+func handleWSFrameREQ(s *wsConnSession, subID string, args []any) error {
+	return s.handleREQFrame(subID, args)
+}
+
+func handleWSFrameClose(s *wsConnSession, subID string, _ []any) error {
+	s.handleCLOSEFrame(subID)
+	return nil
+}
+
 func NewWSGateway(reader EventReader, opts WSGatewayOptions) WSGateway {
+	gateway, err := NewWSGatewayE(reader, opts)
+	if err != nil {
+		panic(err)
+	}
+	return gateway
+}
+
+func NewWSGatewayE(reader EventReader, opts WSGatewayOptions) (WSGateway, error) {
 	if opts.MaxSubscriptions <= 0 {
 		opts.MaxSubscriptions = 200
 	}
@@ -72,14 +100,18 @@ func NewWSGateway(reader EventReader, opts WSGatewayOptions) WSGateway {
 	if wsLog == nil {
 		wsLog = logging.New("api_primal_ws")
 	}
+	service, err := query.NewServiceWithOptionsE(reader, opts.QueryOptions)
+	if err != nil {
+		return WSGateway{}, err
+	}
 	return WSGateway{
-		query: query.NewServiceWithOptions(reader, opts.QueryOptions),
+		query: service,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return checkOrigin(r, opts) },
 		},
 		opts: opts,
 		log:  wsLog,
-	}
+	}, nil
 }
 
 func (g WSGateway) Handle(w http.ResponseWriter, r *http.Request) {

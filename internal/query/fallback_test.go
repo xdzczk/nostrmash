@@ -42,6 +42,19 @@ func TestGetEventByID_LocalMissRelaySuccess(t *testing.T) {
 	}
 }
 
+func TestNewServiceWithOptionsE_ReturnsErrorForUnsupportedFallbackReader(t *testing.T) {
+	t.Parallel()
+	_, err := NewServiceWithOptionsE(fakeReader{}, ServiceOptions{
+		FallbackReader: struct{}{},
+	})
+	if err == nil {
+		t.Fatalf("expected constructor error for unsupported fallback reader")
+	}
+	if got, want := err.Error(), "query: unsupported fallback reader type struct {}"; got != want {
+		t.Fatalf("unexpected constructor error: got %q want %q", got, want)
+	}
+}
+
 func TestGetEventByID_LocalHitSkipsRelayFallback(t *testing.T) {
 	t.Parallel()
 	svc := NewServiceWithOptions(fakeReader{

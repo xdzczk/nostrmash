@@ -95,16 +95,24 @@ func main() {
 	queryOptions := query.ServiceOptions{
 		FallbackReader: fallbackReader,
 	}
-	handlers := api.NewHandlersWithOptions(queryStore, api.HandlersOptions{
+	handlers, err := api.NewHandlersWithOptionsE(queryStore, api.HandlersOptions{
 		MaxBatchSize: cfg.HTTP.MaxBatchSize,
 		QueryOptions: queryOptions,
 	})
-	primalHandlers := api_primal.NewHandlersWithOptions(queryStore, api_primal.HandlersOptions{
+	if err != nil {
+		log.Error("query_service_init", "surface", "api", "error", err)
+		os.Exit(1)
+	}
+	primalHandlers, err := api_primal.NewHandlersWithOptionsE(queryStore, api_primal.HandlersOptions{
 		MaxBatchSize: cfg.HTTP.MaxBatchSize,
 		QueryOptions: queryOptions,
 	})
+	if err != nil {
+		log.Error("query_service_init", "surface", "api_primal_http", "error", err)
+		os.Exit(1)
+	}
 	wsLog := logging.New("api_primal_ws")
-	primalWS := api_primal.NewWSGateway(queryStore, api_primal.WSGatewayOptions{
+	primalWS, err := api_primal.NewWSGatewayE(queryStore, api_primal.WSGatewayOptions{
 		MaxSubscriptions:  cfg.PrimalWS.MaxSubscriptions,
 		RequestTimeout:    cfg.PrimalWS.RequestTimeout,
 		MaxMessageBytes:   cfg.PrimalWS.MaxMessageBytes,
@@ -115,6 +123,10 @@ func main() {
 		Logger:            wsLog,
 		QueryOptions:      queryOptions,
 	})
+	if err != nil {
+		log.Error("query_service_init", "surface", "api_primal_ws", "error", err)
+		os.Exit(1)
+	}
 	adminService := api.NewAdminService(pool, derivation.NewHandlers(pool), trust.NewRuntime(pool, false, true), api.AdminServiceOptions{
 		ServiceName:      cfg.Shared.ServiceName,
 		Environment:      cfg.Shared.Environment,

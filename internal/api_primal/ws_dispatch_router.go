@@ -6,22 +6,78 @@ import (
 	"strings"
 )
 
+type wsFilterHandler func(WSGateway, context.Context, map[string]any, any) ([]any, error)
+type wsFilterKindResolver func(any) string
+
+type wsFilterRoute struct {
+	key         string
+	handler     wsFilterHandler
+	resolveKind wsFilterKindResolver
+	defaultKind string
+}
+
+var wsFilterRoutes = []wsFilterRoute{
+	{
+		key:         "cache",
+		handler:     wsCacheFilterHandler,
+		resolveKind: resolveCacheRequestKind,
+		defaultKind: "cache",
+	},
+	{
+		key:         "ids",
+		handler:     wsIDsFilterHandler,
+		defaultKind: "ids",
+	},
+	{
+		key:         "search",
+		handler:     wsSearchFilterHandler,
+		defaultKind: "search",
+	},
+}
+
 func (g WSGateway) resolveFilter(ctx context.Context, filter map[string]any) ([]any, error) {
-	if cacheRaw, ok := filter["cache"]; ok {
-		reqName, kwargs, err := parseCacheCallFilter(cacheRaw)
-		if err != nil {
-			return nil, err
+	for _, route := range wsFilterRoutes {
+		raw, ok := filter[route.key]
+		if !ok {
+			continue
 		}
-		return g.dispatchCacheCall(ctx, reqName, kwargs)
-	}
-	if idsRaw, ok := filter["ids"]; ok {
-		return g.resolveIDsFilter(ctx, idsRaw)
-	}
-	if search, ok := filter["search"].(string); ok {
-		limit := toInt(filter["limit"], 20)
-		return g.resolveUnifiedSearch(ctx, search, limit)
+		return route.handler(g, ctx, filter, raw)
 	}
 	return nil, errors.New("unsupported")
+}
+
+func wsCacheFilterHandler(g WSGateway, ctx context.Context, _ map[string]any, raw any) ([]any, error) {
+	reqName, kwargs, err := parseCacheCallFilter(raw)
+	if err != nil {
+		return nil, err
+	}
+	return g.dispatchCacheCall(ctx, reqName, kwargs)
+}
+
+func wsIDsFilterHandler(g WSGateway, ctx context.Context, _ map[string]any, raw any) ([]any, error) {
+	return g.resolveIDsFilter(ctx, raw)
+}
+
+func wsSearchFilterHandler(g WSGateway, ctx context.Context, filter map[string]any, raw any) ([]any, error) {
+	search, ok := raw.(string)
+	if !ok {
+		return nil, errors.New("unsupported")
+	}
+	limit := toInt(filter["limit"], 20)
+	return g.resolveUnifiedSearch(ctx, search, limit)
+}
+
+func resolveCacheRequestKind(raw any) string {
+	cacheArgs, ok := raw.([]any)
+	if !ok || len(cacheArgs) == 0 {
+		return "cache"
+	}
+	name, _ := cacheArgs[0].(string)
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" {
+		return "cache"
+	}
+	return name
 }
 
 func parseCacheCallFilter(cacheRaw any) (string, map[string]any, error) {
@@ -55,24 +111,15 @@ func (g WSGateway) resolveIDsFilter(ctx context.Context, idsRaw any) ([]any, err
 }
 
 func requestKindFromFilter(filter map[string]any) string {
-	if cacheRaw, ok := filter["cache"]; ok {
-		cacheArgs, ok := cacheRaw.([]any)
-		if !ok || len(cacheArgs) == 0 {
-			return "cache"
+	for _, route := range wsFilterRoutes {
+		raw, ok := filter[route.key]
+		if !ok {
+			continue
 		}
-		if name, ok := cacheArgs[0].(string); ok {
-			name = strings.TrimSpace(strings.ToLower(name))
-			if name != "" {
-				return name
-			}
+		if route.resolveKind != nil {
+			return route.resolveKind(raw)
 		}
-		return "cache"
-	}
-	if _, ok := filter["ids"]; ok {
-		return "ids"
-	}
-	if _, ok := filter["search"]; ok {
-		return "search"
+		return route.defaultKind
 	}
 	if _, ok := filter["since"]; ok {
 		return "range"

@@ -39,16 +39,6 @@ type legacyDescendingThreadWindowReader interface {
 	GetEventRepliesDescending(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor, offset int) ([]json.RawMessage, *store.EventOrderCursor, error)
 }
 
-func adaptReader(reader any) Reader {
-	if adapted, ok := reader.(Reader); ok {
-		return adapted
-	}
-	if legacy, ok := reader.(legacyReader); ok {
-		return legacyReaderAdapter{legacy: legacy}
-	}
-	panic(fmt.Sprintf("query: unsupported reader type %T", reader))
-}
-
 func (a legacyReaderAdapter) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
 	return a.legacy.GetEventRawByID(ctx, id)
 }
@@ -186,17 +176,27 @@ type legacyFallbackReaderAdapter struct {
 	legacy legacyFallbackReader
 }
 
-func adaptFallbackReader(reader any) FallbackReader {
+func adaptReader(reader any) (Reader, error) {
+	if adapted, ok := reader.(Reader); ok {
+		return adapted, nil
+	}
+	if legacy, ok := reader.(legacyReader); ok {
+		return legacyReaderAdapter{legacy: legacy}, nil
+	}
+	return nil, fmt.Errorf("query: unsupported reader type %T", reader)
+}
+
+func adaptFallbackReader(reader any) (FallbackReader, error) {
 	if reader == nil {
-		return nil
+		return nil, nil
 	}
 	if adapted, ok := reader.(FallbackReader); ok {
-		return adapted
+		return adapted, nil
 	}
 	if legacy, ok := reader.(legacyFallbackReader); ok {
-		return legacyFallbackReaderAdapter{legacy: legacy}
+		return legacyFallbackReaderAdapter{legacy: legacy}, nil
 	}
-	panic(fmt.Sprintf("query: unsupported fallback reader type %T", reader))
+	return nil, fmt.Errorf("query: unsupported fallback reader type %T", reader)
 }
 
 func (a legacyFallbackReaderAdapter) FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {

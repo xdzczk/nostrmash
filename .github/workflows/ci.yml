@@ -59,13 +59,15 @@ jobs:
         run: make vulncheck
 
       - name: Run tests with coverage profile
-        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+        run: |
+          mkdir -p .tmp/ci
+          COVERAGE_PROFILE=.tmp/ci/coverage.out make cover
 
       - name: Summarize coverage
-        run: go tool cover -func=coverage.out | tee coverage-summary.txt
+        run: go tool cover -func=.tmp/ci/coverage.out | tee .tmp/ci/coverage-summary.txt
 
       - name: Enforce risk-focused coverage policy
-        run: make coverage-policy
+        run: COVERAGE_PROFILE=.tmp/ci/coverage.out make coverage-policy
 
       - name: Run full race suite
         run: make test-race-policy
@@ -87,6 +89,6 @@ jobs:
         with:
           name: coverage-report
           path: |
-            coverage.out
-            coverage-summary.txt
+            .tmp/ci/coverage.out
+            .tmp/ci/coverage-summary.txt
           retention-days: 30

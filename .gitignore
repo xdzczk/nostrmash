@@ -30,6 +30,7 @@
 # Test, coverage, and debug outputs
 coverage.out
 coverage*.out
+/coverage-summary.txt
 *.coverprofile
 *.test
 *.prof

@@ -1,4 +1,4 @@
-.PHONY: lint lint-ci test test-race test-race-policy cover coverage-policy contract-drift rules-check benchmark-hot benchmark-query benchmark-ws benchmark-replay-derivation benchmark-protected perf-collect perf-protect-collect perf-protect-compare loadtest loadtest-api loadtest-worker loadtest-ingest loadtest-replay-rebuild build mod-verify vulncheck configdoc configdoc-check fmt fmt-check imports imports-check format ci
+.PHONY: lint lint-ci test test-race test-race-policy cover coverage-policy verify-clean verify-local contract-drift rules-check benchmark-hot benchmark-query benchmark-ws benchmark-replay-derivation benchmark-protected perf-collect perf-protect-collect perf-protect-compare loadtest loadtest-api loadtest-worker loadtest-ingest loadtest-replay-rebuild build mod-verify vulncheck configdoc configdoc-check fmt fmt-check imports imports-check format ci
 BENCH_HOT_PKGS := ./internal/query ./internal/store ./internal/replay ./internal/derivation ./internal/api_primal ./internal/trust
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -11,6 +11,8 @@ LDFLAGS_WORKER := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_C
 LDFLAGS_INGESTOR := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)'
 LDFLAGS_TRUST_WORKER := -X 'main.buildVersion=$(VERSION)' -X 'main.buildCommit=$(GIT_COMMIT)' -X 'main.buildTime=$(BUILD_TIME)'
 BUILD_OUTPUT_DIR ?= bin
+COVERAGE_PROFILE ?= coverage.out
+VERIFY_COVERAGE_PROFILE ?= .tmp/coverage.verify.out
 
 lint:
 	$(GOLANGCI_LINT) run --config .golangci.yml
@@ -28,11 +30,22 @@ test-race-policy:
 	go test -race ./...
 
 cover:
-	go test -covermode=atomic -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out
+	@mkdir -p "$(dir $(COVERAGE_PROFILE))"
+	go test -covermode=atomic -coverprofile="$(COVERAGE_PROFILE)" ./...
+	go tool cover -func="$(COVERAGE_PROFILE)"
 
 coverage-policy:
-	COVERAGE_PROFILE=coverage.out bash ./scripts/coverage_check.sh
+	COVERAGE_PROFILE="$(COVERAGE_PROFILE)" bash ./scripts/coverage_check.sh
+
+verify-clean:
+	rm -f coverage.out coverage-summary.txt
+	rm -rf .tmp
+
+verify-local:
+	@set -e; \
+	trap '$(MAKE) verify-clean' EXIT; \
+	$(MAKE) verify-clean; \
+	COVERAGE_PROFILE="$(VERIFY_COVERAGE_PROFILE)" $(MAKE) ci
 
 contract-drift:
 	go test ./cmd/api -run TestOpenAPIContainsAllContractOwnedRoutes_OneWayPolicy -count=1

@@ -16,9 +16,15 @@ Use this page for the day-to-day local workflow: starting services, replaying in
 
 Prerequisites:
 
-- Go `1.26+` (recommended `1.26.2`; matches `go.mod` toolchain directive and CI/Docker pin)
+- Go `1.26.2` (required for exact local parity; pinned by `go.mod` toolchain and CI/Docker workflows)
 - Docker and Docker Compose
 - Either the Compose-managed Postgres on `localhost:5432` for local `go run` / `go test`, or the full container stack via `docker compose up --build`
+
+Toolchain rationale:
+
+- `go.mod` declares `go 1.26` plus `toolchain go1.26.2`, and CI uses `actions/setup-go` with `1.26.2`.
+- Keeping local validation on `1.26.2` avoids false diffs in `gofmt`, analyzer behavior (`vet`/`staticcheck` stack), and race/coverage output.
+- Do not downgrade checks to satisfy older local toolchains; upgrade local Go instead.
 
 Fast path:
 
@@ -58,6 +64,14 @@ Run the same quality gate as CI:
 ```bash
 make ci
 ```
+
+Run the same gate with clean local artifacts (recommended before PR updates):
+
+```bash
+make verify-local
+```
+
+`make verify-local` runs the full `make ci` gate with an isolated coverage profile under `.tmp/` and then cleans generated verification artifacts (`coverage.out`, `coverage-summary.txt`, `.tmp`), so repeated runs stay reproducible and do not leak junk files into export/release workflows.
 
 Run one service directly:
 

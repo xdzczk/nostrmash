@@ -8,7 +8,9 @@ If you are unsure what to run:
 
 Prerequisite toolchain: Go `1.26+` (CI/Docker pin `1.26.2`; local recommendation is `1.26.2`).
 
-1. Run `make ci` for full local parity with core CI checks.
+Why this is pinned: `go.mod` uses `toolchain go1.26.2` and CI/Docker run the same version. Using `1.26.2` locally keeps formatter, analyzer, race, and coverage behavior aligned with merge gates.
+
+1. Run `make verify-local` for full local parity with core CI checks and automatic cleanup of generated verification artifacts.
 2. Add targeted checks from this page based on your change type (race, fuzz, benchmark, contract drift).
 3. For schema/compatibility/release-sensitive changes, pair this page with:
    - `migrations.md`
@@ -63,7 +65,7 @@ CI runs `make coverage-policy`, which executes `scripts/coverage_check.sh` and e
 - `./internal/store` >= `20%`
 - `./internal/api_primal` >= `60%`
 
-When `coverage.out` is present (for example after `make cover` or in CI), the policy check consumes that profile directly instead of re-running package tests.
+When a coverage profile is present (default `coverage.out`, or `COVERAGE_PROFILE=<path>`), the policy check consumes that profile directly instead of re-running package tests.
 
 ## Why this policy
 
@@ -273,6 +275,12 @@ Run full quality checks:
 
 ```bash
 make ci
+```
+
+Run full quality checks with automatic cleanup of verification artifacts:
+
+```bash
+make verify-local
 ```
 
 Example quick path for an API contract change:

@@ -74,11 +74,27 @@ func NewService(reader any) Service {
 }
 
 func NewServiceWithOptions(reader any, options ServiceOptions) Service {
-	return Service{
-		reader:       adaptReader(reader),
-		capabilities: adaptServiceCapabilities(reader),
-		fallback:     adaptFallbackReader(options.FallbackReader),
+	svc, err := NewServiceWithOptionsE(reader, options)
+	if err != nil {
+		panic(err)
 	}
+	return svc
+}
+
+func NewServiceWithOptionsE(reader any, options ServiceOptions) (Service, error) {
+	adaptedReader, err := adaptReader(reader)
+	if err != nil {
+		return Service{}, err
+	}
+	adaptedFallback, err := adaptFallbackReader(options.FallbackReader)
+	if err != nil {
+		return Service{}, err
+	}
+	return Service{
+		reader:       adaptedReader,
+		capabilities: adaptServiceCapabilities(reader),
+		fallback:     adaptedFallback,
+	}, nil
 }
 
 var (

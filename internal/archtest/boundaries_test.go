@@ -257,7 +257,7 @@ func TestMigratedThreadPathsStayQueryOrchestrated(t *testing.T) {
 				t.Fatal(wsCase.failHelperRouteMsg)
 			}
 		} else {
-			handlerMethod := mustFindMapHandlerMethod(t, wsFile, "cacheCallHandlers", wsCase.name)
+			handlerMethod := mustFindMapHandlerMethod(t, wsFile, "cacheCallRoutes", wsCase.name)
 			if handlerMethod != wsCase.helperMethod {
 				t.Fatalf("internal/api_primal/primal_cache_dispatch.go %s route must use %s (got %s)", wsCase.name, wsCase.helperMethod, handlerMethod)
 			}
@@ -562,14 +562,35 @@ func mustFindMapHandlerMethod(t *testing.T, file *ast.File, mapName, key string)
 					if err != nil || entryKey != key {
 						continue
 					}
-					sel, ok := entry.Value.(*ast.SelectorExpr)
-					if !ok {
-						t.Fatalf("%s[%q] must be a selector expression", mapName, key)
+					switch value := entry.Value.(type) {
+					case *ast.SelectorExpr:
+						if value.Sel == nil {
+							t.Fatalf("%s[%q] selector missing method name", mapName, key)
+						}
+						return value.Sel.Name
+					case *ast.CompositeLit:
+						for _, routeField := range value.Elts {
+							kv, ok := routeField.(*ast.KeyValueExpr)
+							if !ok {
+								continue
+							}
+							fieldName, ok := kv.Key.(*ast.Ident)
+							if !ok || fieldName.Name != "handler" {
+								continue
+							}
+							sel, ok := kv.Value.(*ast.SelectorExpr)
+							if !ok {
+								t.Fatalf("%s[%q].handler must be a selector expression", mapName, key)
+							}
+							if sel.Sel == nil {
+								t.Fatalf("%s[%q].handler selector missing method name", mapName, key)
+							}
+							return sel.Sel.Name
+						}
+						t.Fatalf("%s[%q] route entry missing handler field", mapName, key)
+					default:
+						t.Fatalf("%s[%q] must be a selector or route literal", mapName, key)
 					}
-					if sel.Sel == nil {
-						t.Fatalf("%s[%q] selector missing method name", mapName, key)
-					}
-					return sel.Sel.Name
 				}
 			}
 		}

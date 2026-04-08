@@ -60,17 +60,14 @@ func (s *wsConnSession) run() {
 		kind, _ := msg[0].(string)
 		subID, _ := msg[1].(string)
 		metrics.IncPrimalWSFrame(strings.ToLower(strings.TrimSpace(kind)))
-		switch kind {
-		case "REQ":
-			if err := s.handleREQFrame(subID, msg[2:]); err != nil {
-				return
-			}
-		case "CLOSE":
-			s.dropSubscription(subID)
-			s.gateway.log.Info("compat_ws_close", "sub_id", subID, "remote_addr", s.remoteAddr)
-		default:
+		handler, ok := wsFrameHandlers[kind]
+		if !ok {
 			metrics.ObservePrimalWSRequest("request", "unsupported_frame", 0)
 			_ = s.sendFrame([]any{"NOTICE", subID, "unsupported frame type"})
+			continue
+		}
+		if err := handler(s, subID, msg[2:]); err != nil {
+			return
 		}
 	}
 }
@@ -116,6 +113,11 @@ func (s *wsConnSession) handleREQFrame(subID string, filters []any) error {
 	}
 	s.dropSubscription(subID)
 	return nil
+}
+
+func (s *wsConnSession) handleCLOSEFrame(subID string) {
+	s.dropSubscription(subID)
+	s.gateway.log.Info("compat_ws_close", "sub_id", subID, "remote_addr", s.remoteAddr)
 }
 
 func (s *wsConnSession) allowRequest(filters []any, subID string) bool {

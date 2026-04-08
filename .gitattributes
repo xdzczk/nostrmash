@@ -1,0 +1,9 @@
+/coverage.out export-ignore
+/coverage*.out export-ignore
+/coverage-summary.txt export-ignore
+/tmp export-ignore
+/.tmp export-ignore
+/dist export-ignore
+/bin export-ignore
+/build export-ignore
+/out export-ignore

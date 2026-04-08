@@ -59,14 +59,26 @@ func NewHandlers(reader EventReader, maxBatchSize int) Handlers {
 }
 
 func NewHandlersWithOptions(reader EventReader, options HandlersOptions) Handlers {
+	handlers, err := NewHandlersWithOptionsE(reader, options)
+	if err != nil {
+		panic(err)
+	}
+	return handlers
+}
+
+func NewHandlersWithOptionsE(reader EventReader, options HandlersOptions) (Handlers, error) {
 	maxBatchSize := options.MaxBatchSize
 	if maxBatchSize <= 0 {
 		maxBatchSize = 200
 	}
-	return Handlers{
-		service:      query.NewServiceWithOptions(reader, options.QueryOptions),
-		maxBatchSize: maxBatchSize,
+	service, err := query.NewServiceWithOptionsE(reader, options.QueryOptions)
+	if err != nil {
+		return Handlers{}, err
 	}
+	return Handlers{
+		service:      service,
+		maxBatchSize: maxBatchSize,
+	}, nil
 }
 
 type apiErrorEnvelope struct {

@@ -49,12 +49,14 @@ jobs:
       - name: Full coverage profile (advisory)
         id: cover
         continue-on-error: true
-        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+        run: |
+          mkdir -p .tmp/deep-confidence
+          COVERAGE_PROFILE=.tmp/deep-confidence/coverage.out make cover
 
       - name: Coverage policy from profile (advisory)
         id: policy
         continue-on-error: true
-        run: COVERAGE_PROFILE=coverage.out bash ./scripts/coverage_check.sh
+        run: COVERAGE_PROFILE=.tmp/deep-confidence/coverage.out make coverage-policy
 
       - name: Summarize advisory status
         run: |
@@ -69,5 +71,5 @@ jobs:
         with:
           name: deep-confidence-${{ github.run_number }}
           path: |
-            coverage.out
+            .tmp/deep-confidence/coverage.out
           retention-days: 14
