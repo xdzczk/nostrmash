@@ -95,8 +95,8 @@ func (s *PostgresStore) SearchNotes(
 			CASE WHEN $2 = 'relevant' THEN rank END DESC,
 			created_at DESC,
 			id DESC
-		LIMIT $4
-		OFFSET $5
+		LIMIT $5
+		OFFSET $6
 	`, query, sort, windowSeconds, nullableLanguageFilter(language), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("search notes: %w", err)
