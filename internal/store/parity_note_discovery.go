@@ -41,6 +41,12 @@ func (s *PostgresStore) GetTrendingNotes(ctx context.Context, window time.Durati
 		FROM note_discovery_stats s
 		JOIN events e ON e.id = s.event_id
 		WHERE s.created_at >= $1
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM event_references er
+			WHERE er.source_event_id = s.event_id
+			  AND er.relation = 'reply'
+		  )
 		ORDER BY score DESC, s.created_at DESC, s.event_id ASC
 		LIMIT $2 OFFSET $3
 	`, scoreColumn)

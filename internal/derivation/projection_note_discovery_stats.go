@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -70,107 +69,6 @@ func (h *Handlers) projectNoteDiscoveryStatsWithVersion(ctx context.Context, eve
 		return fmt.Errorf("commit note discovery projection tx: %w", err)
 	}
 	return nil
-}
-
-func (h *Handlers) affectedNoteDiscoveryIDsTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	sourceEventID string,
-	kind int,
-	references []derivedReference,
-	tags [][]string,
-) ([]string, error) {
-	ids := make([]string, 0, 8)
-	if isNoteDiscoveryProjectableKind(kind) {
-		ids = append(ids, sourceEventID)
-	}
-	switch kind {
-	case 1:
-		for _, ref := range references {
-			if ref.Relation == "reply" {
-				ids = append(ids, ref.Referenced)
-			}
-		}
-		rows, err := tx.Query(ctx, `
-			SELECT target_event_id
-			FROM reply_count_contributions
-			WHERE source_event_id = $1
-		`, sourceEventID)
-		if err != nil {
-			return nil, fmt.Errorf("load existing reply targets: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var targetEventID string
-			if err := rows.Scan(&targetEventID); err != nil {
-				return nil, fmt.Errorf("scan existing reply target: %w", err)
-			}
-			ids = append(ids, targetEventID)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("read existing reply targets: %w", err)
-		}
-	case 6:
-		for _, ref := range references {
-			ids = append(ids, ref.Referenced)
-		}
-		rows, err := tx.Query(ctx, `
-			SELECT target_event_id
-			FROM repost_count_contributions
-			WHERE source_event_id = $1
-		`, sourceEventID)
-		if err != nil {
-			return nil, fmt.Errorf("load existing repost targets: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var targetEventID string
-			if err := rows.Scan(&targetEventID); err != nil {
-				return nil, fmt.Errorf("scan existing repost target: %w", err)
-			}
-			ids = append(ids, targetEventID)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("read existing repost targets: %w", err)
-		}
-	case 7:
-		for _, ref := range references {
-			ids = append(ids, ref.Referenced)
-		}
-		rows, err := tx.Query(ctx, `
-			SELECT target_event_id
-			FROM reaction_count_contributions
-			WHERE source_event_id = $1
-		`, sourceEventID)
-		if err != nil {
-			return nil, fmt.Errorf("load existing reaction targets: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var targetEventID string
-			if err := rows.Scan(&targetEventID); err != nil {
-				return nil, fmt.Errorf("scan existing reaction target: %w", err)
-			}
-			ids = append(ids, targetEventID)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("read existing reaction targets: %w", err)
-		}
-	case 9735:
-		ids = append(ids, firstTagValue(tags, "e"))
-		var priorTargetEventID *string
-		if err := tx.QueryRow(ctx, `
-			SELECT event_id
-			FROM zap_receipts
-			WHERE zap_receipt_id = $1
-		`, sourceEventID).Scan(&priorTargetEventID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("load prior zap target: %w", err)
-		}
-		if priorTargetEventID != nil {
-			ids = append(ids, *priorTargetEventID)
-		}
-	}
-	return normalizeUniqueIDs(ids), nil
 }
 
 func (h *Handlers) refreshNoteDiscoveryStatsTx(
@@ -355,14 +253,6 @@ func loadWindowedInteractionCounts(
 	return replyCount, repostCount, reactionCount, zapCount, zapMSats, nil
 }
 
-func queryInt64Tx(ctx context.Context, tx pgx.Tx, sql string, args ...any) (int64, error) {
-	var value int64
-	if err := tx.QueryRow(ctx, sql, args...).Scan(&value); err != nil {
-		return 0, err
-	}
-	return value, nil
-}
-
 func loadNoteMediaFlagsTx(ctx context.Context, tx pgx.Tx, noteID string) (bool, bool, bool, bool, int, error) {
 	var hasImage bool
 	var hasVideo bool
@@ -430,40 +320,6 @@ func loadNoteMediaFlagsTx(ctx context.Context, tx pgx.Tx, noteID string) (bool, 
 		return false, false, false, false, 0, fmt.Errorf("load note media flags: %w", err)
 	}
 	return hasImage, hasVideo, hasLink, hasArticle, attachmentCount, nil
-}
-
-func computeTrendingScore(
-	window time.Duration,
-	nowUnix int64,
-	noteCreatedAt int64,
-	replyCount int64,
-	repostCount int64,
-	reactionCount int64,
-	zapCount int64,
-	zapMSats int64,
-) float64 {
-	windowSeconds := int64(window / time.Second)
-	if windowSeconds <= 0 {
-		return 0
-	}
-	ageSeconds := nowUnix - noteCreatedAt
-	if ageSeconds < 0 {
-		ageSeconds = 0
-	}
-	if ageSeconds > windowSeconds {
-		return 0
-	}
-	base := float64(replyCount)*3.0 +
-		float64(repostCount)*2.0 +
-		float64(reactionCount)*1.0 +
-		float64(zapCount)*2.0 +
-		(float64(zapMSats) / 100000.0)
-	decay := 1.0 / (1.0 + (float64(ageSeconds) / float64(windowSeconds)))
-	score := base * decay
-	if score <= 0 {
-		return 0
-	}
-	return math.Round(score*1000.0) / 1000.0
 }
 
 func isNoteDiscoveryProjectableKind(kind int) bool {

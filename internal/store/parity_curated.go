@@ -86,6 +86,18 @@ func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hash
 	out.TopLanguages24h = topLanguages24h
 	out.TopLanguages7d = topLanguages7d
 
+	// Projection tables are schema-scoped in tests; explicitly check current schema
+	// so we don't silently fall back to another schema via search_path.
+	var hashtagsProjectionAvailable bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT to_regclass(current_schema() || '.event_hashtags') IS NOT NULL
+	`).Scan(&hashtagsProjectionAvailable); err != nil {
+		return out, fmt.Errorf("check event_hashtags projection availability: %w", err)
+	}
+	if !hashtagsProjectionAvailable {
+		return out, nil
+	}
+
 	top24h, err := s.GetTrendingHashtags(ctx, 24*time.Hour, hashtagLimit, 0)
 	if err != nil {
 		if !isUndefinedRelationError(err) {

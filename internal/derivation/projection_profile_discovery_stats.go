@@ -2,9 +2,7 @@ package derivation
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -70,146 +68,6 @@ func (h *Handlers) projectProfileDiscoveryStatsWithVersion(ctx context.Context, 
 		return fmt.Errorf("commit profile discovery projection tx: %w", err)
 	}
 	return nil
-}
-
-func (h *Handlers) affectedProfileDiscoveryPubkeysTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	sourceEventID string,
-	kind int,
-	references []derivedReference,
-	tags [][]string,
-) ([]string, error) {
-	pubkeys := make([]string, 0, 8)
-
-	var sourcePubkey string
-	if err := tx.QueryRow(ctx, `
-		SELECT pubkey
-		FROM events
-		WHERE id = $1
-	`, sourceEventID).Scan(&sourcePubkey); err != nil {
-		return nil, fmt.Errorf("load source event pubkey: %w", err)
-	}
-	pubkeys = append(pubkeys, sourcePubkey)
-
-	switch kind {
-	case 1:
-		for _, ref := range references {
-			if ref.Relation != "reply" {
-				continue
-			}
-			targetPubkey, err := h.eventPubkeyTx(ctx, tx, ref.Referenced)
-			if err != nil {
-				return nil, err
-			}
-			pubkeys = append(pubkeys, targetPubkey)
-		}
-		rows, err := tx.Query(ctx, `
-			SELECT e.pubkey
-			FROM reply_count_contributions c
-			JOIN events e ON e.id = c.target_event_id
-			WHERE c.source_event_id = $1
-		`, sourceEventID)
-		if err != nil {
-			return nil, fmt.Errorf("load existing profile discovery reply targets: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var targetPubkey string
-			if err := rows.Scan(&targetPubkey); err != nil {
-				return nil, fmt.Errorf("scan existing profile discovery reply target: %w", err)
-			}
-			pubkeys = append(pubkeys, targetPubkey)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("read existing profile discovery reply targets: %w", err)
-		}
-	case 6:
-		for _, ref := range references {
-			targetPubkey, err := h.eventPubkeyTx(ctx, tx, ref.Referenced)
-			if err != nil {
-				return nil, err
-			}
-			pubkeys = append(pubkeys, targetPubkey)
-		}
-		rows, err := tx.Query(ctx, `
-			SELECT e.pubkey
-			FROM repost_events r
-			JOIN events e ON e.id = r.target_event_id
-			WHERE r.source_event_id = $1
-		`, sourceEventID)
-		if err != nil {
-			return nil, fmt.Errorf("load existing profile discovery repost targets: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var targetPubkey string
-			if err := rows.Scan(&targetPubkey); err != nil {
-				return nil, fmt.Errorf("scan existing profile discovery repost target: %w", err)
-			}
-			pubkeys = append(pubkeys, targetPubkey)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("read existing profile discovery repost targets: %w", err)
-		}
-	case 7:
-		for _, ref := range references {
-			targetPubkey, err := h.eventPubkeyTx(ctx, tx, ref.Referenced)
-			if err != nil {
-				return nil, err
-			}
-			pubkeys = append(pubkeys, targetPubkey)
-		}
-		rows, err := tx.Query(ctx, `
-			SELECT e.pubkey
-			FROM reaction_events r
-			JOIN events e ON e.id = r.target_event_id
-			WHERE r.source_event_id = $1
-		`, sourceEventID)
-		if err != nil {
-			return nil, fmt.Errorf("load existing profile discovery reaction targets: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var targetPubkey string
-			if err := rows.Scan(&targetPubkey); err != nil {
-				return nil, fmt.Errorf("scan existing profile discovery reaction target: %w", err)
-			}
-			pubkeys = append(pubkeys, targetPubkey)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("read existing profile discovery reaction targets: %w", err)
-		}
-	case 9735:
-		pubkeys = append(pubkeys, firstTagValue(tags, "p"))
-		var priorReceiverPubkey *string
-		if err := tx.QueryRow(ctx, `
-			SELECT receiver_pubkey
-			FROM zap_receipts
-			WHERE zap_receipt_id = $1
-		`, sourceEventID).Scan(&priorReceiverPubkey); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("load prior profile discovery zap receiver: %w", err)
-		}
-		if priorReceiverPubkey != nil {
-			pubkeys = append(pubkeys, *priorReceiverPubkey)
-		}
-	}
-	return normalizeUniqueIDs(pubkeys), nil
-}
-
-func (h *Handlers) eventPubkeyTx(ctx context.Context, tx pgx.Tx, eventID string) (string, error) {
-	var pubkey string
-	if err := tx.QueryRow(ctx, `
-		SELECT pubkey
-		FROM events
-		WHERE id = $1
-	`, eventID).Scan(&pubkey); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return "", fmt.Errorf("load target event pubkey: %w", err)
-	}
-	return pubkey, nil
 }
 
 func (h *Handlers) refreshProfileDiscoveryStatsTx(
@@ -293,8 +151,31 @@ func loadProfileRecentActivityAtTx(ctx context.Context, tx pgx.Tx, pubkey string
 	var recentActivityAt *int64
 	if err := tx.QueryRow(ctx, `
 		SELECT MAX(created_at)
-		FROM events
-		WHERE pubkey = $1
+		FROM (
+			SELECT e.created_at
+			FROM events e
+			WHERE e.pubkey = $1
+			UNION ALL
+			SELECT source_event.created_at
+			FROM reply_count_contributions c
+			JOIN events source_event ON source_event.id = c.source_event_id
+			JOIN events target_event ON target_event.id = c.target_event_id
+			WHERE target_event.pubkey = $1
+			UNION ALL
+			SELECT r.created_at
+			FROM reaction_events r
+			JOIN events target_event ON target_event.id = r.target_event_id
+			WHERE target_event.pubkey = $1
+			UNION ALL
+			SELECT r.created_at
+			FROM repost_events r
+			JOIN events target_event ON target_event.id = r.target_event_id
+			WHERE target_event.pubkey = $1
+			UNION ALL
+			SELECT zr.created_at
+			FROM zap_receipts zr
+			WHERE zr.receiver_pubkey = $1
+		) activity
 	`, pubkey).Scan(&recentActivityAt); err != nil {
 		return nil, fmt.Errorf("load profile recent activity timestamp: %w", err)
 	}
@@ -403,72 +284,4 @@ func loadProfileWindowMetricsTx(
 
 	engagement := replyReceived + repostReceived + reactionReceived + zapCount
 	return postCount, replyCount, engagement, zapVolumeMSats, int(activeDaysRaw), nil
-}
-
-func computeProfileTrendingScore(
-	window time.Duration,
-	nowUnix int64,
-	recentActivityAt *int64,
-	postCount int64,
-	replyCount int64,
-	engagementReceived int64,
-	zapVolumeMSats int64,
-	activeDays int,
-) float64 {
-	windowSeconds := int64(window / time.Second)
-	if windowSeconds <= 0 || recentActivityAt == nil {
-		return 0
-	}
-	ageSeconds := nowUnix - *recentActivityAt
-	if ageSeconds < 0 {
-		ageSeconds = 0
-	}
-	if ageSeconds > windowSeconds {
-		return 0
-	}
-	base := float64(postCount)*2.0 +
-		float64(replyCount)*1.5 +
-		float64(engagementReceived)*2.5 +
-		(float64(zapVolumeMSats) / 100000.0) +
-		float64(activeDays)*0.75
-	decay := 1.0 / (1.0 + (float64(ageSeconds) / float64(windowSeconds)))
-	score := base * decay
-	if score <= 0 {
-		return 0
-	}
-	return math.Round(score*1000.0) / 1000.0
-}
-
-func computeProfileRisingScore(
-	trendingScore float64,
-	followerCount int64,
-	engagementReceived int64,
-	postCount int64,
-	replyCount int64,
-	activeDays int,
-) float64 {
-	if trendingScore <= 0 {
-		return 0
-	}
-	safeFollowerCount := maxInt64(0, followerCount)
-	audiencePenalty := 1.0 + math.Log10(1.0+float64(safeFollowerCount))
-	if audiencePenalty <= 0 {
-		audiencePenalty = 1.0
-	}
-	momentum := float64(engagementReceived) + float64(postCount) + float64(replyCount)
-	if activeDays > 0 {
-		momentum = momentum / float64(activeDays)
-	}
-	score := (trendingScore + momentum) / audiencePenalty
-	if score <= 0 {
-		return 0
-	}
-	return math.Round(score*1000.0) / 1000.0
-}
-
-func maxInt64(a int64, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
 }

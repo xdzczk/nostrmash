@@ -330,6 +330,19 @@ func (s *PostgresStore) getProfileDiscoveryRows(
 		WHERE recent_activity_at IS NOT NULL
 		  AND recent_activity_at >= $1
 		  AND %s > 0
+		  AND EXISTS (
+			SELECT 1
+			FROM events e
+			WHERE e.pubkey = profile_discovery_stats.pubkey
+			  AND e.kind = 1
+			  AND e.created_at >= $1
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM event_references er
+				WHERE er.source_event_id = e.id
+				  AND er.relation = 'reply'
+			  )
+		  )
 		ORDER BY score DESC, recent_engagement_received DESC, recent_activity_at DESC, pubkey ASC
 		LIMIT $2 OFFSET $3
 	`, scoreColumn, scoreColumn)

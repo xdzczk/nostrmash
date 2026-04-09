@@ -15,7 +15,7 @@ import (
 const maxEventURLLinks = 32
 
 var (
-	urlCandidatePattern = regexp.MustCompile(`https?://[^\s<>"']+`)
+	urlCandidatePattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
 )
 
 type normalizedEventURL struct {

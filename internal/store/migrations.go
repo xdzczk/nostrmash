@@ -51,9 +51,20 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, appVersion string) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	var currentSchema string
+	if err := tx.QueryRow(ctx, `SELECT current_schema()`).Scan(&currentSchema); err != nil {
+		return fmt.Errorf("resolve current schema: %w", err)
+	}
+
 	// Serialize migration execution across concurrent process startups.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationAdvisoryLockID); err != nil {
 		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+
+	// Keep migration DDL scoped to the active schema to avoid collisions with
+	// same-named relations in public when integration tests run against a shared DB.
+	if err := setMigrationSearchPath(ctx, tx, currentSchema, false); err != nil {
+		return err
 	}
 
 	if _, err := tx.Exec(ctx, bootstrapAuditSQL); err != nil {
@@ -84,6 +95,11 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, appVersion string) error {
 			return fmt.Errorf("check applied %s: %w", name, err)
 		}
 
+		includePublic := name == "000016_search_hardening.sql"
+		if err := setMigrationSearchPath(ctx, tx, currentSchema, includePublic); err != nil {
+			return err
+		}
+
 		if _, err := tx.Exec(ctx, string(data)); err != nil {
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
@@ -101,6 +117,18 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, appVersion string) error {
 	}
 
 	return tx.Commit(ctx)
+}
+
+func setMigrationSearchPath(ctx context.Context, tx pgx.Tx, schemaName string, includePublic bool) error {
+	schema := pgx.Identifier{schemaName}.Sanitize()
+	searchPath := schema
+	if includePublic {
+		searchPath = searchPath + ", public"
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`SET LOCAL search_path = %s`, searchPath)); err != nil {
+		return fmt.Errorf("set migration search_path: %w", err)
+	}
+	return nil
 }
 
 // Ping checks database connectivity.

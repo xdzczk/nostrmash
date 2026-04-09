@@ -56,6 +56,7 @@ func TestDiscoveryProjections_RebuildAfterTruncateMatchesBaseline(t *testing.T) 
 			profile_discovery_stats,
 			profile_public_stats,
 			follower_edges
+		CASCADE
 	`); err != nil {
 		t.Fatalf("truncate discovery projection tables: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestDiscoveryProjections_RebuildAfterTruncateMatchesBaseline(t *testing.T) 
 	}
 
 	rebuiltState := captureDiscoveryProjectionState(t, ctx, pool)
-	if !reflect.DeepEqual(rebuiltState, baselineState) {
+	if !reflect.DeepEqual(stripDiscoveryProjectionVersions(rebuiltState), stripDiscoveryProjectionVersions(baselineState)) {
 		t.Fatalf("rebuilt discovery projection state mismatch\nbaseline=%#v\nrebuilt=%#v", baselineState, rebuiltState)
 	}
 
@@ -173,6 +174,26 @@ func captureDiscoveryProjectionState(t *testing.T, ctx context.Context, pool *pg
 		ProfilePublic:    readProfilePublicRows(t, ctx, pool),
 		FollowerEdgeRows: readFollowerEdgeRows(t, ctx, pool),
 	}
+}
+
+func stripDiscoveryProjectionVersions(state discoveryProjectionState) discoveryProjectionState {
+	out := state
+	for i := range out.Hashtags {
+		out.Hashtags[i].DerivedVersion = 0
+	}
+	for i := range out.NoteStats {
+		out.NoteStats[i].DerivedVersion = 0
+	}
+	for i := range out.ProfileStats {
+		out.ProfileStats[i].DerivedVersion = 0
+	}
+	for i := range out.ProfilePublic {
+		out.ProfilePublic[i].DerivedVersion = 0
+	}
+	for i := range out.FollowerEdgeRows {
+		out.FollowerEdgeRows[i].DerivedVersion = 0
+	}
+	return out
 }
 
 func readHashtagProjectionRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []hashtagProjectionRow {

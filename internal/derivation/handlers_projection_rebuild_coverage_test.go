@@ -93,6 +93,7 @@ func TestAuthorAnalyticsProjections_RebuildAfterTruncateMatchesBaseline(t *testi
 			author_media_mix_stats,
 			author_activity_windows,
 			author_posting_patterns
+		CASCADE
 	`); err != nil {
 		t.Fatalf("truncate author analytics projection tables: %v", err)
 	}
@@ -183,6 +184,7 @@ func TestConversationProjections_RebuildAfterTruncateMatchesBaseline(t *testing.
 			thread_edges,
 			unresolved_thread_references,
 			thread_summaries
+		CASCADE
 	`); err != nil {
 		t.Fatalf("truncate conversation projection tables: %v", err)
 	}

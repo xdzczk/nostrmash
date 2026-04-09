@@ -44,7 +44,7 @@ func (s *PostgresStore) GetTrustQualifiedTrendingNotes(
 		offset = 0
 	}
 	minCreatedAt := time.Now().UTC().Add(-windowDuration).Unix()
-	trustedExpr := "(t.min_hops IS NOT NULL AND ($2 = 0 OR t.min_hops <= $2) AND ($3 <= 0 OR COALESCE(t.trust_score, 0) >= $3))"
+	trustedExpr := "(t.min_hops IS NOT NULL AND ($2::integer = 0 OR t.min_hops <= $2::integer) AND ($3::double precision <= 0 OR COALESCE(t.trust_score, 0) >= $3::double precision))"
 	whereTrusted := ""
 	orderBy := fmt.Sprintf("n.%s DESC, n.created_at DESC, n.event_id ASC", scoreColumn)
 	if mode == discoveryProjectionModeTrustedOnly {
@@ -145,7 +145,7 @@ func (s *PostgresStore) GetTrustQualifiedTrendingProfiles(
 		offset = 0
 	}
 	minCreatedAt := time.Now().UTC().Add(-windowDuration).Unix()
-	trustedExpr := "(t.min_hops IS NOT NULL AND ($2 = 0 OR t.min_hops <= $2) AND ($3 <= 0 OR COALESCE(t.trust_score, 0) >= $3))"
+	trustedExpr := "(t.min_hops IS NOT NULL AND ($2::integer = 0 OR t.min_hops <= $2::integer) AND ($3::double precision <= 0 OR COALESCE(t.trust_score, 0) >= $3::double precision))"
 	whereTrusted := ""
 	orderBy := fmt.Sprintf("p.%s DESC, p.recent_engagement_received DESC, p.recent_activity_at DESC, p.pubkey ASC", scoreColumn)
 	if mode == discoveryProjectionModeTrustedOnly {

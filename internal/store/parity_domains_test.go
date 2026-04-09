@@ -107,8 +107,8 @@ func TestDomainSummaryAndNotesQueryBehavior(t *testing.T) {
 	if err := handlers.ProjectNoteDiscoveryStats(ctx, "dom_page_3"); err != nil {
 		t.Fatalf("project note stats: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE note_discovery_stats SET score_30d = 100 WHERE event_id = 'dom_page_1'`); err != nil {
-		t.Fatalf("boost score_30d: %v", err)
+	if _, err := pool.Exec(ctx, `UPDATE note_discovery_stats SET reply_count = 50 WHERE event_id = 'dom_page_1'`); err != nil {
+		t.Fatalf("boost top-note engagement: %v", err)
 	}
 
 	summary, err := pgStore.GetDomainSummary(ctx, "  HTTPS://Example.com. ", 2, 2)

@@ -36,6 +36,7 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.ProjectRelayListsLatest,
 		h.ProjectDMUnreadCounts,
 		h.ProjectZapReceipts,
+		h.UpdateThreadProjection,
 		h.ProjectNoteDiscoveryStats,
 		h.ProjectProfileDiscoveryStats,
 		h.ProjectProfilePublicStats,
