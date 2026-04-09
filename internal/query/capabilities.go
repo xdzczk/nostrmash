@@ -49,14 +49,17 @@ type curatedCapabilities struct {
 	domainSummary          domainSummaryCapability
 	domainNotes            domainNotesCapability
 	trendingProfiles       trendingProfilesCapability
+	relatedProfiles        relatedProfilesCapability
 	trustQualifiedProfiles trustQualifiedTrendingProfilesCapability
 	risingProfiles         risingProfilesCapability
 	featuredAuthors        curatedFeaturedAuthorsCapability
 	creatorPaidTiers       creatorPaidTiersCapability
 	pubkeyByLNAddress      pubkeyByLNAddressCapability
+	groupedNoteAnalytics   groupedNoteAnalyticsCapability
 }
 
 type trustCapabilities struct {
+	state         trustStateCapability
 	score         trustScoreCapability
 	topPubkeys    topTrustedPubkeysCapability
 	run           trustRunCapability

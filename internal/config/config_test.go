@@ -190,6 +190,51 @@ func TestLoadSharedConfig_TrustPolicyOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadSharedConfig_TrustPolicyPresetBalanced(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUST_SURFACE_POLICY_PRESET", "balanced")
+
+	cfg, err := loadSharedConfig("api")
+	if err != nil {
+		t.Fatalf("load shared config trust preset balanced: %v", err)
+	}
+	if cfg.TrustPolicy.CanonicalIngestMode != TrustModeOpen {
+		t.Fatalf("expected canonical ingest mode to remain open, got %q", cfg.TrustPolicy.CanonicalIngestMode)
+	}
+	if cfg.TrustPolicy.DiscoveryCandidateMode != TrustModePreferTrusted ||
+		cfg.TrustPolicy.SearchRankingMode != TrustModePreferTrusted ||
+		cfg.TrustPolicy.FallbackFetchMode != TrustModePreferTrusted {
+		t.Fatalf("unexpected balanced preset surface modes: %#v", cfg.TrustPolicy)
+	}
+}
+
+func TestLoadSharedConfig_TrustPolicyPresetAllowsSurfaceOverride(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUST_SURFACE_POLICY_PRESET", "strict")
+	t.Setenv("TRUST_DISCOVERY_CANDIDATE_MODE", "open")
+	t.Setenv("TRUST_SEARCH_RANKING_MODE", "prefer_trusted")
+	t.Setenv("TRUST_FALLBACK_FETCH_MODE", "open")
+
+	cfg, err := loadSharedConfig("api")
+	if err != nil {
+		t.Fatalf("load shared config trust preset overrides: %v", err)
+	}
+	if cfg.TrustPolicy.DiscoveryCandidateMode != TrustModeOpen ||
+		cfg.TrustPolicy.SearchRankingMode != TrustModePreferTrusted ||
+		cfg.TrustPolicy.FallbackFetchMode != TrustModeOpen {
+		t.Fatalf("expected explicit surface overrides to win over preset, got %#v", cfg.TrustPolicy)
+	}
+}
+
+func TestLoadSharedConfig_TrustPolicyRejectsInvalidPreset(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUST_SURFACE_POLICY_PRESET", "paranoid")
+	_, err := loadSharedConfig("api")
+	if err == nil || !strings.Contains(err.Error(), "TRUST_SURFACE_POLICY_PRESET") {
+		t.Fatalf("expected actionable TRUST_SURFACE_POLICY_PRESET validation error, got %v", err)
+	}
+}
+
 func TestLoadSharedConfig_TrustPolicyRejectsInvalidMode(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("TRUST_SEARCH_RANKING_MODE", "friends_only")

@@ -17,6 +17,9 @@ type AdminService interface {
 	GetRelaySuggestions(context.Context, int, bool) ([]adminRelaySuggestion, error)
 	GetJobs(context.Context, int) (adminJobsResponse, error)
 	GetInvalidEvents(context.Context, int) (adminInvalidEventsResponse, error)
+	GetProjectionStatus(context.Context) (adminProjectionStatusResponse, error)
+	GetDiscoveryStatus(context.Context) (adminDiscoveryStatusResponse, error)
+	GetSearchStatus(context.Context) (adminSearchStatusResponse, error)
 	GetRebuilds(context.Context, int) ([]adminRebuildRunResponse, error)
 	TriggerRebuild(context.Context, derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error)
 	GetStorage(context.Context) (adminStorageResponse, error)
@@ -29,12 +32,15 @@ type AdminService interface {
 }
 
 type AdminServiceOptions struct {
-	ServiceName      string
-	Environment      string
-	AppVersion       string
-	StartedAt        time.Time
-	ConfiguredRelays []string
-	DisabledRelays   []string
+	ServiceName          string
+	Environment          string
+	AppVersion           string
+	StartedAt            time.Time
+	ConfiguredRelays     []string
+	DisabledRelays       []string
+	DiscoveryTrustMode   string
+	SearchTrustMode      string
+	TrustRefreshInterval time.Duration
 }
 
 type adminService struct {
@@ -47,8 +53,11 @@ type adminService struct {
 	appVersion  string
 	startedAt   time.Time
 
-	configuredRelays []string
-	disabledRelays   map[string]struct{}
+	configuredRelays     []string
+	disabledRelays       map[string]struct{}
+	discoveryTrustMode   string
+	searchTrustMode      string
+	trustRefreshInterval time.Duration
 }
 
 func NewAdminService(
@@ -70,15 +79,18 @@ func NewAdminService(
 		startedAt = time.Now().UTC()
 	}
 	return &adminService{
-		pool:             pool,
-		derivation:       derivationHandlers,
-		trust:            trustRuntime,
-		serviceName:      strings.TrimSpace(opts.ServiceName),
-		environment:      strings.TrimSpace(opts.Environment),
-		appVersion:       strings.TrimSpace(opts.AppVersion),
-		startedAt:        startedAt,
-		configuredRelays: append([]string(nil), opts.ConfiguredRelays...),
-		disabledRelays:   disabled,
+		pool:                 pool,
+		derivation:           derivationHandlers,
+		trust:                trustRuntime,
+		serviceName:          strings.TrimSpace(opts.ServiceName),
+		environment:          strings.TrimSpace(opts.Environment),
+		appVersion:           strings.TrimSpace(opts.AppVersion),
+		startedAt:            startedAt,
+		configuredRelays:     append([]string(nil), opts.ConfiguredRelays...),
+		disabledRelays:       disabled,
+		discoveryTrustMode:   strings.ToLower(strings.TrimSpace(opts.DiscoveryTrustMode)),
+		searchTrustMode:      strings.ToLower(strings.TrimSpace(opts.SearchTrustMode)),
+		trustRefreshInterval: opts.TrustRefreshInterval,
 	}
 }
 
@@ -144,6 +156,33 @@ func (h AdminHandlers) GetInvalidEvents(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	resp, err := h.service.GetInvalidEvents(r.Context(), limit)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h AdminHandlers) GetProjectionStatus(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.service.GetProjectionStatus(r.Context())
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h AdminHandlers) GetDiscoveryStatus(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.service.GetDiscoveryStatus(r.Context())
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h AdminHandlers) GetSearchStatus(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.service.GetSearchStatus(r.Context())
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return

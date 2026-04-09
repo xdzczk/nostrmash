@@ -26,6 +26,8 @@ type ProfileService interface {
 }
 
 type TrustService interface {
+	GetTrustState(ctx context.Context, pubkey string) (TrustState, error)
+	GetTrustStates(ctx context.Context, pubkeys []string) (map[string]TrustState, error)
 	GetTrustScore(ctx context.Context, pubkey string) (TrustScore, error)
 	ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustScore, error)
 	GetTrustRun(ctx context.Context, runID int64) (TrustRun, error)

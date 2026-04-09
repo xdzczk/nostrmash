@@ -383,6 +383,39 @@ paths:
           description: Author topic usage rows for the selected window
         '400':
           $ref: '#/components/responses/Error'
+  /api/v1/authors/{pubkey}/analytics/grouped-notes:
+    get:
+      tags: [public]
+      summary: Generic grouped-note analytics rollup for one author and group key
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: group_by
+          schema: { type: string, enum: [hashtag, metadata], default: hashtag }
+        - in: query
+          name: group_key
+          required: true
+          schema: { type: string, maxLength: 128 }
+        - in: query
+          name: metadata_tag
+          schema: { type: string, enum: [d, g, group, series] }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d, 90d], default: 30d }
+        - in: query
+          name: top_notes_limit
+          schema: { type: integer, minimum: 1, maximum: 20, default: 5 }
+        - in: query
+          name: topics_limit
+          schema: { type: integer, minimum: 1, maximum: 20, default: 5 }
+      responses:
+        '200':
+          description: Grouped note count, engagement totals, top notes, and grouped media/topic summaries
+        '400':
+          $ref: '#/components/responses/Error'
   /api/v1/authors/{pubkey}/analytics/media-mix:
     get:
       tags: [public]
@@ -720,6 +753,25 @@ paths:
         '200':
           description: Ranked rising profiles with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/profiles/{pubkey}/related:
+    get:
+      tags: [public]
+      summary: Bounded related profiles for one focal pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Related profiles ranked by bounded topic overlap, reply/interaction adjacency, and quote/repost adjacency with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/hashtags/trending:
     get:
@@ -1423,6 +1475,30 @@ paths:
       responses:
         '200':
           description: Invalid event stats + records
+  /admin/v1/status/projections:
+    get:
+      tags: [admin]
+      summary: Projection freshness and stale-subsystem summary
+      security: [{ BearerToken: [] }]
+      responses:
+        '200':
+          description: Projection freshness overview for operators
+  /admin/v1/status/discovery:
+    get:
+      tags: [admin]
+      summary: Discovery ranking freshness and readiness summary
+      security: [{ BearerToken: [] }]
+      responses:
+        '200':
+          description: Discovery freshness and stale subsystem flags
+  /admin/v1/status/search:
+    get:
+      tags: [admin]
+      summary: Search freshness and readiness summary
+      security: [{ BearerToken: [] }]
+      responses:
+        '200':
+          description: Search freshness and stale subsystem flags
   /admin/v1/rebuilds:
     get:
       tags: [admin]

@@ -6,6 +6,11 @@ import (
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
+type trustStateCapability interface {
+	GetTrustState(ctx context.Context, pubkey string) (TrustState, error)
+	GetTrustStates(ctx context.Context, pubkeys []string) (map[string]TrustState, error)
+}
+
 type trustScoreCapability interface {
 	GetTrustScore(ctx context.Context, pubkey string) (TrustScore, error)
 }
@@ -28,6 +33,9 @@ type trustQualificationCapability interface {
 }
 
 func adaptTrustCapabilities(reader any, caps *serviceCapabilities) {
+	if r, ok := reader.(trustStateCapability); ok {
+		caps.trust.state = r
+	}
 	if r, ok := reader.(trustScoreCapability); ok {
 		caps.trust.score = r
 	}
@@ -45,6 +53,9 @@ func adaptTrustCapabilities(reader any, caps *serviceCapabilities) {
 	}
 	if legacy, ok := reader.(legacyTrustCapability); ok {
 		adapted := legacyTrustAdapter{legacy: legacy}
+		if caps.trust.state == nil {
+			caps.trust.state = adapted
+		}
 		if caps.trust.score == nil {
 			caps.trust.score = adapted
 		}
@@ -67,6 +78,8 @@ func adaptTrustCapabilities(reader any, caps *serviceCapabilities) {
 }
 
 type legacyTrustCapability interface {
+	GetTrustState(ctx context.Context, pubkey string) (store.TrustState, error)
+	GetTrustStates(ctx context.Context, pubkeys []string) (map[string]store.TrustState, error)
 	GetTrustScore(ctx context.Context, pubkey string) (store.TrustGlobalScore, error)
 	ListTopTrustedPubkeys(ctx context.Context, limit int) ([]store.TrustGlobalScore, error)
 	GetTrustRun(ctx context.Context, runID int64) (store.TrustRun, error)
@@ -92,6 +105,26 @@ func (a legacyTrustAdapter) GetTrustScore(ctx context.Context, pubkey string) (T
 		return TrustScore{}, err
 	}
 	return trustScoreFromStore(row), nil
+}
+
+func (a legacyTrustAdapter) GetTrustState(ctx context.Context, pubkey string) (TrustState, error) {
+	row, err := a.legacy.GetTrustState(ctx, pubkey)
+	if err != nil {
+		return TrustState{}, err
+	}
+	return trustStateFromStore(row), nil
+}
+
+func (a legacyTrustAdapter) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]TrustState, error) {
+	rows, err := a.legacy.GetTrustStates(ctx, pubkeys)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]TrustState, len(rows))
+	for pubkey, row := range rows {
+		out[pubkey] = trustStateFromStore(row)
+	}
+	return out, nil
 }
 
 func (a legacyTrustAdapter) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustScore, error) {

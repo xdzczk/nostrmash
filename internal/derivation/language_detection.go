@@ -93,6 +93,11 @@ func detectByScript(content string) (string, float64, bool) {
 	var hasCyrillic bool
 	var hasHan bool
 	var hasHiraganaKatakana bool
+	var hasHangul bool
+	var hasArabic bool
+	var hasDevanagari bool
+	var hasThai bool
+	var hasBengali bool
 	for _, r := range content {
 		switch {
 		case unicode.In(r, unicode.Cyrillic):
@@ -101,10 +106,35 @@ func detectByScript(content string) (string, float64, bool) {
 			hasHan = true
 		case unicode.In(r, unicode.Hiragana, unicode.Katakana):
 			hasHiraganaKatakana = true
+		case unicode.In(r, unicode.Hangul):
+			hasHangul = true
+		case unicode.In(r, unicode.Arabic):
+			hasArabic = true
+		case unicode.In(r, unicode.Devanagari):
+			hasDevanagari = true
+		case unicode.In(r, unicode.Thai):
+			hasThai = true
+		case unicode.In(r, unicode.Bengali):
+			hasBengali = true
 		}
 	}
 	if hasHiraganaKatakana {
 		return "ja", 0.99, true
+	}
+	if hasHangul {
+		return "ko", 0.99, true
+	}
+	if hasArabic {
+		return "ar", 0.99, true
+	}
+	if hasDevanagari {
+		return "hi", 0.99, true
+	}
+	if hasThai {
+		return "th", 0.99, true
+	}
+	if hasBengali {
+		return "bn", 0.99, true
 	}
 	if hasHan {
 		return "zh", 0.95, true
@@ -134,6 +164,9 @@ func scoreLatinLanguageTokens(tokens []string) map[string]int {
 		"fr": languageWordsFR,
 		"de": languageWordsDE,
 		"pt": languageWordsPT,
+		"id": languageWordsID,
+		"tr": languageWordsTR,
+		"it": languageWordsIT,
 	}
 	scores := map[string]int{
 		"en": 0,
@@ -141,6 +174,9 @@ func scoreLatinLanguageTokens(tokens []string) map[string]int {
 		"fr": 0,
 		"de": 0,
 		"pt": 0,
+		"id": 0,
+		"tr": 0,
+		"it": 0,
 	}
 	for _, token := range tokens {
 		for lang, words := range dictionaries {
@@ -210,4 +246,22 @@ var languageWordsPT = map[string]struct{}{
 	"que": {}, "para": {}, "com": {}, "uma": {}, "este": {}, "esta": {}, "como": {}, "mas": {},
 	"por": {}, "dos": {}, "das": {}, "sem": {}, "ola": {}, "obrigado": {}, "porque": {}, "quando": {},
 	"onde": {}, "estou": {}, "tenho": {}, "muito": {}, "tambem": {}, "voce": {},
+}
+
+var languageWordsID = map[string]struct{}{
+	"yang": {}, "dan": {}, "untuk": {}, "dengan": {}, "ini": {}, "itu": {}, "dalam": {}, "tidak": {},
+	"saya": {}, "kamu": {}, "terima": {}, "kasih": {}, "karena": {}, "bagaimana": {}, "adalah": {},
+	"pada": {}, "dari": {}, "akan": {}, "sudah": {}, "bisa": {},
+}
+
+var languageWordsTR = map[string]struct{}{
+	"ve": {}, "bir": {}, "bu": {}, "icin": {}, "için": {}, "ile": {}, "merhaba": {}, "tesekkurler": {},
+	"teşekkürler": {}, "neden": {}, "nerede": {}, "nasil": {}, "nasıl": {}, "degil": {}, "değil": {},
+	"gibi": {}, "ama": {}, "çok": {}, "cok": {}, "var": {}, "yok": {},
+}
+
+var languageWordsIT = map[string]struct{}{
+	"ciao": {}, "questo": {}, "questa": {}, "con": {}, "per": {}, "che": {}, "non": {}, "sono": {},
+	"grazie": {}, "come": {}, "dove": {}, "quando": {}, "perche": {}, "perché": {}, "anche": {},
+	"degli": {}, "delle": {}, "della": {}, "nella": {}, "dopo": {}, "prima": {},
 }

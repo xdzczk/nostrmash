@@ -55,6 +55,56 @@ func (h Handlers) GetAuthorAnalyticsTopics(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (h Handlers) GetAuthorAnalyticsGroupedNotes(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	groupBy := strings.TrimSpace(r.URL.Query().Get("group_by"))
+	groupKey := strings.TrimSpace(r.URL.Query().Get("group_key"))
+	metadataTag := strings.TrimSpace(r.URL.Query().Get("metadata_tag"))
+	window := strings.TrimSpace(r.URL.Query().Get("window"))
+	topNotesLimit, err := parseBoundedPositiveInt(r, "top_notes_limit", 5, 20)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	topicsLimit, err := parseBoundedPositiveInt(r, "topics_limit", 5, 20)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	summary, err := h.service.GetGroupedNoteAnalytics(
+		r.Context(),
+		pubkey,
+		window,
+		groupBy,
+		groupKey,
+		metadataTag,
+		topNotesLimit,
+		topicsLimit,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "window must be one of") ||
+			strings.Contains(err.Error(), "group_by must be one of") ||
+			strings.Contains(err.Error(), "group_key is required") ||
+			strings.Contains(err.Error(), "group_key must be") ||
+			strings.Contains(err.Error(), "metadata_tag is required") ||
+			strings.Contains(err.Error(), "metadata_tag must be one of") {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "grouped note analytics are not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
 func (h Handlers) GetAuthorAnalyticsMediaMix(w http.ResponseWriter, r *http.Request) {
 	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
 	if pubkey == "" {

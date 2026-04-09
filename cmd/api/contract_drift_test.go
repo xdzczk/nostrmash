@@ -77,6 +77,7 @@ func TestContractOwnedRoutes_DeclareDiscoveryNamespace(t *testing.T) {
 		"GET /api/v1/discovery/home",
 		"GET /api/v1/discovery/profiles/trending",
 		"GET /api/v1/discovery/profiles/rising",
+		"GET /api/v1/discovery/profiles/{pubkey}/related",
 		"GET /api/v1/discovery/hashtags/trending",
 		"GET /api/v1/discovery/hashtags/{hashtag}",
 		"GET /api/v1/discovery/hashtags/{hashtag}/notes",
@@ -150,6 +151,7 @@ func TestContractOwnedRoutes_DeclareAuthorAnalyticsNamespace(t *testing.T) {
 	required := []string{
 		"GET /api/v1/authors/{pubkey}/analytics/summary",
 		"GET /api/v1/authors/{pubkey}/analytics/topics",
+		"GET /api/v1/authors/{pubkey}/analytics/grouped-notes",
 		"GET /api/v1/authors/{pubkey}/analytics/media-mix",
 		"GET /api/v1/authors/{pubkey}/analytics/activity-windows",
 		"GET /api/v1/authors/{pubkey}/analytics/posting-patterns",

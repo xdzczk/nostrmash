@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -142,6 +143,23 @@ func (s Service) GetRisingProfiles(ctx context.Context, window time.Duration, li
 		return s.getTrendingProfilesTrustAware(ctx, r.GetRisingProfiles, true, window, limit, offset)
 	}
 	return nil, unsupportedCapabilityError("rising profiles")
+}
+
+func (s Service) GetRelatedProfiles(ctx context.Context, pubkey string, limit int) ([]RelatedProfile, error) {
+	normalized := strings.TrimSpace(pubkey)
+	if normalized == "" {
+		return nil, fmt.Errorf("pubkey is required")
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if r := s.capabilities.curated.relatedProfiles; r != nil {
+		return r.GetRelatedProfiles(ctx, normalized, limit)
+	}
+	return nil, unsupportedCapabilityError("related profiles")
 }
 
 func (s Service) GetCreatorPaidTiers(ctx context.Context, pubkey string) ([]json.RawMessage, error) {

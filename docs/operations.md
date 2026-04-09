@@ -352,6 +352,31 @@ Notes:
 - Rebuilds consume canonical Postgres data and do not require live relay access.
 - Truncating these derived tables is safe if you rerun the sequence above.
 
+Author analytics projection rebuild order:
+
+1. `author_activity_daily`
+2. `author_engagement_stats`
+3. `author_topic_stats`
+4. `author_media_mix_stats`
+5. `author_activity_windows`
+6. `author_posting_patterns`
+
+Conversation projection rebuild order:
+
+1. `thread_projection`
+2. `thread_summary`
+
+Trust-aware discovery projection rebuild order:
+
+1. `trusted_note_discovery_candidates`
+2. `trusted_profile_discovery_candidates`
+
+Additional notes:
+
+- Analytics and conversation rebuilds depend on canonical `events` plus lower-layer interpreted relationships (`event_references`, `thread_edges`, reactions/reposts/zaps).
+- Trust-aware discovery rebuilds depend on canonical discovery projections plus the latest trust snapshot tables (`trust_graph_snapshot`, `trust_scores_global`).
+- None of the projection rebuild paths require relay I/O at rebuild time; relay access is ingest-only.
+
 ### Trust runs
 
 Trust computation is run by `trust_worker` and publishes durable global trust output into Postgres.

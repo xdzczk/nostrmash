@@ -100,6 +100,13 @@ type AuthorAnalyticsSummaryProjection struct {
 	QuoteRepost              AuthorQuoteRepostWindowProjection
 }
 
+type AuthorRelayFootprintProjection struct {
+	Pubkey           string
+	RelayCount       int64
+	SeenOnEventCount int64
+	TopRelays        []RelayUsageSummary
+}
+
 type AuthorQuoteRepostWindowProjection struct {
 	QuotesMade      int64
 	RepostsMade     int64
@@ -255,6 +262,67 @@ type AuthorPerformanceAggregateProjection struct {
 	MedianReactionCount       float64
 	MedianRepostCount         float64
 	MedianZapCount            float64
+}
+
+type GroupedNoteAnalyticsQuery struct {
+	Pubkey        string
+	WindowDays    int
+	GroupKind     string
+	GroupKey      string
+	MetadataTag   string
+	TopNotesLimit int
+	TopicsLimit   int
+}
+
+type GroupedEngagementTotalsProjection struct {
+	ReplyCount    int64
+	ReactionCount int64
+	RepostCount   int64
+	ZapCount      int64
+	ZapMSats      int64
+}
+
+type GroupedMediaSummaryProjection struct {
+	TotalPosts           int64
+	WithImageCount       int64
+	WithVideoCount       int64
+	WithLinkCount        int64
+	WithArticleCount     int64
+	TextOnlyCount        int64
+	TotalAttachmentCount int64
+}
+
+type GroupedTopNoteProjection struct {
+	EventID             string
+	CreatedAt           int64
+	Content             string
+	ReplyCount          int64
+	ReactionCount       int64
+	RepostCount         int64
+	ZapCount            int64
+	ZapMSats            int64
+	WeightedEngagement  float64
+	MediaSegment        string
+	PrimaryTopicHashtag *string
+}
+
+type GroupedTopicSummaryProjection struct {
+	Hashtag    string
+	UsageCount int64
+	ActiveDays int
+}
+
+type GroupedNoteAnalyticsProjection struct {
+	Pubkey      string
+	WindowDays  int
+	GroupKind   string
+	GroupKey    string
+	MetadataTag string
+	NoteCount   int64
+	Engagement  GroupedEngagementTotalsProjection
+	Media       GroupedMediaSummaryProjection
+	TopNotes    []GroupedTopNoteProjection
+	TopTopics   []GroupedTopicSummaryProjection
 }
 
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {

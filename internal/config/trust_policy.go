@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,12 +12,40 @@ const (
 	TrustModeOpen          = "open"
 	TrustModePreferTrusted = "prefer_trusted"
 	TrustModeTrustedOnly   = "trusted_only"
+
+	TrustSurfacePolicyPresetOpen     = "open"
+	TrustSurfacePolicyPresetBalanced = "balanced"
+	TrustSurfacePolicyPresetStrict   = "strict"
 )
 
 var allowedTrustModes = map[string]struct{}{
 	TrustModeOpen:          {},
 	TrustModePreferTrusted: {},
 	TrustModeTrustedOnly:   {},
+}
+
+type trustSurfacePolicyPreset struct {
+	DiscoveryCandidateMode string
+	SearchRankingMode      string
+	FallbackFetchMode      string
+}
+
+var trustSurfacePolicyPresets = map[string]trustSurfacePolicyPreset{
+	TrustSurfacePolicyPresetOpen: {
+		DiscoveryCandidateMode: TrustModeOpen,
+		SearchRankingMode:      TrustModeOpen,
+		FallbackFetchMode:      TrustModeOpen,
+	},
+	TrustSurfacePolicyPresetBalanced: {
+		DiscoveryCandidateMode: TrustModePreferTrusted,
+		SearchRankingMode:      TrustModePreferTrusted,
+		FallbackFetchMode:      TrustModePreferTrusted,
+	},
+	TrustSurfacePolicyPresetStrict: {
+		DiscoveryCandidateMode: TrustModeTrustedOnly,
+		SearchRankingMode:      TrustModeTrustedOnly,
+		FallbackFetchMode:      TrustModeTrustedOnly,
+	},
 }
 
 // TrustPolicyConfig defines explicit trust behavior knobs per runtime surface.
@@ -41,6 +70,10 @@ type TrustPolicyConfig struct {
 }
 
 func loadTrustPolicyConfig() (TrustPolicyConfig, error) {
+	surfacePresetName, surfacePreset, err := resolveTrustSurfacePolicyPreset()
+	if err != nil {
+		return TrustPolicyConfig{}, err
+	}
 	minimumScore, err := getEnvNonNegativeFloat64Strict("TRUST_MINIMUM_SCORE", 0)
 	if err != nil {
 		return TrustPolicyConfig{}, err
@@ -69,16 +102,24 @@ func loadTrustPolicyConfig() (TrustPolicyConfig, error) {
 	if err != nil {
 		return TrustPolicyConfig{}, err
 	}
+	discoveryModeDefault := TrustModeOpen
+	searchModeDefault := TrustModePreferTrusted
+	fallbackModeDefault := TrustModeOpen
+	if surfacePresetName != "" {
+		discoveryModeDefault = surfacePreset.DiscoveryCandidateMode
+		searchModeDefault = surfacePreset.SearchRankingMode
+		fallbackModeDefault = surfacePreset.FallbackFetchMode
+	}
 	cfg := TrustPolicyConfig{
-		CanonicalIngestMode:              strings.ToLower(strings.TrimSpace(getEnv("TRUST_CANONICAL_INGEST_MODE", TrustModeOpen))),
-		DiscoveryCandidateMode:           strings.ToLower(strings.TrimSpace(getEnv("TRUST_DISCOVERY_CANDIDATE_MODE", TrustModeOpen))),
-		SearchRankingMode:                strings.ToLower(strings.TrimSpace(getEnv("TRUST_SEARCH_RANKING_MODE", TrustModePreferTrusted))),
-		FallbackFetchMode:                strings.ToLower(strings.TrimSpace(getEnv("TRUST_FALLBACK_FETCH_MODE", TrustModeOpen))),
+		CanonicalIngestMode:              resolveTrustMode("TRUST_CANONICAL_INGEST_MODE", TrustModeOpen),
+		DiscoveryCandidateMode:           resolveTrustMode("TRUST_DISCOVERY_CANDIDATE_MODE", discoveryModeDefault),
+		SearchRankingMode:                resolveTrustMode("TRUST_SEARCH_RANKING_MODE", searchModeDefault),
+		FallbackFetchMode:                resolveTrustMode("TRUST_FALLBACK_FETCH_MODE", fallbackModeDefault),
 		FallbackFetchMaxAttempts:         fallbackMaxAttempts,
 		FallbackFetchMaxTimeBudget:       fallbackMaxTimeBudget,
 		FallbackFetchMaxRelaysPerAttempt: fallbackMaxRelaysPerAttempt,
 		FallbackFetchAllowDirectLookup:   getEnvBool("TRUST_FALLBACK_FETCH_ALLOW_DIRECT_LOOKUP", true),
-		RetentionPolicyMode:              strings.ToLower(strings.TrimSpace(getEnv("TRUST_RETENTION_POLICY_MODE", TrustModeOpen))),
+		RetentionPolicyMode:              resolveTrustMode("TRUST_RETENTION_POLICY_MODE", TrustModeOpen),
 		RetentionHooks:                   retentionHooks,
 		MinimumScore:                     minimumScore,
 		SeedPubkeys:                      parseCSVEnv("TRUST_SEED_PUBKEYS"),
@@ -145,4 +186,31 @@ func getEnvNonNegativeFloat64Strict(key string, def float64) (float64, error) {
 		return 0, fmt.Errorf("%s must be a non-negative number", key)
 	}
 	return v, nil
+}
+
+func resolveTrustSurfacePolicyPreset() (string, trustSurfacePolicyPreset, error) {
+	preset := strings.ToLower(strings.TrimSpace(getEnv("TRUST_SURFACE_POLICY_PRESET", "")))
+	if preset == "" {
+		return "", trustSurfacePolicyPreset{}, nil
+	}
+	resolved, ok := trustSurfacePolicyPresets[preset]
+	if !ok {
+		return "", trustSurfacePolicyPreset{}, fmt.Errorf(
+			`TRUST_SURFACE_POLICY_PRESET %q must be one of: %s, %s, %s`,
+			preset,
+			TrustSurfacePolicyPresetOpen,
+			TrustSurfacePolicyPresetBalanced,
+			TrustSurfacePolicyPresetStrict,
+		)
+	}
+	return preset, resolved, nil
+}
+
+func resolveTrustMode(envName string, fallback string) string {
+	if raw, ok := os.LookupEnv(envName); ok {
+		if v := strings.ToLower(strings.TrimSpace(raw)); v != "" {
+			return v
+		}
+	}
+	return strings.ToLower(strings.TrimSpace(fallback))
 }

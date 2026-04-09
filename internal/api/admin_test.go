@@ -18,6 +18,9 @@ type fakeAdminService struct {
 	getRelaySuggestionsFn   func(context.Context, int, bool) ([]adminRelaySuggestion, error)
 	getJobsFn               func(context.Context, int) (adminJobsResponse, error)
 	getInvalidEventsFn      func(context.Context, int) (adminInvalidEventsResponse, error)
+	getProjectionStatusFn   func(context.Context) (adminProjectionStatusResponse, error)
+	getDiscoveryStatusFn    func(context.Context) (adminDiscoveryStatusResponse, error)
+	getSearchStatusFn       func(context.Context) (adminSearchStatusResponse, error)
 	getRebuildsFn           func(context.Context, int) ([]adminRebuildRunResponse, error)
 	triggerRebuildFn        func(context.Context, derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error)
 	getStorageFn            func(context.Context) (adminStorageResponse, error)
@@ -43,6 +46,24 @@ func (f fakeAdminService) GetJobs(ctx context.Context, limit int) (adminJobsResp
 }
 func (f fakeAdminService) GetInvalidEvents(ctx context.Context, limit int) (adminInvalidEventsResponse, error) {
 	return f.getInvalidEventsFn(ctx, limit)
+}
+func (f fakeAdminService) GetProjectionStatus(ctx context.Context) (adminProjectionStatusResponse, error) {
+	if f.getProjectionStatusFn == nil {
+		return adminProjectionStatusResponse{}, nil
+	}
+	return f.getProjectionStatusFn(ctx)
+}
+func (f fakeAdminService) GetDiscoveryStatus(ctx context.Context) (adminDiscoveryStatusResponse, error) {
+	if f.getDiscoveryStatusFn == nil {
+		return adminDiscoveryStatusResponse{}, nil
+	}
+	return f.getDiscoveryStatusFn(ctx)
+}
+func (f fakeAdminService) GetSearchStatus(ctx context.Context) (adminSearchStatusResponse, error) {
+	if f.getSearchStatusFn == nil {
+		return adminSearchStatusResponse{}, nil
+	}
+	return f.getSearchStatusFn(ctx)
 }
 func (f fakeAdminService) GetRebuilds(ctx context.Context, limit int) ([]adminRebuildRunResponse, error) {
 	return f.getRebuildsFn(ctx, limit)
@@ -213,6 +234,62 @@ func TestAdminRebuilds_PostTriggersRebuildRun(t *testing.T) {
 	}
 	if body.ID != 77 {
 		t.Fatalf("unexpected id: %d", body.ID)
+	}
+}
+
+func TestAdminStatusRoutes_ReturnFreshnessSignals(t *testing.T) {
+	now := time.Date(2026, 4, 9, 10, 0, 0, 0, time.UTC)
+	mux := newAdminTestMux("token", fakeAdminService{
+		getProjectionStatusFn: func(_ context.Context) (adminProjectionStatusResponse, error) {
+			return adminProjectionStatusResponse{
+				NowUTC: now,
+				Ingest: adminFreshnessSignal{Name: "ingest", Status: "fresh", Stale: false},
+				Subsystems: []adminFreshnessSignal{
+					{Name: "profiles_latest", Status: "fresh", Stale: false},
+				},
+				Healthy: true,
+			}, nil
+		},
+		getDiscoveryStatusFn: func(_ context.Context) (adminDiscoveryStatusResponse, error) {
+			return adminDiscoveryStatusResponse{
+				NowUTC: now,
+				Signals: []adminFreshnessSignal{
+					{Name: "note_discovery_stats", Status: "fresh", Stale: false},
+				},
+				Ready: true,
+			}, nil
+		},
+		getSearchStatusFn: func(_ context.Context) (adminSearchStatusResponse, error) {
+			return adminSearchStatusResponse{
+				NowUTC: now,
+				Signals: []adminFreshnessSignal{
+					{Name: "events_note_index", Status: "stale", Stale: true},
+				},
+				StaleSubsystems: []string{"events_note_index"},
+				Ready:           false,
+			}, nil
+		},
+	})
+
+	for _, tc := range []struct {
+		path      string
+		wantCode  int
+		wantToken string
+	}{
+		{path: "/admin/v1/status/projections", wantCode: http.StatusOK, wantToken: `"healthy":true`},
+		{path: "/admin/v1/status/discovery", wantCode: http.StatusOK, wantToken: `"ready":true`},
+		{path: "/admin/v1/status/search", wantCode: http.StatusOK, wantToken: `"events_note_index"`},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != tc.wantCode {
+			t.Fatalf("%s unexpected status: got %d want %d", tc.path, rec.Code, tc.wantCode)
+		}
+		if !strings.Contains(rec.Body.String(), tc.wantToken) {
+			t.Fatalf("%s expected body token %s, got %s", tc.path, tc.wantToken, rec.Body.String())
+		}
 	}
 }
 
@@ -482,6 +559,9 @@ func newAdminTestMux(token string, service AdminService) http.Handler {
 	adminMux.HandleFunc("GET /admin/v1/relays/suggestions", handlers.GetRelaySuggestions)
 	adminMux.HandleFunc("GET /admin/v1/jobs", handlers.GetJobs)
 	adminMux.HandleFunc("GET /admin/v1/invalid-events", handlers.GetInvalidEvents)
+	adminMux.HandleFunc("GET /admin/v1/status/projections", handlers.GetProjectionStatus)
+	adminMux.HandleFunc("GET /admin/v1/status/discovery", handlers.GetDiscoveryStatus)
+	adminMux.HandleFunc("GET /admin/v1/status/search", handlers.GetSearchStatus)
 	adminMux.HandleFunc("GET /admin/v1/rebuilds", handlers.GetRebuilds)
 	adminMux.HandleFunc("POST /admin/v1/rebuilds", handlers.TriggerRebuild)
 	adminMux.HandleFunc("GET /admin/v1/storage", handlers.GetStorage)

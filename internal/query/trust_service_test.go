@@ -3,12 +3,29 @@ package query
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 type trustQualificationReader struct {
 	fakeReader
+	getTrustStateFn          func(context.Context, string) (TrustState, error)
+	getTrustStatesFn         func(context.Context, []string) (map[string]TrustState, error)
 	getTrustQualificationsFn func(context.Context, []string, TrustQualificationPolicy) (map[string]TrustQualification, error)
 	isTrustedAuthorFn        func(context.Context, string, TrustQualificationPolicy) (bool, error)
+}
+
+func (r trustQualificationReader) GetTrustState(ctx context.Context, pubkey string) (TrustState, error) {
+	if r.getTrustStateFn == nil {
+		return TrustState{}, unsupportedCapabilityError("trust state")
+	}
+	return r.getTrustStateFn(ctx, pubkey)
+}
+
+func (r trustQualificationReader) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]TrustState, error) {
+	if r.getTrustStatesFn == nil {
+		return nil, unsupportedCapabilityError("trust state")
+	}
+	return r.getTrustStatesFn(ctx, pubkeys)
 }
 
 func (r trustQualificationReader) GetTrustQualifications(
@@ -74,6 +91,87 @@ func TestTrustQualificationService_BatchAndUnknownPubkeys(t *testing.T) {
 	}
 	if rows["unknown"].Pubkey != "unknown" {
 		t.Fatalf("expected unknown pubkey placeholder row, got %+v", rows["unknown"])
+	}
+}
+
+func TestTrustStateService_BatchLookupAndPolicyQualification(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	hops1 := 1
+	hops2 := 2
+	scoreHigh := 0.8
+	scoreLow := 0.2
+	rank1 := int64(1)
+	rank2 := int64(2)
+	gen := int64(44)
+	svc := mustNewService(t, trustQualificationReader{
+		fakeReader: fakeReader{},
+		getTrustStatesFn: func(_ context.Context, pubkeys []string) (map[string]TrustState, error) {
+			out := make(map[string]TrustState, len(pubkeys))
+			for _, pubkey := range pubkeys {
+				switch pubkey {
+				case "trusted":
+					out[pubkey] = TrustState{
+						Pubkey:       pubkey,
+						Score:        &scoreHigh,
+						Qualified:    true,
+						Tier:         "core",
+						HopDistance:  &hops1,
+						HopBucket:    "1",
+						Rank:         &rank1,
+						ComputedAt:   &now,
+						GenerationID: &gen,
+					}
+				case "low_score":
+					out[pubkey] = TrustState{
+						Pubkey:       pubkey,
+						Score:        &scoreLow,
+						Qualified:    true,
+						Tier:         "near",
+						HopDistance:  &hops2,
+						HopBucket:    "2",
+						Rank:         &rank2,
+						ComputedAt:   &now,
+						GenerationID: &gen,
+					}
+				}
+			}
+			return out, nil
+		},
+	})
+
+	states, err := svc.GetTrustStates(context.Background(), []string{"trusted", "unknown", "trusted"})
+	if err != nil {
+		t.Fatalf("GetTrustStates returned error: %v", err)
+	}
+	if len(states) != 2 {
+		t.Fatalf("expected deduplicated trust state map, got %d entries", len(states))
+	}
+	if !states["trusted"].Qualified || states["trusted"].Tier != "core" || states["trusted"].HopBucket != "1" {
+		t.Fatalf("unexpected trusted state: %#v", states["trusted"])
+	}
+	if states["unknown"].Qualified || states["unknown"].Tier != "unknown" || states["unknown"].HopBucket != "unknown" {
+		t.Fatalf("unexpected unknown state defaulting: %#v", states["unknown"])
+	}
+
+	qualified, err := svc.GetTrustQualification(context.Background(), []string{"trusted", "low_score", "unknown"}, TrustQualificationPolicy{
+		MaxHops:      2,
+		MinimumScore: 0.5,
+	})
+	if err != nil {
+		t.Fatalf("GetTrustQualification returned error: %v", err)
+	}
+	if !qualified["trusted"].Trusted {
+		t.Fatalf("expected trusted pubkey to pass policy")
+	}
+	if qualified["low_score"].Trusted {
+		t.Fatalf("expected low_score pubkey to fail minimum score policy")
+	}
+	if qualified["unknown"].Trusted {
+		t.Fatalf("expected unknown pubkey to be untrusted")
+	}
+	if qualified["trusted"].SourceRunID == nil || *qualified["trusted"].SourceRunID != gen {
+		t.Fatalf("expected generation id to flow into qualification, got %#v", qualified["trusted"])
 	}
 }
 

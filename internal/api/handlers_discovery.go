@@ -144,6 +144,59 @@ func (h Handlers) GetRisingProfiles(w http.ResponseWriter, r *http.Request) {
 	h.writeDiscoveryProfiles(w, r, "rising")
 }
 
+func (h Handlers) GetRelatedProfiles(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 10, 50)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "profiles_related", map[string]any{
+		"pubkey": pubkey,
+		"limit":  limit,
+	})
+	if h.writePublicCachedResponse(w, cachePolicy) {
+		return
+	}
+	related, err := h.service.GetRelatedProfiles(r.Context(), pubkey, limit)
+	if err != nil {
+		if query.IsNotFound(err) {
+			writeError(r.Context(), w, http.StatusNotFound, "not_found", "profile not found")
+			return
+		}
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "related profiles are not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	items := make([]map[string]any, 0, len(related))
+	for _, profile := range related {
+		items = append(items, map[string]any{
+			"pubkey":                 profile.Pubkey,
+			"topic_overlap":          profile.TopicOverlap,
+			"reply_adjacency":        profile.ReplyAdjacency,
+			"interaction_adjacency":  profile.InteractionAdjacency,
+			"quote_repost_adjacency": profile.QuoteRepostAdjacency,
+			"reasons":                profile.Reasons,
+			"score":                  profile.Score,
+		})
+	}
+	payload := map[string]any{
+		"pubkey":      pubkey,
+		"related":     items,
+		"consistency": "eventual",
+	}
+	h.addDiscoveryTrustMetadata(payload)
+	h.cachePublicPayload(cachePolicy, payload)
+	writeJSON(w, http.StatusOK, payload)
+}
+
 func (h Handlers) GetTrendingHashtags(w http.ResponseWriter, r *http.Request) {
 	window, windowLabel, err := parseTrendingHashtagWindow(r)
 	if err != nil {
@@ -337,9 +390,7 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 			"active_authors": networkStats.ActiveAuthors,
 			"note_volume":    networkStats.NoteVolume,
 		},
-		"relays": map[string]any{
-			"total": networkStats.Relays,
-		},
+		"relays": buildRelayStatsPayload(networkStats),
 	}
 	if networkStats.TopHashtags != nil {
 		network["top_hashtags"] = networkStats.TopHashtags
@@ -887,9 +938,7 @@ func (h Handlers) GetNetworkStats(w http.ResponseWriter, r *http.Request) {
 			"active_authors": stats.ActiveAuthors,
 			"note_volume":    stats.NoteVolume,
 		},
-		"relays": map[string]any{
-			"total": stats.Relays,
-		},
+		"relays": buildRelayStatsPayload(stats),
 	}
 	if stats.TopHashtags != nil {
 		network["top_hashtags"] = stats.TopHashtags
@@ -968,13 +1017,39 @@ func (h Handlers) GetRelayStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := map[string]any{
-		"relays": map[string]any{
-			"total": stats.Relays,
-		},
+		"relays":      buildRelayStatsPayload(stats),
 		"consistency": "eventual",
 	}
 	h.cachePublicPayload(cachePolicy, payload)
 	writeJSON(w, http.StatusOK, payload)
+}
+
+func buildRelayStatsPayload(stats query.PublicDiscoveryNetworkStats) map[string]any {
+	relays := map[string]any{
+		"total":      stats.Relays,
+		"active_24h": stats.RelaySummary.Active24h,
+		"active_7d":  stats.RelaySummary.Active7d,
+		"event_volume": map[string]any{
+			"24h": stats.RelaySummary.EventVolume.Last24h,
+			"7d":  stats.RelaySummary.EventVolume.Last7d,
+		},
+		"unique_authors": map[string]any{
+			"24h": stats.RelaySummary.UniqueAuthors.Last24h,
+			"7d":  stats.RelaySummary.UniqueAuthors.Last7d,
+		},
+	}
+	if len(stats.TopRelays) > 0 {
+		topRelays := make([]map[string]any, 0, len(stats.TopRelays))
+		for _, relay := range stats.TopRelays {
+			topRelays = append(topRelays, map[string]any{
+				"relay_url":      relay.RelayURL,
+				"event_count":    relay.EventCount,
+				"unique_authors": relay.UniqueAuthors,
+			})
+		}
+		relays["top"] = topRelays
+	}
+	return relays
 }
 
 func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request, surface string) {

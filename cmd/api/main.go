@@ -181,12 +181,15 @@ func main() {
 		os.Exit(1)
 	}
 	adminService := api.NewAdminService(pool, derivation.NewHandlers(pool), trust.NewRuntime(pool, false, true), api.AdminServiceOptions{
-		ServiceName:      cfg.Shared.ServiceName,
-		Environment:      cfg.Shared.Environment,
-		AppVersion:       appVersion,
-		StartedAt:        time.Now().UTC(),
-		ConfiguredRelays: cfg.Relay.URLs,
-		DisabledRelays:   cfg.Relay.Disabled,
+		ServiceName:          cfg.Shared.ServiceName,
+		Environment:          cfg.Shared.Environment,
+		AppVersion:           appVersion,
+		StartedAt:            time.Now().UTC(),
+		ConfiguredRelays:     cfg.Relay.URLs,
+		DisabledRelays:       cfg.Relay.Disabled,
+		DiscoveryTrustMode:   cfg.Shared.TrustPolicy.DiscoveryCandidateMode,
+		SearchTrustMode:      cfg.Shared.TrustPolicy.SearchRankingMode,
+		TrustRefreshInterval: cfg.Shared.TrustPolicy.RefreshInterval,
 	})
 	adminHandlers := api.NewAdminHandlers(adminService)
 

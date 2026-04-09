@@ -109,6 +109,7 @@ Do not hand-edit this file.
 | `TRUST_RETENTION_POLICY_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Optional trust policy mode for retention hooks: open, prefer_trusted, or trusted_only. |
 | `TRUST_SEARCH_RANKING_MODE` | `api, ingestor, trust_worker, worker` | optional | `prefer_trusted` | Trust policy mode for search ranking inputs: open, prefer_trusted, or trusted_only. |
 | `TRUST_SEED_PUBKEYS` | `api, ingestor, trust_worker, worker` | optional | `-` | CSV trust seed pubkeys used as trust graph roots. Required when any trust mode is trusted_only. |
+| `TRUST_SURFACE_POLICY_PRESET` | `api, ingestor, trust_worker, worker` | optional | `-` | Optional preset for public discovery/search surfaces: open (all open), balanced (prefer_trusted for discovery/search/fallback), strict (trusted_only for discovery/search/fallback). Per-surface TRUST_*_MODE env vars still override this preset when set. |
 | `TRUST_WORKER_CLAIM_BATCH_SIZE` | `trust_worker` | optional | `5` | Maximum trust jobs claimed per poll loop. |
 | `TRUST_WORKER_CONCURRENCY` | `trust_worker` | optional | `2` | Trust worker goroutine concurrency. |
 | `TRUST_WORKER_POLL_INTERVAL` | `trust_worker` | optional | `1s` | Polling interval for trust queue claims. |

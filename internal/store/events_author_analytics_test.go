@@ -120,6 +120,45 @@ func TestAuthorQuoteRepostRollupsAndRecentActivity(t *testing.T) {
 	}
 }
 
+func TestGetAuthorRelayFootprint_ReturnsCountsAndTopRelays(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	pgStore := NewPostgresStore(pool)
+	now := time.Now().UTC().Unix()
+
+	mustInsertEventRow(t, pool, "relay_note_1", "author_relays", now-3600, 1)
+	mustInsertEventRow(t, pool, "relay_note_2", "author_relays", now-1800, 1)
+	mustInsertEventRow(t, pool, "relay_note_3", "author_relays", now-600, 1)
+	mustInsertEventRow(t, pool, "relay_other_1", "other_author", now-300, 1)
+
+	mustInsertEventRelay(t, pool, "relay_note_1", "wss://relay.a")
+	mustInsertEventRelay(t, pool, "relay_note_1", "wss://relay.b")
+	mustInsertEventRelay(t, pool, "relay_note_2", "wss://relay.a")
+	mustInsertEventRelay(t, pool, "relay_note_3", "wss://relay.c")
+	mustInsertEventRelay(t, pool, "relay_other_1", "wss://relay.a")
+
+	footprint, err := pgStore.GetAuthorRelayFootprint(ctx, "author_relays", 2)
+	if err != nil {
+		t.Fatalf("GetAuthorRelayFootprint: %v", err)
+	}
+	if footprint.RelayCount != 3 {
+		t.Fatalf("unexpected relay count: got=%d want=3", footprint.RelayCount)
+	}
+	if footprint.SeenOnEventCount != 3 {
+		t.Fatalf("unexpected seen-on event count: got=%d want=3", footprint.SeenOnEventCount)
+	}
+	if len(footprint.TopRelays) != 2 {
+		t.Fatalf("unexpected top relay length: got=%d want=2", len(footprint.TopRelays))
+	}
+	if footprint.TopRelays[0].RelayURL != "wss://relay.a" || footprint.TopRelays[0].EventCount != 2 {
+		t.Fatalf("unexpected top relay row: %#v", footprint.TopRelays[0])
+	}
+}
+
 func TestGetAuthorPerformanceAggregate_SummaryCorrectness(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
@@ -233,6 +272,117 @@ func TestGetAuthorRecycleCandidates_RanksByWeightedEngagement(t *testing.T) {
 	}
 	if rows[0].PerformancePercentile < rows[1].PerformancePercentile {
 		t.Fatalf("expected percentile ordering to follow rank: %#v", rows)
+	}
+}
+
+func TestGetGroupedNoteAnalytics_AggregatesAndWindowRollups(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	pgStore := NewPostgresStore(pool)
+	now := time.Now().UTC().Unix()
+
+	mustInsertEventRow(t, pool, "group_note_1", "author_group", now-(2*24*60*60), 1)
+	mustInsertEventRow(t, pool, "group_note_2", "author_group", now-(12*24*60*60), 1)
+	mustInsertEventRow(t, pool, "group_note_other", "author_group", now-(2*24*60*60), 1)
+	mustInsertEventHashtag(t, pool, "group_note_1", "author_group", now-(2*24*60*60), "nostr")
+	mustInsertEventHashtag(t, pool, "group_note_2", "author_group", now-(12*24*60*60), "nostr")
+	mustInsertEventHashtag(t, pool, "group_note_other", "author_group", now-(2*24*60*60), "bitcoin")
+	mustInsertEventTag(t, pool, "group_note_1", "d", 0, 0, "series-42")
+	mustInsertEventTag(t, pool, "group_note_2", "d", 0, 0, "series-42")
+	mustInsertNoteDiscoveryStatsRow(t, pool, "group_note_1", "author_group", now-(2*24*60*60), true, false, true, false, 2)
+	mustInsertNoteDiscoveryStatsRow(t, pool, "group_note_2", "author_group", now-(12*24*60*60), false, true, false, false, 1)
+
+	mustInsertEventRow(t, pool, "group_reply_1", "other_a", now-(1*24*60*60), 1)
+	mustInsertEventRow(t, pool, "group_reply_2", "other_b", now-(11*24*60*60), 1)
+	mustInsertReplyContribution(t, pool, "group_reply_1", "group_note_1")
+	mustInsertReplyContribution(t, pool, "group_reply_2", "group_note_2")
+
+	mustInsertEventRow(t, pool, "group_reaction_1", "reactor_a", now-(1*24*60*60), 7)
+	mustInsertEventRow(t, pool, "group_reaction_2", "reactor_b", now-(11*24*60*60), 7)
+	mustInsertReactionEvent(t, pool, "group_reaction_1", "group_note_1", "reactor_a", now-(1*24*60*60))
+	mustInsertReactionEvent(t, pool, "group_reaction_2", "group_note_2", "reactor_b", now-(11*24*60*60))
+
+	mustInsertRepostMarker(t, pool, "group_repost_1", "reposter_a", "group_note_1", now-(1*24*60*60))
+	mustInsertRepostMarker(t, pool, "group_repost_2", "reposter_b", "group_note_2", now-(11*24*60*60))
+
+	mustInsertZapReceipt(t, pool, "group_zap_1", "sender_a", "author_group", "group_note_1", 7, now-(1*24*60*60))
+	mustInsertZapReceipt(t, pool, "group_zap_2", "sender_b", "author_group", "group_note_2", 5, now-(11*24*60*60))
+
+	allWindow, err := pgStore.GetGroupedNoteAnalytics(ctx, GroupedNoteAnalyticsQuery{
+		Pubkey:        "author_group",
+		WindowDays:    30,
+		GroupKind:     "hashtag",
+		GroupKey:      "nostr",
+		TopNotesLimit: 5,
+		TopicsLimit:   5,
+	})
+	if err != nil {
+		t.Fatalf("GetGroupedNoteAnalytics 30d: %v", err)
+	}
+	if allWindow.NoteCount != 2 {
+		t.Fatalf("expected 2 grouped notes in 30d, got %d", allWindow.NoteCount)
+	}
+	if allWindow.Engagement.ReplyCount != 2 || allWindow.Engagement.ReactionCount != 2 || allWindow.Engagement.RepostCount != 2 || allWindow.Engagement.ZapCount != 2 {
+		t.Fatalf("unexpected grouped engagement totals: %#v", allWindow.Engagement)
+	}
+	if allWindow.Media.WithImageCount != 1 || allWindow.Media.WithVideoCount != 1 || allWindow.Media.TotalAttachmentCount != 3 {
+		t.Fatalf("unexpected grouped media totals: %#v", allWindow.Media)
+	}
+
+	shortWindow, err := pgStore.GetGroupedNoteAnalytics(ctx, GroupedNoteAnalyticsQuery{
+		Pubkey:        "author_group",
+		WindowDays:    7,
+		GroupKind:     "metadata",
+		GroupKey:      "series-42",
+		MetadataTag:   "d",
+		TopNotesLimit: 5,
+		TopicsLimit:   5,
+	})
+	if err != nil {
+		t.Fatalf("GetGroupedNoteAnalytics 7d metadata: %v", err)
+	}
+	if shortWindow.NoteCount != 1 {
+		t.Fatalf("expected 1 grouped note in 7d, got %d", shortWindow.NoteCount)
+	}
+	if shortWindow.Engagement.ReplyCount != 1 || shortWindow.Engagement.ReactionCount != 1 || shortWindow.Engagement.RepostCount != 1 || shortWindow.Engagement.ZapCount != 1 {
+		t.Fatalf("unexpected 7d grouped engagement totals: %#v", shortWindow.Engagement)
+	}
+}
+
+func TestGetGroupedNoteAnalytics_EmptyGroupBehavior(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	pgStore := NewPostgresStore(pool)
+	now := time.Now().UTC().Unix()
+
+	mustInsertEventRow(t, pool, "empty_group_note", "author_empty", now-(2*24*60*60), 1)
+	mustInsertEventHashtag(t, pool, "empty_group_note", "author_empty", now-(2*24*60*60), "nostr")
+	mustInsertNoteDiscoveryStatsRow(t, pool, "empty_group_note", "author_empty", now-(2*24*60*60), false, false, false, false, 0)
+
+	out, err := pgStore.GetGroupedNoteAnalytics(ctx, GroupedNoteAnalyticsQuery{
+		Pubkey:        "author_empty",
+		WindowDays:    30,
+		GroupKind:     "hashtag",
+		GroupKey:      "missing",
+		TopNotesLimit: 5,
+		TopicsLimit:   5,
+	})
+	if err != nil {
+		t.Fatalf("GetGroupedNoteAnalytics empty group: %v", err)
+	}
+	if out.NoteCount != 0 {
+		t.Fatalf("expected zero grouped note count, got %d", out.NoteCount)
+	}
+	if len(out.TopNotes) != 0 || len(out.TopTopics) != 0 {
+		t.Fatalf("expected empty top slices for missing group, got notes=%#v topics=%#v", out.TopNotes, out.TopTopics)
 	}
 }
 
@@ -353,5 +503,60 @@ func mustInsertRepostEventWithQuote(
 		VALUES ($1, $2, $3, $4, $5, 1)
 	`, eventID, targetEventID, reposterPubkey, quote, createdAt); err != nil {
 		t.Fatalf("insert repost event %s: %v", eventID, err)
+	}
+}
+
+func mustInsertEventRelay(t *testing.T, pool *pgxpool.Pool, eventID string, relayURL string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO event_relays (event_id, relay_url)
+		VALUES ($1, $2)
+	`, eventID, relayURL); err != nil {
+		t.Fatalf("insert event relay %s/%s: %v", eventID, relayURL, err)
+	}
+}
+
+func mustInsertNoteDiscoveryStatsRow(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	eventID string,
+	authorPubkey string,
+	createdAt int64,
+	hasImage bool,
+	hasVideo bool,
+	hasLink bool,
+	hasArticle bool,
+	attachmentCount int,
+) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO note_discovery_stats (
+			event_id, author_pubkey, created_at, has_image, has_video, has_link, has_article, attachment_count, derivation_version
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1)
+	`, eventID, authorPubkey, createdAt, hasImage, hasVideo, hasLink, hasArticle, attachmentCount); err != nil {
+		t.Fatalf("insert note_discovery_stats row for %s: %v", eventID, err)
+	}
+}
+
+func mustInsertZapReceipt(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	zapReceiptID string,
+	senderPubkey string,
+	receiverPubkey string,
+	eventID string,
+	amountSats int64,
+	createdAt int64,
+) {
+	t.Helper()
+	mustInsertEventRow(t, pool, zapReceiptID, senderPubkey, createdAt, 9735)
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO zap_receipts (
+			zap_receipt_id, created_at, event_id, sender_pubkey, receiver_pubkey, amount_sats, derivation_version
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, 1)
+	`, zapReceiptID, createdAt, eventID, senderPubkey, receiverPubkey, amountSats); err != nil {
+		t.Fatalf("insert zap receipt %s: %v", zapReceiptID, err)
 	}
 }

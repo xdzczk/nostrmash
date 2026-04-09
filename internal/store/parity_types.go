@@ -11,6 +11,20 @@ type WindowedCount struct {
 	Last7d  int64 `json:"7d"`
 }
 
+type RelayUsageSummary struct {
+	RelayURL      string `json:"relay_url"`
+	EventCount    int64  `json:"event_count"`
+	UniqueAuthors int64  `json:"unique_authors"`
+}
+
+type RelaySummaryStats struct {
+	Total         int64         `json:"total"`
+	Active24h     int64         `json:"active_24h"`
+	Active7d      int64         `json:"active_7d"`
+	EventVolume   WindowedCount `json:"event_volume"`
+	UniqueAuthors WindowedCount `json:"unique_authors"`
+}
+
 type LanguageSummary struct {
 	Language string `json:"language"`
 	Count    int64  `json:"count"`
@@ -25,6 +39,8 @@ type PublicDiscoveryNetworkStats struct {
 	EventsIngested    int64                   `json:"events_ingested"`
 	ProjectedProfiles int64                   `json:"projected_profiles"`
 	Relays            int64                   `json:"relays"`
+	RelaySummary      RelaySummaryStats       `json:"relay_summary"`
+	TopRelays         []RelayUsageSummary     `json:"top_relays,omitempty"`
 	ActiveAuthors     WindowedCount           `json:"active_authors"`
 	NoteVolume        WindowedCount           `json:"note_volume"`
 	TopHashtags       *TrendingHashtagWindows `json:"top_hashtags,omitempty"`
@@ -102,6 +118,16 @@ type TrendingProfile struct {
 	RecentZapVolumeMSats     int64   `json:"recent_zap_volume_msats"`
 	RecentActiveDays         int     `json:"recent_active_days"`
 	RecentActivityAt         *int64  `json:"recent_activity_at,omitempty"`
+}
+
+type RelatedProfile struct {
+	Pubkey               string   `json:"pubkey"`
+	TopicOverlap         int64    `json:"topic_overlap"`
+	ReplyAdjacency       int64    `json:"reply_adjacency"`
+	InteractionAdjacency int64    `json:"interaction_adjacency"`
+	QuoteRepostAdjacency int64    `json:"quote_repost_adjacency"`
+	Reasons              []string `json:"reasons"`
+	Score                int64    `json:"score"`
 }
 
 type TrustQualifiedTrendingNote struct {

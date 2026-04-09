@@ -426,7 +426,7 @@ func loadNoteMediaFlagsTx(ctx context.Context, tx pgx.Tx, noteID string) (bool, 
 		)
 		SELECT has_image, has_video, has_link, has_article, attachment_count
 		FROM signal
-	`).Scan(&hasImage, &hasVideo, &hasLink, &hasArticle, &attachmentCount); err != nil {
+	`, noteID).Scan(&hasImage, &hasVideo, &hasLink, &hasArticle, &attachmentCount); err != nil {
 		return false, false, false, false, 0, fmt.Errorf("load note media flags: %w", err)
 	}
 	return hasImage, hasVideo, hasLink, hasArticle, attachmentCount, nil

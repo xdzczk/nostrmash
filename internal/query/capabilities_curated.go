@@ -92,6 +92,10 @@ type trendingProfilesCapability interface {
 	GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error)
 }
 
+type relatedProfilesCapability interface {
+	GetRelatedProfiles(ctx context.Context, pubkey string, limit int) ([]RelatedProfile, error)
+}
+
 type trustQualifiedTrendingProfilesCapability interface {
 	GetTrustQualifiedTrendingProfiles(
 		ctx context.Context,
@@ -119,6 +123,10 @@ type creatorPaidTiersCapability interface {
 
 type pubkeyByLNAddressCapability interface {
 	GetPubkeyByLNAddress(ctx context.Context, lnAddress string) (string, error)
+}
+
+type groupedNoteAnalyticsCapability interface {
+	GetGroupedNoteAnalytics(ctx context.Context, req GroupedNoteAnalyticsRequest) (GroupedNoteAnalyticsSummary, error)
 }
 
 func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
@@ -215,6 +223,11 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	} else if legacy, ok := reader.(legacyTrendingProfilesCapability); ok {
 		caps.curated.trendingProfiles = legacyTrendingProfilesAdapter{legacy: legacy}
 	}
+	if r, ok := reader.(relatedProfilesCapability); ok {
+		caps.curated.relatedProfiles = r
+	} else if legacy, ok := reader.(legacyRelatedProfilesCapability); ok {
+		caps.curated.relatedProfiles = legacyRelatedProfilesAdapter{legacy: legacy}
+	}
 	if r, ok := reader.(trustQualifiedTrendingProfilesCapability); ok {
 		caps.curated.trustQualifiedProfiles = r
 	} else if legacy, ok := reader.(legacyTrustQualifiedTrendingProfilesCapability); ok {
@@ -235,6 +248,11 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	}
 	if r, ok := reader.(pubkeyByLNAddressCapability); ok {
 		caps.curated.pubkeyByLNAddress = r
+	}
+	if r, ok := reader.(groupedNoteAnalyticsCapability); ok {
+		caps.curated.groupedNoteAnalytics = r
+	} else if legacy, ok := reader.(legacyGroupedNoteAnalyticsCapability); ok {
+		caps.curated.groupedNoteAnalytics = legacyGroupedNoteAnalyticsAdapter{legacy: legacy}
 	}
 }
 
@@ -665,6 +683,10 @@ type legacyTrendingProfilesCapability interface {
 	GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingProfile, error)
 }
 
+type legacyRelatedProfilesCapability interface {
+	GetRelatedProfiles(ctx context.Context, pubkey string, limit int) ([]store.RelatedProfile, error)
+}
+
 type legacyTrustQualifiedTrendingProfilesCapability interface {
 	GetTrustQualifiedTrendingProfiles(
 		ctx context.Context,
@@ -682,6 +704,10 @@ type legacyTrendingProfilesAdapter struct {
 	legacy legacyTrendingProfilesCapability
 }
 
+type legacyRelatedProfilesAdapter struct {
+	legacy legacyRelatedProfilesCapability
+}
+
 func (a legacyTrendingProfilesAdapter) GetTrendingProfiles(
 	ctx context.Context,
 	window time.Duration,
@@ -695,6 +721,22 @@ func (a legacyTrendingProfilesAdapter) GetTrendingProfiles(
 	out := make([]TrendingProfile, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, trendingProfileFromStore(row))
+	}
+	return out, nil
+}
+
+func (a legacyRelatedProfilesAdapter) GetRelatedProfiles(
+	ctx context.Context,
+	pubkey string,
+	limit int,
+) ([]RelatedProfile, error) {
+	rows, err := a.legacy.GetRelatedProfiles(ctx, pubkey, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RelatedProfile, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, relatedProfileFromStore(row))
 	}
 	return out, nil
 }
@@ -734,8 +776,16 @@ type legacyRisingProfilesCapability interface {
 	GetRisingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingProfile, error)
 }
 
+type legacyGroupedNoteAnalyticsCapability interface {
+	GetGroupedNoteAnalytics(ctx context.Context, req store.GroupedNoteAnalyticsQuery) (store.GroupedNoteAnalyticsProjection, error)
+}
+
 type legacyRisingProfilesAdapter struct {
 	legacy legacyRisingProfilesCapability
+}
+
+type legacyGroupedNoteAnalyticsAdapter struct {
+	legacy legacyGroupedNoteAnalyticsCapability
 }
 
 func (a legacyRisingProfilesAdapter) GetRisingProfiles(
@@ -753,4 +803,23 @@ func (a legacyRisingProfilesAdapter) GetRisingProfiles(
 		out = append(out, trendingProfileFromStore(row))
 	}
 	return out, nil
+}
+
+func (a legacyGroupedNoteAnalyticsAdapter) GetGroupedNoteAnalytics(
+	ctx context.Context,
+	req GroupedNoteAnalyticsRequest,
+) (GroupedNoteAnalyticsSummary, error) {
+	row, err := a.legacy.GetGroupedNoteAnalytics(ctx, store.GroupedNoteAnalyticsQuery{
+		Pubkey:        req.Pubkey,
+		WindowDays:    req.WindowDays,
+		GroupKind:     req.GroupKind,
+		GroupKey:      req.GroupKey,
+		MetadataTag:   req.MetadataTag,
+		TopNotesLimit: req.TopNotesLimit,
+		TopicsLimit:   req.TopicsLimit,
+	})
+	if err != nil {
+		return GroupedNoteAnalyticsSummary{}, err
+	}
+	return groupedNoteAnalyticsFromStore(row), nil
 }

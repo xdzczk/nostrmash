@@ -38,6 +38,13 @@ func configEnvDocsShared() []EnvVarDoc {
 			Description:  "Trust policy mode for canonical ingest candidates: open (ignore trust), prefer_trusted (bias toward trusted), trusted_only (allow trusted set only). Default stays open to preserve current ingest behavior.",
 		},
 		{
+			Name:         "TRUST_SURFACE_POLICY_PRESET",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "",
+			Description:  "Optional preset for public discovery/search surfaces: open (all open), balanced (prefer_trusted for discovery/search/fallback), strict (trusted_only for discovery/search/fallback). Per-surface TRUST_*_MODE env vars still override this preset when set.",
+		},
+		{
 			Name:         "TRUST_DISCOVERY_CANDIDATE_MODE",
 			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
 			Required:     false,

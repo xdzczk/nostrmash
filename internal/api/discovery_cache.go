@@ -206,14 +206,6 @@ func (c *discoveryResponseCache) evictOldestLocked() {
 	}
 }
 
-func (h Handlers) writeDiscoveryCachedResponse(w http.ResponseWriter, key string) bool {
-	return h.writePublicCachedResponse(w, publicResponseCachePolicy{
-		family:   publicCacheFamilyDiscovery,
-		endpoint: "legacy_discovery",
-		key:      key,
-	})
-}
-
 func (h Handlers) writePublicCachedResponse(w http.ResponseWriter, policy publicResponseCachePolicy) bool {
 	if h.discoveryCache == nil {
 		return false
@@ -229,14 +221,6 @@ func (h Handlers) writePublicCachedResponse(w http.ResponseWriter, policy public
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(payload)
 	return true
-}
-
-func (h Handlers) cacheDiscoveryPayload(key string, payload map[string]any, ttl time.Duration) {
-	h.cachePublicPayload(publicResponseCachePolicy{
-		family:   publicCacheFamilyDiscovery,
-		endpoint: "legacy_discovery",
-		key:      key,
-	}, payload, ttl)
 }
 
 func (h Handlers) cachePublicPayload(policy publicResponseCachePolicy, payload map[string]any, ttlOverride ...time.Duration) {

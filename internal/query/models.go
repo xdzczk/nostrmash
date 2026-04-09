@@ -214,8 +214,15 @@ type AuthorAnalyticsWindowSummary struct {
 type AuthorAnalyticsSummary struct {
 	Pubkey                    string                         `json:"pubkey"`
 	Windows                   []AuthorAnalyticsWindowSummary `json:"windows"`
+	RelayFootprint            *AuthorRelayFootprintSummary   `json:"relay_footprint,omitempty"`
 	RecentQuoteRepostActivity []QuoteRepostActivity          `json:"recent_quote_repost_activity,omitempty"`
 	TopLanguages              []LanguageSummary              `json:"top_languages,omitempty"`
+}
+
+type AuthorRelayFootprintSummary struct {
+	RelayCount       int64               `json:"relay_count"`
+	SeenOnEventCount int64               `json:"seen_on_event_count"`
+	TopRelays        []RelayUsageSummary `json:"top_relays,omitempty"`
 }
 
 type AuthorTopicStat struct {
@@ -369,6 +376,67 @@ type AuthorPerformanceSummary struct {
 	Comparison              AuthorPerformanceComparison `json:"comparison"`
 }
 
+type GroupedNoteAnalyticsRequest struct {
+	Pubkey        string
+	WindowDays    int
+	GroupKind     string
+	GroupKey      string
+	MetadataTag   string
+	TopNotesLimit int
+	TopicsLimit   int
+}
+
+type GroupedEngagementTotals struct {
+	ReplyCount    int64 `json:"reply_count"`
+	ReactionCount int64 `json:"reaction_count"`
+	RepostCount   int64 `json:"repost_count"`
+	ZapCount      int64 `json:"zap_count"`
+	ZapMSats      int64 `json:"zap_msats"`
+}
+
+type GroupedMediaSummary struct {
+	TotalPosts           int64 `json:"total_posts"`
+	WithImageCount       int64 `json:"with_image_count"`
+	WithVideoCount       int64 `json:"with_video_count"`
+	WithLinkCount        int64 `json:"with_link_count"`
+	WithArticleCount     int64 `json:"with_article_count"`
+	TextOnlyCount        int64 `json:"text_only_count"`
+	TotalAttachmentCount int64 `json:"total_attachment_count"`
+}
+
+type GroupedTopNote struct {
+	EventID            string  `json:"event_id"`
+	CreatedAt          int64   `json:"created_at"`
+	Content            string  `json:"content"`
+	ReplyCount         int64   `json:"reply_count"`
+	ReactionCount      int64   `json:"reaction_count"`
+	RepostCount        int64   `json:"repost_count"`
+	ZapCount           int64   `json:"zap_count"`
+	ZapMSats           int64   `json:"zap_msats"`
+	WeightedEngagement float64 `json:"weighted_engagement"`
+	MediaSegment       string  `json:"media_segment"`
+	PrimaryTopic       string  `json:"primary_topic,omitempty"`
+}
+
+type GroupedTopicSummary struct {
+	Hashtag    string `json:"hashtag"`
+	UsageCount int64  `json:"usage_count"`
+	ActiveDays int    `json:"active_days"`
+}
+
+type GroupedNoteAnalyticsSummary struct {
+	Pubkey      string                  `json:"pubkey"`
+	Window      string                  `json:"window"`
+	GroupKind   string                  `json:"group_kind"`
+	GroupKey    string                  `json:"group_key"`
+	MetadataTag string                  `json:"metadata_tag,omitempty"`
+	NoteCount   int64                   `json:"note_count"`
+	Engagement  GroupedEngagementTotals `json:"engagement"`
+	Media       GroupedMediaSummary     `json:"media"`
+	TopNotes    []GroupedTopNote        `json:"top_notes"`
+	TopTopics   []GroupedTopicSummary   `json:"top_topics"`
+}
+
 type NoteEngagementCounts struct {
 	ReplyCount    int64 `json:"reply_count"`
 	ReactionCount int64 `json:"reaction_count"`
@@ -451,6 +519,20 @@ type WindowedCount struct {
 	Last7d  int64 `json:"7d"`
 }
 
+type RelayUsageSummary struct {
+	RelayURL      string `json:"relay_url"`
+	EventCount    int64  `json:"event_count"`
+	UniqueAuthors int64  `json:"unique_authors"`
+}
+
+type RelaySummaryStats struct {
+	Total         int64         `json:"total"`
+	Active24h     int64         `json:"active_24h"`
+	Active7d      int64         `json:"active_7d"`
+	EventVolume   WindowedCount `json:"event_volume"`
+	UniqueAuthors WindowedCount `json:"unique_authors"`
+}
+
 type LanguageSummary struct {
 	Language string `json:"language"`
 	Count    int64  `json:"count"`
@@ -465,6 +547,8 @@ type PublicDiscoveryNetworkStats struct {
 	EventsIngested    int64                   `json:"events_ingested"`
 	ProjectedProfiles int64                   `json:"projected_profiles"`
 	Relays            int64                   `json:"relays"`
+	RelaySummary      RelaySummaryStats       `json:"relay_summary"`
+	TopRelays         []RelayUsageSummary     `json:"top_relays,omitempty"`
 	ActiveAuthors     WindowedCount           `json:"active_authors"`
 	NoteVolume        WindowedCount           `json:"note_volume"`
 	TopHashtags       *TrendingHashtagWindows `json:"top_hashtags,omitempty"`
@@ -592,6 +676,16 @@ type TrendingProfile struct {
 	RecentActivityAt         *int64  `json:"recent_activity_at,omitempty"`
 }
 
+type RelatedProfile struct {
+	Pubkey               string   `json:"pubkey"`
+	TopicOverlap         int64    `json:"topic_overlap"`
+	ReplyAdjacency       int64    `json:"reply_adjacency"`
+	InteractionAdjacency int64    `json:"interaction_adjacency"`
+	QuoteRepostAdjacency int64    `json:"quote_repost_adjacency"`
+	Reasons              []string `json:"reasons"`
+	Score                int64    `json:"score"`
+}
+
 type TrustScore struct {
 	Pubkey         string
 	Score          float64
@@ -600,6 +694,19 @@ type TrustScore struct {
 	DerivationName string
 	TargetVersion  int
 	ComputedAt     time.Time
+}
+
+type TrustState struct {
+	Pubkey       string
+	Score        *float64
+	Qualified    bool
+	Tier         string
+	HopDistance  *int
+	HopBucket    string
+	Rank         *int64
+	ComputedAt   *time.Time
+	GenerationID *int64
+	IsSeed       bool
 }
 
 type TrustQualificationPolicy struct {

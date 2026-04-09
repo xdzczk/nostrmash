@@ -20,6 +20,7 @@ type fallbackPolicyRuntime struct {
 	maxAttempts        int
 	maxTimeBudget      time.Duration
 	allowDirectLookups bool
+	stateReader        trustStateCapability
 	qualifier          trustQualificationCapability
 }
 
@@ -30,6 +31,7 @@ func (s Service) fallbackPolicy() fallbackPolicyRuntime {
 		maxAttempts:        s.fallbackMaxAttempts,
 		maxTimeBudget:      s.fallbackMaxTimeBudget,
 		allowDirectLookups: s.fallbackDirectLookups,
+		stateReader:        s.capabilities.trust.state,
 		qualifier:          s.capabilities.trust.qualification,
 	}
 }
@@ -59,19 +61,14 @@ func (p fallbackPolicyRuntime) admitProfiles(
 	if p.mode == trustModeOpen {
 		return pubkeys, true
 	}
-	if p.qualifier == nil {
-		return p.admitWithoutTrust(pubkeys, reason)
-	}
-
-	rows, err := p.qualifier.GetTrustQualifications(ctx, pubkeys, p.trustPolicy)
-	if err != nil {
+	rows, trustedByState := p.lookupTrust(ctx, pubkeys)
+	if rows == nil {
 		return p.admitWithoutTrust(pubkeys, reason)
 	}
 	allowed := make([]string, 0, len(pubkeys))
 	allTrusted := true
 	for _, pubkey := range pubkeys {
-		row, ok := rows[pubkey]
-		trusted := ok && row.Trusted
+		trusted := trustedByState[pubkey]
 		switch p.mode {
 		case trustModeTrustedOnly:
 			if trusted {
@@ -92,6 +89,33 @@ func (p fallbackPolicyRuntime) admitProfiles(
 		}
 	}
 	return allowed, allTrusted
+}
+
+func (p fallbackPolicyRuntime) lookupTrust(ctx context.Context, pubkeys []string) (map[string]TrustQualification, map[string]bool) {
+	if p.stateReader != nil {
+		states, err := p.stateReader.GetTrustStates(ctx, pubkeys)
+		if err == nil {
+			rows := make(map[string]TrustQualification, len(states))
+			trusted := make(map[string]bool, len(states))
+			for pubkey, state := range states {
+				row := trustQualificationFromState(state, p.trustPolicy)
+				rows[pubkey] = row
+				trusted[pubkey] = row.Trusted
+			}
+			return rows, trusted
+		}
+	}
+	if p.qualifier != nil {
+		rows, err := p.qualifier.GetTrustQualifications(ctx, pubkeys, p.trustPolicy)
+		if err == nil {
+			trusted := make(map[string]bool, len(rows))
+			for pubkey, row := range rows {
+				trusted[pubkey] = row.Trusted
+			}
+			return rows, trusted
+		}
+	}
+	return nil, nil
 }
 
 func (p fallbackPolicyRuntime) admitWithoutTrust(pubkeys []string, reason fallbackLookupReason) ([]string, bool) {

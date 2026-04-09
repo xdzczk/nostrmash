@@ -25,6 +25,19 @@ type TrustQualification struct {
 	SourceRunID  *int64
 }
 
+type TrustState struct {
+	Pubkey       string
+	Score        *float64
+	Qualified    bool
+	Tier         string
+	HopDistance  *int
+	HopBucket    string
+	Rank         *int64
+	ComputedAt   *time.Time
+	GenerationID *int64
+	IsSeed       bool
+}
+
 type TrustGraphSnapshotRefreshResult struct {
 	RowsUpserted int
 	SourceRunID  *int64
@@ -116,73 +129,14 @@ func (s *PostgresStore) GetTrustQualifications(
 	if len(normalized) == 0 {
 		return map[string]TrustQualification{}, nil
 	}
-
-	maxHops := policy.MaxHops
-	if maxHops < 0 {
-		maxHops = 0
-	}
-	minimumScore := policy.MinimumScore
-	if minimumScore < 0 {
-		minimumScore = 0
-	}
-
-	rows, err := s.pool.Query(ctx, `
-		SELECT
-			requested.pubkey,
-			snapshot.min_hops,
-			snapshot.is_seed,
-			snapshot.source_run_id,
-			scores.score,
-			scores.rank
-		FROM unnest($1::text[]) AS requested(pubkey)
-		LEFT JOIN trust_graph_snapshot snapshot ON snapshot.pubkey = requested.pubkey
-		LEFT JOIN trust_scores_global scores ON scores.pubkey = requested.pubkey
-	`, normalized)
+	states, err := s.GetTrustStates(ctx, normalized)
 	if err != nil {
-		return nil, fmt.Errorf("get trust qualifications: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
 	out := make(map[string]TrustQualification, len(normalized))
-	for rows.Next() {
-		var (
-			pubkey      string
-			minHops     *int
-			isSeed      *bool
-			sourceRunID *int64
-			score       *float64
-			rank        *int64
-		)
-		if err := rows.Scan(&pubkey, &minHops, &isSeed, &sourceRunID, &score, &rank); err != nil {
-			return nil, fmt.Errorf("scan trust qualification row: %w", err)
-		}
-
-		qualified := TrustQualification{
-			Pubkey:       pubkey,
-			DistanceHops: minHops,
-			Score:        score,
-			Rank:         rank,
-			SourceRunID:  sourceRunID,
-		}
-		if isSeed != nil {
-			qualified.IsSeed = *isSeed
-		}
-		if minHops != nil {
-			withinHops := maxHops == 0 || *minHops <= maxHops
-			meetsScore := minimumScore == 0 || (score != nil && *score >= minimumScore)
-			qualified.Trusted = withinHops && meetsScore
-		}
-		out[pubkey] = qualified
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read trust qualification rows: %w", err)
-	}
-
 	for _, pubkey := range normalized {
-		if _, ok := out[pubkey]; ok {
-			continue
-		}
-		out[pubkey] = TrustQualification{Pubkey: pubkey}
+		state := states[pubkey]
+		out[pubkey] = trustQualificationFromState(state, policy)
 	}
 	return out, nil
 }
@@ -218,6 +172,192 @@ func (s *PostgresStore) IsTrustedAuthor(ctx context.Context, pubkey string, poli
 		return false, nil
 	}
 	return qualification.Trusted, nil
+}
+
+func (s *PostgresStore) GetTrustState(ctx context.Context, pubkey string) (TrustState, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return TrustState{}, fmt.Errorf("pubkey is required")
+	}
+	states, err := s.GetTrustStates(ctx, []string{pubkey})
+	if err != nil {
+		return TrustState{}, err
+	}
+	state, ok := states[pubkey]
+	if !ok || !trustStateKnown(state) {
+		return TrustState{}, ErrNotFound
+	}
+	return state, nil
+}
+
+func (s *PostgresStore) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]TrustState, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	normalized := normalizePubkeys(pubkeys)
+	if len(normalized) == 0 {
+		return map[string]TrustState{}, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			requested.pubkey,
+			snapshot.min_hops,
+			snapshot.is_seed,
+			COALESCE(snapshot.source_run_id, scores.run_id),
+			scores.score,
+			scores.rank,
+			scores.computed_at,
+			snapshot.refreshed_at
+		FROM unnest($1::text[]) AS requested(pubkey)
+		LEFT JOIN trust_graph_snapshot snapshot ON snapshot.pubkey = requested.pubkey
+		LEFT JOIN trust_scores_global scores ON scores.pubkey = requested.pubkey
+	`, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("get trust states: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]TrustState, len(normalized))
+	for rows.Next() {
+		var (
+			pubkey          string
+			hopDistance     *int
+			isSeed          *bool
+			generationID    *int64
+			score           *float64
+			rank            *int64
+			scoreComputedAt *time.Time
+			refreshedAt     *time.Time
+		)
+		if err := rows.Scan(
+			&pubkey,
+			&hopDistance,
+			&isSeed,
+			&generationID,
+			&score,
+			&rank,
+			&scoreComputedAt,
+			&refreshedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan trust state row: %w", err)
+		}
+		state := TrustState{
+			Pubkey:       pubkey,
+			Score:        score,
+			HopDistance:  hopDistance,
+			HopBucket:    trustHopBucket(hopDistance),
+			Rank:         rank,
+			GenerationID: generationID,
+		}
+		if isSeed != nil {
+			state.IsSeed = *isSeed
+		}
+		state.Qualified = trustStateQualified(state)
+		state.Tier = trustTierFromState(state)
+		if scoreComputedAt != nil {
+			ts := scoreComputedAt.UTC()
+			state.ComputedAt = &ts
+		} else if refreshedAt != nil {
+			ts := refreshedAt.UTC()
+			state.ComputedAt = &ts
+		}
+		out[pubkey] = state
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read trust state rows: %w", err)
+	}
+	for _, pubkey := range normalized {
+		if _, ok := out[pubkey]; ok {
+			continue
+		}
+		out[pubkey] = TrustState{
+			Pubkey:    pubkey,
+			Tier:      "unknown",
+			HopBucket: "unknown",
+		}
+	}
+	return out, nil
+}
+
+func trustQualificationFromState(state TrustState, policy TrustQualificationPolicy) TrustQualification {
+	policy = normalizeTrustPolicy(policy)
+	return TrustQualification{
+		Pubkey:       state.Pubkey,
+		Trusted:      trustStateTrusted(state, policy),
+		IsSeed:       state.IsSeed,
+		DistanceHops: state.HopDistance,
+		Score:        state.Score,
+		Rank:         state.Rank,
+		SourceRunID:  state.GenerationID,
+	}
+}
+
+func normalizeTrustPolicy(policy TrustQualificationPolicy) TrustQualificationPolicy {
+	if policy.MaxHops < 0 {
+		policy.MaxHops = 0
+	}
+	if policy.MinimumScore < 0 {
+		policy.MinimumScore = 0
+	}
+	return policy
+}
+
+func trustStateTrusted(state TrustState, policy TrustQualificationPolicy) bool {
+	if !trustStateQualified(state) {
+		return false
+	}
+	if state.HopDistance != nil && policy.MaxHops > 0 && *state.HopDistance > policy.MaxHops {
+		return false
+	}
+	if policy.MinimumScore > 0 {
+		if state.Score == nil || *state.Score < policy.MinimumScore {
+			return false
+		}
+	}
+	return true
+}
+
+func trustStateQualified(state TrustState) bool {
+	return state.IsSeed || state.HopDistance != nil || state.Score != nil
+}
+
+func trustStateKnown(state TrustState) bool {
+	return trustStateQualified(state) || state.GenerationID != nil || state.ComputedAt != nil || state.Rank != nil
+}
+
+func trustHopBucket(hops *int) string {
+	if hops == nil {
+		return "unknown"
+	}
+	switch {
+	case *hops <= 0:
+		return "0"
+	case *hops == 1:
+		return "1"
+	case *hops == 2:
+		return "2"
+	case *hops == 3:
+		return "3"
+	default:
+		return "4_plus"
+	}
+}
+
+func trustTierFromState(state TrustState) string {
+	if state.IsSeed {
+		return "seed"
+	}
+	if state.HopDistance == nil {
+		return "unknown"
+	}
+	switch {
+	case *state.HopDistance <= 1:
+		return "core"
+	case *state.HopDistance <= 3:
+		return "near"
+	default:
+		return "outer"
+	}
 }
 
 func (s *PostgresStore) GetTrustSnapshotRefreshedAt(ctx context.Context) (*time.Time, error) {

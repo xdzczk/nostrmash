@@ -76,6 +76,10 @@ type legacyAuthorTopLanguagesReader interface {
 	GetAuthorTopLanguages(ctx context.Context, pubkey string, windowDays int, limit int) ([]store.LanguageSummary, error)
 }
 
+type legacyAuthorRelayFootprintReader interface {
+	GetAuthorRelayFootprint(ctx context.Context, pubkey string, topRelayLimit int) (store.AuthorRelayFootprintProjection, error)
+}
+
 type legacyAuthorMediaMixStatsReader interface {
 	GetAuthorMediaMixStats(ctx context.Context, pubkey string, windowDays int) (store.AuthorMediaMixStatsProjection, error)
 }
@@ -185,6 +189,13 @@ func (a legacyReaderAdapter) GetAuthorAnalyticsSummary(ctx context.Context, pubk
 	recent, err := a.GetAuthorQuoteRepostRecentActivity(ctx, pubkey, 8)
 	if err == nil {
 		out.RecentQuoteRepostActivity = recent
+	}
+	if relayReader, ok := a.legacy.(legacyAuthorRelayFootprintReader); ok {
+		relayFootprint, relayErr := relayReader.GetAuthorRelayFootprint(ctx, pubkey, 8)
+		if relayErr == nil {
+			mapped := authorRelayFootprintFromStore(relayFootprint)
+			out.RelayFootprint = &mapped
+		}
 	}
 	return out, nil
 }

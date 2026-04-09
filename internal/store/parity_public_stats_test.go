@@ -52,6 +52,14 @@ func TestGetPublicDiscoveryNetworkStats_ComputesWindowedCounts(t *testing.T) {
 			t.Fatalf("insert event_hashtags %s: %v", note.ID, err)
 		}
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO event_relays (event_id, relay_url)
+		VALUES
+			('note_stats_1', 'wss://relay.two'),
+			('note_stats_2', 'wss://relay.two')
+	`); err != nil {
+		t.Fatalf("insert secondary relay provenance: %v", err)
+	}
 
 	profileIDs := []string{"profile_meta_1", "profile_meta_2", "profile_meta_3"}
 	for i, eventID := range profileIDs {
@@ -89,6 +97,15 @@ func TestGetPublicDiscoveryNetworkStats_ComputesWindowedCounts(t *testing.T) {
 	if stats.TopHashtags == nil {
 		t.Fatalf("expected top hashtags payload")
 	}
+	if stats.Relays != 2 || stats.RelaySummary.Total != 2 {
+		t.Fatalf("unexpected relay totals: relays=%d relay_summary_total=%d", stats.Relays, stats.RelaySummary.Total)
+	}
+	if stats.RelaySummary.EventVolume.Last7d == 0 || stats.RelaySummary.UniqueAuthors.Last7d == 0 {
+		t.Fatalf("expected non-zero relay summary windows: %#v", stats.RelaySummary)
+	}
+	if len(stats.TopRelays) == 0 || stats.TopRelays[0].RelayURL != "wss://relay.one" {
+		t.Fatalf("unexpected top relays payload: %#v", stats.TopRelays)
+	}
 	if len(stats.TopHashtags.Last24h) == 0 || stats.TopHashtags.Last24h[0].Hashtag != "nostr" {
 		t.Fatalf("unexpected 24h top hashtags: %#v", stats.TopHashtags.Last24h)
 	}
@@ -124,6 +141,9 @@ func TestGetPublicDiscoveryNetworkStats_HandlesMissingHashtagsProjection(t *test
 	}
 	if stats.EventsIngested != 0 || stats.ProjectedProfiles != 0 || stats.NoteVolume.Last24h != 0 {
 		t.Fatalf("unexpected empty stats payload: %#v", stats)
+	}
+	if stats.RelaySummary.Total != 0 || len(stats.TopRelays) != 0 {
+		t.Fatalf("unexpected relay summary for empty payload: summary=%#v top=%#v", stats.RelaySummary, stats.TopRelays)
 	}
 }
 

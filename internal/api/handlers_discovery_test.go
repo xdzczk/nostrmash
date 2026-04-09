@@ -80,6 +80,25 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 			}
 			return []store.TrendingProfile{{Pubkey: "pk_c", Score: 5.75}}, nil
 		},
+		getRelatedProfilesFn: func(_ context.Context, pubkey string, limit int) ([]store.RelatedProfile, error) {
+			if pubkey != "pk_a" {
+				t.Fatalf("unexpected related profiles pubkey: %s", pubkey)
+			}
+			if limit != 2 {
+				t.Fatalf("unexpected related profiles limit: %d", limit)
+			}
+			return []store.RelatedProfile{
+				{
+					Pubkey:               "pk_related_1",
+					TopicOverlap:         3,
+					ReplyAdjacency:       2,
+					InteractionAdjacency: 1,
+					QuoteRepostAdjacency: 1,
+					Reasons:              []string{"topic_overlap", "reply_adjacency"},
+					Score:                92,
+				},
+			}, nil
+		},
 	}, 200)
 
 	mux := http.NewServeMux()
@@ -88,6 +107,7 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 	mux.HandleFunc("GET /api/v1/discovery/hashtags/trending", h.GetTrendingHashtags)
 	mux.HandleFunc("GET /api/v1/discovery/profiles/trending", h.GetTrendingProfiles)
 	mux.HandleFunc("GET /api/v1/discovery/profiles/rising", h.GetRisingProfiles)
+	mux.HandleFunc("GET /api/v1/discovery/profiles/{pubkey}/related", h.GetRelatedProfiles)
 
 	paths := []string{
 		"/api/v1/discovery/notes/trending?window=24h&limit=2",
@@ -95,6 +115,7 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 		"/api/v1/discovery/hashtags/trending?window=7d&limit=3&offset=1",
 		"/api/v1/discovery/profiles/trending?window=24h&limit=4&offset=2",
 		"/api/v1/discovery/profiles/rising?window=7d&limit=2&offset=1",
+		"/api/v1/discovery/profiles/pk_a/related?limit=2",
 	}
 	for _, path := range paths {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -254,8 +275,19 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 				EventsIngested:    11,
 				ProjectedProfiles: 7,
 				Relays:            3,
-				ActiveAuthors:     store.WindowedCount{Last24h: 5, Last7d: 9},
-				NoteVolume:        store.WindowedCount{Last24h: 12, Last7d: 44},
+				RelaySummary: store.RelaySummaryStats{
+					Total:         3,
+					Active24h:     2,
+					Active7d:      3,
+					EventVolume:   store.WindowedCount{Last24h: 7, Last7d: 18},
+					UniqueAuthors: store.WindowedCount{Last24h: 5, Last7d: 9},
+				},
+				TopRelays: []store.RelayUsageSummary{
+					{RelayURL: "wss://relay.one", EventCount: 11, UniqueAuthors: 7},
+					{RelayURL: "wss://relay.two", EventCount: 6, UniqueAuthors: 4},
+				},
+				ActiveAuthors: store.WindowedCount{Last24h: 5, Last7d: 9},
+				NoteVolume:    store.WindowedCount{Last24h: 12, Last7d: 44},
 				TopHashtags: &store.TrendingHashtagWindows{
 					Last24h: []store.TrendingHashtag{{Hashtag: "nostr", EventCount: 6, UniqueAuthors: 4}},
 					Last7d:  []store.TrendingHashtag{{Hashtag: "nostr", EventCount: 10, UniqueAuthors: 8}},
@@ -288,7 +320,17 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 				NoteVolume    store.WindowedCount `json:"note_volume"`
 			} `json:"activity"`
 			Relays struct {
-				Total int64 `json:"total"`
+				Total       int64 `json:"total"`
+				Active24h   int64 `json:"active_24h"`
+				Active7d    int64 `json:"active_7d"`
+				EventVolume struct {
+					Last24h int64 `json:"24h"`
+					Last7d  int64 `json:"7d"`
+				} `json:"event_volume"`
+				Top []struct {
+					RelayURL   string `json:"relay_url"`
+					EventCount int64  `json:"event_count"`
+				} `json:"top"`
 			} `json:"relays"`
 			TopLanguages map[string][]store.LanguageSummary `json:"top_languages"`
 		} `json:"network"`
@@ -304,6 +346,12 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 	}
 	if networkResp.Network.Relays.Total != 3 {
 		t.Fatalf("unexpected relay total payload: %#v", networkResp.Network.Relays)
+	}
+	if networkResp.Network.Relays.Active24h != 2 || networkResp.Network.Relays.EventVolume.Last7d != 18 {
+		t.Fatalf("unexpected relay summary payload: %#v", networkResp.Network.Relays)
+	}
+	if len(networkResp.Network.Relays.Top) != 2 || networkResp.Network.Relays.Top[0].RelayURL != "wss://relay.one" {
+		t.Fatalf("unexpected relay top payload: %#v", networkResp.Network.Relays.Top)
 	}
 	if len(networkResp.Network.TopLanguages["24h"]) == 0 || networkResp.Network.TopLanguages["24h"][0].Language != "en" {
 		t.Fatalf("unexpected top_languages payload: %#v", networkResp.Network.TopLanguages)
@@ -322,6 +370,21 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 	if relayRec.Code != http.StatusOK {
 		t.Fatalf("unexpected status for relays stats: got %d want %d", relayRec.Code, http.StatusOK)
 	}
+	var relayResp struct {
+		Relays struct {
+			Total    int64 `json:"total"`
+			Active7d int64 `json:"active_7d"`
+			Top      []struct {
+				RelayURL string `json:"relay_url"`
+			} `json:"top"`
+		} `json:"relays"`
+	}
+	if err := json.Unmarshal(relayRec.Body.Bytes(), &relayResp); err != nil {
+		t.Fatalf("decode relay response: %v", err)
+	}
+	if relayResp.Relays.Total != 3 || relayResp.Relays.Active7d != 3 || len(relayResp.Relays.Top) != 2 {
+		t.Fatalf("unexpected relay stats payload: %#v", relayResp.Relays)
+	}
 }
 
 func TestDiscoveryRoutes_BadLimitAndUnsupportedCapability(t *testing.T) {
@@ -338,6 +401,9 @@ func TestDiscoveryRoutes_BadLimitAndUnsupportedCapability(t *testing.T) {
 		getPublicNetworkStatsFn: func(_ context.Context, _ int) (store.PublicDiscoveryNetworkStats, error) {
 			return store.PublicDiscoveryNetworkStats{}, errors.Join(query.ErrUnsupportedCapability, errors.New("query: network stats unsupported"))
 		},
+		getRelatedProfilesFn: func(_ context.Context, _ string, _ int) ([]store.RelatedProfile, error) {
+			return nil, errors.Join(query.ErrUnsupportedCapability, errors.New("query: related profiles unsupported"))
+		},
 	}, 200)
 
 	mux := http.NewServeMux()
@@ -345,6 +411,7 @@ func TestDiscoveryRoutes_BadLimitAndUnsupportedCapability(t *testing.T) {
 	mux.HandleFunc("GET /api/v1/discovery/conversations/hot", h.GetHotConversations)
 	mux.HandleFunc("GET /api/v1/discovery/hashtags/trending", h.GetTrendingHashtags)
 	mux.HandleFunc("GET /api/v1/discovery/profiles/trending", h.GetTrendingProfiles)
+	mux.HandleFunc("GET /api/v1/discovery/profiles/{pubkey}/related", h.GetRelatedProfiles)
 	mux.HandleFunc("GET /api/v1/discovery/stats/network", h.GetNetworkStats)
 
 	badReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending?limit=1000", nil)
@@ -396,6 +463,13 @@ func TestDiscoveryRoutes_BadLimitAndUnsupportedCapability(t *testing.T) {
 		t.Fatalf("unexpected status for unsupported profiles: got %d want %d", unsupportedProfilesRec.Code, http.StatusNotImplemented)
 	}
 
+	unsupportedRelatedReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/profiles/pk_1/related?limit=2", nil)
+	unsupportedRelatedRec := httptest.NewRecorder()
+	mux.ServeHTTP(unsupportedRelatedRec, unsupportedRelatedReq)
+	if unsupportedRelatedRec.Code != http.StatusNotImplemented {
+		t.Fatalf("unexpected status for unsupported related profiles: got %d want %d", unsupportedRelatedRec.Code, http.StatusNotImplemented)
+	}
+
 	unsupportedConversationsReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/conversations/hot?window=24h&limit=2", nil)
 	unsupportedConversationsRec := httptest.NewRecorder()
 	mux.ServeHTTP(unsupportedConversationsRec, unsupportedConversationsReq)
@@ -408,6 +482,95 @@ func TestDiscoveryRoutes_BadLimitAndUnsupportedCapability(t *testing.T) {
 	mux.ServeHTTP(unsupportedStatsRec, unsupportedStatsReq)
 	if unsupportedStatsRec.Code != http.StatusNotImplemented {
 		t.Fatalf("unexpected status for unsupported stats: got %d want %d", unsupportedStatsRec.Code, http.StatusNotImplemented)
+	}
+}
+
+func TestDiscoveryRelatedProfilesRoute_RankingBoundedAndSparse(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		getRelatedProfilesFn: func(_ context.Context, pubkey string, limit int) ([]store.RelatedProfile, error) {
+			switch pubkey {
+			case "target_pk":
+				if limit != 2 {
+					t.Fatalf("unexpected limit: got %d want %d", limit, 2)
+				}
+				return []store.RelatedProfile{
+					{
+						Pubkey:               "rank_1",
+						TopicOverlap:         4,
+						ReplyAdjacency:       2,
+						InteractionAdjacency: 1,
+						QuoteRepostAdjacency: 1,
+						Reasons:              []string{"topic_overlap", "reply_adjacency", "quote_repost_adjacency"},
+						Score:                101,
+					},
+					{
+						Pubkey:               "rank_2",
+						TopicOverlap:         2,
+						ReplyAdjacency:       0,
+						InteractionAdjacency: 1,
+						QuoteRepostAdjacency: 0,
+						Reasons:              []string{"topic_overlap", "interaction_adjacency"},
+						Score:                44,
+					},
+				}, nil
+			case "sparse_pk":
+				return []store.RelatedProfile{}, nil
+			case "missing_pk":
+				return nil, store.ErrNotFound
+			default:
+				t.Fatalf("unexpected pubkey %q", pubkey)
+				return nil, nil
+			}
+		},
+	}, 200)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/profiles/{pubkey}/related", h.GetRelatedProfiles)
+
+	okReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/profiles/target_pk/related?limit=2", nil)
+	okRec := httptest.NewRecorder()
+	mux.ServeHTTP(okRec, okReq)
+	if okRec.Code != http.StatusOK {
+		t.Fatalf("unexpected status for related profiles: got %d want %d", okRec.Code, http.StatusOK)
+	}
+	var okBody map[string]any
+	if err := json.Unmarshal(okRec.Body.Bytes(), &okBody); err != nil {
+		t.Fatalf("decode related response: %v", err)
+	}
+	if okBody["pubkey"] != "target_pk" {
+		t.Fatalf("unexpected pubkey payload: %#v", okBody["pubkey"])
+	}
+	related, ok := okBody["related"].([]any)
+	if !ok {
+		t.Fatalf("missing related payload: %#v", okBody)
+	}
+	if len(related) != 2 {
+		t.Fatalf("expected related payload length 2, got %#v", related)
+	}
+	first, ok := related[0].(map[string]any)
+	if !ok || first["pubkey"] != "rank_1" {
+		t.Fatalf("expected rank_1 first, got %#v", related[0])
+	}
+
+	sparseReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/profiles/sparse_pk/related", nil)
+	sparseRec := httptest.NewRecorder()
+	mux.ServeHTTP(sparseRec, sparseReq)
+	if sparseRec.Code != http.StatusOK {
+		t.Fatalf("unexpected status for sparse profile: got %d want %d", sparseRec.Code, http.StatusOK)
+	}
+	var sparseBody map[string]any
+	if err := json.Unmarshal(sparseRec.Body.Bytes(), &sparseBody); err != nil {
+		t.Fatalf("decode sparse response: %v", err)
+	}
+	sparseRelated, ok := sparseBody["related"].([]any)
+	if !ok || len(sparseRelated) != 0 {
+		t.Fatalf("expected empty related payload for sparse profile: %#v", sparseBody)
+	}
+
+	missingReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/profiles/missing_pk/related", nil)
+	missingRec := httptest.NewRecorder()
+	mux.ServeHTTP(missingRec, missingReq)
+	if missingRec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status for missing profile: got %d want %d", missingRec.Code, http.StatusNotFound)
 	}
 }
 

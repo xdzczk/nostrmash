@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -22,6 +23,15 @@ var authorAnalyticsAgeByLabel = map[string]int{
 	"180d": 180,
 	"365d": 365,
 }
+
+var groupedAnalyticsAllowedMetadataTags = map[string]struct{}{
+	"d":      {},
+	"g":      {},
+	"group":  {},
+	"series": {},
+}
+
+var groupedAnalyticsKeyPattern = regexp.MustCompile(`^[a-z0-9._:/-]{1,128}$`)
 
 func (s Service) GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) (AuthorAnalyticsSummary, error) {
 	pubkey = strings.TrimSpace(pubkey)
@@ -234,6 +244,62 @@ func (s Service) GetAuthorPerformanceSummary(
 	return row, windowDays, nil
 }
 
+func (s Service) GetGroupedNoteAnalytics(
+	ctx context.Context,
+	pubkey string,
+	window string,
+	groupBy string,
+	groupKey string,
+	metadataTag string,
+	topNotesLimit int,
+	topicsLimit int,
+) (GroupedNoteAnalyticsSummary, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return GroupedNoteAnalyticsSummary{}, fmt.Errorf("pubkey is required")
+	}
+	windowDays, err := normalizeAuthorAnalyticsWindow(window)
+	if err != nil {
+		return GroupedNoteAnalyticsSummary{}, err
+	}
+	groupKind, err := normalizeGroupedAnalyticsKind(groupBy)
+	if err != nil {
+		return GroupedNoteAnalyticsSummary{}, err
+	}
+	normalizedGroupKey, err := normalizeGroupedAnalyticsKey(groupKey, groupKind)
+	if err != nil {
+		return GroupedNoteAnalyticsSummary{}, err
+	}
+	normalizedMetadataTag, err := normalizeGroupedAnalyticsMetadataTag(groupKind, metadataTag)
+	if err != nil {
+		return GroupedNoteAnalyticsSummary{}, err
+	}
+	if topNotesLimit <= 0 {
+		topNotesLimit = 5
+	}
+	if topNotesLimit > 20 {
+		topNotesLimit = 20
+	}
+	if topicsLimit <= 0 {
+		topicsLimit = 5
+	}
+	if topicsLimit > 20 {
+		topicsLimit = 20
+	}
+	if r := s.capabilities.curated.groupedNoteAnalytics; r != nil {
+		return r.GetGroupedNoteAnalytics(ctx, GroupedNoteAnalyticsRequest{
+			Pubkey:        pubkey,
+			WindowDays:    windowDays,
+			GroupKind:     groupKind,
+			GroupKey:      normalizedGroupKey,
+			MetadataTag:   normalizedMetadataTag,
+			TopNotesLimit: topNotesLimit,
+			TopicsLimit:   topicsLimit,
+		})
+	}
+	return GroupedNoteAnalyticsSummary{}, unsupportedCapabilityError("grouped note analytics")
+}
+
 func normalizeAuthorAnalyticsWindow(window string) (int, error) {
 	normalized := strings.ToLower(strings.TrimSpace(window))
 	if normalized == "" {
@@ -263,4 +329,45 @@ func normalizeAuthorAnalyticsAge(minAge string, windowDays int) (int, string, er
 		return 0, "", fmt.Errorf("min_age must be one of: 3d, 7d, 14d, 30d, 60d, 90d, 180d, 365d")
 	}
 	return days, normalized, nil
+}
+
+func normalizeGroupedAnalyticsKind(groupBy string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(groupBy))
+	if normalized == "" {
+		normalized = "hashtag"
+	}
+	switch normalized {
+	case "hashtag", "metadata":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("group_by must be one of: hashtag, metadata")
+	}
+}
+
+func normalizeGroupedAnalyticsKey(groupKey string, groupKind string) (string, error) {
+	key := strings.ToLower(strings.TrimSpace(groupKey))
+	if groupKind == "hashtag" {
+		key = strings.TrimPrefix(key, "#")
+	}
+	if key == "" {
+		return "", fmt.Errorf("group_key is required")
+	}
+	if !groupedAnalyticsKeyPattern.MatchString(key) {
+		return "", fmt.Errorf("group_key must be 1-128 chars of [a-z0-9._:/-]")
+	}
+	return key, nil
+}
+
+func normalizeGroupedAnalyticsMetadataTag(groupKind string, metadataTag string) (string, error) {
+	if groupKind != "metadata" {
+		return "", nil
+	}
+	tag := strings.ToLower(strings.TrimSpace(metadataTag))
+	if tag == "" {
+		return "", fmt.Errorf("metadata_tag is required when group_by=metadata")
+	}
+	if _, ok := groupedAnalyticsAllowedMetadataTags[tag]; !ok {
+		return "", fmt.Errorf("metadata_tag must be one of: d, g, group, series")
+	}
+	return tag, nil
 }

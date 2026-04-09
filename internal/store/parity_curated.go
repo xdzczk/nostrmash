@@ -46,7 +46,17 @@ func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hash
 	}
 	out.EventsIngested = networkStats.Events
 	out.ProjectedProfiles = networkStats.Profiles
-	out.Relays = networkStats.Relays
+	relaySummary, err := s.getRelaySummaryStats(ctx)
+	if err != nil {
+		return out, err
+	}
+	out.RelaySummary = relaySummary
+	out.Relays = relaySummary.Total
+	topRelays, err := s.getTopRelaysByActivity(ctx, 10)
+	if err != nil {
+		return out, err
+	}
+	out.TopRelays = topRelays
 
 	now := time.Now().UTC()
 	last24hNotes, last24hAuthors, err := s.getPublicWindowStats(ctx, now.Add(-24*time.Hour).Unix())
@@ -125,6 +135,69 @@ func (s *PostgresStore) getTopLanguages(ctx context.Context, minCreatedAt int64,
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read top language rows: %w", err)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) getTopRelaysByActivity(ctx context.Context, limit int) ([]RelayUsageSummary, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			er.relay_url,
+			COUNT(*)::bigint AS event_count,
+			COUNT(DISTINCT e.pubkey)::bigint AS unique_authors
+		FROM event_relays er
+		INNER JOIN events e ON e.id = er.event_id
+		GROUP BY er.relay_url
+		ORDER BY event_count DESC, unique_authors DESC, er.relay_url ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get top relays by activity: %w", err)
+	}
+	defer rows.Close()
+	out := make([]RelayUsageSummary, 0, limit)
+	for rows.Next() {
+		var row RelayUsageSummary
+		if err := rows.Scan(&row.RelayURL, &row.EventCount, &row.UniqueAuthors); err != nil {
+			return nil, fmt.Errorf("scan top relay row: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read top relay rows: %w", err)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, error) {
+	out := RelaySummaryStats{}
+	if err := s.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(COUNT(DISTINCT er.relay_url), 0)::bigint AS total,
+			COALESCE(COUNT(DISTINCT er.relay_url) FILTER (WHERE er.seen_at >= now() - INTERVAL '24 hours'), 0)::bigint AS active_24h,
+			COALESCE(COUNT(DISTINCT er.relay_url) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS active_7d,
+			COALESCE(COUNT(*) FILTER (WHERE er.seen_at >= now() - INTERVAL '24 hours'), 0)::bigint AS events_24h,
+			COALESCE(COUNT(*) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS events_7d,
+			COALESCE(COUNT(DISTINCT e.pubkey) FILTER (WHERE er.seen_at >= now() - INTERVAL '24 hours'), 0)::bigint AS authors_24h,
+			COALESCE(COUNT(DISTINCT e.pubkey) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS authors_7d
+		FROM event_relays er
+		INNER JOIN events e ON e.id = er.event_id
+	`).Scan(
+		&out.Total,
+		&out.Active24h,
+		&out.Active7d,
+		&out.EventVolume.Last24h,
+		&out.EventVolume.Last7d,
+		&out.UniqueAuthors.Last24h,
+		&out.UniqueAuthors.Last7d,
+	); err != nil {
+		return out, fmt.Errorf("get relay summary stats: %w", err)
 	}
 	return out, nil
 }

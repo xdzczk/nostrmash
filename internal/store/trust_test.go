@@ -246,6 +246,86 @@ func TestTrustQualification_RespectsHopLimitAndBatchLookups(t *testing.T) {
 	}
 }
 
+func TestTrustState_BatchLookupUnknownAndFreshnessGeneration(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := NewPostgresStore(pool)
+
+	var runID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO trust_runs (
+			derivation_name, target_version, status, attempts,
+			input_follower_edges_count, score_rows_published
+		)
+		VALUES ($1, $2, 'succeeded', 1, 3, 2)
+		RETURNING id
+	`, derivation.DerivationTrustScoresGlobal, derivation.TrustScoresGlobalVersion).Scan(&runID); err != nil {
+		t.Fatalf("insert trust run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO trust_seeds (pubkey, is_active) VALUES ('seed', true)`); err != nil {
+		t.Fatalf("insert trust seed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json)
+		VALUES ('edge_seed_alice', 'seed', 100, 3, 'sig_seed_alice', '', '{}'::jsonb)
+	`); err != nil {
+		t.Fatalf("insert edge event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO follower_edges (source_event_id, follower_pubkey, followed_pubkey, contact_list_created_at, derivation_version)
+		VALUES ('edge_seed_alice', 'seed', 'alice', 100, 1)
+	`); err != nil {
+		t.Fatalf("insert follower edge: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trust_scores_global (pubkey, score, rank, run_id, derivation_name, target_version)
+		VALUES ('alice', 0.91, 1, $1, $2, $3)
+	`, runID, derivation.DerivationTrustScoresGlobal, derivation.TrustScoresGlobalVersion); err != nil {
+		t.Fatalf("insert trust score: %v", err)
+	}
+	if _, err := s.RefreshTrustGraphSnapshot(ctx, 3); err != nil {
+		t.Fatalf("RefreshTrustGraphSnapshot: %v", err)
+	}
+
+	states, err := s.GetTrustStates(ctx, []string{"alice", "unknown", "alice"})
+	if err != nil {
+		t.Fatalf("GetTrustStates: %v", err)
+	}
+	if len(states) != 2 {
+		t.Fatalf("expected deduplicated trust state map of size 2, got %d", len(states))
+	}
+	alice := states["alice"]
+	if !alice.Qualified || alice.HopDistance == nil || *alice.HopDistance != 1 {
+		t.Fatalf("unexpected trust state qualification/hops for alice: %#v", alice)
+	}
+	if alice.Tier != "core" || alice.HopBucket != "1" {
+		t.Fatalf("unexpected tier/bucket for alice: %#v", alice)
+	}
+	if alice.ComputedAt == nil {
+		t.Fatalf("expected computed_at to be populated for alice")
+	}
+	if alice.GenerationID == nil || *alice.GenerationID != runID {
+		t.Fatalf("expected generation id=%d, got %#v", runID, alice.GenerationID)
+	}
+	if states["unknown"].Qualified || states["unknown"].Tier != "unknown" || states["unknown"].HopBucket != "unknown" {
+		t.Fatalf("unexpected unknown trust state: %#v", states["unknown"])
+	}
+
+	single, err := s.GetTrustState(ctx, "alice")
+	if err != nil {
+		t.Fatalf("GetTrustState alice: %v", err)
+	}
+	if single.Pubkey != "alice" || single.GenerationID == nil {
+		t.Fatalf("unexpected single trust state: %#v", single)
+	}
+	if _, err := s.GetTrustState(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for unknown trust state, got %v", err)
+	}
+}
+
 func TestTrustQualifiedDiscoveryProjection_RefreshAndQueryModes(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))

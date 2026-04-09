@@ -193,6 +193,14 @@ func TestProjectNoteDiscoveryStats_LanguageClassificationFixtures(t *testing.T) 
 		{id: "lang_note_en", content: "This is a simple note about nostr and how the network grows.", expected: "en"},
 		{id: "lang_note_es", content: "Hola amigos, este es un mensaje para la comunidad de nostr.", expected: "es"},
 		{id: "lang_note_ja", content: "こんにちは、これはノストルの言語判定テストです。", expected: "ja"},
+		{id: "lang_note_ko", content: "안녕하세요, 이것은 노스트르 언어 감지 테스트입니다.", expected: "ko"},
+		{id: "lang_note_ar", content: "مرحبا، هذا اختبار لاكتشاف اللغة في نوستر.", expected: "ar"},
+		{id: "lang_note_hi", content: "नमस्ते, यह नोस्ट्र में भाषा पहचान का परीक्षण है।", expected: "hi"},
+		{id: "lang_note_th", content: "สวัสดี นี่คือการทดสอบการตรวจจับภาษาในโนสตร", expected: "th"},
+		{id: "lang_note_bn", content: "হ্যালো, এটি নস্টরে ভাষা শনাক্তকরণের একটি পরীক্ষা।", expected: "bn"},
+		{id: "lang_note_id", content: "Halo, ini adalah catatan untuk pengujian bahasa dengan komunitas nostr.", expected: "id"},
+		{id: "lang_note_tr", content: "Merhaba bu bir not ve bu test icin yazildi, nasil gidiyor.", expected: "tr"},
+		{id: "lang_note_it", content: "Ciao, questo e un messaggio con parole italiane per il test lingua.", expected: "it"},
 	}
 	for idx, fixture := range fixtures {
 		ts := now.Add(-time.Duration(idx+1) * time.Minute)

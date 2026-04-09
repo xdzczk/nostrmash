@@ -77,6 +77,18 @@ func authorAnalyticsSummaryFromStore(pubkey string, rows []store.AuthorAnalytics
 	return out
 }
 
+func authorRelayFootprintFromStore(row store.AuthorRelayFootprintProjection) AuthorRelayFootprintSummary {
+	out := AuthorRelayFootprintSummary{
+		RelayCount:       row.RelayCount,
+		SeenOnEventCount: row.SeenOnEventCount,
+		TopRelays:        make([]RelayUsageSummary, 0, len(row.TopRelays)),
+	}
+	for _, relay := range row.TopRelays {
+		out.TopRelays = append(out.TopRelays, relayUsageFromStore(relay))
+	}
+	return out
+}
+
 func quoteRepostActivityFromStore(row store.QuoteRepostActivityProjection) QuoteRepostActivity {
 	return QuoteRepostActivity{
 		EventID:     row.EventID,
@@ -315,6 +327,61 @@ func authorPerformanceSummaryFromStore(
 	return out
 }
 
+func groupedNoteAnalyticsFromStore(row store.GroupedNoteAnalyticsProjection) GroupedNoteAnalyticsSummary {
+	out := GroupedNoteAnalyticsSummary{
+		Pubkey:      row.Pubkey,
+		Window:      fmt.Sprintf("%dd", row.WindowDays),
+		GroupKind:   row.GroupKind,
+		GroupKey:    row.GroupKey,
+		MetadataTag: row.MetadataTag,
+		NoteCount:   row.NoteCount,
+		Engagement: GroupedEngagementTotals{
+			ReplyCount:    row.Engagement.ReplyCount,
+			ReactionCount: row.Engagement.ReactionCount,
+			RepostCount:   row.Engagement.RepostCount,
+			ZapCount:      row.Engagement.ZapCount,
+			ZapMSats:      row.Engagement.ZapMSats,
+		},
+		Media: GroupedMediaSummary{
+			TotalPosts:           row.Media.TotalPosts,
+			WithImageCount:       row.Media.WithImageCount,
+			WithVideoCount:       row.Media.WithVideoCount,
+			WithLinkCount:        row.Media.WithLinkCount,
+			WithArticleCount:     row.Media.WithArticleCount,
+			TextOnlyCount:        row.Media.TextOnlyCount,
+			TotalAttachmentCount: row.Media.TotalAttachmentCount,
+		},
+		TopNotes:  make([]GroupedTopNote, 0, len(row.TopNotes)),
+		TopTopics: make([]GroupedTopicSummary, 0, len(row.TopTopics)),
+	}
+	for _, note := range row.TopNotes {
+		topNote := GroupedTopNote{
+			EventID:            note.EventID,
+			CreatedAt:          note.CreatedAt,
+			Content:            note.Content,
+			ReplyCount:         note.ReplyCount,
+			ReactionCount:      note.ReactionCount,
+			RepostCount:        note.RepostCount,
+			ZapCount:           note.ZapCount,
+			ZapMSats:           note.ZapMSats,
+			WeightedEngagement: note.WeightedEngagement,
+			MediaSegment:       note.MediaSegment,
+		}
+		if note.PrimaryTopicHashtag != nil {
+			topNote.PrimaryTopic = *note.PrimaryTopicHashtag
+		}
+		out.TopNotes = append(out.TopNotes, topNote)
+	}
+	for _, topic := range row.TopTopics {
+		out.TopTopics = append(out.TopTopics, GroupedTopicSummary{
+			Hashtag:    topic.Hashtag,
+			UsageCount: topic.UsageCount,
+			ActiveDays: topic.ActiveDays,
+		})
+	}
+	return out
+}
+
 func contactListFromStore(row store.ContactListProjection) ContactList {
 	return ContactList{
 		Pubkey:          row.Pubkey,
@@ -348,6 +415,19 @@ func publicDiscoveryNetworkStatsFromStore(row store.PublicDiscoveryNetworkStats)
 		EventsIngested:    row.EventsIngested,
 		ProjectedProfiles: row.ProjectedProfiles,
 		Relays:            row.Relays,
+		RelaySummary: RelaySummaryStats{
+			Total:     row.RelaySummary.Total,
+			Active24h: row.RelaySummary.Active24h,
+			Active7d:  row.RelaySummary.Active7d,
+			EventVolume: WindowedCount{
+				Last24h: row.RelaySummary.EventVolume.Last24h,
+				Last7d:  row.RelaySummary.EventVolume.Last7d,
+			},
+			UniqueAuthors: WindowedCount{
+				Last24h: row.RelaySummary.UniqueAuthors.Last24h,
+				Last7d:  row.RelaySummary.UniqueAuthors.Last7d,
+			},
+		},
 		ActiveAuthors: WindowedCount{
 			Last24h: row.ActiveAuthors.Last24h,
 			Last7d:  row.ActiveAuthors.Last7d,
@@ -367,6 +447,12 @@ func publicDiscoveryNetworkStatsFromStore(row store.PublicDiscoveryNetworkStats)
 		out.TopLanguages7d = make([]LanguageSummary, 0, len(row.TopLanguages7d))
 		for _, lang := range row.TopLanguages7d {
 			out.TopLanguages7d = append(out.TopLanguages7d, languageSummaryFromStore(lang))
+		}
+	}
+	if len(row.TopRelays) > 0 {
+		out.TopRelays = make([]RelayUsageSummary, 0, len(row.TopRelays))
+		for _, relay := range row.TopRelays {
+			out.TopRelays = append(out.TopRelays, relayUsageFromStore(relay))
 		}
 	}
 	if row.TopHashtags == nil {
@@ -515,6 +601,14 @@ func languageSummaryFromStore(row store.LanguageSummary) LanguageSummary {
 	}
 }
 
+func relayUsageFromStore(row store.RelayUsageSummary) RelayUsageSummary {
+	return RelayUsageSummary{
+		RelayURL:      row.RelayURL,
+		EventCount:    row.EventCount,
+		UniqueAuthors: row.UniqueAuthors,
+	}
+}
+
 func hotConversationFromStore(row store.HotConversation) HotConversation {
 	return HotConversation{
 		RootEventID:      row.RootEventID,
@@ -541,6 +635,18 @@ func trendingProfileFromStore(row store.TrendingProfile) TrendingProfile {
 		RecentZapVolumeMSats:     row.RecentZapVolumeMSats,
 		RecentActiveDays:         row.RecentActiveDays,
 		RecentActivityAt:         row.RecentActivityAt,
+	}
+}
+
+func relatedProfileFromStore(row store.RelatedProfile) RelatedProfile {
+	return RelatedProfile{
+		Pubkey:               row.Pubkey,
+		TopicOverlap:         row.TopicOverlap,
+		ReplyAdjacency:       row.ReplyAdjacency,
+		InteractionAdjacency: row.InteractionAdjacency,
+		QuoteRepostAdjacency: row.QuoteRepostAdjacency,
+		Reasons:              row.Reasons,
+		Score:                row.Score,
 	}
 }
 
@@ -635,6 +741,21 @@ func trustScoreFromStore(row store.TrustGlobalScore) TrustScore {
 		DerivationName: row.DerivationName,
 		TargetVersion:  row.TargetVersion,
 		ComputedAt:     row.ComputedAt,
+	}
+}
+
+func trustStateFromStore(row store.TrustState) TrustState {
+	return TrustState{
+		Pubkey:       row.Pubkey,
+		Score:        row.Score,
+		Qualified:    row.Qualified,
+		Tier:         row.Tier,
+		HopDistance:  row.HopDistance,
+		HopBucket:    row.HopBucket,
+		Rank:         row.Rank,
+		ComputedAt:   row.ComputedAt,
+		GenerationID: row.GenerationID,
+		IsSeed:       row.IsSeed,
 	}
 }
 

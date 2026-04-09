@@ -34,6 +34,20 @@ func TestGetAuthorAnalyticsSummary_ReturnsWindows(t *testing.T) {
 				},
 			}, nil
 		},
+		getAuthorRelayFootprintFn: func(_ context.Context, pubkey string, topRelayLimit int) (store.AuthorRelayFootprintProjection, error) {
+			if pubkey != "pubkey_x" || topRelayLimit != 8 {
+				t.Fatalf("unexpected relay footprint args: pubkey=%s topRelayLimit=%d", pubkey, topRelayLimit)
+			}
+			return store.AuthorRelayFootprintProjection{
+				Pubkey:           pubkey,
+				RelayCount:       3,
+				SeenOnEventCount: 6,
+				TopRelays: []store.RelayUsageSummary{
+					{RelayURL: "wss://relay.a", EventCount: 4, UniqueAuthors: 1},
+					{RelayURL: "wss://relay.b", EventCount: 2, UniqueAuthors: 1},
+				},
+			}, nil
+		},
 	}, 10)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/authors/{pubkey}/analytics/summary", handlers.GetAuthorAnalyticsSummary)
@@ -45,7 +59,15 @@ func TestGetAuthorAnalyticsSummary_ReturnsWindows(t *testing.T) {
 		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
 	}
 	var resp struct {
-		Pubkey  string `json:"pubkey"`
+		Pubkey         string `json:"pubkey"`
+		RelayFootprint struct {
+			RelayCount       int64 `json:"relay_count"`
+			SeenOnEventCount int64 `json:"seen_on_event_count"`
+			TopRelays        []struct {
+				RelayURL   string `json:"relay_url"`
+				EventCount int64  `json:"event_count"`
+			} `json:"top_relays"`
+		} `json:"relay_footprint"`
 		Windows []struct {
 			Window      string `json:"window"`
 			QuoteRepost struct {
@@ -67,6 +89,12 @@ func TestGetAuthorAnalyticsSummary_ReturnsWindows(t *testing.T) {
 		resp.Windows[0].QuoteRepost.QuotesReceived != 5 ||
 		resp.Windows[0].QuoteRepost.RepostsReceived != 8 {
 		t.Fatalf("unexpected quote/repost rollup: %+v", resp.Windows[0].QuoteRepost)
+	}
+	if resp.RelayFootprint.RelayCount != 3 ||
+		resp.RelayFootprint.SeenOnEventCount != 6 ||
+		len(resp.RelayFootprint.TopRelays) != 2 ||
+		resp.RelayFootprint.TopRelays[0].RelayURL != "wss://relay.a" {
+		t.Fatalf("unexpected relay footprint payload: %+v", resp.RelayFootprint)
 	}
 }
 
@@ -121,6 +149,114 @@ func TestGetAuthorAnalyticsTopics_DefaultWindowAndRollup(t *testing.T) {
 	}
 	if resp.Items[0].Hashtag != "nostr" || resp.Items[0].UsageCount != 5 || resp.Items[0].ActiveDays != 3 {
 		t.Fatalf("unexpected top topic row: %+v", resp.Items[0])
+	}
+}
+
+func TestGetAuthorAnalyticsGroupedNotes_DefaultHashtagGrouping(t *testing.T) {
+	handlers := mustNewHandlers(t, fakeEventReader{
+		getGroupedNoteAnalyticsFn: func(_ context.Context, req store.GroupedNoteAnalyticsQuery) (store.GroupedNoteAnalyticsProjection, error) {
+			if req.Pubkey != "pubkey_x" {
+				t.Fatalf("unexpected pubkey: %s", req.Pubkey)
+			}
+			if req.GroupKind != "hashtag" || req.GroupKey != "nostr" {
+				t.Fatalf("unexpected grouping request: %#v", req)
+			}
+			if req.WindowDays != 30 || req.TopNotesLimit != 5 || req.TopicsLimit != 5 {
+				t.Fatalf("unexpected limits/window request: %#v", req)
+			}
+			return store.GroupedNoteAnalyticsProjection{
+				Pubkey:     req.Pubkey,
+				WindowDays: req.WindowDays,
+				GroupKind:  req.GroupKind,
+				GroupKey:   req.GroupKey,
+				NoteCount:  2,
+				Engagement: store.GroupedEngagementTotalsProjection{
+					ReplyCount:    3,
+					ReactionCount: 4,
+					RepostCount:   1,
+					ZapCount:      2,
+					ZapMSats:      5000,
+				},
+				Media: store.GroupedMediaSummaryProjection{
+					TotalPosts:           2,
+					WithImageCount:       1,
+					WithVideoCount:       0,
+					WithLinkCount:        1,
+					WithArticleCount:     0,
+					TextOnlyCount:        0,
+					TotalAttachmentCount: 2,
+				},
+				TopNotes: []store.GroupedTopNoteProjection{
+					{EventID: "n1", WeightedEngagement: 10},
+				},
+				TopTopics: []store.GroupedTopicSummaryProjection{
+					{Hashtag: "nostr", UsageCount: 2, ActiveDays: 2},
+				},
+			}, nil
+		},
+	}, 10)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/authors/{pubkey}/analytics/grouped-notes", handlers.GetAuthorAnalyticsGroupedNotes)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/authors/pubkey_x/analytics/grouped-notes?group_key=nostr", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+	var resp struct {
+		Pubkey    string `json:"pubkey"`
+		Window    string `json:"window"`
+		GroupKind string `json:"group_kind"`
+		GroupKey  string `json:"group_key"`
+		NoteCount int64  `json:"note_count"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Pubkey != "pubkey_x" || resp.Window != "30d" || resp.GroupKind != "hashtag" || resp.GroupKey != "nostr" || resp.NoteCount != 2 {
+		t.Fatalf("unexpected grouped notes response: %+v", resp)
+	}
+}
+
+func TestGetAuthorAnalyticsGroupedNotes_MetadataAndValidation(t *testing.T) {
+	handlers := mustNewHandlers(t, fakeEventReader{
+		getGroupedNoteAnalyticsFn: func(_ context.Context, req store.GroupedNoteAnalyticsQuery) (store.GroupedNoteAnalyticsProjection, error) {
+			if req.GroupKind != "metadata" || req.MetadataTag != "d" || req.GroupKey != "series-42" || req.WindowDays != 7 {
+				t.Fatalf("unexpected metadata request: %#v", req)
+			}
+			return store.GroupedNoteAnalyticsProjection{
+				Pubkey:      req.Pubkey,
+				WindowDays:  req.WindowDays,
+				GroupKind:   req.GroupKind,
+				GroupKey:    req.GroupKey,
+				MetadataTag: req.MetadataTag,
+			}, nil
+		},
+	}, 10)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/authors/{pubkey}/analytics/grouped-notes", handlers.GetAuthorAnalyticsGroupedNotes)
+
+	okReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/authors/pubkey_x/analytics/grouped-notes?group_by=metadata&metadata_tag=d&group_key=series-42&window=7d",
+		nil,
+	)
+	okRec := httptest.NewRecorder()
+	mux.ServeHTTP(okRec, okReq)
+	if okRec.Code != http.StatusOK {
+		t.Fatalf("unexpected status for metadata grouping: got %d want %d", okRec.Code, http.StatusOK)
+	}
+
+	badReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/authors/pubkey_x/analytics/grouped-notes?group_by=metadata&group_key=series-42",
+		nil,
+	)
+	badRec := httptest.NewRecorder()
+	mux.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status for missing metadata_tag: got %d want %d", badRec.Code, http.StatusBadRequest)
 	}
 }
 
