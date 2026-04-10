@@ -195,21 +195,30 @@ func (s *PostgresStore) SearchProfilesWithOptions(
 			FROM events
 			LEFT JOIN profiles_latest ON profiles_latest.pubkey = events.pubkey
 			WHERE events.kind = 0
-			  AND profiles_latest.pubkey IS NULL
+			  AND (
+				profiles_latest.pubkey IS NULL
+				OR events.created_at > profiles_latest.metadata_created_at
+				OR (events.created_at = profiles_latest.metadata_created_at AND events.id > profiles_latest.metadata_event_id)
+			  )
 			ORDER BY events.pubkey, events.created_at DESC, events.id DESC
 		),
 		candidate_profiles AS (
 			SELECT
-				pubkey,
-				metadata_event_id,
-				metadata_created_at,
-				profile_json::text AS profile_text,
-				coalesce(name, '') AS name,
-				coalesce(display_name, '') AS display_name,
-				coalesce(about, '') AS about,
-				coalesce(nip05, '') AS nip05,
-				coalesce(name, '') || ' ' || coalesce(display_name, '') || ' ' || coalesce(about, '') || ' ' || coalesce(nip05, '') AS profile_blob
+				profiles_latest.pubkey,
+				profiles_latest.metadata_event_id,
+				profiles_latest.metadata_created_at,
+				profiles_latest.profile_json::text AS profile_text,
+				coalesce(profiles_latest.name, '') AS name,
+				coalesce(profiles_latest.display_name, '') AS display_name,
+				coalesce(profiles_latest.about, '') AS about,
+				coalesce(profiles_latest.nip05, '') AS nip05,
+				coalesce(profiles_latest.name, '') || ' ' ||
+				coalesce(profiles_latest.display_name, '') || ' ' ||
+				coalesce(profiles_latest.about, '') || ' ' ||
+				coalesce(profiles_latest.nip05, '') AS profile_blob
 			FROM profiles_latest
+			LEFT JOIN latest_metadata ON latest_metadata.pubkey = profiles_latest.pubkey
+			WHERE latest_metadata.pubkey IS NULL
 			UNION ALL
 			SELECT
 				pubkey,
@@ -307,19 +316,25 @@ func (s *PostgresStore) SuggestProfiles(ctx context.Context, query string, limit
 			FROM events
 			LEFT JOIN profiles_latest ON profiles_latest.pubkey = events.pubkey
 			WHERE events.kind = 0
-			  AND profiles_latest.pubkey IS NULL
+			  AND (
+				profiles_latest.pubkey IS NULL
+				OR events.created_at > profiles_latest.metadata_created_at
+				OR (events.created_at = profiles_latest.metadata_created_at AND events.id > profiles_latest.metadata_event_id)
+			  )
 			ORDER BY events.pubkey, events.created_at DESC, events.id DESC
 		),
 		candidate_profiles AS (
 			SELECT
-				pubkey,
-				metadata_event_id,
-				metadata_created_at,
-				profile_json::text AS profile_text,
-				coalesce(name, '') AS name,
-				coalesce(display_name, '') AS display_name,
-				coalesce(nip05, '') AS nip05
+				profiles_latest.pubkey,
+				profiles_latest.metadata_event_id,
+				profiles_latest.metadata_created_at,
+				profiles_latest.profile_json::text AS profile_text,
+				coalesce(profiles_latest.name, '') AS name,
+				coalesce(profiles_latest.display_name, '') AS display_name,
+				coalesce(profiles_latest.nip05, '') AS nip05
 			FROM profiles_latest
+			LEFT JOIN latest_metadata ON latest_metadata.pubkey = profiles_latest.pubkey
+			WHERE latest_metadata.pubkey IS NULL
 			UNION ALL
 			SELECT
 				pubkey,

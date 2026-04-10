@@ -146,7 +146,7 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 			return []store.RelatedProfile{{Pubkey: pubkeyB, Score: 42}}, nil
 		},
 		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingNote, error) {
-			return []store.TrendingNote{}, nil
+			return []store.TrendingNote{{EventID: "note_a", AuthorPubkey: pubkeyA, CreatedAt: 123, Content: "hello", Score: 5.5}}, nil
 		},
 		getTrendingTagsFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingHashtag, error) {
 			return []store.TrendingHashtag{}, nil
@@ -187,6 +187,7 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 	}, 200)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/notes/trending", h.GetTrendingNotes)
 	mux.HandleFunc("GET /api/v1/discovery/profiles/trending", h.GetTrendingProfiles)
 	mux.HandleFunc("GET /api/v1/discovery/profiles/rising", h.GetRisingProfiles)
 	mux.HandleFunc("GET /api/v1/discovery/profiles/{pubkey}/related", h.GetRelatedProfiles)
@@ -242,6 +243,35 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 		t.Fatalf("expected npub on related payload, got %#v", relatedProfiles[0])
 	}
 
+	notesReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending", nil)
+	notesRec := httptest.NewRecorder()
+	mux.ServeHTTP(notesRec, notesReq)
+	if notesRec.Code != http.StatusOK {
+		t.Fatalf("unexpected notes status: got %d want %d", notesRec.Code, http.StatusOK)
+	}
+	var notesBody map[string]any
+	if err := json.Unmarshal(notesRec.Body.Bytes(), &notesBody); err != nil {
+		t.Fatalf("decode notes response: %v", err)
+	}
+	trendingNotes, ok := notesBody["notes"].([]any)
+	if !ok || len(trendingNotes) != 1 {
+		t.Fatalf("unexpected notes payload: %#v", notesBody["notes"])
+	}
+	firstNote, ok := trendingNotes[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected first note payload: %#v", trendingNotes[0])
+	}
+	noteAuthor, ok := firstNote["author"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected inline author payload on note, got %#v", firstNote)
+	}
+	if noteAuthor["display_name"] != "Alice" || noteAuthor["picture"] != "https://cdn.example/alice.png" {
+		t.Fatalf("expected inline author identity on note payload, got %#v", noteAuthor)
+	}
+	if noteAuthor["npub"] != encodeNpub(pubkeyA) {
+		t.Fatalf("expected npub on inline note author payload, got %#v", noteAuthor)
+	}
+
 	homeReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/home", nil)
 	homeRec := httptest.NewRecorder()
 	mux.ServeHTTP(homeRec, homeReq)
@@ -281,6 +311,18 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 	}
 	if firstHomeRising["npub"] != encodeNpub(pubkeyB) {
 		t.Fatalf("expected npub on home rising payload, got %#v", homeRising[0])
+	}
+	homeNotes, ok := sections["trending_notes"].([]any)
+	if !ok || len(homeNotes) != 1 {
+		t.Fatalf("unexpected home notes payload: %#v", sections["trending_notes"])
+	}
+	firstHomeNote, ok := homeNotes[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected home first note payload: %#v", homeNotes[0])
+	}
+	homeNoteAuthor, ok := firstHomeNote["author"].(map[string]any)
+	if !ok || homeNoteAuthor["display_name"] != "Alice" || homeNoteAuthor["npub"] != encodeNpub(pubkeyA) {
+		t.Fatalf("expected inline author identity on home note payload, got %#v", firstHomeNote)
 	}
 }
 

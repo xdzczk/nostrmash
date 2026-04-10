@@ -209,17 +209,17 @@ func (s *adminService) GetDiscoveryStatus(ctx context.Context) (adminDiscoverySt
 
 func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusResponse, error) {
 	var (
-		ingestCount             int64
-		ingestUpdatedAt         *time.Time
-		noteSearchRows          int64
-		noteSearchUpdatedAt     *time.Time
-		profilesCount           int64
-		profilesUpdatedAt       *time.Time
-		notesDiscoveryCount     int64
-		notesDiscoveryUpdatedAt *time.Time
-		searchDocumentRows      int64
-		searchDocumentsUpdated  *time.Time
-		missingProfileRows      int64
+		ingestCount              int64
+		ingestUpdatedAt          *time.Time
+		noteSearchRows           int64
+		noteSearchUpdatedAt      *time.Time
+		profilesCount            int64
+		profilesUpdatedAt        *time.Time
+		notesDiscoveryCount      int64
+		notesDiscoveryUpdatedAt  *time.Time
+		searchDocumentRows       int64
+		searchDocumentsUpdated   *time.Time
+		profileProjectionGapRows int64
 	)
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
@@ -234,15 +234,24 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 			(SELECT COUNT(*) FROM search_documents),
 			(SELECT MAX(updated_at) FROM search_documents),
 			(
-				SELECT COUNT(*)
-				FROM (
-					SELECT DISTINCT events.pubkey
+				WITH latest_kind0 AS (
+					SELECT DISTINCT ON (events.pubkey)
+						events.pubkey,
+						events.id,
+						events.created_at
 					FROM events
 					WHERE events.kind = 0
-					EXCEPT
-					SELECT profiles_latest.pubkey
-					FROM profiles_latest
-				) missing_profiles
+					ORDER BY events.pubkey, events.created_at DESC, events.id DESC
+				)
+				SELECT COUNT(*)
+				FROM latest_kind0
+				LEFT JOIN profiles_latest ON profiles_latest.pubkey = latest_kind0.pubkey
+				WHERE profiles_latest.pubkey IS NULL
+					OR latest_kind0.created_at > profiles_latest.metadata_created_at
+					OR (
+						latest_kind0.created_at = profiles_latest.metadata_created_at
+						AND latest_kind0.id > profiles_latest.metadata_event_id
+					)
 			)
 	`).Scan(
 		&ingestCount,
@@ -255,7 +264,7 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		&notesDiscoveryUpdatedAt,
 		&searchDocumentRows,
 		&searchDocumentsUpdated,
-		&missingProfileRows,
+		&profileProjectionGapRows,
 	); err != nil {
 		return adminSearchStatusResponse{}, fmt.Errorf("read search status snapshot: %w", err)
 	}
@@ -267,7 +276,7 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		buildFreshnessSignal("profiles_latest", profilesUpdatedAt, adminSearchFreshnessThreshold, now, &profilesCount),
 		buildFreshnessSignal("note_discovery_stats", notesDiscoveryUpdatedAt, adminSearchFreshnessThreshold, now, &notesDiscoveryCount),
 		buildFreshnessSignal("search_documents", searchDocumentsUpdated, adminSearchFreshnessThreshold, now, &searchDocumentRows),
-		buildCoverageSignal("profiles_latest_projection_gap", missingProfileRows),
+		buildCoverageSignal("profiles_latest_projection_gap", profileProjectionGapRows),
 	}
 	if s.searchTrustPolicyEnabled() {
 		snapshotUpdatedAt, snapshotCount, err := s.loadTrustSnapshotStatus(ctx)
@@ -302,7 +311,7 @@ func buildCoverageSignal(name string, uncoveredRows int64) adminFreshnessSignal 
 	}
 	if uncoveredRows > 0 {
 		signal.Status = "stale"
-		signal.Details = "kind=0 metadata rows exist without matching profiles_latest projection rows"
+		signal.Details = "kind=0 metadata rows are missing from profiles_latest or newer than the projected metadata"
 		return signal
 	}
 	signal.Status = "fresh"

@@ -47,6 +47,11 @@ func (s *PostgresStore) GetProfileByPubkey(ctx context.Context, pubkey string) (
 		return out, fmt.Errorf("get profile by pubkey: %w", err)
 	}
 	out.ProfileJSON = json.RawMessage(profileText)
+	if latest, latestErr := s.getProfileProjectionFromLatestMetadataEvent(ctx, pubkey); latestErr == nil {
+		if latestMetadataIsNewer(out, latest) {
+			return latest, nil
+		}
+	}
 	return out, nil
 }
 
@@ -99,24 +104,30 @@ func (s *PostgresStore) GetProfilesByPubkeys(ctx context.Context, pubkeys []stri
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read profile rows: %w", err)
 	}
-	missing := make([]string, 0)
-	for _, pubkey := range normalized {
-		if _, ok := out[pubkey]; ok {
-			continue
-		}
-		missing = append(missing, pubkey)
-	}
-	if len(missing) == 0 {
-		return out, nil
-	}
-	derived, err := s.getProfileProjectionsFromLatestMetadataEvents(ctx, missing)
+	derived, err := s.getProfileProjectionsFromLatestMetadataEvents(ctx, normalized)
 	if err != nil {
 		return nil, err
 	}
 	for pubkey, profile := range derived {
-		out[pubkey] = profile
+		current, ok := out[pubkey]
+		if !ok || latestMetadataIsNewer(current, profile) {
+			out[pubkey] = profile
+		}
 	}
 	return out, nil
+}
+
+func latestMetadataIsNewer(current ProfileProjection, latest ProfileProjection) bool {
+	if strings.TrimSpace(latest.Pubkey) == "" {
+		return false
+	}
+	if strings.TrimSpace(current.Pubkey) == "" {
+		return true
+	}
+	if latest.MetadataCreatedAt != current.MetadataCreatedAt {
+		return latest.MetadataCreatedAt > current.MetadataCreatedAt
+	}
+	return strings.TrimSpace(latest.MetadataEventID) > strings.TrimSpace(current.MetadataEventID)
 }
 
 func (s *PostgresStore) getProfileProjectionFromLatestMetadataEvent(ctx context.Context, pubkey string) (ProfileProjection, error) {

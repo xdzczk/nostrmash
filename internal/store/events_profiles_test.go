@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/model"
 )
 
 func TestProfileReads_FallBackToLatestMetadataEventsWhenProjectionMissing(t *testing.T) {
@@ -80,5 +82,63 @@ func TestProfileReads_FallBackToLatestMetadataEventsWhenProjectionMissing(t *tes
 	}
 	if _, ok := batch["missing"]; ok {
 		t.Fatalf("did not expect missing pubkey in batch result, got %#v", batch["missing"])
+	}
+}
+
+func TestProfileReads_PreferLatestMetadataEventsWhenProjectionIsStale(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	pgStore := NewPostgresStore(pool)
+	now := time.Now().UTC()
+	oldEvent := newDiscoveryEvent(
+		"meta_stale_old",
+		"pk_stale",
+		now.Add(-2*time.Hour),
+		0,
+		nil,
+		`{"name":"old-handle","display_name":"Old Name"}`,
+	)
+	newEvent := newDiscoveryEvent(
+		"meta_stale_new",
+		"pk_stale",
+		now.Add(-1*time.Hour),
+		0,
+		nil,
+		`{"name":"fiatjaf","display_name":"fiatjaf"}`,
+	)
+	for _, event := range []model.Event{oldEvent, newEvent} {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO profiles_latest (
+			pubkey, metadata_event_id, metadata_created_at, profile_json, name, display_name, about, nip05, derivation_version
+		)
+		VALUES ($1, $2, $3, $4::jsonb, $5, $6, '', '', 1)
+	`, "pk_stale", oldEvent.ID, oldEvent.CreatedAt, `{"name":"old-handle","display_name":"Old Name"}`, "old-handle", "Old Name"); err != nil {
+		t.Fatalf("seed stale projection: %v", err)
+	}
+
+	profile, err := pgStore.GetProfileByPubkey(ctx, "pk_stale")
+	if err != nil {
+		t.Fatalf("GetProfileByPubkey: %v", err)
+	}
+	if profile.MetadataEventID != newEvent.ID {
+		t.Fatalf("expected latest metadata event to override stale projection, got %#v", profile)
+	}
+
+	batch, err := pgStore.GetProfilesByPubkeys(ctx, []string{"pk_stale"})
+	if err != nil {
+		t.Fatalf("GetProfilesByPubkeys: %v", err)
+	}
+	if batch["pk_stale"].MetadataEventID != newEvent.ID {
+		t.Fatalf("expected batch lookup to override stale projection, got %#v", batch["pk_stale"])
 	}
 }

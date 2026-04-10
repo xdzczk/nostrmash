@@ -39,22 +39,16 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	payload := make([]map[string]any, 0, len(notes))
+	noteAuthorPubkeys := make([]string, 0, len(notes))
 	for _, note := range notes {
-		payload = append(payload, map[string]any{
-			"event_id":       note.EventID,
-			"author_pubkey":  note.AuthorPubkey,
-			"created_at":     note.CreatedAt,
-			"content":        note.Content,
-			"language":       note.Language,
-			"reply_count":    note.ReplyCount,
-			"repost_count":   note.RepostCount,
-			"reaction_count": note.ReactionCount,
-			"zap_count":      note.ZapCount,
-			"zap_msats":      note.ZapMSats,
-			"score":          note.Score,
-		})
+		noteAuthorPubkeys = append(noteAuthorPubkeys, note.AuthorPubkey)
 	}
+	noteAuthorIdentities, err := h.resolveProfileIdentities(r.Context(), noteAuthorPubkeys)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	payload := buildDiscoveryNoteItems(notes, noteAuthorIdentities)
 	payloadResponse := map[string]any{
 		"surface":     "trending",
 		"window":      windowLabel,
@@ -208,35 +202,23 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	profilePubkeys := make([]string, 0, len(trendingProfiles)+len(risingProfiles))
+	identityPubkeys := make([]string, 0, len(notes)+len(trendingProfiles)+len(risingProfiles))
+	for _, note := range notes {
+		identityPubkeys = append(identityPubkeys, note.AuthorPubkey)
+	}
 	for _, profile := range trendingProfiles {
-		profilePubkeys = append(profilePubkeys, profile.Pubkey)
+		identityPubkeys = append(identityPubkeys, profile.Pubkey)
 	}
 	for _, profile := range risingProfiles {
-		profilePubkeys = append(profilePubkeys, profile.Pubkey)
+		identityPubkeys = append(identityPubkeys, profile.Pubkey)
 	}
-	profileIdentities, err := h.resolveProfileIdentities(r.Context(), profilePubkeys)
+	profileIdentities, err := h.resolveProfileIdentities(r.Context(), identityPubkeys)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 
-	noteItems := make([]map[string]any, 0, len(notes))
-	for _, note := range notes {
-		noteItems = append(noteItems, map[string]any{
-			"event_id":       note.EventID,
-			"author_pubkey":  note.AuthorPubkey,
-			"created_at":     note.CreatedAt,
-			"content":        note.Content,
-			"language":       note.Language,
-			"reply_count":    note.ReplyCount,
-			"repost_count":   note.RepostCount,
-			"reaction_count": note.ReactionCount,
-			"zap_count":      note.ZapCount,
-			"zap_msats":      note.ZapMSats,
-			"score":          note.Score,
-		})
-	}
+	noteItems := buildDiscoveryNoteItems(notes, profileIdentities)
 	hashtagItems := make([]map[string]any, 0, len(hashtags))
 	for _, hashtag := range hashtags {
 		hashtagItems = append(hashtagItems, map[string]any{
