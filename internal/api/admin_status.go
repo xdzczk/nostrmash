@@ -26,6 +26,7 @@ type adminFreshnessSignal struct {
 	Status           string     `json:"status"`
 	Stale            bool       `json:"stale"`
 	RowCount         *int64     `json:"row_count,omitempty"`
+	Details          string     `json:"details,omitempty"`
 }
 
 type adminProjectionStatusResponse struct {
@@ -216,6 +217,9 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		profilesUpdatedAt       *time.Time
 		notesDiscoveryCount     int64
 		notesDiscoveryUpdatedAt *time.Time
+		searchDocumentRows      int64
+		searchDocumentsUpdated  *time.Time
+		missingProfileRows      int64
 	)
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
@@ -226,7 +230,20 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 			(SELECT COUNT(*) FROM profiles_latest),
 			(SELECT MAX(updated_at) FROM profiles_latest),
 			(SELECT COUNT(*) FROM note_discovery_stats),
-			(SELECT MAX(projected_at) FROM note_discovery_stats)
+			(SELECT MAX(projected_at) FROM note_discovery_stats),
+			(SELECT COUNT(*) FROM search_documents),
+			(SELECT MAX(updated_at) FROM search_documents),
+			(
+				SELECT COUNT(*)
+				FROM (
+					SELECT DISTINCT events.pubkey
+					FROM events
+					WHERE events.kind = 0
+					EXCEPT
+					SELECT profiles_latest.pubkey
+					FROM profiles_latest
+				) missing_profiles
+			)
 	`).Scan(
 		&ingestCount,
 		&ingestUpdatedAt,
@@ -236,6 +253,9 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		&profilesUpdatedAt,
 		&notesDiscoveryCount,
 		&notesDiscoveryUpdatedAt,
+		&searchDocumentRows,
+		&searchDocumentsUpdated,
+		&missingProfileRows,
 	); err != nil {
 		return adminSearchStatusResponse{}, fmt.Errorf("read search status snapshot: %w", err)
 	}
@@ -246,6 +266,8 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		buildFreshnessSignal("events_note_index", noteSearchUpdatedAt, adminSearchFreshnessThreshold, now, &noteSearchRows),
 		buildFreshnessSignal("profiles_latest", profilesUpdatedAt, adminSearchFreshnessThreshold, now, &profilesCount),
 		buildFreshnessSignal("note_discovery_stats", notesDiscoveryUpdatedAt, adminSearchFreshnessThreshold, now, &notesDiscoveryCount),
+		buildFreshnessSignal("search_documents", searchDocumentsUpdated, adminSearchFreshnessThreshold, now, &searchDocumentRows),
+		buildCoverageSignal("profiles_latest_projection_gap", missingProfileRows),
 	}
 	if s.searchTrustPolicyEnabled() {
 		snapshotUpdatedAt, snapshotCount, err := s.loadTrustSnapshotStatus(ctx)
@@ -269,6 +291,22 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		StaleSubsystems:  stale,
 		Ready:            len(stale) == 0,
 	}, nil
+}
+
+func buildCoverageSignal(name string, uncoveredRows int64) adminFreshnessSignal {
+	signal := adminFreshnessSignal{
+		Name:             strings.TrimSpace(name),
+		ThresholdSeconds: 0,
+		RowCount:         int64Ptr(uncoveredRows),
+		Stale:            uncoveredRows > 0,
+	}
+	if uncoveredRows > 0 {
+		signal.Status = "stale"
+		signal.Details = "kind=0 metadata rows exist without matching profiles_latest projection rows"
+		return signal
+	}
+	signal.Status = "fresh"
+	return signal
 }
 
 func buildFreshnessSignal(

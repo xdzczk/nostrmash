@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 func TestSearchNotes_AdvancedSortWindowAndPagination(t *testing.T) {
@@ -91,6 +93,68 @@ func TestSearchProfiles_AdvancedPagination(t *testing.T) {
 	}
 	if len(out) != 1 || out[0].Pubkey != "pk_alice" {
 		t.Fatalf("unexpected profiles output: %#v", out)
+	}
+}
+
+func TestSearchProfiles_NormalizesAtPrefix(t *testing.T) {
+	svc := mustNewService(t, fakeReader{})
+	svc.reader = readerWithAdvancedSearch{
+		Reader: svc.reader,
+		searchProfilesFn: func(_ context.Context, q string, sort string, _ int, _ int) ([]Profile, error) {
+			if q != "fiatjaf" || sort != "relevant" {
+				t.Fatalf("unexpected normalized profile query: q=%q sort=%q", q, sort)
+			}
+			return []Profile{{Pubkey: "pk_fiatjaf"}}, nil
+		},
+	}
+	out, err := svc.SearchProfiles(context.Background(), ProfileSearchParams{
+		Query: "@fiatjaf",
+		Sort:  "relevant",
+		Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("SearchProfiles returned error: %v", err)
+	}
+	if len(out) != 1 || out[0].Pubkey != "pk_fiatjaf" {
+		t.Fatalf("unexpected normalized profile search output: %#v", out)
+	}
+}
+
+func TestSearchProfiles_DirectIdentifierPromotesProfile(t *testing.T) {
+	const pubkey = "f6e7657f7c0c6b03d4de2f2648c64d13f53cf9ce9e840ff6f3f4f85f8b5c5f55"
+	npub := mustEncodeNpub(t, pubkey)
+	svc := mustNewService(t, fakeReader{
+		getProfileByPubkeyFn: func(_ context.Context, raw string) (store.ProfileProjection, error) {
+			if raw != pubkey {
+				t.Fatalf("unexpected direct profile lookup key: %q", raw)
+			}
+			return store.ProfileProjection{Pubkey: pubkey, ProfileJSON: json.RawMessage(`{"name":"fiatjaf"}`)}, nil
+		},
+	})
+	var called bool
+	svc.reader = readerWithAdvancedSearch{
+		Reader: svc.reader,
+		searchProfilesFn: func(_ context.Context, q string, _ string, _ int, _ int) ([]Profile, error) {
+			called = true
+			if q != pubkey {
+				t.Fatalf("expected npub query normalized to hex pubkey, got %q", q)
+			}
+			return []Profile{}, nil
+		},
+	}
+	out, err := svc.SearchProfiles(context.Background(), ProfileSearchParams{
+		Query: npub,
+		Sort:  "relevant",
+		Limit: 3,
+	})
+	if err != nil {
+		t.Fatalf("SearchProfiles returned error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected advanced profile search to be called")
+	}
+	if len(out) != 1 || out[0].Pubkey != pubkey {
+		t.Fatalf("expected direct identifier match to be promoted, got %#v", out)
 	}
 }
 
@@ -184,6 +248,30 @@ func TestSearchSuggestions_UsesSuggestionsReader(t *testing.T) {
 	}
 	if len(out.Hashtags) != 1 || out.Hashtags[0].Hashtag != "alice" {
 		t.Fatalf("unexpected hashtag suggestions: %#v", out.Hashtags)
+	}
+}
+
+func TestSearchSuggestions_NormalizesNpubToHex(t *testing.T) {
+	const pubkey = "f6e7657f7c0c6b03d4de2f2648c64d13f53cf9ce9e840ff6f3f4f85f8b5c5f55"
+	npub := mustEncodeNpub(t, pubkey)
+	svc := mustNewService(t, fakeReader{})
+	svc.reader = readerWithSuggestionSearch{
+		Reader: svc.reader,
+		suggestProfilesFn: func(_ context.Context, q string, limit int) ([]Profile, error) {
+			if q != pubkey || limit != 5 {
+				t.Fatalf("unexpected profile suggestion query: q=%q limit=%d", q, limit)
+			}
+			return []Profile{{Pubkey: pubkey}}, nil
+		},
+		suggestHashtagsFn: func(_ context.Context, q string, limit int) ([]HashtagSuggestion, error) {
+			if q != pubkey || limit != 5 {
+				t.Fatalf("unexpected hashtag suggestion query: q=%q limit=%d", q, limit)
+			}
+			return []HashtagSuggestion{}, nil
+		},
+	}
+	if _, err := svc.SearchSuggestions(context.Background(), npub, 5); err != nil {
+		t.Fatalf("SearchSuggestions returned error: %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -323,6 +324,19 @@ type GroupedNoteAnalyticsProjection struct {
 	Media       GroupedMediaSummaryProjection
 	TopNotes    []GroupedTopNoteProjection
 	TopTopics   []GroupedTopicSummaryProjection
+}
+
+type SearchDocumentProjection struct {
+	EntityType     string
+	EntityID       string
+	Title          string
+	Body           string
+	Aliases        []string
+	IdentityTokens []string
+	Freshness      time.Time
+	Popularity     float64
+	TrustScore     *float64
+	Score          float64
 }
 
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {

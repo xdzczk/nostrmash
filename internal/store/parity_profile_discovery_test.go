@@ -23,6 +23,9 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 	now := time.Now().UTC()
 
 	events := []model.Event{
+		newDiscoveryEvent("meta_small", "small_author", now.Add(-5*time.Hour), 0, nil, `{"name":"small"}`),
+		newDiscoveryEvent("meta_big", "big_author", now.Add(-5*time.Hour), 0, nil, `{"name":"big"}`),
+		newDiscoveryEvent("meta_older", "older_author", now.Add(-80*time.Hour), 0, nil, `{"name":"older"}`),
 		newDiscoveryEvent("small_note", "small_author", now.Add(-2*time.Hour), 1, nil, "small note"),
 		newDiscoveryEvent("big_note", "big_author", now.Add(-3*time.Hour), 1, nil, "big note"),
 		newDiscoveryEvent("older_note", "older_author", now.Add(-72*time.Hour), 1, nil, "older note"),
@@ -110,6 +113,12 @@ func TestGetRelatedProfiles_RankedAndBounded(t *testing.T) {
 	now := time.Now().UTC()
 
 	events := []model.Event{
+		newDiscoveryEvent("meta_focal", "focal_author", now.Add(-4*time.Hour), 0, nil, `{"name":"focal"}`),
+		newDiscoveryEvent("meta_multi", "multi_author", now.Add(-4*time.Hour), 0, nil, `{"name":"multi"}`),
+		newDiscoveryEvent("meta_topic_only", "topic_only_author", now.Add(-4*time.Hour), 0, nil, `{"name":"topic"}`),
+		newDiscoveryEvent("meta_reply_only", "reply_only_author", now.Add(-4*time.Hour), 0, nil, `{"name":"reply"}`),
+		newDiscoveryEvent("meta_interaction_only", "interaction_only_author", now.Add(-4*time.Hour), 0, nil, `{"name":"interaction"}`),
+		newDiscoveryEvent("meta_quote_only", "quote_only_author", now.Add(-4*time.Hour), 0, nil, `{"name":"quote"}`),
 		newDiscoveryEvent("focal_note_1", "focal_author", now.Add(-2*time.Hour), 1, [][]string{{"t", "nostr"}}, "focal 1"),
 		newDiscoveryEvent("focal_note_2", "focal_author", now.Add(-3*time.Hour), 1, [][]string{{"t", "dev"}}, "focal 2"),
 		newDiscoveryEvent("multi_topic_note", "multi_author", now.Add(-90*time.Minute), 1, [][]string{{"t", "nostr"}, {"t", "dev"}}, "multi"),
@@ -187,5 +196,48 @@ func TestGetRelatedProfiles_SparseAndMissing(t *testing.T) {
 	_, err = pgStore.GetRelatedProfiles(ctx, "missing_author", 10)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for missing author, got %v", err)
+	}
+}
+
+func TestGetTrendingProfiles_ExcludesProfilesWithoutLocalMetadata(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+	events := []model.Event{
+		newDiscoveryEvent("meta_resolved", "resolved_author", now.Add(-4*time.Hour), 0, nil, `{"name":"resolved"}`),
+		newDiscoveryEvent("resolved_note", "resolved_author", now.Add(-2*time.Hour), 1, nil, "resolved note"),
+		newDiscoveryEvent("resolved_reaction_1", "resolved_reactor_1", now.Add(-90*time.Minute), 7, [][]string{{"e", "resolved_note"}}, "+"),
+		newDiscoveryEvent("resolved_reaction_2", "resolved_reactor_2", now.Add(-80*time.Minute), 7, [][]string{{"e", "resolved_note"}}, "+"),
+		newDiscoveryEvent("unresolved_note", "unresolved_author", now.Add(-70*time.Minute), 1, nil, "unresolved note"),
+		newDiscoveryEvent("unresolved_reaction_1", "unresolved_reactor_1", now.Add(-60*time.Minute), 7, [][]string{{"e", "unresolved_note"}}, "+"),
+		newDiscoveryEvent("unresolved_reaction_2", "unresolved_reactor_2", now.Add(-50*time.Minute), 7, [][]string{{"e", "unresolved_note"}}, "+"),
+		newDiscoveryEvent("unresolved_reaction_3", "unresolved_reactor_3", now.Add(-40*time.Minute), 7, [][]string{{"e", "unresolved_note"}}, "+"),
+	}
+	for _, event := range events {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+
+	profiles, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingProfiles: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("expected only resolved profiles to be returned, got %#v", profiles)
+	}
+	if profiles[0].Pubkey != "resolved_author" {
+		t.Fatalf("expected resolved_author only, got %#v", profiles)
 	}
 }

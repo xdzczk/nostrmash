@@ -67,8 +67,11 @@ type UserInfosResult struct {
 }
 
 type SearchResult struct {
-	Events   []json.RawMessage `json:"events"`
-	Profiles []Profile         `json:"profiles"`
+	Events     []json.RawMessage   `json:"events"`
+	Profiles   []Profile           `json:"profiles"`
+	Hashtags   []HashtagSuggestion `json:"hashtags,omitempty"`
+	Relays     []string            `json:"relays,omitempty"`
+	Identities []string            `json:"identities,omitempty"`
 }
 
 type SearchSuggestionsResult struct {
@@ -96,6 +99,19 @@ type ProfileSearchParams struct {
 	Limit  int
 	Offset int
 	Sort   string
+}
+
+type SearchDocument struct {
+	EntityType     string
+	EntityID       string
+	Title          string
+	Body           string
+	Aliases        []string
+	IdentityTokens []string
+	Freshness      time.Time
+	Popularity     float64
+	TrustScore     *float64
+	Score          float64
 }
 
 type TrustModeMetadata struct {

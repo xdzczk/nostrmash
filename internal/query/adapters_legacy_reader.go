@@ -60,6 +60,10 @@ type legacySearchSuggestionsReader interface {
 	SuggestHashtags(ctx context.Context, query string, limit int) ([]store.TrendingHashtag, error)
 }
 
+type legacySearchDocumentsReader interface {
+	SearchDocuments(ctx context.Context, query string, limit int) ([]store.SearchDocumentProjection, error)
+}
+
 type legacyReaderAdapter struct {
 	legacy legacyReader
 }
@@ -266,6 +270,22 @@ func (a legacyReaderAdapter) SuggestHashtags(ctx context.Context, query string, 
 			EventCount:    row.EventCount,
 			UniqueAuthors: row.UniqueAuthors,
 		})
+	}
+	return out, nil
+}
+
+func (a legacyReaderAdapter) SearchDocuments(ctx context.Context, query string, limit int) ([]SearchDocument, error) {
+	reader, ok := a.legacy.(legacySearchDocumentsReader)
+	if !ok {
+		return nil, unsupportedCapabilityError("search documents")
+	}
+	rows, err := reader.SearchDocuments(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SearchDocument, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, searchDocumentFromStore(row))
 	}
 	return out, nil
 }

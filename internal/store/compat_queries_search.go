@@ -186,38 +186,68 @@ func (s *PostgresStore) SearchProfilesWithOptions(
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		WITH ranked AS (
+		WITH latest_metadata AS (
+			SELECT DISTINCT ON (events.pubkey)
+				events.pubkey,
+				events.id AS metadata_event_id,
+				events.created_at AS metadata_created_at,
+				events.content AS profile_text
+			FROM events
+			LEFT JOIN profiles_latest ON profiles_latest.pubkey = events.pubkey
+			WHERE events.kind = 0
+			  AND profiles_latest.pubkey IS NULL
+			ORDER BY events.pubkey, events.created_at DESC, events.id DESC
+		),
+		candidate_profiles AS (
 			SELECT
 				pubkey,
 				metadata_event_id,
 				metadata_created_at,
 				profile_json::text AS profile_text,
+				coalesce(name, '') AS name,
+				coalesce(display_name, '') AS display_name,
+				coalesce(about, '') AS about,
+				coalesce(nip05, '') AS nip05,
+				coalesce(name, '') || ' ' || coalesce(display_name, '') || ' ' || coalesce(about, '') || ' ' || coalesce(nip05, '') AS profile_blob
+			FROM profiles_latest
+			UNION ALL
+			SELECT
+				pubkey,
+				metadata_event_id,
+				metadata_created_at,
+				profile_text,
+				'' AS name,
+				'' AS display_name,
+				'' AS about,
+				'' AS nip05,
+				coalesce(profile_text, '') AS profile_blob
+			FROM latest_metadata
+		),
+		ranked AS (
+			SELECT
+				pubkey,
+				metadata_event_id,
+				metadata_created_at,
+				profile_text,
 				ts_rank_cd(
 					to_tsvector(
 						'simple',
-						coalesce(pubkey, '') || ' ' ||
-						coalesce(name, '') || ' ' ||
-						coalesce(display_name, '') || ' ' ||
-						coalesce(about, '') || ' ' ||
-						coalesce(nip05, '')
+						coalesce(pubkey, '') || ' ' || coalesce(profile_blob, '')
 					),
 					websearch_to_tsquery('simple', $1)
 				) AS rank
-			FROM profiles_latest
+			FROM candidate_profiles
 			WHERE
 				to_tsvector(
 					'simple',
-					coalesce(pubkey, '') || ' ' ||
-					coalesce(name, '') || ' ' ||
-					coalesce(display_name, '') || ' ' ||
-					coalesce(about, '') || ' ' ||
-					coalesce(nip05, '')
+					coalesce(pubkey, '') || ' ' || coalesce(profile_blob, '')
 				) @@ websearch_to_tsquery('simple', $1)
 				OR pubkey ILIKE '%' || $1 || '%'
 				OR coalesce(name, '') ILIKE '%' || $1 || '%'
 				OR coalesce(display_name, '') ILIKE '%' || $1 || '%'
 				OR coalesce(about, '') ILIKE '%' || $1 || '%'
 				OR coalesce(nip05, '') ILIKE '%' || $1 || '%'
+				OR coalesce(profile_blob, '') ILIKE '%' || $1 || '%'
 		)
 		SELECT pubkey, metadata_event_id, metadata_created_at, profile_text
 		FROM ranked
@@ -268,12 +298,45 @@ func (s *PostgresStore) SuggestProfiles(ctx context.Context, query string, limit
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		WITH ranked AS (
+		WITH latest_metadata AS (
+			SELECT DISTINCT ON (events.pubkey)
+				events.pubkey,
+				events.id AS metadata_event_id,
+				events.created_at AS metadata_created_at,
+				events.content AS profile_text
+			FROM events
+			LEFT JOIN profiles_latest ON profiles_latest.pubkey = events.pubkey
+			WHERE events.kind = 0
+			  AND profiles_latest.pubkey IS NULL
+			ORDER BY events.pubkey, events.created_at DESC, events.id DESC
+		),
+		candidate_profiles AS (
 			SELECT
 				pubkey,
 				metadata_event_id,
 				metadata_created_at,
 				profile_json::text AS profile_text,
+				coalesce(name, '') AS name,
+				coalesce(display_name, '') AS display_name,
+				coalesce(nip05, '') AS nip05
+			FROM profiles_latest
+			UNION ALL
+			SELECT
+				pubkey,
+				metadata_event_id,
+				metadata_created_at,
+				profile_text,
+				'' AS name,
+				'' AS display_name,
+				'' AS nip05
+			FROM latest_metadata
+		),
+		ranked AS (
+			SELECT
+				pubkey,
+				metadata_event_id,
+				metadata_created_at,
+				profile_text,
 				CASE
 					WHEN pubkey ILIKE $1 || '%' THEN 4
 					WHEN coalesce(name, '') ILIKE $1 || '%' THEN 3
@@ -287,7 +350,7 @@ func (s *PostgresStore) SuggestProfiles(ctx context.Context, query string, limit
 					similarity(coalesce(display_name, ''), $1),
 					similarity(coalesce(nip05, ''), $1)
 				) AS sim
-			FROM profiles_latest
+			FROM candidate_profiles
 			WHERE
 				pubkey ILIKE '%' || $1 || '%'
 				OR coalesce(name, '') ILIKE '%' || $1 || '%'

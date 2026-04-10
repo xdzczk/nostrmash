@@ -236,6 +236,17 @@ func (s *PostgresStore) GetRelatedProfiles(ctx context.Context, pubkey string, l
 				ARRAY_AGG(DISTINCT u.reason ORDER BY u.reason) AS reasons,
 				(SUM(u.score) + COUNT(*))::bigint AS rank_score
 			FROM unioned u
+			WHERE EXISTS (
+				SELECT 1
+				FROM profiles_latest pl
+				WHERE pl.pubkey = u.pubkey
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM events metadata
+				WHERE metadata.pubkey = u.pubkey
+				  AND metadata.kind = 0
+			)
 			GROUP BY u.pubkey
 			ORDER BY rank_score DESC, u.pubkey ASC
 			LIMIT $2
@@ -330,6 +341,19 @@ func (s *PostgresStore) getProfileDiscoveryRows(
 		WHERE recent_activity_at IS NOT NULL
 		  AND recent_activity_at >= $1
 		  AND %s > 0
+		  AND (
+			EXISTS (
+				SELECT 1
+				FROM profiles_latest pl
+				WHERE pl.pubkey = profile_discovery_stats.pubkey
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM events metadata
+				WHERE metadata.pubkey = profile_discovery_stats.pubkey
+				  AND metadata.kind = 0
+			)
+		  )
 		  AND EXISTS (
 			SELECT 1
 			FROM events e

@@ -76,3 +76,18 @@ func relayUsageFromStore(row store.RelayUsageSummary) RelayUsageSummary {
 		UniqueAuthors: row.UniqueAuthors,
 	}
 }
+
+func searchDocumentFromStore(row store.SearchDocumentProjection) SearchDocument {
+	return SearchDocument{
+		EntityType:     row.EntityType,
+		EntityID:       row.EntityID,
+		Title:          row.Title,
+		Body:           row.Body,
+		Aliases:        row.Aliases,
+		IdentityTokens: row.IdentityTokens,
+		Freshness:      row.Freshness,
+		Popularity:     row.Popularity,
+		TrustScore:     row.TrustScore,
+		Score:          row.Score,
+	}
+}

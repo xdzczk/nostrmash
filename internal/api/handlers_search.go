@@ -41,6 +41,23 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		"profiles":    projectedProfiles,
 		"consistency": "eventual",
 	}
+	if len(result.Hashtags) > 0 {
+		hashtags := make([]map[string]any, 0, len(result.Hashtags))
+		for _, hashtag := range result.Hashtags {
+			hashtags = append(hashtags, map[string]any{
+				"hashtag":        hashtag.Hashtag,
+				"event_count":    hashtag.EventCount,
+				"unique_authors": hashtag.UniqueAuthors,
+			})
+		}
+		response["hashtags"] = hashtags
+	}
+	if len(result.Relays) > 0 {
+		response["relays"] = result.Relays
+	}
+	if len(result.Identities) > 0 {
+		response["identities"] = result.Identities
+	}
 	h.addSearchTrustMetadata(response)
 	writeJSON(w, http.StatusOK, response)
 }
