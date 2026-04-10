@@ -136,7 +136,7 @@ func (f fakeEventReader) GetProfileByPubkey(ctx context.Context, pubkey string) 
 
 func (f fakeEventReader) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
 	if f.getProfilesByBatch == nil {
-		return nil, errors.New("not implemented")
+		return map[string]store.ProfileProjection{}, nil
 	}
 	return f.getProfilesByBatch(ctx, pubkeys)
 }

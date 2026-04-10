@@ -38,7 +38,11 @@ func (s *PostgresStore) GetProfileByPubkey(ctx context.Context, pubkey string) (
 	`, pubkey).Scan(&out.Pubkey, &out.MetadataEventID, &out.MetadataCreatedAt, &profileText)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return out, ErrNotFound
+			derived, fallbackErr := s.getProfileProjectionFromLatestMetadataEvent(ctx, pubkey)
+			if fallbackErr != nil {
+				return out, fallbackErr
+			}
+			return derived, nil
 		}
 		return out, fmt.Errorf("get profile by pubkey: %w", err)
 	}
@@ -95,5 +99,90 @@ func (s *PostgresStore) GetProfilesByPubkeys(ctx context.Context, pubkeys []stri
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read profile rows: %w", err)
 	}
+	missing := make([]string, 0)
+	for _, pubkey := range normalized {
+		if _, ok := out[pubkey]; ok {
+			continue
+		}
+		missing = append(missing, pubkey)
+	}
+	if len(missing) == 0 {
+		return out, nil
+	}
+	derived, err := s.getProfileProjectionsFromLatestMetadataEvents(ctx, missing)
+	if err != nil {
+		return nil, err
+	}
+	for pubkey, profile := range derived {
+		out[pubkey] = profile
+	}
 	return out, nil
+}
+
+func (s *PostgresStore) getProfileProjectionFromLatestMetadataEvent(ctx context.Context, pubkey string) (ProfileProjection, error) {
+	rows, err := s.getProfileProjectionsFromLatestMetadataEvents(ctx, []string{pubkey})
+	if err != nil {
+		return ProfileProjection{}, err
+	}
+	profile, ok := rows[pubkey]
+	if !ok {
+		return ProfileProjection{}, ErrNotFound
+	}
+	return profile, nil
+}
+
+func (s *PostgresStore) getProfileProjectionsFromLatestMetadataEvents(
+	ctx context.Context,
+	pubkeys []string,
+) (map[string]ProfileProjection, error) {
+	if len(pubkeys) == 0 {
+		return map[string]ProfileProjection{}, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (pubkey) pubkey, id, created_at, content
+		FROM events
+		WHERE kind = 0
+		  AND pubkey = ANY($1::text[])
+		ORDER BY pubkey, created_at DESC, id DESC
+	`, pubkeys)
+	if err != nil {
+		return nil, fmt.Errorf("get latest metadata events by pubkey: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]ProfileProjection, len(pubkeys))
+	for rows.Next() {
+		var (
+			row     ProfileProjection
+			content string
+		)
+		if err := rows.Scan(&row.Pubkey, &row.MetadataEventID, &row.MetadataCreatedAt, &content); err != nil {
+			return nil, fmt.Errorf("scan latest metadata event row: %w", err)
+		}
+		row.ProfileJSON = normalizeProfileJSONContent(content)
+		out[row.Pubkey] = row
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read latest metadata event rows: %w", err)
+	}
+	return out, nil
+}
+
+func normalizeProfileJSONContent(content string) json.RawMessage {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return json.RawMessage(`{}`)
+	}
+	var profile map[string]any
+	if err := json.Unmarshal([]byte(content), &profile); err != nil {
+		return json.RawMessage(`{}`)
+	}
+	if profile == nil {
+		return json.RawMessage(`{}`)
+	}
+	encoded, err := json.Marshal(profile)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return json.RawMessage(encoded)
 }

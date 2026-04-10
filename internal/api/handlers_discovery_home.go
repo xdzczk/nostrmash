@@ -208,6 +208,18 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	profilePubkeys := make([]string, 0, len(trendingProfiles)+len(risingProfiles))
+	for _, profile := range trendingProfiles {
+		profilePubkeys = append(profilePubkeys, profile.Pubkey)
+	}
+	for _, profile := range risingProfiles {
+		profilePubkeys = append(profilePubkeys, profile.Pubkey)
+	}
+	profileIdentities, err := h.resolveProfileIdentities(r.Context(), profilePubkeys)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
 
 	noteItems := make([]map[string]any, 0, len(notes))
 	for _, note := range notes {
@@ -233,32 +245,8 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 			"unique_authors": hashtag.UniqueAuthors,
 		})
 	}
-	trendingProfileItems := make([]map[string]any, 0, len(trendingProfiles))
-	for _, profile := range trendingProfiles {
-		trendingProfileItems = append(trendingProfileItems, map[string]any{
-			"pubkey":                     profile.Pubkey,
-			"score":                      profile.Score,
-			"recent_post_count":          profile.RecentPostCount,
-			"recent_reply_count":         profile.RecentReplyCount,
-			"recent_engagement_received": profile.RecentEngagementReceived,
-			"recent_zap_volume_msats":    profile.RecentZapVolumeMSats,
-			"recent_active_days":         profile.RecentActiveDays,
-			"recent_activity_at":         profile.RecentActivityAt,
-		})
-	}
-	risingProfileItems := make([]map[string]any, 0, len(risingProfiles))
-	for _, profile := range risingProfiles {
-		risingProfileItems = append(risingProfileItems, map[string]any{
-			"pubkey":                     profile.Pubkey,
-			"score":                      profile.Score,
-			"recent_post_count":          profile.RecentPostCount,
-			"recent_reply_count":         profile.RecentReplyCount,
-			"recent_engagement_received": profile.RecentEngagementReceived,
-			"recent_zap_volume_msats":    profile.RecentZapVolumeMSats,
-			"recent_active_days":         profile.RecentActiveDays,
-			"recent_activity_at":         profile.RecentActivityAt,
-		})
-	}
+	trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities)
+	risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities)
 	network := map[string]any{
 		"totals": map[string]any{
 			"events_ingested":    networkStats.EventsIngested,

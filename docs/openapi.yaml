@@ -711,7 +711,7 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
       responses:
         '200':
-          description: Homepage discovery bundle with bounded notes, hashtags, profiles, and network summary sections
+          description: Homepage discovery bundle with bounded notes, hashtags, network summary, and inline-hydrated profile ranking sections
         '400':
           $ref: '#/components/responses/Error'
         '501':
@@ -732,7 +732,7 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Ranked trending profiles with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Ranked trending profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/profiles/rising:
@@ -751,7 +751,7 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Ranked rising profiles with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Ranked rising profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/profiles/{pubkey}/related:
@@ -768,7 +768,7 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
       responses:
         '200':
-          description: Related profiles ranked by bounded topic overlap, reply/interaction adjacency, and quote/repost adjacency with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Related profiles ranked by bounded topic overlap, reply/interaction adjacency, and quote/repost adjacency with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
           $ref: '#/components/responses/Error'
         '404':

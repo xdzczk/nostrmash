@@ -46,9 +46,18 @@ func (h Handlers) GetRelatedProfiles(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	relatedPubkeys := make([]string, 0, len(related))
+	for _, profile := range related {
+		relatedPubkeys = append(relatedPubkeys, profile.Pubkey)
+	}
+	identities, err := h.resolveProfileIdentities(r.Context(), relatedPubkeys)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
 	items := make([]map[string]any, 0, len(related))
 	for _, profile := range related {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			"pubkey":                 profile.Pubkey,
 			"topic_overlap":          profile.TopicOverlap,
 			"reply_adjacency":        profile.ReplyAdjacency,
@@ -56,7 +65,14 @@ func (h Handlers) GetRelatedProfiles(w http.ResponseWriter, r *http.Request) {
 			"quote_repost_adjacency": profile.QuoteRepostAdjacency,
 			"reasons":                profile.Reasons,
 			"score":                  profile.Score,
-		})
+		}
+		if npub := encodeNpub(profile.Pubkey); npub != "" {
+			item["npub"] = npub
+		}
+		if identity, ok := identities[profile.Pubkey]; ok {
+			applyProfileIdentity(item, identity)
+		}
+		items = append(items, item)
 	}
 	payload := map[string]any{
 		"pubkey":      pubkey,
@@ -110,19 +126,16 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	profiles := make([]map[string]any, 0, len(profilesRows))
+	pubkeys := make([]string, 0, len(profilesRows))
 	for _, profile := range profilesRows {
-		profiles = append(profiles, map[string]any{
-			"pubkey":                     profile.Pubkey,
-			"score":                      profile.Score,
-			"recent_post_count":          profile.RecentPostCount,
-			"recent_reply_count":         profile.RecentReplyCount,
-			"recent_engagement_received": profile.RecentEngagementReceived,
-			"recent_zap_volume_msats":    profile.RecentZapVolumeMSats,
-			"recent_active_days":         profile.RecentActiveDays,
-			"recent_activity_at":         profile.RecentActivityAt,
-		})
+		pubkeys = append(pubkeys, profile.Pubkey)
 	}
+	identities, err := h.resolveProfileIdentities(r.Context(), pubkeys)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	profiles := buildDiscoveryProfileItems(profilesRows, identities)
 	payload := map[string]any{
 		"surface":     surface,
 		"window":      windowLabel,

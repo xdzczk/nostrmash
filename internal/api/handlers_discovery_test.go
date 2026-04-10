@@ -127,6 +127,163 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 	}
 }
 
+func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
+	const (
+		pubkeyA = "0f92c4a4aab613ff051f2a6e9cde7d0d131faa576a11ffe175ab82b4715c501b"
+		pubkeyB = "1111111111111111111111111111111111111111111111111111111111111111"
+	)
+	h := mustNewHandlers(t, fakeEventReader{
+		getTrendingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
+			return []store.TrendingProfile{{Pubkey: pubkeyA, Score: 9.5}}, nil
+		},
+		getRisingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
+			return []store.TrendingProfile{{Pubkey: pubkeyB, Score: 7.25}}, nil
+		},
+		getRelatedProfilesFn: func(_ context.Context, pubkey string, _ int) ([]store.RelatedProfile, error) {
+			if pubkey != pubkeyA {
+				t.Fatalf("unexpected related pubkey: %s", pubkey)
+			}
+			return []store.RelatedProfile{{Pubkey: pubkeyB, Score: 42}}, nil
+		},
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingNote, error) {
+			return []store.TrendingNote{}, nil
+		},
+		getTrendingTagsFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingHashtag, error) {
+			return []store.TrendingHashtag{}, nil
+		},
+		getPublicNetworkStatsFn: func(_ context.Context, _ int) (store.PublicDiscoveryNetworkStats, error) {
+			return store.PublicDiscoveryNetworkStats{}, nil
+		},
+		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+			out := make(map[string]store.ProfileProjection, len(pubkeys))
+			for _, pubkey := range pubkeys {
+				switch pubkey {
+				case pubkeyA:
+					out[pubkey] = store.ProfileProjection{
+						Pubkey:            pubkey,
+						MetadataEventID:   "meta_a",
+						MetadataCreatedAt: 100,
+						ProfileJSON: json.RawMessage(`{
+							"name":"alice",
+							"display_name":"Alice",
+							"picture":"https://cdn.example/alice.png",
+							"about":"hello",
+							"nip05":"alice@example.com",
+							"lud16":"alice@getalby.com",
+							"website":"https://alice.example"
+						}`),
+					}
+				case pubkeyB:
+					out[pubkey] = store.ProfileProjection{
+						Pubkey:            pubkey,
+						MetadataEventID:   "meta_b",
+						MetadataCreatedAt: 101,
+						ProfileJSON:       json.RawMessage(`{"name":"bob","display_name":"Bob","picture":"https://cdn.example/bob.png"}`),
+					}
+				}
+			}
+			return out, nil
+		},
+	}, 200)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/profiles/trending", h.GetTrendingProfiles)
+	mux.HandleFunc("GET /api/v1/discovery/profiles/rising", h.GetRisingProfiles)
+	mux.HandleFunc("GET /api/v1/discovery/profiles/{pubkey}/related", h.GetRelatedProfiles)
+	mux.HandleFunc("GET /api/v1/discovery/home", h.GetDiscoveryHome)
+
+	trendingReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/profiles/trending", nil)
+	trendingRec := httptest.NewRecorder()
+	mux.ServeHTTP(trendingRec, trendingReq)
+	if trendingRec.Code != http.StatusOK {
+		t.Fatalf("unexpected trending status: got %d want %d", trendingRec.Code, http.StatusOK)
+	}
+	var trendingBody map[string]any
+	if err := json.Unmarshal(trendingRec.Body.Bytes(), &trendingBody); err != nil {
+		t.Fatalf("decode trending response: %v", err)
+	}
+	trendingProfiles, ok := trendingBody["profiles"].([]any)
+	if !ok || len(trendingProfiles) != 1 {
+		t.Fatalf("unexpected trending profiles payload: %#v", trendingBody["profiles"])
+	}
+	firstTrending, ok := trendingProfiles[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected first trending profile payload: %#v", trendingProfiles[0])
+	}
+	if firstTrending["display_name"] != "Alice" || firstTrending["picture"] != "https://cdn.example/alice.png" {
+		t.Fatalf("expected inline identity fields on trending payload, got %#v", firstTrending)
+	}
+	if firstTrending["npub"] != encodeNpub(pubkeyA) {
+		t.Fatalf("expected npub on trending payload, got %#v", firstTrending)
+	}
+	if firstTrending["nip05"] != "alice@example.com" || firstTrending["lud16"] != "alice@getalby.com" || firstTrending["website"] != "https://alice.example" {
+		t.Fatalf("expected extended identity fields on trending payload, got %#v", firstTrending)
+	}
+
+	relatedReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/profiles/"+pubkeyA+"/related", nil)
+	relatedRec := httptest.NewRecorder()
+	mux.ServeHTTP(relatedRec, relatedReq)
+	if relatedRec.Code != http.StatusOK {
+		t.Fatalf("unexpected related status: got %d want %d", relatedRec.Code, http.StatusOK)
+	}
+	var relatedBody map[string]any
+	if err := json.Unmarshal(relatedRec.Body.Bytes(), &relatedBody); err != nil {
+		t.Fatalf("decode related response: %v", err)
+	}
+	relatedProfiles, ok := relatedBody["related"].([]any)
+	if !ok || len(relatedProfiles) != 1 {
+		t.Fatalf("unexpected related payload: %#v", relatedBody["related"])
+	}
+	firstRelated, ok := relatedProfiles[0].(map[string]any)
+	if !ok || firstRelated["display_name"] != "Bob" {
+		t.Fatalf("expected inline identity on related payload, got %#v", relatedProfiles[0])
+	}
+	if firstRelated["npub"] != encodeNpub(pubkeyB) {
+		t.Fatalf("expected npub on related payload, got %#v", relatedProfiles[0])
+	}
+
+	homeReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/home", nil)
+	homeRec := httptest.NewRecorder()
+	mux.ServeHTTP(homeRec, homeReq)
+	if homeRec.Code != http.StatusOK {
+		t.Fatalf("unexpected home status: got %d want %d", homeRec.Code, http.StatusOK)
+	}
+	var homeBody map[string]any
+	if err := json.Unmarshal(homeRec.Body.Bytes(), &homeBody); err != nil {
+		t.Fatalf("decode home response: %v", err)
+	}
+	sections, ok := homeBody["sections"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing home sections payload: %#v", homeBody)
+	}
+	profilesSection, ok := sections["profiles"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing home profiles section: %#v", sections)
+	}
+	homeTrending, ok := profilesSection["trending"].([]any)
+	if !ok || len(homeTrending) != 1 {
+		t.Fatalf("unexpected home trending profiles payload: %#v", profilesSection["trending"])
+	}
+	firstHomeTrending, ok := homeTrending[0].(map[string]any)
+	if !ok || firstHomeTrending["display_name"] != "Alice" || firstHomeTrending["picture"] != "https://cdn.example/alice.png" {
+		t.Fatalf("expected inline identity on home trending payload, got %#v", homeTrending[0])
+	}
+	if firstHomeTrending["npub"] != encodeNpub(pubkeyA) {
+		t.Fatalf("expected npub on home trending payload, got %#v", homeTrending[0])
+	}
+	homeRising, ok := profilesSection["rising"].([]any)
+	if !ok || len(homeRising) != 1 {
+		t.Fatalf("unexpected home rising profiles payload: %#v", profilesSection["rising"])
+	}
+	firstHomeRising, ok := homeRising[0].(map[string]any)
+	if !ok || firstHomeRising["display_name"] != "Bob" {
+		t.Fatalf("expected inline identity on home rising payload, got %#v", homeRising[0])
+	}
+	if firstHomeRising["npub"] != encodeNpub(pubkeyB) {
+		t.Fatalf("expected npub on home rising payload, got %#v", homeRising[0])
+	}
+}
+
 func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
 		getTrendingNotesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.TrendingNote, error) {
