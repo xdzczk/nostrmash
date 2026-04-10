@@ -349,3 +349,60 @@ func (a legacyFallbackReaderAdapter) FetchProfilesByPubkeys(ctx context.Context,
 	}
 	return out, nil
 }
+
+type legacyFallbackProfilePersister interface {
+	PersistFallbackProfile(ctx context.Context, pp store.ProfileProjection) error
+}
+
+type legacyFallbackProfilePersisterAdapter struct {
+	legacy legacyFallbackProfilePersister
+}
+
+func (a legacyFallbackProfilePersisterAdapter) PersistFallbackProfile(ctx context.Context, p Profile) error {
+	return a.legacy.PersistFallbackProfile(ctx, store.ProfileProjection{
+		Pubkey:            p.Pubkey,
+		MetadataEventID:   p.MetadataEventID,
+		MetadataCreatedAt: p.MetadataCreatedAt,
+		ProfileJSON:       p.ProfileJSON,
+	})
+}
+
+type legacyFallbackEventPersister interface {
+	PersistFallbackEvent(ctx context.Context, eventID string, raw json.RawMessage) error
+}
+
+type legacyFallbackEventPersisterAdapter struct {
+	legacy legacyFallbackEventPersister
+}
+
+func (a legacyFallbackEventPersisterAdapter) PersistFallbackEvent(ctx context.Context, eventID string, raw json.RawMessage) error {
+	return a.legacy.PersistFallbackEvent(ctx, eventID, raw)
+}
+
+// AdaptFallbackEventPersister wraps a store-level event persister as a query-level one.
+func AdaptFallbackEventPersister(persister any) FallbackEventPersister {
+	if persister == nil {
+		return nil
+	}
+	if adapted, ok := persister.(FallbackEventPersister); ok {
+		return adapted
+	}
+	if legacy, ok := persister.(legacyFallbackEventPersister); ok {
+		return legacyFallbackEventPersisterAdapter{legacy: legacy}
+	}
+	return nil
+}
+
+// AdaptFallbackProfilePersister wraps a store-level persister as a query-level one.
+func AdaptFallbackProfilePersister(persister any) FallbackProfilePersister {
+	if persister == nil {
+		return nil
+	}
+	if adapted, ok := persister.(FallbackProfilePersister); ok {
+		return adapted
+	}
+	if legacy, ok := persister.(legacyFallbackProfilePersister); ok {
+		return legacyFallbackProfilePersisterAdapter{legacy: legacy}
+	}
+	return nil
+}

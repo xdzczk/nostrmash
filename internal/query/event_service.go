@@ -14,9 +14,10 @@ import (
 )
 
 type eventService struct {
-	reader   EventReader
-	fallback FallbackReader
-	policy   fallbackPolicyRuntime
+	reader    EventReader
+	fallback  FallbackReader
+	persister FallbackEventPersister
+	policy    fallbackPolicyRuntime
 }
 
 // NewEventService constructs an event-only orchestration service from a narrow dependency.
@@ -81,18 +82,24 @@ func (s Service) GetEventActionCounts(ctx context.Context, eventID string) (Acti
 func (s Service) GetEventByID(ctx context.Context, id string) (raw json.RawMessage, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_event_by_id")
 	defer func() { span.End(err) }()
-	return eventService{reader: s.reader, fallback: s.fallback, policy: s.fallbackPolicy()}.GetEvent(ctx, id)
+	return eventService{reader: s.reader, fallback: s.fallback, persister: s.fallbackEventPersister, policy: s.fallbackPolicy()}.GetEvent(ctx, id)
 }
 
 func (s Service) GetEventBatch(ctx context.Context, ids []string) (out map[string]json.RawMessage, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_event_batch")
 	defer func() { span.End(err) }()
-	return eventService{reader: s.reader, fallback: s.fallback, policy: s.fallbackPolicy()}.GetEvents(ctx, ids)
+	return eventService{reader: s.reader, fallback: s.fallback, persister: s.fallbackEventPersister, policy: s.fallbackPolicy()}.GetEvents(ctx, ids)
 }
 
 func (s Service) Search(ctx context.Context, text string, limit int) (out SearchResult, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.search")
 	defer func() { span.End(err) }()
+
+	stripped := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "nostr:"))
+	if eventID := canonicalizeEventIdentifier(stripped); eventID.EventID != "" {
+		return s.searchByEventIdentifier(ctx, eventID)
+	}
+
 	profileQuery := normalizeProfileSearchQuery(text)
 	events, err := s.SearchNotes(ctx, NotesSearchParams{
 		Query: profileQuery.NormalizedQuery,
@@ -120,6 +127,23 @@ func (s Service) Search(ctx context.Context, text string, limit int) (out Search
 		Hashtags:   hashtags,
 		Relays:     relays,
 		Identities: identities,
+	}, nil
+}
+
+func (s Service) searchByEventIdentifier(ctx context.Context, eid normalizedEventIdentifier) (SearchResult, error) {
+	raw, err := s.GetEventByID(ctx, eid.EventID)
+	if err != nil {
+		if IsNotFound(err) {
+			return SearchResult{
+				Events:   []json.RawMessage{},
+				Profiles: []Profile{},
+			}, nil
+		}
+		return SearchResult{}, err
+	}
+	return SearchResult{
+		Events:   []json.RawMessage{raw},
+		Profiles: []Profile{},
 	}, nil
 }
 
@@ -172,6 +196,19 @@ func (s Service) SearchNotes(ctx context.Context, params NotesSearchParams) (out
 	if normalized.Query == "" {
 		return []json.RawMessage{}, nil
 	}
+
+	stripped := strings.TrimSpace(strings.TrimPrefix(normalized.Query, "nostr:"))
+	if eid := canonicalizeEventIdentifier(stripped); eid.EventID != "" {
+		raw, getErr := s.GetEventByID(ctx, eid.EventID)
+		if getErr != nil {
+			if IsNotFound(getErr) {
+				return []json.RawMessage{}, nil
+			}
+			return nil, getErr
+		}
+		return []json.RawMessage{raw}, nil
+	}
+
 	return s.searchNotesTrustAware(ctx, normalized)
 }
 
@@ -526,7 +563,7 @@ func (s Service) GetEventWithProvenance(ctx context.Context, eventID string) (Ev
 	if !errors.Is(err, store.ErrNotFound) {
 		return EventWithProvenanceResult{}, err
 	}
-	raw, fallbackErr := eventService{reader: s.reader, fallback: s.fallback, policy: s.fallbackPolicy()}.GetEvent(ctx, eventID)
+	raw, fallbackErr := eventService{reader: s.reader, fallback: s.fallback, persister: s.fallbackEventPersister, policy: s.fallbackPolicy()}.GetEvent(ctx, eventID)
 	if fallbackErr != nil {
 		return EventWithProvenanceResult{}, store.ErrNotFound
 	}

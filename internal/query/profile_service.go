@@ -13,9 +13,10 @@ import (
 )
 
 type profileService struct {
-	reader   ProfileReader
-	fallback FallbackReader
-	policy   fallbackPolicyRuntime
+	reader    ProfileReader
+	fallback  FallbackReader
+	persister FallbackProfilePersister
+	policy    fallbackPolicyRuntime
 }
 
 // NewProfileService constructs a profile-only orchestration service from a narrow dependency.
@@ -24,7 +25,7 @@ func NewProfileService(reader ProfileReader) ProfileService {
 }
 
 func (s Service) GetUserInfos(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
-	return profileService{reader: s.reader, fallback: s.fallback, policy: s.fallbackPolicy()}.GetProfiles(ctx, pubkeys)
+	return profileService{reader: s.reader, fallback: s.fallback, persister: s.fallbackPersister, policy: s.fallbackPolicy()}.GetProfiles(ctx, pubkeys)
 }
 
 func (s Service) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
@@ -72,6 +73,7 @@ func (s profileService) GetProfile(ctx context.Context, pubkey string) (Profile,
 		if ok {
 			fallbackSpan.End(nil)
 			observeFallbackResultByEntity(fallbackEntityProfile, fallbackResultHit, time.Since(started))
+			s.persistFallbackProfile(ctx, profile)
 			return profile, nil
 		}
 		if budgetCtx.Err() != nil {
@@ -168,6 +170,7 @@ func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (User
 			}
 			for pubkey, profile := range fallbackProfiles {
 				profilesByPubkey[pubkey] = profile
+				s.persistFallbackProfile(ctx, profile)
 			}
 		}
 	}
@@ -205,13 +208,22 @@ func (s profileService) GetProfilePublicSummary(ctx context.Context, pubkey stri
 func (s Service) GetProfile(ctx context.Context, pubkey string) (out Profile, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_profile")
 	defer func() { span.End(err) }()
-	return profileService{reader: s.reader, fallback: s.fallback, policy: s.fallbackPolicy()}.GetProfile(ctx, pubkey)
+	return profileService{reader: s.reader, fallback: s.fallback, persister: s.fallbackPersister, policy: s.fallbackPolicy()}.GetProfile(ctx, pubkey)
 }
 
 func (s Service) GetProfilePublicSummary(ctx context.Context, pubkey string) (out ProfilePublicSummary, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_profile_public_summary")
 	defer func() { span.End(err) }()
-	return profileService{reader: s.reader, fallback: s.fallback, policy: s.fallbackPolicy()}.GetProfilePublicSummary(ctx, pubkey)
+	return profileService{reader: s.reader, fallback: s.fallback, persister: s.fallbackPersister, policy: s.fallbackPolicy()}.GetProfilePublicSummary(ctx, pubkey)
+}
+
+func (s profileService) persistFallbackProfile(ctx context.Context, profile Profile) {
+	if s.persister == nil {
+		return
+	}
+	go func() {
+		_ = s.persister.PersistFallbackProfile(ctx, profile)
+	}()
 }
 
 func (s Service) GetContactList(ctx context.Context, pubkey string) (ContactList, error) {

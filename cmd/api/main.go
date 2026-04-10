@@ -98,6 +98,8 @@ func main() {
 	}
 	queryOptions := query.ServiceOptions{
 		FallbackReader:                  fallbackReader,
+		FallbackProfilePersister:        query.AdaptFallbackProfilePersister(queryStore),
+		FallbackEventPersister:          query.AdaptFallbackEventPersister(queryStore),
 		FallbackFetchTrustMode:          cfg.Shared.TrustPolicy.FallbackFetchMode,
 		FallbackFetchMinimumScore:       cfg.Shared.TrustPolicy.MinimumScore,
 		FallbackFetchMaxHops:            cfg.Shared.TrustPolicy.MaxHops,

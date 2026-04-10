@@ -84,6 +84,8 @@ type Service struct {
 	reader                          Reader
 	capabilities                    serviceCapabilities
 	fallback                        FallbackReader
+	fallbackPersister               FallbackProfilePersister
+	fallbackEventPersister          FallbackEventPersister
 	fallbackFetchMode               string
 	fallbackFetchPolicy             TrustQualificationPolicy
 	fallbackMaxAttempts             int
@@ -105,8 +107,22 @@ type FallbackReader interface {
 	FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error)
 }
 
+// FallbackProfilePersister saves profiles obtained from relay fallback
+// into the local store so subsequent lookups avoid relay round-trips.
+type FallbackProfilePersister interface {
+	PersistFallbackProfile(ctx context.Context, profile Profile) error
+}
+
+// FallbackEventPersister saves raw events obtained from relay fallback
+// into the local store so subsequent lookups avoid relay round-trips.
+type FallbackEventPersister interface {
+	PersistFallbackEvent(ctx context.Context, eventID string, raw json.RawMessage) error
+}
+
 type ServiceOptions struct {
 	FallbackReader                  any
+	FallbackProfilePersister        FallbackProfilePersister
+	FallbackEventPersister          FallbackEventPersister
 	FallbackFetchTrustMode          string
 	FallbackFetchMinimumScore       float64
 	FallbackFetchMaxHops            int
@@ -198,16 +214,18 @@ func NewServiceWithOptions(reader any, options ServiceOptions) (Service, error) 
 		return Service{}, err
 	}
 	return Service{
-		reader:                adaptedReader,
-		capabilities:          adaptServiceCapabilities(reader),
-		fallback:              adaptedFallback,
-		fallbackFetchMode:     fallbackMode,
-		fallbackFetchPolicy:   TrustQualificationPolicy{MaxHops: fallbackMaxHops, MinimumScore: fallbackMinScore},
-		fallbackMaxAttempts:   fallbackMaxAttempts,
-		fallbackMaxTimeBudget: fallbackMaxTimeBudget,
-		fallbackDirectLookups: fallbackDirectLookups,
-		discoveryTrustMode:    mode,
-		discoveryTrustPolicy:  TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
+		reader:                 adaptedReader,
+		capabilities:           adaptServiceCapabilities(reader),
+		fallback:               adaptedFallback,
+		fallbackPersister:      options.FallbackProfilePersister,
+		fallbackEventPersister: options.FallbackEventPersister,
+		fallbackFetchMode:      fallbackMode,
+		fallbackFetchPolicy:    TrustQualificationPolicy{MaxHops: fallbackMaxHops, MinimumScore: fallbackMinScore},
+		fallbackMaxAttempts:    fallbackMaxAttempts,
+		fallbackMaxTimeBudget:  fallbackMaxTimeBudget,
+		fallbackDirectLookups:  fallbackDirectLookups,
+		discoveryTrustMode:     mode,
+		discoveryTrustPolicy:   TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
 		// Keep trust-aware candidate scans bounded and predictable.
 		discoveryTrustScanSize:          400,
 		discoveryProjectionMaxStaleness: discoveryProjectionMaxStaleness,

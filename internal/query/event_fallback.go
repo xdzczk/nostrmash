@@ -49,6 +49,7 @@ func (s eventService) getEventWithFallback(ctx context.Context, eventID string) 
 		if raw, ok := foundByID[eventID]; ok {
 			fallbackSpan.End(nil)
 			observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultHit, time.Since(started))
+			s.persistFallbackEvent(ctx, eventID, raw)
 			return raw, nil
 		}
 		if budgetCtx.Err() != nil {
@@ -63,6 +64,15 @@ func (s eventService) getEventWithFallback(ctx context.Context, eventID string) 
 	}
 	observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultMiss, time.Since(started))
 	return nil, err
+}
+
+func (s eventService) persistFallbackEvent(ctx context.Context, eventID string, raw json.RawMessage) {
+	if s.persister == nil {
+		return
+	}
+	go func() {
+		_ = s.persister.PersistFallbackEvent(ctx, eventID, raw)
+	}()
 }
 
 func (s eventService) mergeEventsWithFallback(ctx context.Context, normalizedIDs []string, found map[string]json.RawMessage) (map[string]json.RawMessage, error) {
@@ -142,6 +152,7 @@ func (s eventService) mergeEventsWithFallback(ctx context.Context, normalizedIDs
 	observeFallbackResultByEntity(fallbackEntityEvent, fallbackResultHit, time.Since(started))
 	for id, raw := range fallbackFound {
 		found[id] = raw
+		s.persistFallbackEvent(ctx, id, raw)
 	}
 	return found, nil
 }
