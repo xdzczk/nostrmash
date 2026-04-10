@@ -253,6 +253,27 @@ func runLifecycle(
 		)
 	}
 
+	if cfg.AuthorMetadataDiscovery.Enabled {
+		go runAuthorMetadataDiscoveryLoop(
+			ctx,
+			log,
+			runner.eventStore,
+			cfg.AuthorMetadataDiscovery,
+			prioritizedRelays,
+			backfill.WebsocketFetcher{
+				Log:            log,
+				ConnectTimeout: cfg.Backfill.ConnectTimeout,
+				IdleTimeout:    cfg.Backfill.IdleTimeout,
+			},
+			runner.processor.Handle,
+		)
+		log.Info(
+			"author_metadata_discovery_started",
+			"batch_size", cfg.AuthorMetadataDiscovery.BatchSize,
+			"interval", cfg.AuthorMetadataDiscovery.Interval.String(),
+		)
+	}
+
 	relayManager, err := relay.NewManager(
 		relay.Config{
 			Relays:         prioritizedRelays,

@@ -47,6 +47,19 @@ func (s *PostgresStore) GetTrendingNotes(ctx context.Context, window time.Durati
 			WHERE er.source_event_id = s.event_id
 			  AND er.relation = 'reply'
 		  )
+		  AND (
+			EXISTS (
+				SELECT 1
+				FROM profiles_latest pl
+				WHERE pl.pubkey = s.author_pubkey
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM events metadata
+				WHERE metadata.pubkey = s.author_pubkey
+				  AND metadata.kind = 0
+			)
+		  )
 		ORDER BY score DESC, s.created_at DESC, s.event_id ASC
 		LIMIT $2 OFFSET $3
 	`, scoreColumn)

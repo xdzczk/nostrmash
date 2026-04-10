@@ -14,13 +14,24 @@ type IngestorRuntimeConfig struct {
 
 // IngestorConfig owns ingestor runtime configuration plus shared settings.
 type IngestorConfig struct {
-	Shared              SharedConfig
-	Runtime             IngestorRuntimeConfig
-	Relay               RelayConfig
-	Backfill            BackfillConfig
-	Replay              ReplayConfig
-	TrustPrioritization IngestorTrustPrioritizationConfig
-	TrustFetch          IngestorTrustFetchConfig
+	Shared                  SharedConfig
+	Runtime                 IngestorRuntimeConfig
+	Relay                   RelayConfig
+	Backfill                BackfillConfig
+	Replay                  ReplayConfig
+	TrustPrioritization     IngestorTrustPrioritizationConfig
+	TrustFetch              IngestorTrustFetchConfig
+	AuthorMetadataDiscovery IngestorAuthorMetadataDiscoveryConfig
+}
+
+// IngestorAuthorMetadataDiscoveryConfig controls the background loop that
+// fetches kind-0 metadata from relays for note authors whose metadata was
+// never ingested.
+type IngestorAuthorMetadataDiscoveryConfig struct {
+	Enabled           bool
+	BatchSize         int
+	Interval          time.Duration
+	PageLimitPerRelay int
 }
 
 type IngestorTrustPrioritizationConfig struct {
@@ -115,6 +126,12 @@ func LoadIngestor() (IngestorConfig, error) {
 			PageLimitPerRelay:     getEnvInt("INGESTOR_TRUST_FETCH_PAGE_LIMIT_PER_RELAY", 200),
 			RetryDelay:            getEnvDuration("INGESTOR_TRUST_FETCH_RETRY_DELAY", 10*time.Minute),
 		},
+		AuthorMetadataDiscovery: IngestorAuthorMetadataDiscoveryConfig{
+			Enabled:           getEnvBool("INGESTOR_AUTHOR_METADATA_DISCOVERY_ENABLED", true),
+			BatchSize:         getEnvInt("INGESTOR_AUTHOR_METADATA_DISCOVERY_BATCH_SIZE", 50),
+			Interval:          getEnvDuration("INGESTOR_AUTHOR_METADATA_DISCOVERY_INTERVAL", 3*time.Minute),
+			PageLimitPerRelay: getEnvInt("INGESTOR_AUTHOR_METADATA_DISCOVERY_PAGE_LIMIT", 10),
+		},
 	}
 
 	if err := applyConfiguredFilterGroups(&cfg.Relay); err != nil {
@@ -162,6 +179,17 @@ func LoadIngestor() (IngestorConfig, error) {
 		}
 		if cfg.TrustFetch.RetryDelay < 0 {
 			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_RETRY_DELAY must be >= 0 when trust fetch is enabled")
+		}
+	}
+	if cfg.AuthorMetadataDiscovery.Enabled {
+		if cfg.AuthorMetadataDiscovery.BatchSize <= 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_AUTHOR_METADATA_DISCOVERY_BATCH_SIZE must be > 0 when author metadata discovery is enabled")
+		}
+		if cfg.AuthorMetadataDiscovery.Interval <= 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_AUTHOR_METADATA_DISCOVERY_INTERVAL must be > 0 when author metadata discovery is enabled")
+		}
+		if cfg.AuthorMetadataDiscovery.PageLimitPerRelay <= 0 {
+			return IngestorConfig{}, fmt.Errorf("INGESTOR_AUTHOR_METADATA_DISCOVERY_PAGE_LIMIT must be > 0 when author metadata discovery is enabled")
 		}
 	}
 	return cfg, nil

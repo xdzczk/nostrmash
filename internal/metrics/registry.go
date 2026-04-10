@@ -59,6 +59,7 @@ func ensureRegistered() {
 	registerTrustMetrics()
 	registerBuildMetrics()
 	registerStorageMetrics()
+	registerAuthorMetadataMetrics()
 
 	metricsRegistered = true
 }

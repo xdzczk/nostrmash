@@ -209,17 +209,18 @@ func (s *adminService) GetDiscoveryStatus(ctx context.Context) (adminDiscoverySt
 
 func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusResponse, error) {
 	var (
-		ingestCount              int64
-		ingestUpdatedAt          *time.Time
-		noteSearchRows           int64
-		noteSearchUpdatedAt      *time.Time
-		profilesCount            int64
-		profilesUpdatedAt        *time.Time
-		notesDiscoveryCount      int64
-		notesDiscoveryUpdatedAt  *time.Time
-		searchDocumentRows       int64
-		searchDocumentsUpdated   *time.Time
-		profileProjectionGapRows int64
+		ingestCount                 int64
+		ingestUpdatedAt             *time.Time
+		noteSearchRows              int64
+		noteSearchUpdatedAt         *time.Time
+		profilesCount               int64
+		profilesUpdatedAt           *time.Time
+		notesDiscoveryCount         int64
+		notesDiscoveryUpdatedAt     *time.Time
+		searchDocumentRows          int64
+		searchDocumentsUpdated      *time.Time
+		profileProjectionGapRows    int64
+		authorsWithoutMetadataCount int64
 	)
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
@@ -252,6 +253,13 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 						latest_kind0.created_at = profiles_latest.metadata_created_at
 						AND latest_kind0.id > profiles_latest.metadata_event_id
 					)
+			),
+			(
+				SELECT COUNT(DISTINCT e.pubkey)
+				FROM events e
+				WHERE e.kind = 1
+				  AND NOT EXISTS (SELECT 1 FROM events e2 WHERE e2.kind = 0 AND e2.pubkey = e.pubkey)
+				  AND NOT EXISTS (SELECT 1 FROM profiles_latest pl WHERE pl.pubkey = e.pubkey)
 			)
 	`).Scan(
 		&ingestCount,
@@ -265,6 +273,7 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		&searchDocumentRows,
 		&searchDocumentsUpdated,
 		&profileProjectionGapRows,
+		&authorsWithoutMetadataCount,
 	); err != nil {
 		return adminSearchStatusResponse{}, fmt.Errorf("read search status snapshot: %w", err)
 	}
@@ -277,6 +286,7 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		buildFreshnessSignal("note_discovery_stats", notesDiscoveryUpdatedAt, adminSearchFreshnessThreshold, now, &notesDiscoveryCount),
 		buildFreshnessSignal("search_documents", searchDocumentsUpdated, adminSearchFreshnessThreshold, now, &searchDocumentRows),
 		buildCoverageSignal("profiles_latest_projection_gap", profileProjectionGapRows),
+		buildAuthorMetadataGapSignal(authorsWithoutMetadataCount),
 	}
 	if s.searchTrustPolicyEnabled() {
 		snapshotUpdatedAt, snapshotCount, err := s.loadTrustSnapshotStatus(ctx)
@@ -300,6 +310,22 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		StaleSubsystems:  stale,
 		Ready:            len(stale) == 0,
 	}, nil
+}
+
+func buildAuthorMetadataGapSignal(count int64) adminFreshnessSignal {
+	signal := adminFreshnessSignal{
+		Name:             "authors_without_metadata",
+		ThresholdSeconds: 0,
+		RowCount:         int64Ptr(count),
+		Stale:            count > 0,
+	}
+	if count > 0 {
+		signal.Status = "stale"
+		signal.Details = "note authors with no kind-0 metadata in either events or profiles_latest; enable INGESTOR_AUTHOR_METADATA_DISCOVERY_ENABLED to backfill"
+		return signal
+	}
+	signal.Status = "fresh"
+	return signal
 }
 
 func buildCoverageSignal(name string, uncoveredRows int64) adminFreshnessSignal {

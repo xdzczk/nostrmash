@@ -23,6 +23,9 @@ func TestGetTrendingNotes_WindowsAndOrdering(t *testing.T) {
 	now := time.Now().UTC()
 
 	events := []model.Event{
+		newDiscoveryEvent("meta_a", "author_a", now.Add(-5*time.Hour), 0, nil, `{"name":"Author A"}`),
+		newDiscoveryEvent("meta_b", "author_b", now.Add(-5*time.Hour), 0, nil, `{"name":"Author B"}`),
+		newDiscoveryEvent("meta_c", "author_c", now.Add(-50*time.Hour), 0, nil, `{"name":"Author C"}`),
 		newDiscoveryEvent("note_a", "author_a", now.Add(-2*time.Hour), 1, nil, "note a"),
 		newDiscoveryEvent("note_b", "author_b", now.Add(-3*time.Hour), 1, nil, "note b"),
 		newDiscoveryEvent("note_c", "author_c", now.Add(-40*time.Hour), 1, nil, "note c"),
@@ -67,6 +70,50 @@ func TestGetTrendingNotes_WindowsAndOrdering(t *testing.T) {
 	}
 	if last7d[0].EventID != "note_c" {
 		t.Fatalf("expected older but highly engaged note_c to rank first in 7d window, got %#v", last7d[0])
+	}
+}
+
+func TestGetTrendingNotes_ExcludesNotesFromAuthorsWithoutLocalMetadata(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+
+	events := []model.Event{
+		newDiscoveryEvent("meta_resolved", "resolved_author", now.Add(-4*time.Hour), 0, nil, `{"name":"Resolved"}`),
+		newDiscoveryEvent("resolved_note", "resolved_author", now.Add(-2*time.Hour), 1, nil, "resolved note"),
+		newDiscoveryEvent("resolved_react_1", "resolved_reactor_1", now.Add(-90*time.Minute), 7, [][]string{{"e", "resolved_note"}}, "+"),
+		newDiscoveryEvent("resolved_react_2", "resolved_reactor_2", now.Add(-80*time.Minute), 7, [][]string{{"e", "resolved_note"}}, "+"),
+		newDiscoveryEvent("unresolved_note", "unresolved_author", now.Add(-70*time.Minute), 1, nil, "unresolved note"),
+		newDiscoveryEvent("unresolved_react_1", "unresolved_reactor_1", now.Add(-60*time.Minute), 7, [][]string{{"e", "unresolved_note"}}, "+"),
+		newDiscoveryEvent("unresolved_react_2", "unresolved_reactor_2", now.Add(-50*time.Minute), 7, [][]string{{"e", "unresolved_note"}}, "+"),
+		newDiscoveryEvent("unresolved_react_3", "unresolved_reactor_3", now.Add(-40*time.Minute), 7, [][]string{{"e", "unresolved_note"}}, "+"),
+	}
+	for _, event := range events {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+
+	notes, err := pgStore.GetTrendingNotes(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingNotes: %v", err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("expected only notes from resolved authors, got %d notes: %#v", len(notes), notes)
+	}
+	if notes[0].EventID != "resolved_note" {
+		t.Fatalf("expected resolved_note only, got %#v", notes)
 	}
 }
 
