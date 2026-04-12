@@ -10,6 +10,8 @@ type adminMeilisearchSyncResponse struct {
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
 	BatchSize  int       `json:"batch_size"`
+	Async      bool      `json:"async"`
+	Status     string    `json:"status"`
 	Stats      struct {
 		Notes     int64 `json:"notes"`
 		Profiles  int64 `json:"profiles"`
@@ -30,6 +32,8 @@ func (s *adminService) TriggerMeilisearchSync(ctx context.Context, batchSize int
 		StartedAt:  startedAt,
 		FinishedAt: time.Now().UTC(),
 		BatchSize:  batchSize,
+		Async:      false,
+		Status:     "completed",
 	}
 	resp.Stats.Notes = stats.Notes
 	resp.Stats.Profiles = stats.Profiles

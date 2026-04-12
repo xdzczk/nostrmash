@@ -300,6 +300,90 @@ func TestAdminStatusRoutes_ReturnFreshnessSignals(t *testing.T) {
 	}
 }
 
+func TestAdminMeilisearchSync_DefaultsToAsync(t *testing.T) {
+	called := make(chan int, 1)
+	mux := newAdminTestMux("token", fakeAdminService{
+		triggerMeilisearchSyncFn: func(_ context.Context, batchSize int) (adminMeilisearchSyncResponse, error) {
+			called <- batchSize
+			return adminMeilisearchSyncResponse{}, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/v1/search/meilisearch/sync?batch_size=123", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusAccepted)
+	}
+	var body struct {
+		BatchSize int    `json:"batch_size"`
+		Async     bool   `json:"async"`
+		Status    string `json:"status"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode meilisearch sync body: %v", err)
+	}
+	if body.BatchSize != 123 || !body.Async || body.Status != "started" {
+		t.Fatalf("unexpected meilisearch sync body: %+v", body)
+	}
+
+	select {
+	case got := <-called:
+		if got != 123 {
+			t.Fatalf("unexpected batch size in async call: got %d want %d", got, 123)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for async meilisearch sync call")
+	}
+}
+
+func TestAdminMeilisearchSync_WaitTrue(t *testing.T) {
+	startedAt := time.Date(2026, 4, 12, 6, 0, 0, 0, time.UTC)
+	finishedAt := startedAt.Add(2 * time.Second)
+	mux := newAdminTestMux("token", fakeAdminService{
+		triggerMeilisearchSyncFn: func(_ context.Context, batchSize int) (adminMeilisearchSyncResponse, error) {
+			if batchSize != 50 {
+				t.Fatalf("unexpected batch size: got %d want %d", batchSize, 50)
+			}
+			resp := adminMeilisearchSyncResponse{
+				StartedAt:  startedAt,
+				FinishedAt: finishedAt,
+				BatchSize:  batchSize,
+				Async:      false,
+				Status:     "completed",
+			}
+			resp.Stats.Notes = 10
+			resp.Stats.Profiles = 20
+			resp.Stats.Documents = 30
+			return resp, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/v1/search/meilisearch/sync?batch_size=50&wait=true", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusAccepted)
+	}
+	var body struct {
+		Async  bool   `json:"async"`
+		Status string `json:"status"`
+		Stats  struct {
+			Documents int64 `json:"documents"`
+		} `json:"stats"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode meilisearch sync wait body: %v", err)
+	}
+	if body.Async || body.Status != "completed" || body.Stats.Documents != 30 {
+		t.Fatalf("unexpected meilisearch wait body: %+v", body)
+	}
+}
+
 func TestAdminRebuilds_RejectsOversizedPayload(t *testing.T) {
 	mux := newAdminTestMux("token", fakeAdminService{
 		triggerRebuildFn: func(_ context.Context, p derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error) {

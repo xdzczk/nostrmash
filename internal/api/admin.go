@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -199,6 +200,32 @@ func (h AdminHandlers) TriggerMeilisearchSync(w http.ResponseWriter, r *http.Req
 	batchSize, err := parseBoundedPositiveInt(r, "batch_size", 1000, 5000)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	wait := false
+	if rawWait := strings.TrimSpace(r.URL.Query().Get("wait")); rawWait != "" {
+		parsedWait, parseErr := strconv.ParseBool(rawWait)
+		if parseErr != nil {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "wait must be a boolean")
+			return
+		}
+		wait = parsedWait
+	}
+	if !wait {
+		startedAt := time.Now().UTC()
+		go func(batch int) {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+			if _, syncErr := h.service.TriggerMeilisearchSync(bgCtx, batch); syncErr != nil {
+				log.Printf("admin_meilisearch_sync_async_failed: batch_size=%d err=%v", batch, syncErr)
+			}
+		}(batchSize)
+		writeJSON(w, http.StatusAccepted, adminMeilisearchSyncResponse{
+			StartedAt: startedAt,
+			BatchSize: batchSize,
+			Async:     true,
+			Status:    "started",
+		})
 		return
 	}
 	resp, err := h.service.TriggerMeilisearchSync(r.Context(), batchSize)
