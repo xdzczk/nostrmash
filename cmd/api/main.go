@@ -17,6 +17,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/logging"
+	"github.com/xdzczk/nostrmash/internal/meili"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/relaylookup"
@@ -82,6 +83,29 @@ func main() {
 	}
 
 	queryStore := store.NewPostgresStore(pool)
+	meiliClient, err := meili.NewClient(meili.Config{
+		Enabled:      cfg.Meilisearch.Enabled,
+		URL:          cfg.Meilisearch.URL,
+		MasterKey:    cfg.Meilisearch.MasterKey,
+		SearchAPIKey: cfg.Meilisearch.SearchAPIKey,
+	})
+	if err != nil {
+		log.Error("meilisearch_client", "error", err)
+		os.Exit(1)
+	}
+	if meiliClient.Enabled() {
+		if err := meiliClient.EnsureIndexes(ctx); err != nil {
+			log.Error("meilisearch_index_init", "error", err)
+			os.Exit(1)
+		}
+		stats, statsErr := meiliClient.Stats(ctx)
+		if statsErr != nil {
+			log.Error("meilisearch_stats", "error", statsErr)
+		} else {
+			log.Info("meilisearch_ready", "healthy", stats.Healthy, "index_count", len(stats.Indexes))
+		}
+	}
+	meiliSearcher := meili.NewSearcher(meiliClient, queryStore)
 	var fallbackReader any
 	if cfg.RelayFallback.Enabled {
 		maxFanout := cfg.RelayFallback.MaxFanout
@@ -138,6 +162,7 @@ func main() {
 				UntrustedHorizon: cfg.Shared.TrustPolicy.RetentionHooks.FallbackTransientMetadata.UntrustedHorizon,
 			},
 		},
+		MeilisearchSearcher: meiliSearcher,
 	}
 	discoveryCacheEnabled := cfg.DiscoveryCache.Enabled
 	handlers, err := api.NewHandlersWithOptions(queryStore, api.HandlersOptions{
@@ -192,6 +217,7 @@ func main() {
 		DiscoveryTrustMode:   cfg.Shared.TrustPolicy.DiscoveryCandidateMode,
 		SearchTrustMode:      cfg.Shared.TrustPolicy.SearchRankingMode,
 		TrustRefreshInterval: cfg.Shared.TrustPolicy.RefreshInterval,
+		MeiliClient:          meiliClient,
 	})
 	adminHandlers := api.NewAdminHandlers(adminService)
 

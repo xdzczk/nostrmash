@@ -14,6 +14,7 @@ type APIConfig struct {
 	Relay          APIRelayConfig
 	RelayFallback  APIRelayFallbackConfig
 	DiscoveryCache APIDiscoveryCacheConfig
+	Meilisearch    MeilisearchConfig
 }
 
 type APIHTTPConfig struct {
@@ -66,6 +67,13 @@ type APIDiscoveryCacheConfig struct {
 	TrendingTTL    time.Duration
 	StatsTTL       time.Duration
 	PublicStatsTTL time.Duration
+}
+
+type MeilisearchConfig struct {
+	Enabled      bool
+	URL          string
+	MasterKey    string
+	SearchAPIKey string
 }
 
 func LoadAPI() (APIConfig, error) {
@@ -240,6 +248,15 @@ func LoadAPI() (APIConfig, error) {
 			StatsTTL:       discoveryStatsTTL,
 			PublicStatsTTL: discoveryPublicStatsTTL,
 		},
+		Meilisearch: MeilisearchConfig{
+			Enabled:      getEnvBool("MEILI_ENABLED", false),
+			URL:          strings.TrimSpace(getEnv("MEILI_URL", "")),
+			MasterKey:    strings.TrimSpace(getEnv("MEILI_MASTER_KEY", "")),
+			SearchAPIKey: strings.TrimSpace(getEnv("MEILI_SEARCH_API_KEY", "")),
+		},
+	}
+	if cfg.Meilisearch.SearchAPIKey == "" {
+		cfg.Meilisearch.SearchAPIKey = cfg.Meilisearch.MasterKey
 	}
 	if err := validateAPIConfig(cfg); err != nil {
 		return APIConfig{}, err
@@ -266,6 +283,15 @@ func validateAPIConfig(cfg APIConfig) error {
 	}
 	if cfg.RelayFallback.Enabled && cfg.RelayFallback.MaxFanout <= 0 {
 		return fmt.Errorf("API_RELAY_FALLBACK_MAX_FANOUT must be > 0")
+	}
+	if cfg.Meilisearch.Enabled {
+		if cfg.Meilisearch.URL == "" {
+			return fmt.Errorf("MEILI_ENABLED requires MEILI_URL")
+		}
+		parsed, err := url.Parse(cfg.Meilisearch.URL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("MEILI_URL must be a valid http(s) URL")
+		}
 	}
 	return nil
 }

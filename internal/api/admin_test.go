@@ -14,22 +14,23 @@ import (
 )
 
 type fakeAdminService struct {
-	getRelaysFn             func(context.Context) ([]adminRelayState, error)
-	getRelaySuggestionsFn   func(context.Context, int, bool) ([]adminRelaySuggestion, error)
-	getJobsFn               func(context.Context, int) (adminJobsResponse, error)
-	getInvalidEventsFn      func(context.Context, int) (adminInvalidEventsResponse, error)
-	getProjectionStatusFn   func(context.Context) (adminProjectionStatusResponse, error)
-	getDiscoveryStatusFn    func(context.Context) (adminDiscoveryStatusResponse, error)
-	getSearchStatusFn       func(context.Context) (adminSearchStatusResponse, error)
-	getRebuildsFn           func(context.Context, int) ([]adminRebuildRunResponse, error)
-	triggerRebuildFn        func(context.Context, derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error)
-	getStorageFn            func(context.Context) (adminStorageResponse, error)
-	getSystemFn             func(context.Context) (adminSystemResponse, error)
-	getDerivationVersionsFn func(context.Context) ([]adminDerivationVersionResponse, error)
-	getTrustRunsFn          func(context.Context, int) ([]adminTrustRunResponse, error)
-	getTrustRunFn           func(context.Context, int64) (adminTrustRunResponse, error)
-	triggerTrustRunFn       func(context.Context) (adminTrustRunResponse, error)
-	getTopTrustScoresFn     func(context.Context, int) ([]adminTrustScoreResponse, error)
+	getRelaysFn              func(context.Context) ([]adminRelayState, error)
+	getRelaySuggestionsFn    func(context.Context, int, bool) ([]adminRelaySuggestion, error)
+	getJobsFn                func(context.Context, int) (adminJobsResponse, error)
+	getInvalidEventsFn       func(context.Context, int) (adminInvalidEventsResponse, error)
+	getProjectionStatusFn    func(context.Context) (adminProjectionStatusResponse, error)
+	getDiscoveryStatusFn     func(context.Context) (adminDiscoveryStatusResponse, error)
+	getSearchStatusFn        func(context.Context) (adminSearchStatusResponse, error)
+	triggerMeilisearchSyncFn func(context.Context, int) (adminMeilisearchSyncResponse, error)
+	getRebuildsFn            func(context.Context, int) ([]adminRebuildRunResponse, error)
+	triggerRebuildFn         func(context.Context, derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error)
+	getStorageFn             func(context.Context) (adminStorageResponse, error)
+	getSystemFn              func(context.Context) (adminSystemResponse, error)
+	getDerivationVersionsFn  func(context.Context) ([]adminDerivationVersionResponse, error)
+	getTrustRunsFn           func(context.Context, int) ([]adminTrustRunResponse, error)
+	getTrustRunFn            func(context.Context, int64) (adminTrustRunResponse, error)
+	triggerTrustRunFn        func(context.Context) (adminTrustRunResponse, error)
+	getTopTrustScoresFn      func(context.Context, int) ([]adminTrustScoreResponse, error)
 }
 
 func (f fakeAdminService) GetRelays(ctx context.Context) ([]adminRelayState, error) {
@@ -64,6 +65,12 @@ func (f fakeAdminService) GetSearchStatus(ctx context.Context) (adminSearchStatu
 		return adminSearchStatusResponse{}, nil
 	}
 	return f.getSearchStatusFn(ctx)
+}
+func (f fakeAdminService) TriggerMeilisearchSync(ctx context.Context, batchSize int) (adminMeilisearchSyncResponse, error) {
+	if f.triggerMeilisearchSyncFn == nil {
+		return adminMeilisearchSyncResponse{}, nil
+	}
+	return f.triggerMeilisearchSyncFn(ctx, batchSize)
 }
 func (f fakeAdminService) GetRebuilds(ctx context.Context, limit int) ([]adminRebuildRunResponse, error) {
 	return f.getRebuildsFn(ctx, limit)
@@ -562,6 +569,7 @@ func newAdminTestMux(token string, service AdminService) http.Handler {
 	adminMux.HandleFunc("GET /admin/v1/status/projections", handlers.GetProjectionStatus)
 	adminMux.HandleFunc("GET /admin/v1/status/discovery", handlers.GetDiscoveryStatus)
 	adminMux.HandleFunc("GET /admin/v1/status/search", handlers.GetSearchStatus)
+	adminMux.HandleFunc("POST /admin/v1/search/meilisearch/sync", handlers.TriggerMeilisearchSync)
 	adminMux.HandleFunc("GET /admin/v1/rebuilds", handlers.GetRebuilds)
 	adminMux.HandleFunc("POST /admin/v1/rebuilds", handlers.TriggerRebuild)
 	adminMux.HandleFunc("GET /admin/v1/storage", handlers.GetStorage)

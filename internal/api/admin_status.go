@@ -288,6 +288,34 @@ func (s *adminService) GetSearchStatus(ctx context.Context) (adminSearchStatusRe
 		buildCoverageSignal("profiles_latest_projection_gap", profileProjectionGapRows),
 		buildAuthorMetadataGapSignal(authorsWithoutMetadataCount),
 	}
+	if s.meili != nil && s.meili.Enabled() {
+		stats, err := s.meili.Stats(ctx)
+		if err != nil {
+			signals = append(signals, adminFreshnessSignal{
+				Name:             "meilisearch",
+				ThresholdSeconds: 0,
+				Status:           "stale",
+				Stale:            true,
+				Details:          "unreachable",
+			})
+		} else {
+			var docs int64
+			for _, idx := range stats.Indexes {
+				docs += idx.NumberOfDocs
+			}
+			signals = append(signals, adminFreshnessSignal{
+				Name:             "meilisearch",
+				ThresholdSeconds: 0,
+				Status:           "fresh",
+				Stale:            !stats.Healthy,
+				RowCount:         int64Ptr(docs),
+				Details:          "indexes: notes, profiles, documents",
+			})
+			if !stats.Healthy {
+				signals[len(signals)-1].Status = "stale"
+			}
+		}
+	}
 	if s.searchTrustPolicyEnabled() {
 		snapshotUpdatedAt, snapshotCount, err := s.loadTrustSnapshotStatus(ctx)
 		if err != nil {

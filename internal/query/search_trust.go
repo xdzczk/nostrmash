@@ -153,6 +153,20 @@ func (s Service) searchProfilesTrustAware(ctx context.Context, params ProfileSea
 }
 
 func (s Service) searchNotesPage(ctx context.Context, params NotesSearchParams) ([]json.RawMessage, error) {
+	if s.meilisearch != nil {
+		rows, err := s.meilisearch.SearchNotes(
+			ctx,
+			params.Query,
+			params.Sort,
+			params.Window,
+			params.Language,
+			params.Limit,
+			params.Offset,
+		)
+		if err == nil {
+			return rows, nil
+		}
+	}
 	if advanced, ok := s.reader.(notesSearchReader); ok {
 		return advanced.SearchNotes(ctx, params.Query, params.Sort, params.Window, params.Language, params.Limit, params.Offset)
 	}
@@ -163,6 +177,18 @@ func (s Service) searchNotesPage(ctx context.Context, params NotesSearchParams) 
 }
 
 func (s Service) searchProfilesPage(ctx context.Context, params ProfileSearchParams) ([]Profile, error) {
+	if s.meilisearch != nil {
+		rows, err := s.meilisearch.SearchProfiles(
+			ctx,
+			params.Query,
+			params.Sort,
+			params.Limit,
+			params.Offset,
+		)
+		if err == nil {
+			return rows, nil
+		}
+	}
 	if advanced, ok := s.reader.(profilesSearchReader); ok {
 		return advanced.SearchProfilesWithOptions(ctx, params.Query, params.Sort, params.Limit, params.Offset)
 	}

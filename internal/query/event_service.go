@@ -94,6 +94,10 @@ func (s Service) GetEventBatch(ctx context.Context, ids []string) (out map[strin
 func (s Service) Search(ctx context.Context, text string, limit int) (out SearchResult, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.search")
 	defer func() { span.End(err) }()
+	if consumer, ok := s.meilisearch.(interface{ ConsumeHighlights() map[string]any }); ok {
+		// Clear highlights from any prior request before this search starts.
+		_ = consumer.ConsumeHighlights()
+	}
 
 	stripped := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "nostr:"))
 	if eventID := canonicalizeEventIdentifier(stripped); eventID.EventID != "" {
@@ -121,13 +125,18 @@ func (s Service) Search(ctx context.Context, text string, limit int) (out Search
 	if err != nil {
 		return SearchResult{}, err
 	}
-	return SearchResult{
-		Events:     events,
-		Profiles:   profiles,
-		Hashtags:   hashtags,
-		Relays:     relays,
-		Identities: identities,
-	}, nil
+	result := SearchResult{
+		Events:       events,
+		Profiles:     profiles,
+		Hashtags:     hashtags,
+		Relays:       relays,
+		Identities:   identities,
+		SearchEngine: s.SearchEngineName(),
+	}
+	if consumer, ok := s.meilisearch.(interface{ ConsumeHighlights() map[string]any }); ok {
+		result.Highlights = consumer.ConsumeHighlights()
+	}
+	return result, nil
 }
 
 func (s Service) searchByEventIdentifier(ctx context.Context, eid normalizedEventIdentifier) (SearchResult, error) {
@@ -135,15 +144,17 @@ func (s Service) searchByEventIdentifier(ctx context.Context, eid normalizedEven
 	if err != nil {
 		if IsNotFound(err) {
 			return SearchResult{
-				Events:   []json.RawMessage{},
-				Profiles: []Profile{},
+				Events:       []json.RawMessage{},
+				Profiles:     []Profile{},
+				SearchEngine: s.SearchEngineName(),
 			}, nil
 		}
 		return SearchResult{}, err
 	}
 	return SearchResult{
-		Events:   []json.RawMessage{raw},
-		Profiles: []Profile{},
+		Events:       []json.RawMessage{raw},
+		Profiles:     []Profile{},
+		SearchEngine: s.SearchEngineName(),
 	}, nil
 }
 
@@ -166,11 +177,20 @@ func (s Service) SearchSuggestions(ctx context.Context, text string, limit int) 
 	if profileQuery.CanonicalIdentifier != "" {
 		normalized.Query = profileQuery.CanonicalIdentifier
 	}
+	if s.meilisearch != nil {
+		profiles, profilesErr := s.meilisearch.SuggestProfiles(ctx, normalized.Query, normalized.Limit)
+		hashtags, hashtagsErr := s.meilisearch.SuggestHashtags(ctx, normalized.Query, normalized.Limit)
+		if profilesErr == nil && hashtagsErr == nil {
+			return SearchSuggestionsResult{
+				Profiles: profiles,
+				Hashtags: hashtags,
+			}, nil
+		}
+	}
 	suggestReader, ok := s.reader.(searchSuggestionsReader)
 	if !ok {
 		return SearchSuggestionsResult{}, unsupportedCapabilityError("search suggestions")
 	}
-
 	profiles, err := suggestReader.SuggestProfiles(ctx, normalized.Query, normalized.Limit)
 	if err != nil {
 		return SearchSuggestionsResult{}, err
@@ -338,15 +358,22 @@ func (s Service) searchGlobalDocuments(
 	if query == "" {
 		return nil, nil, nil, nil
 	}
-	reader, ok := s.reader.(searchDocumentsReader)
-	if !ok {
-		return nil, nil, nil, nil
-	}
 	if limit <= 0 {
 		limit = 20
 	}
 	if limit > 100 {
 		limit = 100
+	}
+	if s.meilisearch != nil {
+		rows, err := s.meilisearch.SearchDocuments(ctx, query, limit*3)
+		if err == nil {
+			hashtags, relays, identities := splitSearchDocuments(rows, limit)
+			return hashtags, relays, identities, nil
+		}
+	}
+	reader, ok := s.reader.(searchDocumentsReader)
+	if !ok {
+		return nil, nil, nil, nil
 	}
 	rows, err := reader.SearchDocuments(ctx, query, limit*3)
 	if err != nil {
@@ -355,6 +382,11 @@ func (s Service) searchGlobalDocuments(
 		}
 		return nil, nil, nil, err
 	}
+	hashtags, relays, identities := splitSearchDocuments(rows, limit)
+	return hashtags, relays, identities, nil
+}
+
+func splitSearchDocuments(rows []SearchDocument, limit int) ([]HashtagSuggestion, []string, []string) {
 	hashtags := make([]HashtagSuggestion, 0, limit)
 	relays := make([]string, 0, limit)
 	identities := make([]string, 0, limit)
@@ -398,7 +430,7 @@ func (s Service) searchGlobalDocuments(
 			identities = append(identities, identity)
 		}
 	}
-	return hashtags, relays, identities, nil
+	return hashtags, relays, identities
 }
 
 func isValidLanguageToken(value string) bool {

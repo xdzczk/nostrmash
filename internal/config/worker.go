@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -11,6 +13,7 @@ type WorkerConfig struct {
 	JobRecovery           WorkerJobRecoveryConfig
 	JobRetention          WorkerJobRetentionConfig
 	InvalidEventRetention WorkerInvalidEventRetentionConfig
+	Meilisearch           MeilisearchConfig
 }
 
 type WorkerJobRetentionConfig struct {
@@ -106,6 +109,18 @@ func LoadWorker() (WorkerConfig, error) {
 				BatchLimit: invalidPayloadTrimBatchLimit,
 			},
 		},
+		Meilisearch: MeilisearchConfig{
+			Enabled:      getEnvBool("MEILI_ENABLED", false),
+			URL:          getEnv("MEILI_URL", ""),
+			MasterKey:    getEnv("MEILI_MASTER_KEY", ""),
+			SearchAPIKey: getEnv("MEILI_SEARCH_API_KEY", ""),
+		},
+	}
+	cfg.Meilisearch.URL = strings.TrimSpace(cfg.Meilisearch.URL)
+	cfg.Meilisearch.MasterKey = strings.TrimSpace(cfg.Meilisearch.MasterKey)
+	cfg.Meilisearch.SearchAPIKey = strings.TrimSpace(cfg.Meilisearch.SearchAPIKey)
+	if cfg.Meilisearch.SearchAPIKey == "" {
+		cfg.Meilisearch.SearchAPIKey = cfg.Meilisearch.MasterKey
 	}
 	if err := validateWorkerConfig(cfg); err != nil {
 		return WorkerConfig{}, err
@@ -154,6 +169,15 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 			if cfg.InvalidEventRetention.PayloadTrim.MaxAge >= cfg.InvalidEventRetention.MaxAge {
 				return fmt.Errorf("WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE must be smaller than WORKER_INVALID_EVENTS_RETENTION_MAX_AGE")
 			}
+		}
+	}
+	if cfg.Meilisearch.Enabled {
+		if cfg.Meilisearch.URL == "" {
+			return fmt.Errorf("MEILI_ENABLED requires MEILI_URL")
+		}
+		parsed, err := url.Parse(cfg.Meilisearch.URL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("MEILI_URL must be a valid http(s) URL")
 		}
 	}
 	return nil

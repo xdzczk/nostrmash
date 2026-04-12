@@ -155,6 +155,7 @@ func buildRouteDefinitions(
 		newAdminRoute("GET /admin/v1/status/projections", true, http.HandlerFunc(adminHandlers.GetProjectionStatus)),
 		newAdminRoute("GET /admin/v1/status/discovery", true, http.HandlerFunc(adminHandlers.GetDiscoveryStatus)),
 		newAdminRoute("GET /admin/v1/status/search", true, http.HandlerFunc(adminHandlers.GetSearchStatus)),
+		newAdminRoute("POST /admin/v1/search/meilisearch/sync", false, http.HandlerFunc(adminHandlers.TriggerMeilisearchSync)),
 		newAdminRoute("GET /admin/v1/rebuilds", true, http.HandlerFunc(adminHandlers.GetRebuilds)),
 		newAdminRoute("POST /admin/v1/rebuilds", true, http.HandlerFunc(adminHandlers.TriggerRebuild)),
 		newAdminRoute("GET /admin/v1/storage", true, http.HandlerFunc(adminHandlers.GetStorage)),

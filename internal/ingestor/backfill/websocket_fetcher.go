@@ -79,6 +79,14 @@ func (f WebsocketFetcher) FetchPage(ctx context.Context, relayURL string, reques
 		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 		_, frame, err := conn.ReadMessage()
 		if err != nil {
+			if websocket.IsCloseError(err,
+				websocket.CloseNormalClosure,
+				websocket.CloseGoingAway,
+				websocket.CloseNoStatusReceived,
+				websocket.CloseAbnormalClosure,
+			) {
+				return result, nil
+			}
 			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
 				select {
 				case <-idleTimer.C:

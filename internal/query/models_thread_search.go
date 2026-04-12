@@ -67,11 +67,13 @@ type UserInfosResult struct {
 }
 
 type SearchResult struct {
-	Events     []json.RawMessage   `json:"events"`
-	Profiles   []Profile           `json:"profiles"`
-	Hashtags   []HashtagSuggestion `json:"hashtags,omitempty"`
-	Relays     []string            `json:"relays,omitempty"`
-	Identities []string            `json:"identities,omitempty"`
+	Events       []json.RawMessage   `json:"events"`
+	Profiles     []Profile           `json:"profiles"`
+	Hashtags     []HashtagSuggestion `json:"hashtags,omitempty"`
+	Relays       []string            `json:"relays,omitempty"`
+	Identities   []string            `json:"identities,omitempty"`
+	Highlights   map[string]any      `json:"highlights,omitempty"`
+	SearchEngine string              `json:"search_engine,omitempty"`
 }
 
 type SearchSuggestionsResult struct {

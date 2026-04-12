@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -100,7 +101,13 @@ func fetchAuthorMetadata(
 	relays []string,
 	pubkey string,
 	pageLimit int,
-) error {
+) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("panic in fetchAuthorMetadata for pubkey %s: %v", pubkey, r)
+		}
+	}()
+
 	if len(relays) == 0 {
 		return nil
 	}

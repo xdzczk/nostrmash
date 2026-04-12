@@ -121,6 +121,30 @@ Runtime notes:
 - admin routes require `ADMIN_BEARER_TOKEN`; without it, `/admin/*` returns `503 admin_unavailable`
 - relay settings can be overridden at boot, for example `INGESTOR_RELAY_URLS=... INGESTOR_RELAY_ALLOWLIST=... docker compose up --build`
 
+### Meilisearch operations
+
+Meilisearch is optional and can be turned on per deployment:
+
+- enable with `MEILI_ENABLED=true`
+- set the endpoint with `MEILI_URL` (for Docker Compose: `http://meilisearch:7700`)
+- provide credentials with `MEILI_MASTER_KEY` (and optionally `MEILI_SEARCH_API_KEY`)
+
+When disabled or unavailable, search endpoints automatically fall back to the Postgres search path.
+
+Run a full Meilisearch backfill (notes, profiles, documents) from the admin API:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $ADMIN_BEARER_TOKEN" \
+  "http://localhost:8080/admin/v1/search/meilisearch/sync?batch_size=1000"
+```
+
+Runtime behavior:
+
+- API startup ensures Meilisearch indexes and settings when enabled
+- worker derivation runs best-effort per-event sync into Meilisearch
+- sync errors do not fail canonical projection jobs; Postgres remains source of truth
+
 ### First 60 seconds
 
 Use this sequence to confirm that the system is not only up, but actually doing its job:

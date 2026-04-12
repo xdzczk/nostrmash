@@ -13,8 +13,24 @@ x-common-env: &common-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
   ENVIRONMENT: ${ENVIRONMENT:-production}
   APP_VERSION: ${APP_VERSION:-coolify}
+  MEILI_ENABLED: ${MEILI_ENABLED:-false}
+  MEILI_URL: ${MEILI_URL:-http://meilisearch:7700}
+  MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-}
+  MEILI_SEARCH_API_KEY: ${MEILI_SEARCH_API_KEY:-}
 
 services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.14
+    restart: unless-stopped
+    init: true
+    expose:
+      - "7700"
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+    volumes:
+      - meili_data:/meili_data
+
   api:
     <<: *nostrmash-service
     command: ["/app/api"]
@@ -91,3 +107,6 @@ services:
       TRUST_WORKER_RETRY_DELAY: ${TRUST_WORKER_RETRY_DELAY:-5s}
       TRUST_ENABLE_SCORE_COMPUTE: ${TRUST_ENABLE_SCORE_COMPUTE:-true}
       TRUST_ENABLE_REDIS_SYNC: ${TRUST_ENABLE_REDIS_SYNC:-false}
+
+volumes:
+  meili_data:

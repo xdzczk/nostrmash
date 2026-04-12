@@ -36,10 +36,14 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
 
 	projectedProfiles := projectProfiles(result.Profiles)
 	response := map[string]any{
-		"query":       queryText,
-		"events":      result.Events,
-		"profiles":    projectedProfiles,
-		"consistency": "eventual",
+		"query":         queryText,
+		"events":        result.Events,
+		"profiles":      projectedProfiles,
+		"search_engine": result.SearchEngine,
+		"consistency":   "eventual",
+	}
+	if len(result.Highlights) > 0 {
+		response["highlights"] = result.Highlights
 	}
 	if len(result.Hashtags) > 0 {
 		hashtags := make([]map[string]any, 0, len(result.Hashtags))
@@ -107,12 +111,13 @@ func (h Handlers) SearchNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := map[string]any{
-		"query":       queryText,
-		"sort":        sort,
-		"limit":       limit,
-		"offset":      offset,
-		"notes":       events,
-		"consistency": "eventual",
+		"query":         queryText,
+		"sort":          sort,
+		"limit":         limit,
+		"offset":        offset,
+		"notes":         events,
+		"search_engine": h.service.SearchEngineName(),
+		"consistency":   "eventual",
 	}
 	if sort == "relevant" {
 		h.addSearchTrustMetadata(response)
@@ -161,12 +166,13 @@ func (h Handlers) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := map[string]any{
-		"query":       queryText,
-		"sort":        sort,
-		"limit":       limit,
-		"offset":      offset,
-		"profiles":    projectProfiles(profiles),
-		"consistency": "eventual",
+		"query":         queryText,
+		"sort":          sort,
+		"limit":         limit,
+		"offset":        offset,
+		"profiles":      projectProfiles(profiles),
+		"search_engine": h.service.SearchEngineName(),
+		"consistency":   "eventual",
 	}
 	h.addSearchTrustMetadata(response)
 	writeJSON(w, http.StatusOK, response)
@@ -214,10 +220,11 @@ func (h Handlers) SearchSuggest(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	payload := map[string]any{
-		"query":       queryText,
-		"profiles":    projectProfiles(result.Profiles),
-		"hashtags":    hashtags,
-		"consistency": "eventual",
+		"query":         queryText,
+		"profiles":      projectProfiles(result.Profiles),
+		"hashtags":      hashtags,
+		"search_engine": h.service.SearchEngineName(),
+		"consistency":   "eventual",
 	}
 	h.cachePublicPayload(cachePolicy, payload)
 	writeJSON(w, http.StatusOK, payload)

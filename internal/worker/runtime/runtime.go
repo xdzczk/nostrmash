@@ -11,6 +11,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/jobs"
+	"github.com/xdzczk/nostrmash/internal/meili"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/runtimebootstrap"
 	"github.com/xdzczk/nostrmash/internal/store"
@@ -106,7 +107,27 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 
 	queue := jobs.NewQueue(pool)
 	postgresStore := store.NewPostgresStore(pool)
-	handlers := derivation.NewHandlers(pool)
+	meiliClient, err := meili.NewClient(meili.Config{
+		Enabled:      cfg.Meilisearch.Enabled,
+		URL:          cfg.Meilisearch.URL,
+		MasterKey:    cfg.Meilisearch.MasterKey,
+		SearchAPIKey: cfg.Meilisearch.SearchAPIKey,
+	})
+	if err != nil {
+		runtimebootstrap.ShutdownTracing(log)
+		pool.Close()
+		return Bootstrap{}, func() {}, fmt.Errorf("init meilisearch client: %w", err)
+	}
+	if meiliClient.Enabled() {
+		if err := meiliClient.EnsureIndexes(ctx); err != nil {
+			runtimebootstrap.ShutdownTracing(log)
+			pool.Close()
+			return Bootstrap{}, func() {}, fmt.Errorf("ensure meilisearch indexes: %w", err)
+		}
+	}
+	handlers := derivation.NewHandlersWithOptions(pool, derivation.HandlersOptions{
+		MeiliClient: meiliClient,
+	})
 
 	bootstrap := Bootstrap{
 		Pool:               pool,

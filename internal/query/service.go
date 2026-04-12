@@ -80,6 +80,22 @@ type ProfileReader interface {
 	GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (ProfilePublicStats, error)
 }
 
+type MeilisearchSearcher interface {
+	SearchNotes(
+		ctx context.Context,
+		query string,
+		sort string,
+		window *time.Duration,
+		language string,
+		limit int,
+		offset int,
+	) ([]json.RawMessage, error)
+	SearchProfiles(ctx context.Context, query string, sort string, limit int, offset int) ([]Profile, error)
+	SuggestProfiles(ctx context.Context, query string, limit int) ([]Profile, error)
+	SuggestHashtags(ctx context.Context, query string, limit int) ([]HashtagSuggestion, error)
+	SearchDocuments(ctx context.Context, query string, limit int) ([]SearchDocument, error)
+}
+
 type Service struct {
 	reader                          Reader
 	capabilities                    serviceCapabilities
@@ -99,6 +115,7 @@ type Service struct {
 	searchTrustPolicy               TrustQualificationPolicy
 	searchTrustScanSize             int
 	retentionHooks                  TrustRetentionHooks
+	meilisearch                     MeilisearchSearcher
 }
 
 // FallbackReader fetches entity-shaped data from configured relays on local miss.
@@ -135,6 +152,7 @@ type ServiceOptions struct {
 	DiscoveryCandidateMaxHops       int
 	DiscoveryProjectionMaxStaleness time.Duration
 	TrustRetentionHooks             TrustRetentionHooks
+	MeilisearchSearcher             MeilisearchSearcher
 }
 
 func NewService(reader any) (Service, error) {
@@ -233,6 +251,7 @@ func NewServiceWithOptions(reader any, options ServiceOptions) (Service, error) 
 		searchTrustPolicy:               TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
 		searchTrustScanSize:             400,
 		retentionHooks:                  retentionHooks,
+		meilisearch:                     options.MeilisearchSearcher,
 	}, nil
 }
 
@@ -286,4 +305,11 @@ func unsupportedCapabilityError(feature string) error {
 
 func IsUnsupportedCapability(err error) bool {
 	return errors.Is(err, ErrUnsupportedCapability)
+}
+
+func (s Service) SearchEngineName() string {
+	if s.meilisearch != nil {
+		return "meilisearch"
+	}
+	return "postgres"
 }

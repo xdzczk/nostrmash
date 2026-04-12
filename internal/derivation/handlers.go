@@ -8,13 +8,30 @@ import (
 )
 
 type Handlers struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	meili MeilisearchSyncer
 }
 
 type EventJobPayload = jobs.EventJobPayload
 
+type MeilisearchSyncer interface {
+	Enabled() bool
+	SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID string) error
+}
+
+type HandlersOptions struct {
+	MeiliClient MeilisearchSyncer
+}
+
 func NewHandlers(pool *pgxpool.Pool) *Handlers {
-	return &Handlers{pool: pool}
+	return NewHandlersWithOptions(pool, HandlersOptions{})
+}
+
+func NewHandlersWithOptions(pool *pgxpool.Pool, options HandlersOptions) *Handlers {
+	return &Handlers{
+		pool:  pool,
+		meili: options.MeiliClient,
+	}
 }
 
 // DeriveEventBundle runs low-cost per-event derivations as a single queued job.
@@ -41,6 +58,7 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.ProjectProfileDiscoveryStats,
 		h.ProjectProfilePublicStats,
 		h.ProjectAuthorAnalytics,
+		h.SyncMeilisearch,
 	}
 	for _, step := range steps {
 		if err := step(ctx, eventID); err != nil {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/derivation"
+	"github.com/xdzczk/nostrmash/internal/meili"
 	"github.com/xdzczk/nostrmash/internal/trust"
 )
 
@@ -20,6 +21,7 @@ type AdminService interface {
 	GetProjectionStatus(context.Context) (adminProjectionStatusResponse, error)
 	GetDiscoveryStatus(context.Context) (adminDiscoveryStatusResponse, error)
 	GetSearchStatus(context.Context) (adminSearchStatusResponse, error)
+	TriggerMeilisearchSync(context.Context, int) (adminMeilisearchSyncResponse, error)
 	GetRebuilds(context.Context, int) ([]adminRebuildRunResponse, error)
 	TriggerRebuild(context.Context, derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error)
 	GetStorage(context.Context) (adminStorageResponse, error)
@@ -41,6 +43,7 @@ type AdminServiceOptions struct {
 	DiscoveryTrustMode   string
 	SearchTrustMode      string
 	TrustRefreshInterval time.Duration
+	MeiliClient          *meili.Client
 }
 
 type adminService struct {
@@ -58,6 +61,7 @@ type adminService struct {
 	discoveryTrustMode   string
 	searchTrustMode      string
 	trustRefreshInterval time.Duration
+	meili                *meili.Client
 }
 
 func NewAdminService(
@@ -91,6 +95,7 @@ func NewAdminService(
 		discoveryTrustMode:   strings.ToLower(strings.TrimSpace(opts.DiscoveryTrustMode)),
 		searchTrustMode:      strings.ToLower(strings.TrimSpace(opts.SearchTrustMode)),
 		trustRefreshInterval: opts.TrustRefreshInterval,
+		meili:                opts.MeiliClient,
 	}
 }
 
@@ -188,6 +193,20 @@ func (h AdminHandlers) GetSearchStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h AdminHandlers) TriggerMeilisearchSync(w http.ResponseWriter, r *http.Request) {
+	batchSize, err := parseBoundedPositiveInt(r, "batch_size", 1000, 5000)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	resp, err := h.service.TriggerMeilisearchSync(r.Context(), batchSize)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func (h AdminHandlers) GetRebuilds(w http.ResponseWriter, r *http.Request) {
