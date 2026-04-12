@@ -29,7 +29,7 @@ services:
       MEILI_ENV: production
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
     volumes:
-      - meili_data:/meili_data
+      - meili_data_v2:/meili_data
 
   api:
     <<: *nostrmash-service
@@ -109,4 +109,4 @@ services:
       TRUST_ENABLE_REDIS_SYNC: ${TRUST_ENABLE_REDIS_SYNC:-false}
 
 volumes:
-  meili_data:
+  meili_data_v2:
