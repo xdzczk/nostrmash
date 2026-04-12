@@ -66,11 +66,13 @@ func (s eventService) getEventWithFallback(ctx context.Context, eventID string) 
 	return nil, err
 }
 
-func (s eventService) persistFallbackEvent(ctx context.Context, eventID string, raw json.RawMessage) {
+func (s eventService) persistFallbackEvent(_ context.Context, eventID string, raw json.RawMessage) {
 	if s.persister == nil {
 		return
 	}
 	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		_ = s.persister.PersistFallbackEvent(ctx, eventID, raw)
 	}()
 }

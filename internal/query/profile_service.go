@@ -217,11 +217,13 @@ func (s Service) GetProfilePublicSummary(ctx context.Context, pubkey string) (ou
 	return profileService{reader: s.reader, fallback: s.fallback, persister: s.fallbackPersister, policy: s.fallbackPolicy()}.GetProfilePublicSummary(ctx, pubkey)
 }
 
-func (s profileService) persistFallbackProfile(ctx context.Context, profile Profile) {
+func (s profileService) persistFallbackProfile(_ context.Context, profile Profile) {
 	if s.persister == nil {
 		return
 	}
 	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		_ = s.persister.PersistFallbackProfile(ctx, profile)
 	}()
 }

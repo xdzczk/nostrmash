@@ -3,10 +3,8 @@ package relaylookup
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -158,6 +156,11 @@ func (c *Client) collectFromRelays(ctx context.Context, filter map[string]any, m
 		wg.Add(1)
 		go func(relayURL string) {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					results <- relayResult{err: fmt.Errorf("relay query panicked (%s): %v", relayURL, r)}
+				}
+			}()
 			relayCallCtx, cancel := context.WithTimeout(relayCtx, c.timeout)
 			defer cancel()
 			events, err := queryRelay(relayCallCtx, relayURL, filter, maxEvents)
@@ -197,6 +200,19 @@ func queryRelay(ctx context.Context, relayURL string, filter map[string]any, max
 	}
 	defer conn.Close()
 
+	// Force-close the connection when the context is cancelled so that
+	// a blocking ReadMessage unblocks immediately instead of waiting
+	// for the deadline.
+	closeCh := make(chan struct{})
+	defer close(closeCh)
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-closeCh:
+		}
+	}()
+
 	subID := fmt.Sprintf("nm-fallback-%d", time.Now().UnixNano())
 	req := []any{"REQ", subID, filter}
 	rawReq, err := json.Marshal(req)
@@ -207,27 +223,18 @@ func queryRelay(ctx context.Context, relayURL string, filter map[string]any, max
 		return nil, fmt.Errorf("write fallback REQ: %w", err)
 	}
 
+	// Set a single read deadline for the entire read phase. gorilla/websocket
+	// treats any read error (including timeouts) as fatal — calling ReadMessage
+	// again after an error panics.
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetReadDeadline(deadline)
+	}
+
 	out := make([]json.RawMessage, 0, 8)
 	for {
-		readDeadline := time.Now().Add(200 * time.Millisecond)
-		if deadline, ok := ctx.Deadline(); ok && deadline.Before(readDeadline) {
-			readDeadline = deadline
-		}
-		if err := conn.SetReadDeadline(readDeadline); err != nil {
-			return nil, fmt.Errorf("set read deadline: %w", err)
-		}
 		_, frame, err := conn.ReadMessage()
 		if err != nil {
-			if ctx.Err() != nil {
-				break
-			}
-			if isReadTimeout(err) {
-				continue
-			}
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				return nil, err
-			}
-			continue
+			break
 		}
 		var envelope []json.RawMessage
 		if err := json.Unmarshal(frame, &envelope); err != nil || len(envelope) == 0 {
@@ -250,9 +257,6 @@ func queryRelay(ctx context.Context, relayURL string, filter map[string]any, max
 					goto done
 				}
 			}
-		}
-		if ctx.Err() != nil {
-			break
 		}
 	}
 done:
@@ -297,11 +301,6 @@ func filterRequestedValidatedEvents(
 		}
 	}
 	return out
-}
-
-func isReadTimeout(err error) bool {
-	var netErr net.Error
-	return err != nil && errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func normalizeRelays(relays []string) []string {
