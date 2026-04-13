@@ -77,11 +77,11 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 	writeVersion int,
 	nowUnix int64,
 ) error {
-	post24h, reply24h, engagement24h, zapVolume24h, activeDays24h, err := loadProfileWindowMetricsTx(ctx, tx, pubkey, nowUnix, 24*time.Hour)
+	post24h, reply24h, engagement24h, zapVolume24h, activeDays24h, newFollowers24h, err := loadProfileWindowMetricsTx(ctx, tx, pubkey, nowUnix, 24*time.Hour)
 	if err != nil {
 		return err
 	}
-	post7d, reply7d, engagement7d, zapVolume7d, activeDays7d, err := loadProfileWindowMetricsTx(ctx, tx, pubkey, nowUnix, 7*24*time.Hour)
+	post7d, reply7d, engagement7d, zapVolume7d, activeDays7d, newFollowers7d, err := loadProfileWindowMetricsTx(ctx, tx, pubkey, nowUnix, 7*24*time.Hour)
 	if err != nil {
 		return err
 	}
@@ -100,8 +100,8 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 
 	score24h := computeProfileTrendingScore(24*time.Hour, nowUnix, recentActivityAt, post24h, reply24h, engagement24h, zapVolume24h, activeDays24h)
 	score7d := computeProfileTrendingScore(7*24*time.Hour, nowUnix, recentActivityAt, post7d, reply7d, engagement7d, zapVolume7d, activeDays7d)
-	risingScore24h := computeProfileRisingScore(score24h, followerCount, engagement24h, post24h, reply24h, activeDays24h)
-	risingScore7d := computeProfileRisingScore(score7d, followerCount, engagement7d, post7d, reply7d, activeDays7d)
+	risingScore24h := computeProfileRisingScore(score24h, followerCount, newFollowers24h, engagement24h, post24h, reply24h, activeDays24h)
+	risingScore7d := computeProfileRisingScore(score7d, followerCount, newFollowers7d, engagement7d, post7d, reply7d, activeDays7d)
 
 	if score7d <= 0 && risingScore7d <= 0 && post7d == 0 && reply7d == 0 && engagement7d == 0 {
 		if _, err := tx.Exec(ctx, `DELETE FROM profile_discovery_stats WHERE pubkey = $1`, pubkey); err != nil {
@@ -188,7 +188,7 @@ func loadProfileWindowMetricsTx(
 	pubkey string,
 	nowUnix int64,
 	window time.Duration,
-) (int64, int64, int64, int64, int, error) {
+) (int64, int64, int64, int64, int, int64, error) {
 	cutoff := nowUnix - int64(window/time.Second)
 
 	postCount, err := queryInt64Tx(ctx, tx, `
@@ -205,7 +205,7 @@ func loadProfileWindowMetricsTx(
 		  )
 	`, pubkey, cutoff)
 	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed post_count: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed post_count: %w", err)
 	}
 	replyCount, err := queryInt64Tx(ctx, tx, `
 		SELECT COALESCE(COUNT(*), 0)
@@ -221,7 +221,7 @@ func loadProfileWindowMetricsTx(
 		  )
 	`, pubkey, cutoff)
 	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed reply_count: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed reply_count: %w", err)
 	}
 	replyReceived, err := queryInt64Tx(ctx, tx, `
 		SELECT COALESCE(COUNT(*), 0)
@@ -232,7 +232,7 @@ func loadProfileWindowMetricsTx(
 		  AND source_event.created_at >= $2
 	`, pubkey, cutoff)
 	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed replies received: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed replies received: %w", err)
 	}
 	repostReceived, err := queryInt64Tx(ctx, tx, `
 		SELECT COALESCE(COUNT(*), 0)
@@ -242,7 +242,7 @@ func loadProfileWindowMetricsTx(
 		  AND r.created_at >= $2
 	`, pubkey, cutoff)
 	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed reposts received: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed reposts received: %w", err)
 	}
 	reactionReceived, err := queryInt64Tx(ctx, tx, `
 		SELECT COALESCE(COUNT(*), 0)
@@ -252,7 +252,7 @@ func loadProfileWindowMetricsTx(
 		  AND r.created_at >= $2
 	`, pubkey, cutoff)
 	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed reactions received: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed reactions received: %w", err)
 	}
 	zapCount, err := queryInt64Tx(ctx, tx, `
 		SELECT COALESCE(COUNT(*), 0)
@@ -261,7 +261,7 @@ func loadProfileWindowMetricsTx(
 		  AND created_at >= $2
 	`, pubkey, cutoff)
 	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed zaps received: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed zaps received: %w", err)
 	}
 	zapVolumeMSats, err := queryInt64Tx(ctx, tx, `
 		SELECT COALESCE(SUM(amount_sats * 1000), 0)
@@ -270,7 +270,7 @@ func loadProfileWindowMetricsTx(
 		  AND created_at >= $2
 	`, pubkey, cutoff)
 	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed zap volume: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed zap volume: %w", err)
 	}
 	activeDaysRaw, err := queryInt64Tx(ctx, tx, `
 		SELECT COALESCE(COUNT(DISTINCT to_timestamp(created_at)::date), 0)
@@ -279,9 +279,18 @@ func loadProfileWindowMetricsTx(
 		  AND created_at >= $2
 	`, pubkey, cutoff)
 	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed active days: %w", err)
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed active days: %w", err)
+	}
+	newFollowerCount, err := queryInt64Tx(ctx, tx, `
+		SELECT COALESCE(COUNT(*), 0)
+		FROM follower_edges
+		WHERE followed_pubkey = $1
+		  AND contact_list_created_at >= $2
+	`, pubkey, cutoff)
+	if err != nil {
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed new follower count: %w", err)
 	}
 
 	engagement := replyReceived + repostReceived + reactionReceived + zapCount
-	return postCount, replyCount, engagement, zapVolumeMSats, int(activeDaysRaw), nil
+	return postCount, replyCount, engagement, zapVolumeMSats, int(activeDaysRaw), newFollowerCount, nil
 }

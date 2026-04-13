@@ -116,6 +116,7 @@ func buildDiscoveryProfileItems(
 			"recent_post_count":          profile.RecentPostCount,
 			"recent_reply_count":         profile.RecentReplyCount,
 			"recent_engagement_received": profile.RecentEngagementReceived,
+			"recent_new_followers":       profile.RecentNewFollowers,
 			"recent_zap_volume_msats":    profile.RecentZapVolumeMSats,
 			"recent_active_days":         profile.RecentActiveDays,
 			"recent_activity_at":         profile.RecentActivityAt,

@@ -43,6 +43,8 @@ func (s eventService) GetEventActionCounts(ctx context.Context, eventID string) 
 		ReplyCount:    counts.ReplyCount,
 		ReactionCount: counts.ReactionCount,
 		RepostCount:   counts.RepostCount,
+		ZapCount:      counts.ZapCount,
+		ZapMSats:      counts.ZapMSats,
 		Consistency:   counts.Consistency,
 	}, nil
 }

@@ -87,8 +87,8 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 	if len(rising24h) != 2 {
 		t.Fatalf("unexpected 24h rising profile count: got=%d want=2", len(rising24h))
 	}
-	if rising24h[0].Pubkey != "small_author" {
-		t.Fatalf("expected small_author to rank above big_author in rising 24h, got=%#v", rising24h[0])
+	if rising24h[0].Pubkey != "big_author" {
+		t.Fatalf("expected big_author to rank above small_author in rising 24h due to follower growth, got=%#v", rising24h[0])
 	}
 
 	trending7d, err := pgStore.GetTrendingProfiles(ctx, 7*24*time.Hour, 10, 0)
@@ -239,5 +239,158 @@ func TestGetTrendingProfiles_ExcludesProfilesWithoutLocalMetadata(t *testing.T) 
 	}
 	if profiles[0].Pubkey != "resolved_author" {
 		t.Fatalf("expected resolved_author only, got %#v", profiles)
+	}
+}
+
+func TestTrendingAndRisingProfiles_PenalizeHighVolumeLowEngagement(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+
+	events := []model.Event{
+		newDiscoveryEvent("meta_spammy", "spammy_author", now.Add(-6*time.Hour), 0, nil, `{"name":"spammy"}`),
+		newDiscoveryEvent("meta_organic", "organic_author", now.Add(-6*time.Hour), 0, nil, `{"name":"organic"}`),
+	}
+	for i := 0; i < 18; i++ {
+		events = append(events, newDiscoveryEvent(
+			"spammy_note_"+string(rune('a'+i)),
+			"spammy_author",
+			now.Add(time.Duration(-180+i)*time.Minute),
+			1,
+			nil,
+			"spam note",
+		))
+	}
+	for i := 0; i < 4; i++ {
+		events = append(events, newDiscoveryEvent(
+			"organic_note_"+string(rune('a'+i)),
+			"organic_author",
+			now.Add(time.Duration(-200+i)*time.Minute),
+			1,
+			nil,
+			"organic note",
+		))
+	}
+	events = append(events,
+		newDiscoveryEvent("spammy_reaction_1", "spammy_reactor", now.Add(-20*time.Minute), 7, [][]string{{"e", "spammy_note_a"}}, "+"),
+		newDiscoveryEvent("organic_reaction_1", "org_reactor_1", now.Add(-40*time.Minute), 7, [][]string{{"e", "organic_note_a"}}, "+"),
+		newDiscoveryEvent("organic_reaction_2", "org_reactor_2", now.Add(-39*time.Minute), 7, [][]string{{"e", "organic_note_a"}}, "+"),
+		newDiscoveryEvent("organic_reaction_3", "org_reactor_3", now.Add(-38*time.Minute), 7, [][]string{{"e", "organic_note_b"}}, "+"),
+		newDiscoveryEvent("organic_reaction_4", "org_reactor_4", now.Add(-37*time.Minute), 7, [][]string{{"e", "organic_note_b"}}, "+"),
+		newDiscoveryEvent("organic_reaction_5", "org_reactor_5", now.Add(-36*time.Minute), 7, [][]string{{"e", "organic_note_c"}}, "+"),
+		newDiscoveryEvent("organic_reaction_6", "org_reactor_6", now.Add(-35*time.Minute), 7, [][]string{{"e", "organic_note_c"}}, "+"),
+		newDiscoveryEvent("organic_reply_1", "org_replier_1", now.Add(-34*time.Minute), 1, [][]string{{"e", "organic_note_d", "", "reply"}}, "reply"),
+		newDiscoveryEvent("organic_reply_2", "org_replier_2", now.Add(-33*time.Minute), 1, [][]string{{"e", "organic_note_d", "", "reply"}}, "reply"),
+	)
+
+	for _, event := range events {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+
+	trending, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingProfiles: %v", err)
+	}
+	if len(trending) < 2 {
+		t.Fatalf("expected at least 2 profiles, got %#v", trending)
+	}
+	if trending[0].Pubkey != "organic_author" {
+		t.Fatalf("expected organic_author to outrank spammy_author in trending, got %#v", trending[0])
+	}
+
+	rising, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetRisingProfiles: %v", err)
+	}
+	if len(rising) < 2 {
+		t.Fatalf("expected at least 2 profiles, got %#v", rising)
+	}
+	if rising[0].Pubkey != "organic_author" {
+		t.Fatalf("expected organic_author to outrank spammy_author in rising, got %#v", rising[0])
+	}
+}
+
+func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+
+	events := []model.Event{
+		newDiscoveryEvent("meta_engaged", "engaged_author", now.Add(-5*time.Hour), 0, nil, `{"name":"engaged"}`),
+		newDiscoveryEvent("meta_growth", "growth_author", now.Add(-5*time.Hour), 0, nil, `{"name":"growth"}`),
+		newDiscoveryEvent("engaged_note", "engaged_author", now.Add(-2*time.Hour), 1, nil, "engaged note"),
+		newDiscoveryEvent("growth_note", "growth_author", now.Add(-2*time.Hour), 1, nil, "growth note"),
+	}
+	for i := 0; i < 8; i++ {
+		events = append(events, newDiscoveryEvent(
+			"engaged_reaction_"+string(rune('a'+i)),
+			"engaged_reactor_"+string(rune('a'+i)),
+			now.Add(time.Duration(-90+i)*time.Minute),
+			7,
+			[][]string{{"e", "engaged_note"}},
+			"+",
+		))
+	}
+	for i := 0; i < 10; i++ {
+		events = append(events, newDiscoveryEvent(
+			"growth_follow_"+string(rune('a'+i)),
+			"growth_follower_"+string(rune('a'+i)),
+			now.Add(time.Duration(-200+i)*time.Minute),
+			3,
+			[][]string{{"p", "growth_author"}},
+			"contacts",
+		))
+	}
+
+	for _, event := range events {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+
+	trending, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingProfiles: %v", err)
+	}
+	if len(trending) < 2 {
+		t.Fatalf("expected at least 2 profiles, got %#v", trending)
+	}
+	if trending[0].Pubkey != "engaged_author" {
+		t.Fatalf("expected engagement-led profile first in trending, got %#v", trending[0])
+	}
+
+	rising, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetRisingProfiles: %v", err)
+	}
+	if len(rising) < 2 {
+		t.Fatalf("expected at least 2 profiles, got %#v", rising)
+	}
+	if rising[0].Pubkey != "growth_author" {
+		t.Fatalf("expected follower-growth profile first in rising, got %#v", rising[0])
 	}
 }

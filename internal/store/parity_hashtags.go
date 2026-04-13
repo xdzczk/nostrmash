@@ -36,7 +36,11 @@ func (s *PostgresStore) GetTrendingHashtags(ctx context.Context, window time.Dur
 		FROM event_hashtags
 		WHERE created_at >= $1
 		GROUP BY hashtag
-		ORDER BY event_count DESC, unique_authors DESC, hashtag ASC
+		ORDER BY
+			unique_authors DESC,
+			(COUNT(DISTINCT author_pubkey))::double precision / GREATEST(COUNT(*), 1) DESC,
+			event_count DESC,
+			hashtag ASC
 		LIMIT $2 OFFSET $3
 	`, minCreatedAt, limit, offset)
 	if err != nil {

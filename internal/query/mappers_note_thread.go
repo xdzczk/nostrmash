@@ -26,6 +26,8 @@ func eventCountsFromStore(row store.EventCounts) EventCounts {
 		ReplyCount:    row.ReplyCount,
 		ReactionCount: row.ReactionCount,
 		RepostCount:   row.RepostCount,
+		ZapCount:      row.ZapCount,
+		ZapMSats:      row.ZapMSats,
 		Consistency:   row.Consistency,
 	}
 }

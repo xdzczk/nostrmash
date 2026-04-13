@@ -732,7 +732,7 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Ranked trending profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Ranked trending profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) and profile discovery metrics (`recent_post_count`, `recent_reply_count`, `recent_engagement_received`, `recent_new_followers`, `recent_zap_volume_msats`, `recent_active_days`, `recent_activity_at`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/profiles/rising:
@@ -751,7 +751,7 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Ranked rising profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Ranked rising profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) and profile discovery metrics (`recent_post_count`, `recent_reply_count`, `recent_engagement_received`, `recent_new_followers`, `recent_zap_volume_msats`, `recent_active_days`, `recent_activity_at`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/profiles/{pubkey}/related:

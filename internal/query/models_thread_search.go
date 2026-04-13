@@ -58,6 +58,8 @@ type ActionCounts struct {
 	ReplyCount    int64  `json:"reply_count"`
 	ReactionCount int64  `json:"reaction_count"`
 	RepostCount   int64  `json:"repost_count"`
+	ZapCount      int64  `json:"zap_count"`
+	ZapMSats      int64  `json:"zap_msats"`
 	Consistency   string `json:"consistency"`
 }
 
@@ -152,6 +154,8 @@ type EventCounts struct {
 	ReplyCount    int64
 	ReactionCount int64
 	RepostCount   int64
+	ZapCount      int64
+	ZapMSats      int64
 	Consistency   string
 }
 

@@ -10,6 +10,8 @@ import (
 	"github.com/xdzczk/nostrmash/internal/domainnorm"
 )
 
+const domainMediaURLFilterClause = `NOT (url ~* '\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|heic|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|ogg|m4a|flac|aac|opus)(\?|#|$)')`
+
 func (s *PostgresStore) GetEventLinkedDomains(
 	ctx context.Context,
 	eventID string,
@@ -104,7 +106,7 @@ func (s *PostgresStore) getTopDomains(
 	}
 	minCreatedAt := time.Now().UTC().Add(-window).Unix()
 	if pubkey == nil {
-		rows, err := s.pool.Query(ctx, `
+		query := fmt.Sprintf(`
 			SELECT
 				domain,
 				COUNT(*)::bigint AS link_count,
@@ -112,17 +114,24 @@ func (s *PostgresStore) getTopDomains(
 				COUNT(DISTINCT author_pubkey)::bigint AS unique_authors
 			FROM event_urls
 			WHERE created_at >= $1
+			  AND %s
 			GROUP BY domain
-			ORDER BY note_count DESC, link_count DESC, domain ASC
+			ORDER BY
+				unique_authors DESC,
+				(COUNT(DISTINCT author_pubkey))::double precision / GREATEST(COUNT(DISTINCT event_id), 1) DESC,
+				note_count DESC,
+				link_count DESC,
+				domain ASC
 			LIMIT $2 OFFSET $3
-		`, minCreatedAt, limit, offset)
+		`, domainMediaURLFilterClause)
+		rows, err := s.pool.Query(ctx, query, minCreatedAt, limit, offset)
 		if err != nil {
 			return nil, fmt.Errorf("get top discovery domains: %w", err)
 		}
 		defer rows.Close()
 		return scanDomainStatRows(rows)
 	}
-	rows, err := s.pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT
 			domain,
 			COUNT(*)::bigint AS link_count,
@@ -131,10 +140,17 @@ func (s *PostgresStore) getTopDomains(
 		FROM event_urls
 		WHERE author_pubkey = $1
 		  AND created_at >= $2
+		  AND %s
 		GROUP BY domain
-		ORDER BY note_count DESC, link_count DESC, domain ASC
+		ORDER BY
+			unique_authors DESC,
+			(COUNT(DISTINCT author_pubkey))::double precision / GREATEST(COUNT(DISTINCT event_id), 1) DESC,
+			note_count DESC,
+			link_count DESC,
+			domain ASC
 		LIMIT $3 OFFSET $4
-	`, *pubkey, minCreatedAt, limit, offset)
+	`, domainMediaURLFilterClause)
+	rows, err := s.pool.Query(ctx, query, *pubkey, minCreatedAt, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("get top domains by author: %w", err)
 	}
@@ -167,7 +183,7 @@ func (s *PostgresStore) GetTrendingDomains(
 	nowUnix := time.Now().UTC().Unix()
 	day := int64((24 * time.Hour) / time.Second)
 	windowFloor := nowUnix - int64(window/time.Second)
-	rows, err := s.pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT
 			domain,
 			MAX(created_at),
@@ -179,13 +195,18 @@ func (s *PostgresStore) GetTrendingDomains(
 			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $2)
 		FROM event_urls
 		WHERE created_at >= $3
+		  AND %s
 		GROUP BY domain
 		ORDER BY
+			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3) DESC,
+			(COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3))::double precision /
+				GREATEST(COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3), 1) DESC,
 			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3) DESC,
 			COUNT(*) FILTER (WHERE created_at >= $3) DESC,
 			domain ASC
 		LIMIT $4 OFFSET $5
-	`, nowUnix-day, nowUnix-(7*day), windowFloor, limit, offset)
+	`, domainMediaURLFilterClause)
+	rows, err := s.pool.Query(ctx, query, nowUnix-day, nowUnix-(7*day), windowFloor, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("get trending domains: %w", err)
 	}
@@ -243,7 +264,7 @@ func (s *PostgresStore) GetDomainSummary(
 	var summary DomainSummaryProjection
 	nowUnix := time.Now().UTC().Unix()
 	day := int64((24 * time.Hour) / time.Second)
-	if err := s.pool.QueryRow(ctx, `
+	query := fmt.Sprintf(`
 		SELECT
 			MAX(created_at),
 			COUNT(*) FILTER (WHERE created_at >= $2),
@@ -260,7 +281,9 @@ func (s *PostgresStore) GetDomainSummary(
 			COUNT(DISTINCT author_pubkey)
 		FROM event_urls
 		WHERE domain = $1
-	`, normalized, nowUnix-day, nowUnix-(7*day), nowUnix-(30*day)).Scan(
+		  AND %s
+	`, domainMediaURLFilterClause)
+	if err := s.pool.QueryRow(ctx, query, normalized, nowUnix-day, nowUnix-(7*day), nowUnix-(30*day)).Scan(
 		&summary.LatestEventAt,
 		&summary.Activity.Last24h.LinkCount,
 		&summary.Activity.Last24h.NoteCount,
@@ -363,13 +386,14 @@ func (s *PostgresStore) GetDomainNotes(
 			SELECT DISTINCT event_id
 			FROM event_urls
 			WHERE domain = $1
+			  AND %s
 		) d
 		JOIN note_discovery_stats s ON s.event_id = d.event_id
 		JOIN events e ON e.id = s.event_id
 		WHERE %s
 		ORDER BY %s
 		LIMIT $2 OFFSET $3
-	`, scoreExpr, filterClause, orderBy)
+	`, domainMediaURLFilterClause, scoreExpr, filterClause, orderBy)
 
 	rows, err := s.pool.Query(ctx, query, normalized, limit, offset)
 	if err != nil {
@@ -404,7 +428,8 @@ func (s *PostgresStore) GetDomainNotes(
 
 func (s *PostgresStore) hasDomain(ctx context.Context, domain string) (bool, error) {
 	var exists bool
-	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM event_urls WHERE domain = $1)`, domain).Scan(&exists); err != nil {
+	query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM event_urls WHERE domain = $1 AND %s)`, domainMediaURLFilterClause)
+	if err := s.pool.QueryRow(ctx, query, domain).Scan(&exists); err != nil {
 		return false, fmt.Errorf("check domain existence: %w", err)
 	}
 	return exists, nil

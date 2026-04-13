@@ -161,6 +161,12 @@ func (s *PostgresStore) GetTrustQualifiedTrendingProfiles(
 			p.recent_post_count,
 			p.recent_reply_count,
 			p.recent_engagement_received,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM follower_edges fe
+				WHERE fe.followed_pubkey = p.pubkey
+				  AND fe.contact_list_created_at >= $1
+			), 0)::bigint AS recent_new_followers,
 			p.recent_zap_volume_msats,
 			p.recent_active_days,
 			p.recent_activity_at,
@@ -188,6 +194,7 @@ func (s *PostgresStore) GetTrustQualifiedTrendingProfiles(
 			&row.Profile.RecentPostCount,
 			&row.Profile.RecentReplyCount,
 			&row.Profile.RecentEngagementReceived,
+			&row.Profile.RecentNewFollowers,
 			&row.Profile.RecentZapVolumeMSats,
 			&row.Profile.RecentActiveDays,
 			&row.Profile.RecentActivityAt,

@@ -217,6 +217,7 @@ func trendingProfileFromStore(row store.TrendingProfile) TrendingProfile {
 		RecentPostCount:          row.RecentPostCount,
 		RecentReplyCount:         row.RecentReplyCount,
 		RecentEngagementReceived: row.RecentEngagementReceived,
+		RecentNewFollowers:       row.RecentNewFollowers,
 		RecentZapVolumeMSats:     row.RecentZapVolumeMSats,
 		RecentActiveDays:         row.RecentActiveDays,
 		RecentActivityAt:         row.RecentActivityAt,

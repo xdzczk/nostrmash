@@ -134,10 +134,10 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 	)
 	h := mustNewHandlers(t, fakeEventReader{
 		getTrendingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
-			return []store.TrendingProfile{{Pubkey: pubkeyA, Score: 9.5}}, nil
+			return []store.TrendingProfile{{Pubkey: pubkeyA, Score: 9.5, RecentNewFollowers: 3}}, nil
 		},
 		getRisingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
-			return []store.TrendingProfile{{Pubkey: pubkeyB, Score: 7.25}}, nil
+			return []store.TrendingProfile{{Pubkey: pubkeyB, Score: 7.25, RecentNewFollowers: 12}}, nil
 		},
 		getRelatedProfilesFn: func(_ context.Context, pubkey string, _ int) ([]store.RelatedProfile, error) {
 			if pubkey != pubkeyA {
@@ -220,6 +220,9 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 	if firstTrending["nip05"] != "alice@example.com" || firstTrending["lud16"] != "alice@getalby.com" || firstTrending["website"] != "https://alice.example" {
 		t.Fatalf("expected extended identity fields on trending payload, got %#v", firstTrending)
 	}
+	if got := int64(firstTrending["recent_new_followers"].(float64)); got != 3 {
+		t.Fatalf("expected recent_new_followers on trending payload, got %#v", firstTrending)
+	}
 
 	relatedReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/profiles/"+pubkeyA+"/related", nil)
 	relatedRec := httptest.NewRecorder()
@@ -298,6 +301,9 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 	if !ok || firstHomeTrending["display_name"] != "Alice" || firstHomeTrending["picture"] != "https://cdn.example/alice.png" {
 		t.Fatalf("expected inline identity on home trending payload, got %#v", homeTrending[0])
 	}
+	if got := int64(firstHomeTrending["recent_new_followers"].(float64)); got != 3 {
+		t.Fatalf("expected recent_new_followers on home trending payload, got %#v", firstHomeTrending)
+	}
 	if firstHomeTrending["npub"] != encodeNpub(pubkeyA) {
 		t.Fatalf("expected npub on home trending payload, got %#v", homeTrending[0])
 	}
@@ -308,6 +314,9 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 	firstHomeRising, ok := homeRising[0].(map[string]any)
 	if !ok || firstHomeRising["display_name"] != "Bob" {
 		t.Fatalf("expected inline identity on home rising payload, got %#v", homeRising[0])
+	}
+	if got := int64(firstHomeRising["recent_new_followers"].(float64)); got != 12 {
+		t.Fatalf("expected recent_new_followers on home rising payload, got %#v", firstHomeRising)
 	}
 	if firstHomeRising["npub"] != encodeNpub(pubkeyB) {
 		t.Fatalf("expected npub on home rising payload, got %#v", homeRising[0])

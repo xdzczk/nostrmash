@@ -115,6 +115,7 @@ type TrendingProfile struct {
 	RecentPostCount          int64   `json:"recent_post_count"`
 	RecentReplyCount         int64   `json:"recent_reply_count"`
 	RecentEngagementReceived int64   `json:"recent_engagement_received"`
+	RecentNewFollowers       int64   `json:"recent_new_followers"`
 	RecentZapVolumeMSats     int64   `json:"recent_zap_volume_msats"`
 	RecentActiveDays         int     `json:"recent_active_days"`
 	RecentActivityAt         *int64  `json:"recent_activity_at,omitempty"`

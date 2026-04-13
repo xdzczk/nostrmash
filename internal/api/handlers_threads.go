@@ -26,6 +26,8 @@ func (h Handlers) GetEventCounts(w http.ResponseWriter, r *http.Request) {
 		"reply_count":    counts.ReplyCount,
 		"reaction_count": counts.ReactionCount,
 		"repost_count":   counts.RepostCount,
+		"zap_count":      counts.ZapCount,
+		"zap_msats":      counts.ZapMSats,
 		"consistency":    counts.Consistency,
 	})
 }

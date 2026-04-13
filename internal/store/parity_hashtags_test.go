@@ -109,6 +109,48 @@ func TestGetTrendingHashtags_TieBreaksByUniqueAuthors(t *testing.T) {
 	}
 }
 
+func TestGetTrendingHashtags_PrioritizesDiversityWhenUniqueAuthorsTie(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+
+	events := []model.Event{
+		newTaggedEvent("div_evt_1", "author_a", now.Add(-1*time.Hour), "alpha"),
+		newTaggedEvent("div_evt_2", "author_a", now.Add(-2*time.Hour), "alpha"),
+		newTaggedEvent("div_evt_3", "author_a", now.Add(-3*time.Hour), "alpha"),
+		newTaggedEvent("div_evt_4", "author_b", now.Add(-4*time.Hour), "alpha"),
+		newTaggedEvent("div_evt_5", "author_c", now.Add(-1*time.Hour), "beta"),
+		newTaggedEvent("div_evt_6", "author_d", now.Add(-2*time.Hour), "beta"),
+	}
+	for _, event := range events {
+		tags := extractTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.ProjectEventHashtags(ctx, event.ID); err != nil {
+			t.Fatalf("project hashtags %s: %v", event.ID, err)
+		}
+	}
+
+	out, err := pgStore.GetTrendingHashtags(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingHashtags: %v", err)
+	}
+	if len(out) < 2 {
+		t.Fatalf("unexpected result count: got=%d want>=2", len(out))
+	}
+	if out[0].Hashtag != "beta" {
+		t.Fatalf("expected beta to outrank alpha on better diversity with same unique authors, got %#v", out[0])
+	}
+}
+
 func newTaggedEvent(id, pubkey string, ts time.Time, hashtag string) model.Event {
 	createdAt := ts.Unix()
 	tags := [][]string{{"t", hashtag}}

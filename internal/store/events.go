@@ -47,6 +47,8 @@ type EventCounts struct {
 	ReplyCount    int64
 	ReactionCount int64
 	RepostCount   int64
+	ZapCount      int64
+	ZapMSats      int64
 	Consistency   string
 }
 

@@ -334,6 +334,12 @@ func (s *PostgresStore) getProfileDiscoveryRows(
 			recent_post_count,
 			recent_reply_count,
 			recent_engagement_received,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM follower_edges fe
+				WHERE fe.followed_pubkey = profile_discovery_stats.pubkey
+				  AND fe.contact_list_created_at >= $1
+			), 0)::bigint AS recent_new_followers,
 			recent_zap_volume_msats,
 			recent_active_days,
 			recent_activity_at
@@ -385,6 +391,7 @@ func (s *PostgresStore) getProfileDiscoveryRows(
 			&row.RecentPostCount,
 			&row.RecentReplyCount,
 			&row.RecentEngagementReceived,
+			&row.RecentNewFollowers,
 			&row.RecentZapVolumeMSats,
 			&row.RecentActiveDays,
 			&row.RecentActivityAt,
