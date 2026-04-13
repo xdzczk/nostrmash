@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -24,6 +25,7 @@ func main() {
 	defer stop()
 
 	log := logging.New("worker")
+	slog.SetDefault(log)
 	if err := runWorker(ctx, log); err != nil {
 		os.Exit(1)
 	}

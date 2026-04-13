@@ -185,10 +185,21 @@ func (s Service) searchProfilesPage(ctx context.Context, params ProfileSearchPar
 			params.Limit,
 			params.Offset,
 		)
-		if err == nil {
+		if err == nil && len(rows) > 0 {
+			return rows, nil
+		}
+		if err == nil && len(rows) == 0 {
+			pgRows, pgErr := s.searchProfilesFromStore(ctx, params)
+			if pgErr == nil && len(pgRows) > 0 {
+				return pgRows, nil
+			}
 			return rows, nil
 		}
 	}
+	return s.searchProfilesFromStore(ctx, params)
+}
+
+func (s Service) searchProfilesFromStore(ctx context.Context, params ProfileSearchParams) ([]Profile, error) {
 	if advanced, ok := s.reader.(profilesSearchReader); ok {
 		return advanced.SearchProfilesWithOptions(ctx, params.Query, params.Sort, params.Limit, params.Offset)
 	}

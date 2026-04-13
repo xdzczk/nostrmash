@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	ms "github.com/meilisearch/meilisearch-go"
 )
 
@@ -100,6 +101,42 @@ func (c *Client) Stats(ctx context.Context) (ServiceStats, error) {
 	}, nil
 }
 
+// NeedsSync compares document counts in Meilisearch against PostgreSQL and
+// returns true when any index is significantly behind (below 80% of PG count)
+// or completely empty. This catches both fresh indexes and interrupted syncs.
+func (c *Client) NeedsSync(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+	if !c.Enabled() || pool == nil {
+		return false, nil
+	}
+	type countQuery struct {
+		index string
+		sql   string
+	}
+	checks := []countQuery{
+		{IndexProfiles, `SELECT count(*) FROM profiles_latest`},
+		{IndexNotes, `SELECT count(*) FROM events WHERE kind = 1`},
+	}
+	const syncThreshold = 0.80
+	for _, check := range checks {
+		meiliStats, err := c.service.Index(check.index).GetStatsWithContext(ctx)
+		if err != nil {
+			return false, fmt.Errorf("get stats for index %s: %w", check.index, err)
+		}
+		var pgCount int64
+		if err := pool.QueryRow(ctx, check.sql).Scan(&pgCount); err != nil {
+			return false, fmt.Errorf("count rows for %s: %w", check.index, err)
+		}
+		if pgCount == 0 {
+			continue
+		}
+		ratio := float64(meiliStats.NumberOfDocuments) / float64(pgCount)
+		if ratio < syncThreshold {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (c *Client) waitForTask(ctx context.Context, taskUID int64) error {
 	if !c.Enabled() {
 		return nil
@@ -109,6 +146,9 @@ func (c *Client) waitForTask(ctx context.Context, taskUID int64) error {
 		return err
 	}
 	if task.Status != ms.TaskStatusSucceeded {
+		if task.Error.Code != "" {
+			return fmt.Errorf("task %d ended with status=%s: [%s] %s", taskUID, task.Status, task.Error.Code, task.Error.Message)
+		}
 		return fmt.Errorf("task %d ended with status=%s", taskUID, task.Status)
 	}
 	return nil

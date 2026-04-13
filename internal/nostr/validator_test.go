@@ -150,6 +150,57 @@ func TestParseAndValidate_RejectsJSONObjectArrays(t *testing.T) {
 	}
 }
 
+func TestMarshalCanonical_NoHTMLEscaping(t *testing.T) {
+	got, err := marshalCanonical(
+		"37ce94259421d17a13e04382205c6061323ebc6bbfa46aab1f73e6f93c774a5e",
+		1700000000,
+		1,
+		[][]string{{"t", "test"}},
+		"hello <world> & goodbye",
+	)
+	if err != nil {
+		t.Fatalf("marshalCanonical: %v", err)
+	}
+
+	s := string(got)
+	if !contains(s, "<world>") {
+		t.Fatalf("expected literal <world>, got HTML-escaped output: %s", s)
+	}
+	if !contains(s, "& goodbye") {
+		t.Fatalf("expected literal &, got HTML-escaped output: %s", s)
+	}
+}
+
+func TestParseAndValidate_ContentWithHTMLChars(t *testing.T) {
+	content := "check <this> & that"
+	pubkeyHex := "37ce94259421d17a13e04382205c6061323ebc6bbfa46aab1f73e6f93c774a5e"
+	var createdAt int64 = 1700000000
+	kind := 1
+	tags := [][]string{{"t", "nostr"}}
+
+	canonical, err := marshalCanonical(pubkeyHex, createdAt, kind, tags, content)
+	if err != nil {
+		t.Fatalf("marshalCanonical: %v", err)
+	}
+
+	if contains(string(canonical), `\u003c`) || contains(string(canonical), `\u003e`) || contains(string(canonical), `\u0026`) {
+		t.Fatalf("canonical JSON must not HTML-escape: %s", canonical)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchSubstring(s, substr)
+}
+
+func searchSubstring(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
 func readFixture(t *testing.T, relPath string) []byte {
 	t.Helper()
 	fullPath := filepath.Join("testdata", relPath)

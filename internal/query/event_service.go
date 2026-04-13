@@ -205,27 +205,36 @@ func (s Service) SearchSuggestions(ctx context.Context, text string, limit int) 
 	if profileQuery.CanonicalIdentifier != "" {
 		normalized.Query = profileQuery.CanonicalIdentifier
 	}
+	var profiles []Profile
+	var hashtags []HashtagSuggestion
+	meiliUsed := false
 	if s.meilisearch != nil {
-		profiles, profilesErr := s.meilisearch.SuggestProfiles(ctx, normalized.Query, normalized.Limit)
-		hashtags, hashtagsErr := s.meilisearch.SuggestHashtags(ctx, normalized.Query, normalized.Limit)
+		meiliProfiles, profilesErr := s.meilisearch.SuggestProfiles(ctx, normalized.Query, normalized.Limit)
+		meiliHashtags, hashtagsErr := s.meilisearch.SuggestHashtags(ctx, normalized.Query, normalized.Limit)
 		if profilesErr == nil && hashtagsErr == nil {
-			return SearchSuggestionsResult{
-				Profiles: profiles,
-				Hashtags: hashtags,
-			}, nil
+			profiles = meiliProfiles
+			hashtags = meiliHashtags
+			meiliUsed = true
 		}
 	}
-	suggestReader, ok := s.reader.(searchSuggestionsReader)
-	if !ok {
+	suggestReader, hasSuggestReader := s.reader.(searchSuggestionsReader)
+	if !meiliUsed && !hasSuggestReader {
 		return SearchSuggestionsResult{}, unsupportedCapabilityError("search suggestions")
 	}
-	profiles, err := suggestReader.SuggestProfiles(ctx, normalized.Query, normalized.Limit)
-	if err != nil {
-		return SearchSuggestionsResult{}, err
-	}
-	hashtags, err := suggestReader.SuggestHashtags(ctx, normalized.Query, normalized.Limit)
-	if err != nil {
-		return SearchSuggestionsResult{}, err
+	if !meiliUsed {
+		var err error
+		profiles, err = suggestReader.SuggestProfiles(ctx, normalized.Query, normalized.Limit)
+		if err != nil {
+			return SearchSuggestionsResult{}, err
+		}
+		hashtags, err = suggestReader.SuggestHashtags(ctx, normalized.Query, normalized.Limit)
+		if err != nil {
+			return SearchSuggestionsResult{}, err
+		}
+	} else if len(profiles) == 0 && hasSuggestReader {
+		if pgProfiles, pgErr := suggestReader.SuggestProfiles(ctx, normalized.Query, normalized.Limit); pgErr == nil && len(pgProfiles) > 0 {
+			profiles = pgProfiles
+		}
 	}
 	return SearchSuggestionsResult{
 		Profiles: profiles,

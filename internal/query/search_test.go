@@ -548,6 +548,130 @@ func (r readerWithSuggestionSearch) SuggestHashtags(ctx context.Context, query s
 	return r.suggestHashtagsFn(ctx, query, limit)
 }
 
+type fakeMeiliSearcher struct {
+	searchProfilesFn  func(context.Context, string, string, int, int) ([]Profile, error)
+	suggestProfilesFn func(context.Context, string, int) ([]Profile, error)
+	suggestHashtagsFn func(context.Context, string, int) ([]HashtagSuggestion, error)
+}
+
+func (f fakeMeiliSearcher) SearchNotes(context.Context, string, string, *time.Duration, string, int, int) ([]json.RawMessage, error) {
+	return nil, nil
+}
+func (f fakeMeiliSearcher) SearchProfiles(ctx context.Context, q string, sort string, limit int, offset int) ([]Profile, error) {
+	if f.searchProfilesFn != nil {
+		return f.searchProfilesFn(ctx, q, sort, limit, offset)
+	}
+	return nil, nil
+}
+func (f fakeMeiliSearcher) SuggestProfiles(ctx context.Context, q string, limit int) ([]Profile, error) {
+	if f.suggestProfilesFn != nil {
+		return f.suggestProfilesFn(ctx, q, limit)
+	}
+	return nil, nil
+}
+func (f fakeMeiliSearcher) SuggestHashtags(ctx context.Context, q string, limit int) ([]HashtagSuggestion, error) {
+	if f.suggestHashtagsFn != nil {
+		return f.suggestHashtagsFn(ctx, q, limit)
+	}
+	return nil, nil
+}
+func (f fakeMeiliSearcher) SearchDocuments(context.Context, string, int) ([]SearchDocument, error) {
+	return nil, nil
+}
+
+func TestSearchSuggestions_MeiliEmptyFallsBackToPostgres(t *testing.T) {
+	t.Parallel()
+	pgCalled := false
+	svc := mustNewServiceWithOptions(t, readerWithSuggestionSearch{
+		Reader: fakeReader{},
+		suggestProfilesFn: func(_ context.Context, q string, _ int) ([]Profile, error) {
+			pgCalled = true
+			return []Profile{{Pubkey: "pk_from_pg"}}, nil
+		},
+		suggestHashtagsFn: func(context.Context, string, int) ([]HashtagSuggestion, error) {
+			return []HashtagSuggestion{}, nil
+		},
+	}, ServiceOptions{
+		MeilisearchSearcher: fakeMeiliSearcher{
+			suggestProfilesFn: func(context.Context, string, int) ([]Profile, error) {
+				return []Profile{}, nil
+			},
+			suggestHashtagsFn: func(context.Context, string, int) ([]HashtagSuggestion, error) {
+				return []HashtagSuggestion{}, nil
+			},
+		},
+	})
+	out, err := svc.SearchSuggestions(context.Background(), "fiatjaf", 5)
+	if err != nil {
+		t.Fatalf("SearchSuggestions returned error: %v", err)
+	}
+	if !pgCalled {
+		t.Fatal("expected PostgreSQL suggest fallback to be called")
+	}
+	if len(out.Profiles) != 1 || out.Profiles[0].Pubkey != "pk_from_pg" {
+		t.Fatalf("expected PostgreSQL fallback profiles, got %#v", out.Profiles)
+	}
+}
+
+func TestSearchSuggestions_MeiliHitSkipsFallback(t *testing.T) {
+	t.Parallel()
+	svc := mustNewServiceWithOptions(t, readerWithSuggestionSearch{
+		Reader: fakeReader{},
+		suggestProfilesFn: func(context.Context, string, int) ([]Profile, error) {
+			t.Fatal("PostgreSQL suggest should not be called when Meili returns results")
+			return nil, nil
+		},
+	}, ServiceOptions{
+		MeilisearchSearcher: fakeMeiliSearcher{
+			suggestProfilesFn: func(context.Context, string, int) ([]Profile, error) {
+				return []Profile{{Pubkey: "pk_from_meili"}}, nil
+			},
+			suggestHashtagsFn: func(context.Context, string, int) ([]HashtagSuggestion, error) {
+				return []HashtagSuggestion{{Hashtag: "nostr"}}, nil
+			},
+		},
+	})
+	out, err := svc.SearchSuggestions(context.Background(), "alice", 5)
+	if err != nil {
+		t.Fatalf("SearchSuggestions returned error: %v", err)
+	}
+	if len(out.Profiles) != 1 || out.Profiles[0].Pubkey != "pk_from_meili" {
+		t.Fatalf("expected Meili profiles, got %#v", out.Profiles)
+	}
+}
+
+func TestSearchProfiles_MeiliEmptyFallsBackToPostgres(t *testing.T) {
+	t.Parallel()
+	pgCalled := false
+	svc := mustNewServiceWithOptions(t, readerWithAdvancedSearch{
+		Reader: fakeReader{},
+		searchProfilesFn: func(_ context.Context, q string, _ string, _ int, _ int) ([]Profile, error) {
+			pgCalled = true
+			return []Profile{{Pubkey: "pk_from_pg"}}, nil
+		},
+	}, ServiceOptions{
+		MeilisearchSearcher: fakeMeiliSearcher{
+			searchProfilesFn: func(context.Context, string, string, int, int) ([]Profile, error) {
+				return []Profile{}, nil
+			},
+		},
+	})
+	out, err := svc.SearchProfiles(context.Background(), ProfileSearchParams{
+		Query: "the meme bay",
+		Sort:  "relevant",
+		Limit: 5,
+	})
+	if err != nil {
+		t.Fatalf("SearchProfiles returned error: %v", err)
+	}
+	if !pgCalled {
+		t.Fatal("expected PostgreSQL profile search fallback to be called")
+	}
+	if len(out) != 1 || out[0].Pubkey != "pk_from_pg" {
+		t.Fatalf("expected PostgreSQL fallback profiles, got %#v", out)
+	}
+}
+
 func mustRawEvent(t *testing.T, id string, pubkey string) json.RawMessage {
 	t.Helper()
 	return json.RawMessage(fmt.Sprintf(`{"id":"%s","pubkey":"%s"}`, id, pubkey))

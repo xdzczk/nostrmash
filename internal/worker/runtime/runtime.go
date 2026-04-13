@@ -124,6 +124,22 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 			pool.Close()
 			return Bootstrap{}, func() {}, fmt.Errorf("ensure meilisearch indexes: %w", err)
 		}
+		needsSync, syncCheckErr := meiliClient.NeedsSync(ctx, pool)
+		if syncCheckErr != nil {
+			log.Error("meilisearch_sync_check", "error", syncCheckErr)
+		} else if needsSync {
+			log.Info("meilisearch_indexes_stale", "action", "starting_full_sync")
+			stats, syncErr := meiliClient.FullSync(ctx, pool, 1000)
+			if syncErr != nil {
+				log.Error("meilisearch_startup_sync_failed", "error", syncErr)
+			} else {
+				log.Info("meilisearch_startup_sync_complete",
+					"profiles", stats.Profiles,
+					"notes", stats.Notes,
+					"documents", stats.Documents,
+				)
+			}
+		}
 	}
 	handlers := derivation.NewHandlersWithOptions(pool, derivation.HandlersOptions{
 		MeiliClient: meiliClient,

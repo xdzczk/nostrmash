@@ -107,6 +107,26 @@ func main() {
 		} else {
 			log.Info("meilisearch_ready", "healthy", stats.Healthy, "index_count", len(stats.Indexes))
 		}
+		needsSync, syncCheckErr := meiliClient.NeedsSync(ctx, pool)
+		if syncCheckErr != nil {
+			log.Error("meilisearch_sync_check", "error", syncCheckErr)
+		} else if needsSync {
+			log.Info("meilisearch_indexes_stale", "action", "starting_full_sync")
+			go func() {
+				syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+				defer cancel()
+				syncStats, syncErr := meiliClient.FullSync(syncCtx, pool, 1000)
+				if syncErr != nil {
+					log.Error("meilisearch_startup_sync_failed", "error", syncErr)
+				} else {
+					log.Info("meilisearch_startup_sync_complete",
+						"profiles", syncStats.Profiles,
+						"notes", syncStats.Notes,
+						"documents", syncStats.Documents,
+					)
+				}
+			}()
+		}
 	}
 	meiliSearcher := meili.NewSearcher(meiliClient, queryStore)
 	var fallbackReader any

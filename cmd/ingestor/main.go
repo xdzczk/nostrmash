@@ -24,6 +24,7 @@ func main() {
 	defer stop()
 
 	log := logging.New("ingestor")
+	slog.SetDefault(log)
 	if err := runIngestor(ctx, log); err != nil {
 		os.Exit(1)
 	}

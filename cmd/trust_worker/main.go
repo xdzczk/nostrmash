@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -31,6 +32,7 @@ func main() {
 	defer stop()
 
 	log := logging.New("trust_worker")
+	slog.SetDefault(log)
 	cfg, err := config.LoadTrustWorker()
 	if err != nil {
 		log.Error("config", "error", err)

@@ -168,14 +168,7 @@ func parseCanonical(fields map[string]json.RawMessage) (*Event, *ValidationError
 		}
 	}
 
-	canonicalJSON, canonicalErr := json.Marshal([]any{
-		0,
-		pubkey,
-		createdAt,
-		kind,
-		tags,
-		content,
-	})
+	canonicalJSON, canonicalErr := marshalCanonical(pubkey, createdAt, kind, tags, content)
 	if canonicalErr != nil {
 		return nil, &ValidationError{
 			Code:    ErrCanonicalIDMismatch,
@@ -323,6 +316,20 @@ func parseTags(raw json.RawMessage) ([][]string, *ValidationError) {
 		tags = append(tags, values)
 	}
 	return tags, nil
+}
+
+// marshalCanonical produces the NIP-01 canonical JSON serialization of an event
+// for ID hashing. Go's json.Marshal HTML-escapes <, >, & into \uXXXX sequences
+// by default, which differs from the serialization signers use. SetEscapeHTML(false)
+// prevents this, matching the behavior of JS/Rust/Python JSON serializers.
+func marshalCanonical(pubkey string, createdAt int64, kind int, tags [][]string, content string) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode([]any{0, pubkey, createdAt, kind, tags, content}); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 func isLowerHex(s string, expectedLen int) bool {

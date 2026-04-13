@@ -430,6 +430,12 @@ func scanSearchDocuments(rows pgx.Rows) ([]SearchDocument, error) {
 		}
 		row.ID = row.EntityType + ":" + row.EntityID
 		row.Freshness = freshness.UTC().Unix()
+		if row.Aliases == nil {
+			row.Aliases = []string{}
+		}
+		if row.IdentityTokens == nil {
+			row.IdentityTokens = []string{}
+		}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
