@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -224,7 +225,14 @@ func (s profileService) persistFallbackProfile(_ context.Context, profile Profil
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = s.persister.PersistFallbackProfile(ctx, profile)
+		if err := s.persister.PersistFallbackProfile(ctx, profile); err != nil {
+			slog.Warn("persist_fallback_profile_failed",
+				"pubkey", profile.Pubkey,
+				"error", err.Error(),
+			)
+		} else {
+			slog.Info("persist_fallback_profile_ok", "pubkey", profile.Pubkey)
+		}
 	}()
 }
 

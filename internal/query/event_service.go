@@ -125,6 +125,11 @@ func (s Service) Search(ctx context.Context, text string, limit int) (out Search
 	if err != nil {
 		return SearchResult{}, err
 	}
+
+	if profileQuery.CanonicalIdentifier == "" && len(profiles) == 0 && len(events) > 0 && s.fallback != nil {
+		profiles = s.enrichProfilesFromNoteAuthors(ctx, events, profileQuery.NormalizedQuery, limit)
+	}
+
 	result := SearchResult{
 		Events:       events,
 		Profiles:     profiles,
@@ -137,6 +142,27 @@ func (s Service) Search(ctx context.Context, text string, limit int) (out Search
 		result.Highlights = consumer.ConsumeHighlights()
 	}
 	return result, nil
+}
+
+func (s Service) enrichProfilesFromNoteAuthors(ctx context.Context, events []json.RawMessage, query string, limit int) []Profile {
+	candidatePubkeys := extractCandidatePubkeysFromEvents(events, maxEnrichmentPubkeys)
+	if len(candidatePubkeys) == 0 {
+		return []Profile{}
+	}
+	infos, err := s.GetUserInfos(ctx, candidatePubkeys)
+	if err != nil {
+		return []Profile{}
+	}
+	matched := make([]Profile, 0, limit)
+	for _, p := range infos.Profiles {
+		if profileMatchesTextQuery(p, query) {
+			matched = append(matched, p)
+			if len(matched) >= limit {
+				break
+			}
+		}
+	}
+	return matched
 }
 
 func (s Service) searchByEventIdentifier(ctx context.Context, eid normalizedEventIdentifier) (SearchResult, error) {

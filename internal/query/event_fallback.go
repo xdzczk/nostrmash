@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
@@ -73,7 +74,14 @@ func (s eventService) persistFallbackEvent(_ context.Context, eventID string, ra
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = s.persister.PersistFallbackEvent(ctx, eventID, raw)
+		if err := s.persister.PersistFallbackEvent(ctx, eventID, raw); err != nil {
+			slog.Warn("persist_fallback_event_failed",
+				"event_id", eventID,
+				"error", err.Error(),
+			)
+		} else {
+			slog.Info("persist_fallback_event_ok", "event_id", eventID)
+		}
 	}()
 }
 
