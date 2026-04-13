@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -37,6 +39,7 @@ func main() {
 	defer stop()
 
 	log := logging.New("api")
+	slog.SetDefault(log)
 
 	cfg, err := config.LoadAPI()
 	if err != nil {
@@ -120,10 +123,20 @@ func main() {
 			"max_fanout", maxFanout,
 		)
 	}
+	profilePersister := newMeiliSyncProfilePersister(
+		query.AdaptFallbackProfilePersister(queryStore),
+		meiliClient,
+		pool,
+	)
+	eventPersister := newMeiliSyncEventPersister(
+		query.AdaptFallbackEventPersister(queryStore),
+		meiliClient,
+		pool,
+	)
 	queryOptions := query.ServiceOptions{
 		FallbackReader:                  fallbackReader,
-		FallbackProfilePersister:        query.AdaptFallbackProfilePersister(queryStore),
-		FallbackEventPersister:          query.AdaptFallbackEventPersister(queryStore),
+		FallbackProfilePersister:        profilePersister,
+		FallbackEventPersister:          eventPersister,
 		FallbackFetchTrustMode:          cfg.Shared.TrustPolicy.FallbackFetchMode,
 		FallbackFetchMinimumScore:       cfg.Shared.TrustPolicy.MinimumScore,
 		FallbackFetchMaxHops:            cfg.Shared.TrustPolicy.MaxHops,
@@ -368,4 +381,75 @@ func runStorageMetricsReporter(
 			}
 		}
 	}
+}
+
+// meiliSyncProfilePersister wraps a FallbackProfilePersister to also sync the
+// persisted profile to Meilisearch so that subsequent text searches can find it
+// immediately, without waiting for a full re-sync.
+type meiliSyncProfilePersister struct {
+	inner query.FallbackProfilePersister
+	meili *meili.Client
+	pool  *pgxpool.Pool
+}
+
+func newMeiliSyncProfilePersister(
+	inner query.FallbackProfilePersister,
+	meili *meili.Client,
+	pool *pgxpool.Pool,
+) query.FallbackProfilePersister {
+	if inner == nil {
+		return nil
+	}
+	return &meiliSyncProfilePersister{inner: inner, meili: meili, pool: pool}
+}
+
+func (p *meiliSyncProfilePersister) PersistFallbackProfile(ctx context.Context, profile query.Profile) error {
+	if err := p.inner.PersistFallbackProfile(ctx, profile); err != nil {
+		return err
+	}
+	if p.meili != nil && p.meili.Enabled() && p.pool != nil && profile.MetadataEventID != "" {
+		started := time.Now()
+		if err := p.meili.SyncEvent(ctx, p.pool, profile.MetadataEventID); err != nil {
+			metrics.ObserveMeiliSync("profile_fallback", "error", time.Since(started))
+			slog.Warn("meilisearch_sync_failed", "source", "profile_fallback", "event_id", profile.MetadataEventID, "pubkey", profile.Pubkey, "error", err)
+		} else {
+			metrics.ObserveMeiliSync("profile_fallback", "success", time.Since(started))
+		}
+	}
+	return nil
+}
+
+// meiliSyncEventPersister wraps a FallbackEventPersister to also sync the
+// persisted event to Meilisearch so that subsequent text searches can find it.
+type meiliSyncEventPersister struct {
+	inner query.FallbackEventPersister
+	meili *meili.Client
+	pool  *pgxpool.Pool
+}
+
+func newMeiliSyncEventPersister(
+	inner query.FallbackEventPersister,
+	meili *meili.Client,
+	pool *pgxpool.Pool,
+) query.FallbackEventPersister {
+	if inner == nil {
+		return nil
+	}
+	return &meiliSyncEventPersister{inner: inner, meili: meili, pool: pool}
+}
+
+func (p *meiliSyncEventPersister) PersistFallbackEvent(ctx context.Context, eventID string, raw json.RawMessage) error {
+	if err := p.inner.PersistFallbackEvent(ctx, eventID, raw); err != nil {
+		return err
+	}
+	if p.meili != nil && p.meili.Enabled() && p.pool != nil && eventID != "" {
+		started := time.Now()
+		if err := p.meili.SyncEvent(ctx, p.pool, eventID); err != nil {
+			metrics.ObserveMeiliSync("event_fallback", "error", time.Since(started))
+			slog.Warn("meilisearch_sync_failed", "source", "event_fallback", "event_id", eventID, "error", err)
+		} else {
+			metrics.ObserveMeiliSync("event_fallback", "success", time.Since(started))
+		}
+	}
+	return nil
 }

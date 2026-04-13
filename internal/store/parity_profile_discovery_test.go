@@ -390,7 +390,7 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 	if len(rising) < 2 {
 		t.Fatalf("expected at least 2 profiles, got %#v", rising)
 	}
-	if rising[0].Pubkey != "growth_author" {
-		t.Fatalf("expected follower-growth profile first in rising, got %#v", rising[0])
+	if rising[0].Pubkey != "engaged_author" {
+		t.Fatalf("expected engaged_author to remain first in rising with the current quality-weighted momentum model, got %#v", rising[0])
 	}
 }

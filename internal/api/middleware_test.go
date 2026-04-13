@@ -286,6 +286,33 @@ func TestWithPanicRecovery_ReturnsInternalErrorEnvelope(t *testing.T) {
 	}
 }
 
+func TestLogRequests_ResolvesPathTemplateAfterDispatch(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/events/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	var buf strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+
+	server := httptest.NewServer(LogRequests(logger, mux))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/api/v1/events/abc123")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, "/api/v1/events/{id}") {
+		t.Fatalf("expected path_template to contain route pattern, got log: %s", logOutput)
+	}
+	if strings.Contains(logOutput, "/_unmatched") {
+		t.Fatalf("path_template should not be /_unmatched for a matched route, got log: %s", logOutput)
+	}
+}
+
 func TestLogRequests_PreservesWebsocketHijacker(t *testing.T) {
 	mux := http.NewServeMux()
 	upgrader := websocket.Upgrader{

@@ -24,6 +24,8 @@ func TestHandlerIncludesGoRuntimeMetrics(t *testing.T) {
 	RegisterBuildInfo("api", "v1.2.3", "abc1234", "2026-04-06T00:00:00Z")
 	RegisterDeploymentInfo("api", "nostrmash", "development")
 	ObservePublicResponseCacheLookup("bundle", "discovery_home", true)
+	ObserveMeiliSync("derivation", "success", 4*time.Millisecond)
+	ObserveMeiliSearch("profiles", "success", 6*time.Millisecond)
 
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	rec := httptest.NewRecorder()
@@ -74,6 +76,12 @@ func TestHandlerIncludesGoRuntimeMetrics(t *testing.T) {
 	}
 	if !strings.Contains(body, "nostrmash_public_response_cache_lookups_total") {
 		t.Fatalf("expected public response cache metrics in /metrics output")
+	}
+	if !strings.Contains(body, "nostrmash_meili_sync_total") {
+		t.Fatalf("expected meilisearch sync metrics in /metrics output")
+	}
+	if !strings.Contains(body, "nostrmash_meili_search_duration_seconds") {
+		t.Fatalf("expected meilisearch search metrics in /metrics output")
 	}
 }
 

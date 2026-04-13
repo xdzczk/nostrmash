@@ -5,15 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/xdzczk/nostrmash/internal/model"
 )
 
 // PersistFallbackProfile upserts a relay-fetched profile into profiles_latest
 // so that subsequent lookups and searches find it locally. Only writes if the
 // incoming profile is newer than (or absent from) the existing row.
 //
-// Because profiles_latest.metadata_event_id has a FK to events.id, we first
-// ensure a minimal kind-0 event row exists in events before upserting the
-// projection.
+// Because profiles_latest.metadata_event_id has a FK to events.id, we persist
+// a canonical kind-0 event first (via InsertCanonicalEvent), which also keeps
+// derivation jobs aligned with the normal ingest path.
 func (s *PostgresStore) PersistFallbackProfile(ctx context.Context, pp ProfileProjection) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("store is not initialized")
@@ -44,12 +47,18 @@ func (s *PostgresStore) PersistFallbackProfile(ctx context.Context, pp ProfilePr
 	if err != nil {
 		return fmt.Errorf("build fallback event json: %w", err)
 	}
-	_, err = s.pool.Exec(ctx, `
-		INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json, first_seen_at, inserted_at)
-		VALUES ($1, $2, $3, 0, '', $4, $5, now(), now())
-		ON CONFLICT (id) DO NOTHING
-	`, eventID, pubkey, pp.MetadataCreatedAt, string(profileJSON), json.RawMessage(rawEvent))
-	if err != nil {
+
+	evt := model.Event{
+		ID:          eventID,
+		Pubkey:      pubkey,
+		CreatedAt:   pp.MetadataCreatedAt,
+		Kind:        0,
+		Sig:         "",
+		Content:     string(profileJSON),
+		RawJSON:     json.RawMessage(rawEvent),
+		FirstSeenAt: time.Now().UTC(),
+	}
+	if err := s.InsertCanonicalEvent(ctx, evt, nil, "fallback:relay", evt.FirstSeenAt); err != nil {
 		return fmt.Errorf("persist fallback kind-0 event: %w", err)
 	}
 

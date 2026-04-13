@@ -106,6 +106,11 @@ type apiErrorBody struct {
 	RequestID string `json:"request_id"`
 }
 
+func writeInternalError(ctx context.Context, w http.ResponseWriter, cause error) {
+	logging.WithRequestID(ctx, apiErrLog).Error("unhandled_handler_error", "error", cause)
+	writeError(ctx, w, http.StatusInternalServerError, "internal_error", "internal server error")
+}
+
 func writeError(ctx context.Context, w http.ResponseWriter, status int, code, message string) {
 	class := failure.ClassifyHTTP(status, code)
 	logging.WithRequestID(ctx, apiErrLog).Info("api_error_response",

@@ -38,7 +38,7 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "trending domains are not available on this deployment")
 			return
 		}
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		writeInternalError(r.Context(), w, err)
 		return
 	}
 	domains := make([]map[string]any, 0, len(rows))
@@ -96,7 +96,7 @@ func (h Handlers) GetDomainSummary(w http.ResponseWriter, r *http.Request) {
 			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "domain is invalid")
 			return
 		}
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		writeInternalError(r.Context(), w, err)
 		return
 	}
 	recentNotes := make([]map[string]any, 0, len(summary.RecentNotes))
@@ -213,7 +213,7 @@ func (h Handlers) GetDomainNotes(w http.ResponseWriter, r *http.Request) {
 			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "domain is invalid")
 			return
 		}
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		writeInternalError(r.Context(), w, err)
 		return
 	}
 	payloadNotes := make([]map[string]any, 0, len(notes))

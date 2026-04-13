@@ -40,10 +40,8 @@ func WithRequestID(next http.Handler) http.Handler {
 func LogRequests(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := traceutil.ExtractHTTPContext(r.Context(), r.Header)
-		pathTemplate := requestPathTemplate(r)
 		spanCtx, span := traceutil.StartSpan(ctx, "http.request",
 			traceutil.KV("http.method", r.Method),
-			traceutil.KV("http.route", pathTemplate),
 		)
 		r = r.WithContext(spanCtx)
 		if traceID := traceutil.TraceID(spanCtx); traceID != "" {
@@ -57,6 +55,8 @@ func LogRequests(log *slog.Logger, next http.Handler) http.Handler {
 				span.End(failure.FromPanic(recovered))
 				panic(recovered)
 			}
+			pathTemplate := requestPathTemplate(r)
+			span.SetAttr("http.route", pathTemplate)
 			var spanErr error
 			if sw.code >= http.StatusInternalServerError {
 				spanErr = errors.New("http status " + strings.TrimSpace(http.StatusText(sw.code)))

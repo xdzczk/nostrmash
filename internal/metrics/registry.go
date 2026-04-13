@@ -60,6 +60,7 @@ func ensureRegistered() {
 	registerBuildMetrics()
 	registerStorageMetrics()
 	registerAuthorMetadataMetrics()
+	registerMeiliMetrics()
 
 	metricsRegistered = true
 }

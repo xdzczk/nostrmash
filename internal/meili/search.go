@@ -10,6 +10,7 @@ import (
 	"time"
 
 	ms "github.com/meilisearch/meilisearch-go"
+	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/query"
 )
 
@@ -50,7 +51,13 @@ func (s *Searcher) SearchNotes(
 	limit int,
 	offset int,
 ) ([]json.RawMessage, error) {
+	started := time.Now()
+	outcome := "success"
+	defer func() {
+		metrics.ObserveMeiliSearch(IndexNotes, outcome, time.Since(started))
+	}()
 	if !s.Enabled() {
+		outcome = "error"
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
 	req := &ms.SearchRequest{
@@ -79,6 +86,7 @@ func (s *Searcher) SearchNotes(
 	}
 	resp, err := s.client.service.Index(IndexNotes).SearchWithContext(ctx, searchQuery, req)
 	if err != nil {
+		outcome = "error"
 		return nil, err
 	}
 	ids := make([]string, 0, len(resp.Hits))
@@ -96,10 +104,12 @@ func (s *Searcher) SearchNotes(
 		return []json.RawMessage{}, nil
 	}
 	if s.events == nil {
+		outcome = "error"
 		return nil, fmt.Errorf("event hydrator is not configured")
 	}
 	raws, err := s.events.GetEventRawsByIDs(ctx, ids)
 	if err != nil {
+		outcome = "error"
 		return nil, err
 	}
 	out := make([]json.RawMessage, 0, len(ids))
@@ -118,7 +128,13 @@ func (s *Searcher) SearchProfiles(
 	limit int,
 	offset int,
 ) ([]query.Profile, error) {
+	started := time.Now()
+	outcome := "success"
+	defer func() {
+		metrics.ObserveMeiliSearch(IndexProfiles, outcome, time.Since(started))
+	}()
 	if !s.Enabled() {
+		outcome = "error"
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
 	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(ctx, searchQuery, &ms.SearchRequest{
@@ -127,6 +143,7 @@ func (s *Searcher) SearchProfiles(
 		AttributesToRetrieve: []string{"pubkey", "metadata_event_id", "metadata_created_at", "profile_json"},
 	})
 	if err != nil {
+		outcome = "error"
 		return nil, err
 	}
 	out := make([]query.Profile, 0, len(resp.Hits))
@@ -151,7 +168,13 @@ func (s *Searcher) SearchProfiles(
 }
 
 func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limit int) ([]query.Profile, error) {
+	started := time.Now()
+	outcome := "success"
+	defer func() {
+		metrics.ObserveMeiliSearch(IndexProfiles, outcome, time.Since(started))
+	}()
 	if !s.Enabled() {
+		outcome = "error"
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
 	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(ctx, searchQuery, &ms.SearchRequest{
@@ -159,12 +182,13 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 		Offset:                  0,
 		AttributesToRetrieve:    []string{"pubkey", "metadata_event_id", "metadata_created_at", "profile_json"},
 		MatchingStrategy:        ms.Last,
-		AttributesToSearchOn:    []string{"pubkey", "name", "display_name", "nip05"},
+		AttributesToSearchOn:    []string{"pubkey", "name", "display_name", "nip05", "about"},
 		AttributesToHighlight:   []string{"name", "display_name", "nip05"},
 		ShowRankingScore:        true,
 		ShowRankingScoreDetails: false,
 	})
 	if err != nil {
+		outcome = "error"
 		return nil, err
 	}
 	out := make([]query.Profile, 0, len(resp.Hits))
@@ -219,7 +243,13 @@ func (s *Searcher) SuggestHashtags(ctx context.Context, searchQuery string, limi
 }
 
 func (s *Searcher) SearchDocuments(ctx context.Context, searchQuery string, limit int) ([]query.SearchDocument, error) {
+	started := time.Now()
+	outcome := "success"
+	defer func() {
+		metrics.ObserveMeiliSearch(IndexDocuments, outcome, time.Since(started))
+	}()
 	if !s.Enabled() {
+		outcome = "error"
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
 	resp, err := s.client.service.Index(IndexDocuments).SearchWithContext(ctx, searchQuery, &ms.SearchRequest{
@@ -228,6 +258,7 @@ func (s *Searcher) SearchDocuments(ctx context.Context, searchQuery string, limi
 		AttributesToRetrieve: []string{"id", "entity_type", "entity_id", "title", "body", "aliases", "identity_tokens", "freshness", "popularity", "trust_score"},
 	})
 	if err != nil {
+		outcome = "error"
 		return nil, err
 	}
 	out := make([]query.SearchDocument, 0, len(resp.Hits))

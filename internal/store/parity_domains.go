@@ -143,8 +143,6 @@ func (s *PostgresStore) getTopDomains(
 		  AND %s
 		GROUP BY domain
 		ORDER BY
-			unique_authors DESC,
-			(COUNT(DISTINCT author_pubkey))::double precision / GREATEST(COUNT(DISTINCT event_id), 1) DESC,
 			note_count DESC,
 			link_count DESC,
 			domain ASC
@@ -393,7 +391,7 @@ func (s *PostgresStore) GetDomainNotes(
 		WHERE %s
 		ORDER BY %s
 		LIMIT $2 OFFSET $3
-	`, domainMediaURLFilterClause, scoreExpr, filterClause, orderBy)
+	`, scoreExpr, domainMediaURLFilterClause, filterClause, orderBy)
 
 	rows, err := s.pool.Query(ctx, query, normalized, limit, offset)
 	if err != nil {

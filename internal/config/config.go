@@ -334,7 +334,7 @@ func applyConfiguredFilterGroups(cfg *RelayConfig) error {
 func defaultFilterGroups() map[string]FilterGroup {
 	return map[string]FilterGroup{
 		defaultFilterGroupName: {
-			Kinds: []int{0, 1, 3, 5, 6, 7, 10002},
+			Kinds: []int{0, 1, 3, 5, 6, 7, 9735, 10002},
 		},
 	}
 }
@@ -347,13 +347,13 @@ func validateFilterGroups(cfg RelayConfig) error {
 	if !ok {
 		return fmt.Errorf("relay filter group %q is required", defaultFilterGroupName)
 	}
-	wantKinds := []int{0, 1, 3, 5, 6, 7, 10002}
+	wantKinds := []int{0, 1, 3, 5, 6, 7, 9735, 10002}
 	gotKinds := append([]int(nil), defaultGroup.Kinds...)
 	slices.Sort(gotKinds)
 	slices.Sort(wantKinds)
 	if !slices.Equal(gotKinds, wantKinds) {
 		return fmt.Errorf(
-			"relay filter group %q must use kinds 0,1,3,5,6,7,10002 in this chunk",
+			"relay filter group %q must use kinds 0,1,3,5,6,7,9735,10002 in this chunk",
 			defaultFilterGroupName,
 		)
 	}

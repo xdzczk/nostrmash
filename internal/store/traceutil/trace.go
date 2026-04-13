@@ -122,6 +122,13 @@ func TraceID(ctx context.Context) string {
 	return spanCtx.TraceID().String()
 }
 
+func (s *Span) SetAttr(key, value string) {
+	if s == nil || s.span == nil {
+		return
+	}
+	s.span.SetAttributes(attribute.String(strings.TrimSpace(key), strings.TrimSpace(value)))
+}
+
 func (s *Span) End(err error) {
 	if s == nil || s.span == nil {
 		return
