@@ -280,15 +280,15 @@ func validateBackfillConfig(cfg BackfillConfig) error {
 	return nil
 }
 
-func validateIngestorMode(serviceName, mode string, replay ReplayConfig, relay RelayConfig) error {
+func validateIngestorMode(serviceName, mode string, replay ReplayConfig, relay RelayConfig, registryEnabled bool) error {
 	if strings.TrimSpace(serviceName) != "ingestor" {
 		return nil
 	}
 	normalized := strings.ToLower(strings.TrimSpace(mode))
 	switch normalized {
 	case "live":
-		if len(relay.URLs) == 0 {
-			return fmt.Errorf("live ingest requires at least one relay URL; set INGESTOR_RELAY_URLS")
+		if len(relay.URLs) == 0 && !registryEnabled {
+			return fmt.Errorf("live ingest requires at least one relay URL; set INGESTOR_RELAY_URLS or enable RELAY_REGISTRY_ENABLED")
 		}
 		if relay.LiveBootstrapLookbackSeconds <= 0 {
 			return fmt.Errorf("INGESTOR_LIVE_BOOTSTRAP_LOOKBACK_SECONDS must be > 0")

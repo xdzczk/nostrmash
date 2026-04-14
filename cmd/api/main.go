@@ -200,6 +200,7 @@ func main() {
 	discoveryCacheEnabled := cfg.DiscoveryCache.Enabled
 	handlers, err := api.NewHandlersWithOptions(queryStore, api.HandlersOptions{
 		MaxBatchSize: cfg.HTTP.MaxBatchSize,
+		Pool:         pool,
 		QueryOptions: queryOptions,
 		DiscoveryCache: &api.DiscoveryCacheOptions{
 			Enabled:        &discoveryCacheEnabled,

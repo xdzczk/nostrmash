@@ -111,6 +111,21 @@ func (f fakeAdminService) GetTopTrustScores(ctx context.Context, limit int) ([]a
 	}
 	return f.getTopTrustScoresFn(ctx, limit)
 }
+func (f fakeAdminService) GetRelayRegistry(ctx context.Context, limit int) (adminRelayRegistryResponse, error) {
+	return adminRelayRegistryResponse{Relays: []adminRelayRegistryEntry{}}, nil
+}
+func (f fakeAdminService) GetRelayRegistryDesired(ctx context.Context) (adminRelayRegistryDesiredResponse, error) {
+	return adminRelayRegistryDesiredResponse{RelayURLs: []string{}}, nil
+}
+func (f fakeAdminService) SetRelayRegistryPolicy(ctx context.Context, req adminSetPolicyRequest) error {
+	return nil
+}
+func (f fakeAdminService) GetRelayDiagnostics(ctx context.Context, relayURL string) (adminRelayDiagnosticsResponse, error) {
+	return adminRelayDiagnosticsResponse{RecentObservations: []adminProbeObservationEntry{}}, nil
+}
+func (f fakeAdminService) GetRelayAdmissionDryRun(ctx context.Context) (adminAdmissionDryRunResponse, error) {
+	return adminAdmissionDryRunResponse{Proposals: []adminAdmissionProposal{}}, nil
+}
 
 func TestAdminRoutes_RequireBearerToken(t *testing.T) {
 	mux := newAdminTestMux("token", fakeAdminService{

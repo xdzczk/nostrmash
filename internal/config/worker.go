@@ -14,6 +14,7 @@ type WorkerConfig struct {
 	JobRetention          WorkerJobRetentionConfig
 	InvalidEventRetention WorkerInvalidEventRetentionConfig
 	Meilisearch           MeilisearchConfig
+	RelayRegistry         RelayRegistryConfig
 }
 
 type WorkerJobRetentionConfig struct {
@@ -122,6 +123,12 @@ func LoadWorker() (WorkerConfig, error) {
 	if cfg.Meilisearch.SearchAPIKey == "" {
 		cfg.Meilisearch.SearchAPIKey = cfg.Meilisearch.MasterKey
 	}
+	relayRegistryCfg, err := LoadRelayRegistryConfig()
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	cfg.RelayRegistry = relayRegistryCfg
+
 	if err := validateWorkerConfig(cfg); err != nil {
 		return WorkerConfig{}, err
 	}

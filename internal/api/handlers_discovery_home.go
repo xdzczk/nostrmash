@@ -95,7 +95,7 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]map[string]any, 0, len(conversations))
 	for _, conversation := range conversations {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			"root_event_id":     conversation.RootEventID,
 			"author_pubkey":     conversation.AuthorPubkey,
 			"created_at":        conversation.CreatedAt,
@@ -108,7 +108,9 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 				"replies_7d":  conversation.Replies7d,
 			},
 			"velocity_score": conversation.VelocityScore,
-		})
+		}
+		item["preview"] = buildNotePreviewPayload(conversation.RootEventID, conversation.Content)
+		items = append(items, item)
 	}
 	payloadResponse := map[string]any{
 		"surface":       "hot_conversations",

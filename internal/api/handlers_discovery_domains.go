@@ -101,35 +101,11 @@ func (h Handlers) GetDomainSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	recentNotes := make([]map[string]any, 0, len(summary.RecentNotes))
 	for _, note := range summary.RecentNotes {
-		recentNotes = append(recentNotes, map[string]any{
-			"event_id":       note.EventID,
-			"author_pubkey":  note.AuthorPubkey,
-			"created_at":     note.CreatedAt,
-			"content":        note.Content,
-			"language":       note.Language,
-			"reply_count":    note.ReplyCount,
-			"repost_count":   note.RepostCount,
-			"reaction_count": note.ReactionCount,
-			"zap_count":      note.ZapCount,
-			"zap_msats":      note.ZapMSats,
-			"score":          note.Score,
-		})
+		recentNotes = append(recentNotes, buildTrendingNoteItem(note))
 	}
 	topNotes := make([]map[string]any, 0, len(summary.TopNotes))
 	for _, note := range summary.TopNotes {
-		topNotes = append(topNotes, map[string]any{
-			"event_id":       note.EventID,
-			"author_pubkey":  note.AuthorPubkey,
-			"created_at":     note.CreatedAt,
-			"content":        note.Content,
-			"language":       note.Language,
-			"reply_count":    note.ReplyCount,
-			"repost_count":   note.RepostCount,
-			"reaction_count": note.ReactionCount,
-			"zap_count":      note.ZapCount,
-			"zap_msats":      note.ZapMSats,
-			"score":          note.Score,
-		})
+		topNotes = append(topNotes, buildTrendingNoteItem(note))
 	}
 	payload := map[string]any{
 		"domain":          summary.Domain,
@@ -218,19 +194,7 @@ func (h Handlers) GetDomainNotes(w http.ResponseWriter, r *http.Request) {
 	}
 	payloadNotes := make([]map[string]any, 0, len(notes))
 	for _, note := range notes {
-		payloadNotes = append(payloadNotes, map[string]any{
-			"event_id":       note.EventID,
-			"author_pubkey":  note.AuthorPubkey,
-			"created_at":     note.CreatedAt,
-			"content":        note.Content,
-			"language":       note.Language,
-			"reply_count":    note.ReplyCount,
-			"repost_count":   note.RepostCount,
-			"reaction_count": note.ReactionCount,
-			"zap_count":      note.ZapCount,
-			"zap_msats":      note.ZapMSats,
-			"score":          note.Score,
-		})
+		payloadNotes = append(payloadNotes, buildTrendingNoteItem(note))
 	}
 	payload := map[string]any{
 		"domain":      rawDomain,

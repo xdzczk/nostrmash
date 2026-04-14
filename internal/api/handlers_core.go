@@ -45,6 +45,7 @@ type EventReader = any
 
 type Handlers struct {
 	service             query.Service
+	pool                *pgxpool.Pool
 	maxBatchSize        int
 	discoveryCache      *discoveryResponseCache
 	cacheConfig         discoveryCacheConfig
@@ -55,6 +56,7 @@ var apiErrLog = logging.New("api")
 
 type HandlersOptions struct {
 	MaxBatchSize        int
+	Pool                *pgxpool.Pool
 	QueryOptions        query.ServiceOptions
 	DiscoveryCache      *DiscoveryCacheOptions
 	CacheLookupObserver cacheLookupObserver
@@ -89,6 +91,7 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 	}
 	return Handlers{
 		service:             service,
+		pool:                options.Pool,
 		maxBatchSize:        maxBatchSize,
 		discoveryCache:      discoveryCache,
 		cacheConfig:         cacheConfig,

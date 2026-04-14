@@ -80,6 +80,29 @@ Do not hand-edit this file.
 | `PRIMAL_WS_MAX_REQ_PER_MINUTE` | `api` | optional | `240` | Per-connection request rate limit for Primal WebSocket REQ calls. |
 | `PRIMAL_WS_MAX_SUBSCRIPTIONS` | `api` | optional | `200` | Maximum concurrent Primal WS subscriptions per connection. |
 | `PRIMAL_WS_REQUEST_TIMEOUT` | `api` | optional | `10s` | Timeout for individual Primal WS request handling. |
+| `RELAY_REGISTRY_ADMISSION_DEMOTE_FAILURE_THRESHOLD` | `worker` | optional | `60` | Probe failure rate percentage above which an active relay is demoted (e.g. 60 = 60%). |
+| `RELAY_REGISTRY_ADMISSION_MAX_DYNAMIC_ACTIVE` | `worker` | optional | `10` | Hard cap on dynamically admitted active relays. |
+| `RELAY_REGISTRY_ADMISSION_MAX_PROBATION` | `worker` | optional | `20` | Hard cap on relays in probation state. |
+| `RELAY_REGISTRY_ADMISSION_MAX_TOTAL_ACTIVE` | `worker` | optional | `15` | Hard cap on total active relays (pinned + dynamic). |
+| `RELAY_REGISTRY_ADMISSION_MIN_SCORE_ACTIVE` | `worker` | optional | `30` | Minimum score for a probation relay to become active. |
+| `RELAY_REGISTRY_ADMISSION_MIN_SCORE_PROBATION` | `worker` | optional | `10` | Minimum score for a candidate to enter probation. |
+| `RELAY_REGISTRY_ALLOW_PRIVATE_NETWORK` | `ingestor, worker` | optional | `false` | Allow private/local network addresses in relay URLs. |
+| `RELAY_REGISTRY_DISCOVERY_ENABLED` | `worker` | optional | `false` | Enable relay discovery from user relay lists. |
+| `RELAY_REGISTRY_DISCOVERY_MAX_NEW_CANDIDATES` | `worker` | optional | `25` | Maximum new candidate relays to add per discovery run. |
+| `RELAY_REGISTRY_DISCOVERY_MIN_DISTINCT_USER_REFS` | `worker` | optional | `3` | Minimum distinct user references required to consider a relay candidate. |
+| `RELAY_REGISTRY_ENABLED` | `ingestor, worker` | optional | `false` | Enable the dynamic relay registry subsystem. |
+| `RELAY_REGISTRY_PROBING_ENABLED` | `worker` | optional | `false` | Enable periodic relay health probing. |
+| `RELAY_REGISTRY_PROBING_INTERVAL` | `worker` | optional | `5m` | Interval between probe cycles. |
+| `RELAY_REGISTRY_PROBING_MAX_PARALLEL` | `worker` | optional | `5` | Maximum parallel probe goroutines. |
+| `RELAY_REGISTRY_PROBING_TIMEOUT_CONNECT` | `worker` | optional | `10s` | Websocket connect timeout for relay probes. |
+| `RELAY_REGISTRY_PROBING_TIMEOUT_EOSE` | `worker` | optional | `15s` | EOSE wait timeout for relay probes. |
+| `RELAY_REGISTRY_RECONCILE_DRAIN_TIMEOUT` | `ingestor` | optional | `10s` | Grace period before disconnecting a relay removed from the desired set. |
+| `RELAY_REGISTRY_RECONCILE_POLL_INTERVAL` | `ingestor` | optional | `30s` | How often the ingestor polls for desired relay set changes. |
+| `RELAY_REGISTRY_REFRESH_INTERVAL` | `worker` | optional | `5m` | Interval between relay registry refresh cycles. |
+| `RELAY_REGISTRY_RETENTION_PURGE_BATCH_LIMIT` | `worker` | optional | `500` | Maximum rows to delete per probe observation retention purge cycle. |
+| `RELAY_REGISTRY_RETENTION_PURGE_INTERVAL` | `worker` | optional | `1h` | Interval between probe observation retention purge cycles. |
+| `RELAY_REGISTRY_RETENTION_RAW_PROBE_DAYS` | `worker` | optional | `14` | Days to retain raw probe observation rows. |
+| `RELAY_REGISTRY_SEED_RELAYS` | `worker` | optional | `-` | Comma-separated list of seed relay URLs to bootstrap the registry. |
 | `TRUST_CANONICAL_INGEST_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for canonical ingest candidates: open (ignore trust), prefer_trusted (bias toward trusted), trusted_only (allow trusted set only). Default stays open to preserve current ingest behavior. |
 | `TRUST_DISCOVERY_CANDIDATE_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for discovery candidate selection: open, prefer_trusted, or trusted_only. |
 | `TRUST_ENABLE_REDIS_SYNC` | `trust_worker` | optional | `false` | Enable Redis graph synchronization trust job phases. |

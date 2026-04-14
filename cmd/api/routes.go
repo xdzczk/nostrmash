@@ -96,6 +96,8 @@ func buildRouteDefinitions(
 		newPublicRoute("GET /api/v1/notes/{event_id}/summary", true, http.HandlerFunc(handlers.GetNoteSummary)),
 		newPublicRoute("GET /api/v1/notes/{event_id}/related", true, http.HandlerFunc(handlers.GetNoteRelated)),
 		newPublicRoute("GET /api/v1/relays/health", true, http.HandlerFunc(handlers.GetRelaysHealth)),
+		newPublicRoute("GET /api/v1/relays/popular", true, http.HandlerFunc(handlers.GetPopularRelays)),
+		newPublicRoute("GET /api/v1/relays/probe-health", true, http.HandlerFunc(handlers.GetRelayProbeHealth)),
 		newPublicRoute("GET /api/v1/contact-lists/{pubkey}", true, http.HandlerFunc(handlers.GetContactList)),
 		newPublicRoute("GET /api/v1/relay-lists/{pubkey}", true, http.HandlerFunc(handlers.GetRelayList)),
 		newPublicRoute("GET /api/v1/search", true, http.HandlerFunc(handlers.Search)),
@@ -165,6 +167,12 @@ func buildRouteDefinitions(
 		newAdminRoute("GET /admin/v1/trust/runs/{runID}", false, http.HandlerFunc(adminHandlers.GetTrustRun)),
 		newAdminRoute("POST /admin/v1/trust/runs", false, http.HandlerFunc(adminHandlers.TriggerTrustRun)),
 		newAdminRoute("GET /admin/v1/trust/scores", false, http.HandlerFunc(adminHandlers.GetTopTrustScores)),
+
+		newAdminRoute("GET /admin/v1/relay-registry", false, http.HandlerFunc(adminHandlers.GetRelayRegistry)),
+		newAdminRoute("GET /admin/v1/relay-registry/desired", false, http.HandlerFunc(adminHandlers.GetRelayRegistryDesired)),
+		newAdminRoute("POST /admin/v1/relay-registry/policy", false, http.HandlerFunc(adminHandlers.SetRelayRegistryPolicy)),
+		newAdminRoute("GET /admin/v1/relay-registry/diagnostics", false, http.HandlerFunc(adminHandlers.GetRelayDiagnostics)),
+		newAdminRoute("GET /admin/v1/relay-registry/admission-dry-run", false, http.HandlerFunc(adminHandlers.GetRelayAdmissionDryRun)),
 	}
 }
 

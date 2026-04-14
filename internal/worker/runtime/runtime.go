@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/xdzczk/nostrmash/internal/jobs"
 	"github.com/xdzczk/nostrmash/internal/meili"
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/relaycontrol"
+	"github.com/xdzczk/nostrmash/internal/relayregistry"
 	"github.com/xdzczk/nostrmash/internal/runtimebootstrap"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
@@ -171,6 +174,16 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	go RunStaleRecoveryLoop(ctx, log, bootstrap.Queue, jobs.WorkerPoolDefault, cfg.JobRecovery)
 	go RunJobRetentionLoop(ctx, log, bootstrap.Queue, cfg.JobRetention)
 	go RunInvalidEventsRetentionLoop(ctx, log, bootstrap.InvalidEventsStore, cfg.InvalidEventRetention)
+
+	if cfg.RelayRegistry.Enabled {
+		slogLogger, ok := any(log).(*slog.Logger)
+		if !ok {
+			slogLogger = slog.Default()
+		}
+		registryStore := relayregistry.NewStore(bootstrap.Pool)
+		registryController := relaycontrol.NewController(slogLogger, registryStore, bootstrap.Pool, cfg.RelayRegistry)
+		go registryController.RunRefreshLoop(ctx)
+	}
 	const (
 		claimBatchSize = 10
 		pollInterval   = 1 * time.Second

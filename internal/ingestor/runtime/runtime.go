@@ -14,6 +14,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/ingestor/relay"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/nostr"
+	"github.com/xdzczk/nostrmash/internal/relayregistry"
 	"github.com/xdzczk/nostrmash/internal/replay"
 	"github.com/xdzczk/nostrmash/internal/runtimebootstrap"
 	"github.com/xdzczk/nostrmash/internal/store"
@@ -274,32 +275,61 @@ func runLifecycle(
 		)
 	}
 
-	relayManager, err := relay.NewManager(
-		relay.Config{
-			Relays:         prioritizedRelays,
-			Allowlist:      cfg.Relay.Allowlist,
-			DisabledRelays: cfg.Relay.Disabled,
-			ConnectTimeout: cfg.Relay.ConnectTimeout,
-			InitialBackoff: cfg.Relay.InitialBackoff,
-			MaxBackoff:     cfg.Relay.MaxBackoff,
-			LagThreshold:   cfg.Relay.LagThreshold,
-			StatusSink:     checkpointTracker,
-		},
-		relay.NostrConnector{
-			Log:           log,
-			Kinds:         runner.kinds,
-			FilterGroup:   cfg.Relay.ActiveFilterGroup,
-			SinceResolver: sinceResolver,
-		},
-		runner.processor.Handle,
-		log,
-	)
-	if err != nil {
-		log.Error("relay_config", "error", err)
-		return err
+	if cfg.RelayRegistry.Enabled {
+		registryStore := relayregistry.NewStore(pool)
+		reconciler := relay.NewReconciler(
+			log,
+			relay.NostrConnector{
+				Log:           log,
+				Kinds:         runner.kinds,
+				FilterGroup:   cfg.Relay.ActiveFilterGroup,
+				SinceResolver: sinceResolver,
+			},
+			runner.processor.Handle,
+			checkpointTracker,
+			registryStore,
+			relay.ReconcilerConfig{
+				PollInterval: cfg.RelayRegistry.Reconcile.PollInterval,
+				DrainTimeout: cfg.RelayRegistry.Reconcile.DrainTimeout,
+				FallbackURLs: prioritizedRelays,
+				ConnectConfig: relay.Config{
+					ConnectTimeout: cfg.Relay.ConnectTimeout,
+					InitialBackoff: cfg.Relay.InitialBackoff,
+					MaxBackoff:     cfg.Relay.MaxBackoff,
+					LagThreshold:   cfg.Relay.LagThreshold,
+				},
+			},
+		)
+		go reconciler.Run(ctx)
+		log.Info("relay_reconciler_started", "fallback_relay_count", len(prioritizedRelays))
+	} else {
+		relayManager, err := relay.NewManager(
+			relay.Config{
+				Relays:         prioritizedRelays,
+				Allowlist:      cfg.Relay.Allowlist,
+				DisabledRelays: cfg.Relay.Disabled,
+				ConnectTimeout: cfg.Relay.ConnectTimeout,
+				InitialBackoff: cfg.Relay.InitialBackoff,
+				MaxBackoff:     cfg.Relay.MaxBackoff,
+				LagThreshold:   cfg.Relay.LagThreshold,
+				StatusSink:     checkpointTracker,
+			},
+			relay.NostrConnector{
+				Log:           log,
+				Kinds:         runner.kinds,
+				FilterGroup:   cfg.Relay.ActiveFilterGroup,
+				SinceResolver: sinceResolver,
+			},
+			runner.processor.Handle,
+			log,
+		)
+		if err != nil {
+			log.Error("relay_config", "error", err)
+			return err
+		}
+		go relayManager.Start(ctx)
+		log.Info("relay_manager_started", "relay_count", len(prioritizedRelays))
 	}
-	go relayManager.Start(ctx)
-	log.Info("relay_manager_started", "relay_count", len(prioritizedRelays))
 
 	<-ctx.Done()
 	if checkpointTracker != nil {

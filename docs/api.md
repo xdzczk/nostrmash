@@ -106,6 +106,19 @@ Compatibility aliases also exist for `GET /api/v1/discovery/network/stats` and `
 
 This is the surface to extend when NostrMash gains new first-class read capabilities.
 
+### Profile explorer summary
+
+`GET /api/v1/users/{pubkey}/summary` is now shaped for a public profile explorer flow rather than dashboard-style sections.
+
+Response organization (top-to-bottom page composition) is:
+
+- `hero` (single profile identity surface: avatar, display identity, compact counters, metadata strip, action links)
+- `recent_notes` (authored notes list)
+- `related_discovery` (`related_profiles` plus `rising_profiles`)
+- `identity_details` (lower-level metadata, truncation- and copy-friendly)
+
+Legacy compatibility fields remain available (`pubkey`, `metadata_event_id`, `metadata_created_at`, `profile`, `stats`) so existing consumers can migrate incrementally.
+
 ### Topic affinity primitives
 
 Topic affinity is exposed as deterministic rollups over explicit content signals (primarily hashtags) and intentionally avoids opaque semantic labeling.

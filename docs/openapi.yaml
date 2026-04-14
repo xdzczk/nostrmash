@@ -540,6 +540,28 @@ paths:
       responses:
         '200':
           description: Relay health rows from checkpoint state
+  /api/v1/relays/popular:
+    get:
+      tags: [public]
+      summary: Most popular relays from user relay lists
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        '200':
+          description: Popular relays ranked by distinct user count
+  /api/v1/relays/probe-health:
+    get:
+      tags: [public]
+      summary: Health probe results for monitored relays
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100, maximum: 500 }
+      responses:
+        '200':
+          description: Relay probe health summaries
   /api/v1/contact-lists/{pubkey}:
     get:
       tags: [public]
@@ -1044,7 +1066,7 @@ paths:
   /api/v1/users/{pubkey}/summary:
     get:
       tags: [public]
-      summary: Public profile header summary for one user
+      summary: Public profile explorer summary for one user
       parameters:
         - in: path
           name: pubkey
@@ -1052,7 +1074,15 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: Profile metadata and public counters
+          description: |
+            Product-shaped profile explorer payload with a single identity-first `hero` section plus ordered exploration modules:
+            `recent_notes`, `related_discovery`, and `identity_details`.
+
+            The response keeps legacy compatibility fields (`pubkey`, `metadata_event_id`, `metadata_created_at`, `profile`, `stats`) while adding:
+            - `hero` (avatar, display identity, compact counter row, metadata strip, discovery actions)
+            - `recent_notes` (authored notes surface)
+            - `related_discovery` (`related_profiles` + `rising_profiles`)
+            - `identity_details` (truncated/copy-friendly metadata primitives)
         '404':
           $ref: '#/components/responses/Error'
   /api/v1/trust/scores/{pubkey}:

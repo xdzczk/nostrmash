@@ -163,19 +163,7 @@ func (h Handlers) GetHashtagNotes(w http.ResponseWriter, r *http.Request) {
 	}
 	payloadNotes := make([]map[string]any, 0, len(notes))
 	for _, note := range notes {
-		payloadNotes = append(payloadNotes, map[string]any{
-			"event_id":       note.EventID,
-			"author_pubkey":  note.AuthorPubkey,
-			"created_at":     note.CreatedAt,
-			"content":        note.Content,
-			"language":       note.Language,
-			"reply_count":    note.ReplyCount,
-			"repost_count":   note.RepostCount,
-			"reaction_count": note.ReactionCount,
-			"zap_count":      note.ZapCount,
-			"zap_msats":      note.ZapMSats,
-			"score":          note.Score,
-		})
+		payloadNotes = append(payloadNotes, buildTrendingNoteItem(note))
 	}
 	payload := map[string]any{
 		"hashtag":     rawHashtag,

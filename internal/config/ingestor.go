@@ -22,6 +22,7 @@ type IngestorConfig struct {
 	TrustPrioritization     IngestorTrustPrioritizationConfig
 	TrustFetch              IngestorTrustFetchConfig
 	AuthorMetadataDiscovery IngestorAuthorMetadataDiscoveryConfig
+	RelayRegistry           RelayRegistryConfig
 }
 
 // IngestorAuthorMetadataDiscoveryConfig controls the background loop that
@@ -134,6 +135,12 @@ func LoadIngestor() (IngestorConfig, error) {
 		},
 	}
 
+	relayRegistryCfg, err := LoadRelayRegistryConfig()
+	if err != nil {
+		return IngestorConfig{}, err
+	}
+	cfg.RelayRegistry = relayRegistryCfg
+
 	if err := applyConfiguredFilterGroups(&cfg.Relay); err != nil {
 		return IngestorConfig{}, err
 	}
@@ -143,7 +150,7 @@ func LoadIngestor() (IngestorConfig, error) {
 	if err := validateBackfillConfig(cfg.Backfill); err != nil {
 		return IngestorConfig{}, err
 	}
-	if err := validateIngestorMode(cfg.Shared.ServiceName, cfg.Runtime.Mode, cfg.Replay, cfg.Relay); err != nil {
+	if err := validateIngestorMode(cfg.Shared.ServiceName, cfg.Runtime.Mode, cfg.Replay, cfg.Relay, cfg.RelayRegistry.Enabled); err != nil {
 		return IngestorConfig{}, err
 	}
 	if strings.TrimSpace(cfg.Shared.Database.URL) == "" {

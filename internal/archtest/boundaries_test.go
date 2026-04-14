@@ -350,9 +350,10 @@ func TestProductHandlerFilesDoNotUseDirectStoreReads(t *testing.T) {
 			// Keep transport-owned store exceptions explicit and tiny. Add entries only
 			// when a handler must remain store-facing for intentional admin/ops reasons.
 			allowlist: map[string]string{
-				"internal/api/admin_relays.go":  "admin relay candidate diagnostics intentionally construct store reader",
-				"internal/api/admin_storage.go": "admin storage stats endpoint intentionally uses store-level collector",
-				"internal/api/admin_trust.go":   "admin trust run endpoints intentionally read trust-run projections directly",
+				"internal/api/admin_relays.go":         "admin relay candidate diagnostics intentionally construct store reader",
+				"internal/api/admin_relay_registry.go": "admin relay registry endpoints use relayregistry store directly",
+				"internal/api/admin_storage.go":        "admin storage stats endpoint intentionally uses store-level collector",
+				"internal/api/admin_trust.go":          "admin trust run endpoints intentionally read trust-run projections directly",
 			},
 		},
 		{

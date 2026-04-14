@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/meili"
 	"github.com/xdzczk/nostrmash/internal/trust"
@@ -32,6 +33,12 @@ type AdminService interface {
 	GetTrustRun(context.Context, int64) (adminTrustRunResponse, error)
 	TriggerTrustRun(context.Context) (adminTrustRunResponse, error)
 	GetTopTrustScores(context.Context, int) ([]adminTrustScoreResponse, error)
+
+	GetRelayRegistry(context.Context, int) (adminRelayRegistryResponse, error)
+	GetRelayRegistryDesired(context.Context) (adminRelayRegistryDesiredResponse, error)
+	SetRelayRegistryPolicy(context.Context, adminSetPolicyRequest) error
+	GetRelayDiagnostics(context.Context, string) (adminRelayDiagnosticsResponse, error)
+	GetRelayAdmissionDryRun(context.Context) (adminAdmissionDryRunResponse, error)
 }
 
 type AdminServiceOptions struct {
@@ -45,6 +52,7 @@ type AdminServiceOptions struct {
 	SearchTrustMode      string
 	TrustRefreshInterval time.Duration
 	MeiliClient          *meili.Client
+	AdmissionConfig      config.RelayRegistryAdmissionConfig
 }
 
 type adminService struct {
@@ -63,6 +71,7 @@ type adminService struct {
 	searchTrustMode      string
 	trustRefreshInterval time.Duration
 	meili                *meili.Client
+	admissionCfg         config.RelayRegistryAdmissionConfig
 }
 
 func NewAdminService(
@@ -97,6 +106,7 @@ func NewAdminService(
 		searchTrustMode:      strings.ToLower(strings.TrimSpace(opts.SearchTrustMode)),
 		trustRefreshInterval: opts.TrustRefreshInterval,
 		meili:                opts.MeiliClient,
+		admissionCfg:         opts.AdmissionConfig,
 	}
 }
 

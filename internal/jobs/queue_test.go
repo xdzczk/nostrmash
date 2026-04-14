@@ -175,10 +175,11 @@ func TestClaimAvailableForPool_ClaimsOnlyTargetPool(t *testing.T) {
 	}
 
 	queue := jobs.NewQueue(pool)
+	readyAt := time.Now().UTC().Add(-1 * time.Second)
 	_, err := queue.Enqueue(ctx, jobs.EnqueueParams{
 		JobType:  jobs.JobTypeDeriveEventBundle,
 		Payload:  []byte(`{"event_id":"a"}`),
-		RunAfter: time.Now().UTC(),
+		RunAfter: readyAt,
 	})
 	if err != nil {
 		t.Fatalf("enqueue default job: %v", err)
@@ -186,7 +187,7 @@ func TestClaimAvailableForPool_ClaimsOnlyTargetPool(t *testing.T) {
 	_, err = queue.Enqueue(ctx, jobs.EnqueueParams{
 		JobType:  jobs.JobTypeTrustComputeGlobalScore,
 		Payload:  []byte(`{"run_id":1}`),
-		RunAfter: time.Now().UTC(),
+		RunAfter: readyAt,
 	})
 	if err != nil {
 		t.Fatalf("enqueue trust job: %v", err)

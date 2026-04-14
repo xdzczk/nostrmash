@@ -680,7 +680,7 @@ func TestLoadAPI_InvalidDebugAddrFails(t *testing.T) {
 }
 
 func TestValidateIngestorMode_ReplayRequiresFixturePath(t *testing.T) {
-	if err := validateIngestorMode("ingestor", "replay", ReplayConfig{}, testRelayConfig()); err == nil {
+	if err := validateIngestorMode("ingestor", "replay", ReplayConfig{}, testRelayConfig(), false); err == nil {
 		t.Fatal("expected replay mode to require fixture path")
 	}
 }

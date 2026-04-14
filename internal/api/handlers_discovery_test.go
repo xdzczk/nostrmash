@@ -264,6 +264,9 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected first note payload: %#v", trendingNotes[0])
 	}
+	if _, ok := firstNote["preview"].(map[string]any); !ok {
+		t.Fatalf("expected preview payload on note item, got %#v", firstNote)
+	}
 	noteAuthor, ok := firstNote["author"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected inline author payload on note, got %#v", firstNote)
@@ -328,6 +331,9 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 	firstHomeNote, ok := homeNotes[0].(map[string]any)
 	if !ok {
 		t.Fatalf("unexpected home first note payload: %#v", homeNotes[0])
+	}
+	if _, ok := firstHomeNote["preview"].(map[string]any); !ok {
+		t.Fatalf("expected preview payload on home note item, got %#v", firstHomeNote)
 	}
 	homeNoteAuthor, ok := firstHomeNote["author"].(map[string]any)
 	if !ok || homeNoteAuthor["display_name"] != "Alice" || homeNoteAuthor["npub"] != encodeNpub(pubkeyA) {

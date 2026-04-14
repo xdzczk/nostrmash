@@ -138,27 +138,33 @@ func buildDiscoveryNoteItems(
 ) []map[string]any {
 	items := make([]map[string]any, 0, len(rows))
 	for _, note := range rows {
-		item := map[string]any{
-			"id":             note.EventID,
-			"event_id":       note.EventID,
-			"pubkey":         note.AuthorPubkey,
-			"author_pubkey":  note.AuthorPubkey,
-			"created_at":     note.CreatedAt,
-			"content":        note.Content,
-			"language":       note.Language,
-			"reply_count":    note.ReplyCount,
-			"repost_count":   note.RepostCount,
-			"reaction_count": note.ReactionCount,
-			"zap_count":      note.ZapCount,
-			"zap_msats":      note.ZapMSats,
-			"score":          note.Score,
-		}
+		item := buildTrendingNoteItem(note)
 		if identity, ok := identities[note.AuthorPubkey]; ok {
 			item["author"] = applyProfileIdentity(map[string]any{}, identity)
 		}
 		items = append(items, item)
 	}
 	return items
+}
+
+func buildTrendingNoteItem(note query.TrendingNote) map[string]any {
+	item := map[string]any{
+		"id":             note.EventID,
+		"event_id":       note.EventID,
+		"pubkey":         note.AuthorPubkey,
+		"author_pubkey":  note.AuthorPubkey,
+		"created_at":     note.CreatedAt,
+		"content":        note.Content,
+		"language":       note.Language,
+		"reply_count":    note.ReplyCount,
+		"repost_count":   note.RepostCount,
+		"reaction_count": note.ReactionCount,
+		"zap_count":      note.ZapCount,
+		"zap_msats":      note.ZapMSats,
+		"score":          note.Score,
+	}
+	item["preview"] = buildNotePreviewPayload(note.EventID, note.Content)
+	return item
 }
 
 func encodeNpub(pubkey string) string {
