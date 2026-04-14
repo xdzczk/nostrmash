@@ -260,9 +260,9 @@ func streamSearchDocuments(ctx context.Context, pool *pgxpool.Pool, batchSize in
 				rows.Close()
 				return fmt.Errorf("scan search_documents sync row: %w", err)
 			}
-			row.ID = row.EntityType + ":" + row.EntityID
-			row.Freshness = freshness.UTC().Unix()
-			batch = append(batch, row)
+		row.ID = row.EntityType + "_" + row.EntityID
+		row.Freshness = freshness.UTC().Unix()
+		batch = append(batch, row)
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
@@ -428,7 +428,7 @@ func scanSearchDocuments(rows pgx.Rows) ([]SearchDocument, error) {
 		); err != nil {
 			return nil, fmt.Errorf("scan search_document row: %w", err)
 		}
-		row.ID = row.EntityType + ":" + row.EntityID
+		row.ID = row.EntityType + "_" + row.EntityID
 		row.Freshness = freshness.UTC().Unix()
 		if row.Aliases == nil {
 			row.Aliases = []string{}
