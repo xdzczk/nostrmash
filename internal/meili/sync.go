@@ -17,6 +17,21 @@ type SyncStats struct {
 	Documents int64 `json:"documents"`
 }
 
+// syncEventTimeout bounds a single per-event Meilisearch sync call from the
+// derivation bundle. Without this bound, waitForTask polls indefinitely if
+// Meilisearch is unhealthy or its task queue is backed up, which in
+// production permanently stalled every live-pool worker as soon as it
+// processed its first kind=0 or kind=1 event (worker goroutines were
+// observed stuck inside WaitForTaskWithContext for 12+ minutes with open
+// PG transactions in "idle in transaction" state).
+//
+// 30s is generous enough to cover normal Meilisearch ingestion latency
+// (typically a few hundred ms per task) while ensuring a degraded Meili
+// can never block the derivation pipeline. The bundle treats sync errors
+// as best-effort, so a timeout simply logs and moves on — the next event
+// will retry, or a periodic full-sync can reconcile.
+const syncEventTimeout = 30 * time.Second
+
 func (c *Client) SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID string) error {
 	if !c.Enabled() || pool == nil {
 		return nil
@@ -25,6 +40,10 @@ func (c *Client) SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID stri
 	if eventID == "" {
 		return nil
 	}
+	// Bound the entire per-event sync (DB lookup + Meili upsert + task wait)
+	// so a stuck Meilisearch can never wedge a worker goroutine forever.
+	ctx, cancel := context.WithTimeout(ctx, syncEventTimeout)
+	defer cancel()
 	var (
 		kind   int
 		pubkey string
