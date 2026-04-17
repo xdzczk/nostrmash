@@ -63,7 +63,13 @@ func (h *Handlers) projectProfilePublicStatsForPubkeysTx(
 		return err
 	}
 
+	// normalizeUniqueIDs returns the pubkeys in sorted order, so concurrent
+	// transactions that touch overlapping pubkey sets always acquire the
+	// per-pubkey advisory locks in the same order and cannot deadlock.
 	for _, pubkey := range normalizeUniqueIDs(pubkeys) {
+		if err := lockPubkeyForWriteTx(ctx, tx, pubkey); err != nil {
+			return err
+		}
 		var followerCount int64
 		var followingCount int64
 		var noteCount int64

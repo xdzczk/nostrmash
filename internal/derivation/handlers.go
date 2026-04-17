@@ -2,7 +2,9 @@ package derivation
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/jobs"
 )
@@ -65,6 +67,33 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		if err := step(ctx, eventID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// lockPubkeyForWriteTx acquires a transaction-scoped PostgreSQL advisory lock
+// keyed on the pubkey. It must be called at the very start of any
+// transaction that performs heavy multi-row writes against per-author
+// projection tables (author_activity_daily, author_engagement_stats,
+// author_topic_stats, author_media_mix_stats, author_activity_windows,
+// author_posting_patterns, profile_public_stats, ...).
+//
+// Without this lock, two workers processing different events from the same
+// hot pubkey can enter the same DELETE/INSERT path concurrently and end up
+// fighting for row-level locks for many minutes — observed in production as
+// transactionid waits stretching past 10 minutes that effectively serialize
+// the entire derivation pipeline on a handful of high-volume authors.
+//
+// The lock is transaction-scoped (pg_advisory_xact_lock), so it auto-releases
+// on commit or rollback. It uses hashtextextended for a 64-bit key space to
+// minimize collisions; a hash collision merely causes brief unnecessary
+// serialization of two unrelated pubkeys, never a correctness issue.
+func lockPubkeyForWriteTx(ctx context.Context, tx pgx.Tx, pubkey string) error {
+	if pubkey == "" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, pubkey); err != nil {
+		return fmt.Errorf("acquire per-pubkey write lock for %s: %w", pubkey, err)
 	}
 	return nil
 }
