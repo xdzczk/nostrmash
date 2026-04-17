@@ -247,7 +247,7 @@ func (h *Handlers) projectAuthorAnalyticsForPubkeyTx(
 	pubkey string,
 	versionOverride *int,
 ) error {
-	if err := lockPubkeyForWriteTx(ctx, tx, pubkey); err != nil {
+	if err := lockPubkeyForWriteTx(ctx, tx, pubkey, pubkeyLockNamespaceAuthorAnalytics); err != nil {
 		return err
 	}
 	activityVersion, err := resolveDerivationWriteVersion(

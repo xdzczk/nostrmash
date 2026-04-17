@@ -76,29 +76,57 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 	return nil
 }
 
-// lockPubkeyForWriteTx acquires a transaction-scoped PostgreSQL advisory lock
-// keyed on the pubkey. It must be called at the very start of any
-// transaction that performs heavy multi-row writes against per-author
-// projection tables (author_activity_daily, author_engagement_stats,
-// author_topic_stats, author_media_mix_stats, author_activity_windows,
-// author_posting_patterns, profile_public_stats, ...).
+// Per-pubkey advisory lock namespaces. Locks are partitioned per
+// projection so that the slow author-analytics rebuild (which can hold
+// its lock for many seconds while running 9-CTE history aggregations)
+// does not block much faster bundle-time updates to unrelated tables
+// like profile_public_stats and profile_discovery_stats.
 //
-// Without this lock, two workers processing different events from the same
-// hot pubkey can enter the same DELETE/INSERT path concurrently and end up
-// fighting for row-level locks for many minutes — observed in production as
-// transactionid waits stretching past 10 minutes that effectively serialize
-// the entire derivation pipeline on a handful of high-volume authors.
+// Production observed exactly this failure mode after introducing a
+// single shared lock: a sweeper holding the lock for hot pubkey X to
+// rebuild author_activity_daily would block bundle workers trying to
+// upsert the same pubkey's profile_public_stats row, even though the
+// two operations write to disjoint tables and have no real conflict.
 //
-// The lock is transaction-scoped (pg_advisory_xact_lock), so it auto-releases
-// on commit or rollback. It uses hashtextextended for a 64-bit key space to
+// Within a namespace the lock is still strictly per-pubkey, so the
+// row-contention failure mode the lock was originally introduced to
+// prevent (concurrent DELETE+INSERT chains on author_activity_daily)
+// remains addressed.
+const (
+	pubkeyLockNamespaceAuthorAnalytics       = "author_analytics"
+	pubkeyLockNamespaceProfilePublicStats    = "profile_public_stats"
+	pubkeyLockNamespaceProfileDiscoveryStats = "profile_discovery_stats"
+)
+
+// lockPubkeyForWriteTx acquires a transaction-scoped PostgreSQL advisory
+// lock keyed on (pubkey, namespace). It must be called at the very start
+// of any transaction that performs heavy multi-row writes against
+// per-author projection tables.
+//
+// Without this lock, two workers processing different events from the
+// same hot pubkey can enter the same DELETE/INSERT path concurrently and
+// end up fighting for row-level locks for many minutes — observed in
+// production as transactionid waits stretching past 10 minutes that
+// effectively serialize the entire derivation pipeline on a handful of
+// high-volume authors.
+//
+// The lock is transaction-scoped (pg_advisory_xact_lock), so it
+// auto-releases on commit or rollback. It uses hashtextextended over the
+// concatenated (pubkey, namespace) key for a 64-bit key space to
 // minimize collisions; a hash collision merely causes brief unnecessary
-// serialization of two unrelated pubkeys, never a correctness issue.
-func lockPubkeyForWriteTx(ctx context.Context, tx pgx.Tx, pubkey string) error {
+// serialization of two unrelated keys, never a correctness issue.
+func lockPubkeyForWriteTx(ctx context.Context, tx pgx.Tx, pubkey, namespace string) error {
 	if pubkey == "" {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, pubkey); err != nil {
-		return fmt.Errorf("acquire per-pubkey write lock for %s: %w", pubkey, err)
+	if namespace == "" {
+		return fmt.Errorf("lockPubkeyForWriteTx: namespace is required")
+	}
+	// Use NUL byte separator so distinct pubkey/namespace pairs can never
+	// alias each other regardless of namespace string content.
+	key := pubkey + "\x00" + namespace
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key); err != nil {
+		return fmt.Errorf("acquire per-pubkey write lock for %s ns=%s: %w", pubkey, namespace, err)
 	}
 	return nil
 }

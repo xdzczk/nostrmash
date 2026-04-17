@@ -77,7 +77,7 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 	writeVersion int,
 	nowUnix int64,
 ) error {
-	if err := lockPubkeyForWriteTx(ctx, tx, pubkey); err != nil {
+	if err := lockPubkeyForWriteTx(ctx, tx, pubkey, pubkeyLockNamespaceProfileDiscoveryStats); err != nil {
 		return err
 	}
 	post24h, reply24h, engagement24h, zapVolume24h, activeDays24h, newFollowers24h, err := loadProfileWindowMetricsTx(ctx, tx, pubkey, nowUnix, 24*time.Hour)

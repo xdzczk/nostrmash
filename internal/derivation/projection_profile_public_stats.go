@@ -67,7 +67,7 @@ func (h *Handlers) projectProfilePublicStatsForPubkeysTx(
 	// transactions that touch overlapping pubkey sets always acquire the
 	// per-pubkey advisory locks in the same order and cannot deadlock.
 	for _, pubkey := range normalizeUniqueIDs(pubkeys) {
-		if err := lockPubkeyForWriteTx(ctx, tx, pubkey); err != nil {
+		if err := lockPubkeyForWriteTx(ctx, tx, pubkey, pubkeyLockNamespaceProfilePublicStats); err != nil {
 			return err
 		}
 		var followerCount int64
