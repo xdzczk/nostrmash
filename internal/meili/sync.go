@@ -2,14 +2,47 @@ package meili
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// meiliDocIDValid matches the character set Meilisearch allows in
+// document identifiers: alphanumerics, hyphen, underscore. Anything
+// else (the @ in a NIP-05 like alice@example.com, the . in a domain,
+// CJK / emoji in a hashtag, etc.) is rejected by Meilisearch with
+// invalid_document_id, which fails the entire batch upsert and — under
+// the sweeper's per-event fallback — every individual retry as well,
+// so a single bad identity poisons the whole queue (we observed 88k
+// failed tasks accumulating with drain rate ≈ 0).
+var meiliDocIDValid = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// meiliDocIDMaxLen is Meilisearch's hard cap. Composite IDs longer
+// than this are also rejected.
+const meiliDocIDMaxLen = 511
+
+// safeMeiliDocID returns a Meilisearch-safe document identifier for an
+// (entity_type, entity_id) pair. When entity_id already satisfies
+// Meilisearch's constraints the legacy "type_id" form is preserved so
+// existing documents in the index stay addressable; otherwise a
+// deterministic hash-based id ("type_h<hex>") is substituted so the
+// document still gets indexed under a stable key without poisoning the
+// upsert task.
+func safeMeiliDocID(entityType, entityID string) string {
+	composite := entityType + "_" + entityID
+	if len(composite) <= meiliDocIDMaxLen && meiliDocIDValid.MatchString(entityID) {
+		return composite
+	}
+	sum := sha256.Sum256([]byte(entityID))
+	return entityType + "_h" + hex.EncodeToString(sum[:16])
+}
 
 type SyncStats struct {
 	Notes     int64 `json:"notes"`
@@ -375,7 +408,7 @@ func streamSearchDocuments(ctx context.Context, pool *pgxpool.Pool, batchSize in
 				rows.Close()
 				return fmt.Errorf("scan search_documents sync row: %w", err)
 			}
-			row.ID = row.EntityType + "_" + row.EntityID
+			row.ID = safeMeiliDocID(row.EntityType, row.EntityID)
 			row.Freshness = freshness.UTC().Unix()
 			batch = append(batch, row)
 		}
@@ -584,7 +617,7 @@ func scanSearchDocuments(rows pgx.Rows) ([]SearchDocument, error) {
 		); err != nil {
 			return nil, fmt.Errorf("scan search_document row: %w", err)
 		}
-		row.ID = row.EntityType + "_" + row.EntityID
+		row.ID = safeMeiliDocID(row.EntityType, row.EntityID)
 		row.Freshness = freshness.UTC().Unix()
 		if row.Aliases == nil {
 			row.Aliases = []string{}
