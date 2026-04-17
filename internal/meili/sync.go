@@ -89,6 +89,102 @@ func (c *Client) SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID stri
 	return nil
 }
 
+// syncEventsBatchTimeout bounds the entire batched sync. With ~hundreds
+// of events per batch and three Meilisearch tasks per batch (one per
+// index), the call should complete in a few seconds even on slow
+// Meilisearch instances. The timeout protects against pathological
+// stalls without unnecessarily aborting a healthy batch.
+const syncEventsBatchTimeout = 2 * time.Minute
+
+// SyncEventsBatch is the bulk equivalent of SyncEvent: it loads notes,
+// profiles and search_documents for an arbitrary list of event IDs and
+// dispatches at most three Meilisearch tasks (one per index) for the
+// entire batch. This collapses N×2 individual Meili tasks (which
+// Meilisearch processes serially per index) into 3 tasks, removing the
+// most expensive bottleneck the per-event sweeper had under heavy
+// ingest.
+//
+// Returns an error if any of the bulk loads or Meilisearch upserts
+// fail. Callers should fall back to per-event SyncEvent on failure so a
+// single malformed document does not poison an otherwise healthy
+// batch.
+func (c *Client) SyncEventsBatch(ctx context.Context, pool *pgxpool.Pool, eventIDs []string) error {
+	if !c.Enabled() || pool == nil || len(eventIDs) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, syncEventsBatchTimeout)
+	defer cancel()
+
+	rows, err := pool.Query(ctx, `
+		SELECT id, kind, pubkey
+		FROM events
+		WHERE id = ANY($1::text[])
+		  AND kind IN (0, 1)
+	`, eventIDs)
+	if err != nil {
+		return fmt.Errorf("load batch event metadata for meilisearch sync: %w", err)
+	}
+	noteIDs := make([]string, 0, len(eventIDs))
+	profilePubkeys := make([]string, 0, len(eventIDs))
+	seenPubkey := make(map[string]struct{}, len(eventIDs))
+	for rows.Next() {
+		var (
+			id     string
+			kind   int
+			pubkey string
+		)
+		if err := rows.Scan(&id, &kind, &pubkey); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan batch event row: %w", err)
+		}
+		switch kind {
+		case 1:
+			noteIDs = append(noteIDs, id)
+		case 0:
+			if _, ok := seenPubkey[pubkey]; !ok {
+				seenPubkey[pubkey] = struct{}{}
+				profilePubkeys = append(profilePubkeys, pubkey)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read batch event rows: %w", err)
+	}
+	rows.Close()
+
+	if len(noteIDs) > 0 {
+		noteDocs, err := loadNoteDocumentsByIDs(ctx, pool, noteIDs)
+		if err != nil {
+			return err
+		}
+		if err := c.UpsertNotes(ctx, noteDocs); err != nil {
+			return err
+		}
+	}
+	if len(profilePubkeys) > 0 {
+		profileDocs, err := loadProfileDocumentsByPubkeys(ctx, pool, profilePubkeys)
+		if err != nil {
+			return err
+		}
+		if err := c.UpsertProfiles(ctx, profileDocs); err != nil {
+			return err
+		}
+	}
+
+	searchDocs, err := loadSearchDocumentsForBatch(ctx, pool, noteIDs, profilePubkeys)
+	if err != nil {
+		return err
+	}
+	if len(searchDocs) > 0 {
+		if err := c.UpsertDocuments(ctx, searchDocs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *Client) FullSync(ctx context.Context, pool *pgxpool.Pool, batchSize int) (SyncStats, error) {
 	if !c.Enabled() || pool == nil {
 		return SyncStats{}, nil
@@ -399,6 +495,47 @@ func loadSearchDocumentsForNote(ctx context.Context, pool *pgxpool.Pool, eventID
 	`, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("query search_documents for note sync: %w", err)
+	}
+	defer rows.Close()
+	return scanSearchDocuments(rows)
+}
+
+// loadSearchDocumentsForBatch returns all search_documents touched by a
+// batch of note event IDs and profile pubkeys in a single round-trip.
+// Rows are deduplicated on (entity_type, entity_id) so the same hashtag
+// referenced by multiple notes only appears once in the resulting
+// upsert payload.
+func loadSearchDocumentsForBatch(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	noteIDs []string,
+	profilePubkeys []string,
+) ([]SearchDocument, error) {
+	if len(noteIDs) == 0 && len(profilePubkeys) == 0 {
+		return nil, nil
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT
+			entity_type,
+			entity_id,
+			coalesce(title, ''),
+			coalesce(body, ''),
+			aliases,
+			identity_tokens,
+			freshness,
+			popularity,
+			trust_score
+		FROM search_documents
+		WHERE (entity_type = 'note'    AND entity_id = ANY($1::text[]))
+		   OR (entity_type = 'profile' AND entity_id = ANY($2::text[]))
+		   OR (entity_type = 'hashtag' AND entity_id IN (
+		         SELECT DISTINCT hashtag FROM event_hashtags
+		         WHERE event_id = ANY($1::text[])
+		   ))
+		   OR (entity_type = 'identity' AND identity_tokens && $2::text[])
+	`, noteIDs, profilePubkeys)
+	if err != nil {
+		return nil, fmt.Errorf("query search_documents for batch sync: %w", err)
 	}
 	defer rows.Close()
 	return scanSearchDocuments(rows)

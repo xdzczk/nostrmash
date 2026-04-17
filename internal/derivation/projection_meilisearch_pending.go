@@ -89,31 +89,47 @@ func (h *Handlers) DrainPendingMeilisearchSyncBatch(ctx context.Context, limit i
 		return 0, nil
 	}
 
-	processed := 0
-	var firstErr error
-	for _, eventID := range eventIDs {
-		// SyncEvent applies its own per-call timeout (syncEventTimeout
-		// inside the meili package) so a slow Meilisearch can never
-		// permanently wedge the sweeper goroutine.
-		if err := h.meili.SyncEvent(ctx, h.pool, eventID); err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("meilisearch sync for %s: %w", eventID, err)
+	// Fast path: dispatch the whole batch in a single SyncEventsBatch
+	// call. This collapses len(eventIDs) × 2 individual Meilisearch
+	// tasks (which Meili processes serially per index) into 3 tasks
+	// (notes / profiles / search_documents), removing the per-event
+	// HTTP + waitForTask round-trip cost that previously capped sweeper
+	// throughput regardless of goroutine count.
+	if err := h.meili.SyncEventsBatch(ctx, h.pool, eventIDs); err == nil {
+		return len(eventIDs), nil
+	} else {
+		// Slow path: a single malformed document, transient HTTP error
+		// or per-event Meili rejection can fail the whole batch. Fall
+		// back to per-event sync so good events still drain and bad
+		// events get isolated (re-marked individually for the next
+		// cycle's retry rather than poisoning the entire batch).
+		batchErr := err
+		processed := 0
+		var firstErr error
+		for _, eventID := range eventIDs {
+			if err := h.meili.SyncEvent(ctx, h.pool, eventID); err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("meilisearch sync for %s: %w", eventID, err)
+				}
+				if _, reinsertErr := h.pool.Exec(ctx, `
+					INSERT INTO pending_meilisearch_syncs (event_id)
+					VALUES ($1)
+					ON CONFLICT (event_id) DO NOTHING
+				`, eventID); reinsertErr != nil && firstErr == nil {
+					firstErr = fmt.Errorf("re-mark failed event %s: %w", eventID, reinsertErr)
+				}
+				continue
 			}
-			// Re-mark the event so the next sweeper cycle retries it.
-			// We already removed it during the claim transaction, so
-			// without this re-mark the dirty signal would be lost.
-			if _, reinsertErr := h.pool.Exec(ctx, `
-				INSERT INTO pending_meilisearch_syncs (event_id)
-				VALUES ($1)
-				ON CONFLICT (event_id) DO NOTHING
-			`, eventID); reinsertErr != nil && firstErr == nil {
-				firstErr = fmt.Errorf("re-mark failed event %s: %w", eventID, reinsertErr)
-			}
-			continue
+			processed++
 		}
-		processed++
+		if firstErr == nil && processed > 0 {
+			// Whole batch recovered via per-event fallback; surface the
+			// original batch error so logs/metrics still record that
+			// the fast path failed.
+			return processed, fmt.Errorf("meilisearch batch sync fell back to per-event: %w", batchErr)
+		}
+		return processed, firstErr
 	}
-	return processed, firstErr
 }
 
 // claimPendingMeilisearchSyncs atomically claims up to limit pending

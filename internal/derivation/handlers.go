@@ -19,6 +19,7 @@ type EventJobPayload = jobs.EventJobPayload
 type MeilisearchSyncer interface {
 	Enabled() bool
 	SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID string) error
+	SyncEventsBatch(ctx context.Context, pool *pgxpool.Pool, eventIDs []string) error
 }
 
 type HandlersOptions struct {
