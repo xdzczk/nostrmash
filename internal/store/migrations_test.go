@@ -53,6 +53,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"jobs",
 		"note_discovery_stats",
 		"pending_author_analytics_recomputes",
+		"pending_meilisearch_syncs",
 		"profile_discovery_stats",
 		"profile_public_stats",
 		"profiles_latest",

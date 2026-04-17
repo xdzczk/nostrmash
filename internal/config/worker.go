@@ -17,6 +17,7 @@ type WorkerConfig struct {
 	JobRetention           WorkerJobRetentionConfig
 	InvalidEventRetention  WorkerInvalidEventRetentionConfig
 	AuthorAnalyticsSweeper WorkerAuthorAnalyticsSweeperConfig
+	MeilisearchSweeper     WorkerMeilisearchSweeperConfig
 	Meilisearch            MeilisearchConfig
 	RelayRegistry          RelayRegistryConfig
 }
@@ -27,6 +28,18 @@ type WorkerConfig struct {
 // the heavy aggregation rebuild once per pubkey per cycle, naturally
 // coalescing event bursts into a single rebuild.
 type WorkerAuthorAnalyticsSweeperConfig struct {
+	Enabled     bool
+	Interval    time.Duration
+	BatchSize   int
+	Concurrency int
+}
+
+// WorkerMeilisearchSweeperConfig configures the background loop that
+// drains pending_meilisearch_syncs. The per-event derive bundle only
+// records that an event needs indexing (cheap upsert); this sweeper
+// performs the actual HTTP sync to Meilisearch out of band so a slow
+// Meilisearch never caps live-pool throughput.
+type WorkerMeilisearchSweeperConfig struct {
 	Enabled     bool
 	Interval    time.Duration
 	BatchSize   int
@@ -116,6 +129,18 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	meilisearchSweeperInterval, err := getEnvPositiveDurationStrict("WORKER_MEILISEARCH_SWEEPER_INTERVAL", 2*time.Second)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	meilisearchSweeperBatch, err := getEnvPositiveIntStrict("WORKER_MEILISEARCH_SWEEPER_BATCH_SIZE", 50)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	meilisearchSweeperConcurrency, err := getEnvPositiveIntStrict("WORKER_MEILISEARCH_SWEEPER_CONCURRENCY", 4)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	cfg := WorkerConfig{
 		Shared:              shared,
 		Concurrency:         concurrency,
@@ -140,6 +165,12 @@ func LoadWorker() (WorkerConfig, error) {
 			Interval:    authorAnalyticsSweeperInterval,
 			BatchSize:   authorAnalyticsSweeperBatch,
 			Concurrency: authorAnalyticsSweeperConcurrency,
+		},
+		MeilisearchSweeper: WorkerMeilisearchSweeperConfig{
+			Enabled:     getEnvBool("WORKER_MEILISEARCH_SWEEPER_ENABLED", true),
+			Interval:    meilisearchSweeperInterval,
+			BatchSize:   meilisearchSweeperBatch,
+			Concurrency: meilisearchSweeperConcurrency,
 		},
 		Meilisearch: MeilisearchConfig{
 			Enabled:      getEnvBool("MEILI_ENABLED", false),
@@ -259,6 +290,17 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.AuthorAnalyticsSweeper.Concurrency <= 0 {
 			return fmt.Errorf("WORKER_AUTHOR_ANALYTICS_SWEEPER_CONCURRENCY must be > 0")
+		}
+	}
+	if cfg.MeilisearchSweeper.Enabled {
+		if cfg.MeilisearchSweeper.Interval <= 0 {
+			return fmt.Errorf("WORKER_MEILISEARCH_SWEEPER_INTERVAL must be > 0")
+		}
+		if cfg.MeilisearchSweeper.BatchSize <= 0 {
+			return fmt.Errorf("WORKER_MEILISEARCH_SWEEPER_BATCH_SIZE must be > 0")
+		}
+		if cfg.MeilisearchSweeper.Concurrency <= 0 {
+			return fmt.Errorf("WORKER_MEILISEARCH_SWEEPER_CONCURRENCY must be > 0")
 		}
 	}
 	if cfg.Meilisearch.Enabled {

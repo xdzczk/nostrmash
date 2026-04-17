@@ -160,3 +160,7 @@ Do not hand-edit this file.
 | `WORKER_JOB_STALE_RECOVERY_BATCH_LIMIT` | `trust_worker, worker` | optional | `100` | Maximum stale running jobs processed per recovery interval. |
 | `WORKER_JOB_STALE_RECOVERY_INTERVAL` | `trust_worker, worker` | optional | `30s` | Interval between stale running-job recovery scans. |
 | `WORKER_LIVE_CONCURRENCY` | `worker` | optional | `WORKER_CONCURRENCY` | Worker goroutine concurrency for the live job pool (events from real-time relay subscriptions). Set to 0 to disable. |
+| `WORKER_MEILISEARCH_SWEEPER_BATCH_SIZE` | `worker` | optional | `50` | Maximum dirty events claimed and synced to Meilisearch per sweeper batch. |
+| `WORKER_MEILISEARCH_SWEEPER_CONCURRENCY` | `worker` | optional | `4` | Number of concurrent Meilisearch sweeper goroutines. Each independently claims dirty events via FOR UPDATE SKIP LOCKED. |
+| `WORKER_MEILISEARCH_SWEEPER_ENABLED` | `worker` | optional | `true` | Enable the background sweeper that drains pending_meilisearch_syncs (per-event Meilisearch index syncs deferred from derive_event_bundle). Has no effect when MEILI_ENABLED=false. |
+| `WORKER_MEILISEARCH_SWEEPER_INTERVAL` | `worker` | optional | `2s` | Polling interval between Meilisearch sweeper batches when the dirty queue is empty. Sweepers loop without sleeping while batches are full. |

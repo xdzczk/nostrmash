@@ -17,6 +17,9 @@ var (
 
 	authorAnalyticsSweeperBatchDuration *prometheus.HistogramVec
 	authorAnalyticsSweeperProcessed     *prometheus.CounterVec
+
+	meilisearchSweeperBatchDuration *prometheus.HistogramVec
+	meilisearchSweeperProcessed     *prometheus.CounterVec
 )
 
 func registerQueueMetrics() {
@@ -78,6 +81,21 @@ func registerQueueMetrics() {
 		},
 		[]string{"result"},
 	)
+	meilisearchSweeperBatchDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "nostrmash_worker_meilisearch_sweeper_batch_duration_seconds",
+			Help:    "Duration of Meilisearch sweeper batches by result.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"result"},
+	)
+	meilisearchSweeperProcessed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_worker_meilisearch_sweeper_processed_total",
+			Help: "Events successfully synced to Meilisearch via the sweeper, by result.",
+		},
+		[]string{"result"},
+	)
 
 	registry.MustRegister(
 		queueOperationDuration,
@@ -88,6 +106,8 @@ func registerQueueMetrics() {
 		staleRecoveryDuration,
 		authorAnalyticsSweeperBatchDuration,
 		authorAnalyticsSweeperProcessed,
+		meilisearchSweeperBatchDuration,
+		meilisearchSweeperProcessed,
 	)
 }
 
@@ -136,5 +156,16 @@ func ObserveAuthorAnalyticsSweeperBatch(result string, processed int, d time.Dur
 	authorAnalyticsSweeperBatchDuration.WithLabelValues(result).Observe(d.Seconds())
 	if processed > 0 {
 		authorAnalyticsSweeperProcessed.WithLabelValues(result).Add(float64(processed))
+	}
+}
+
+// ObserveMeilisearchSweeperBatch records duration and outcome of one
+// Meilisearch sweeper batch. processed counts how many events were
+// successfully synced to Meilisearch in that batch.
+func ObserveMeilisearchSweeperBatch(result string, processed int, d time.Duration) {
+	ensureRegistered()
+	meilisearchSweeperBatchDuration.WithLabelValues(result).Observe(d.Seconds())
+	if processed > 0 {
+		meilisearchSweeperProcessed.WithLabelValues(result).Add(float64(processed))
 	}
 }

@@ -192,6 +192,27 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		log.Info("author_analytics_sweeper_disabled")
 	}
 
+	if cfg.MeilisearchSweeper.Enabled && bootstrap.MeiliClient != nil && bootstrap.MeiliClient.Enabled() {
+		for i := 0; i < cfg.MeilisearchSweeper.Concurrency; i++ {
+			workerIdx := i
+			go RunMeilisearchSweeperLoop(
+				ctx,
+				log,
+				bootstrap.Handlers,
+				cfg.MeilisearchSweeper,
+				workerIdx,
+			)
+		}
+		log.Info(
+			"meilisearch_sweeper_enabled",
+			"concurrency", cfg.MeilisearchSweeper.Concurrency,
+			"interval", cfg.MeilisearchSweeper.Interval.String(),
+			"batch_size", cfg.MeilisearchSweeper.BatchSize,
+		)
+	} else {
+		log.Info("meilisearch_sweeper_disabled")
+	}
+
 	if cfg.RelayRegistry.Enabled {
 		slogLogger, ok := any(log).(*slog.Logger)
 		if !ok {
@@ -511,6 +532,74 @@ func RunAuthorAnalyticsSweeperLoop(
 					)
 				}
 				metrics.ObserveAuthorAnalyticsSweeperBatch(outcome, processed, time.Since(started))
+			}
+		}
+	}
+}
+
+// RunMeilisearchSweeperLoop drains the pending_meilisearch_syncs queue
+// produced by derive_event_bundle. It plays the role of "deferred search
+// index update" so per-event bundle latency is not dominated by the
+// 30-second per-event Meili sync timeout.
+//
+// Multiple sweeper goroutines can run in parallel — claims use FOR
+// UPDATE SKIP LOCKED so they never block each other. The per-event sync
+// is idempotent (Meilisearch upserts), so a duplicate claim from a race
+// is correctness-safe, just slightly wasteful.
+func RunMeilisearchSweeperLoop(
+	ctx context.Context,
+	log Logger,
+	handlers *derivation.Handlers,
+	cfg config.WorkerMeilisearchSweeperConfig,
+	workerIdx int,
+) {
+	if handlers == nil {
+		log.Error("meilisearch_sweeper_no_handlers", "worker_idx", workerIdx)
+		return
+	}
+	if !cfg.Enabled || cfg.Interval <= 0 || cfg.BatchSize <= 0 {
+		return
+	}
+	ticker := time.NewTicker(cfg.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			started := time.Now()
+			processed, err := handlers.DrainPendingMeilisearchSyncBatch(ctx, cfg.BatchSize)
+			outcome := "ok"
+			if err != nil {
+				outcome = "error"
+				log.Error(
+					"meilisearch_sweeper_batch_failed",
+					"worker_idx", workerIdx,
+					"processed", processed,
+					"error", err,
+				)
+			}
+			metrics.ObserveMeilisearchSweeperBatch(outcome, processed, time.Since(started))
+			// Drain back-to-back when the queue is hot.
+			for err == nil && processed >= cfg.BatchSize {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				started = time.Now()
+				processed, err = handlers.DrainPendingMeilisearchSyncBatch(ctx, cfg.BatchSize)
+				outcome = "ok"
+				if err != nil {
+					outcome = "error"
+					log.Error(
+						"meilisearch_sweeper_batch_failed",
+						"worker_idx", workerIdx,
+						"processed", processed,
+						"error", err,
+					)
+				}
+				metrics.ObserveMeilisearchSweeperBatch(outcome, processed, time.Since(started))
 			}
 		}
 	}

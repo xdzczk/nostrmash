@@ -66,7 +66,12 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		// pubkeys as dirty so a single rebuild covers any number of
 		// inbound events between sweeper cycles.
 		h.MarkAuthorAnalyticsDirty,
-		h.SyncMeilisearch,
+		// Meilisearch index sync (HTTP round-trip per event, bounded by
+		// a 30s timeout) runs out-of-band via the meilisearch sweeper.
+		// The bundle just records that the event needs indexing so a
+		// transient Meili slowdown can never cap live-pool throughput
+		// at live_concurrency * 2/min the way the inline sync did.
+		h.MarkMeilisearchDirty,
 	}
 	for _, step := range steps {
 		if err := step(ctx, eventID); err != nil {
