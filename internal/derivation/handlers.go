@@ -111,10 +111,14 @@ const (
 // high-volume authors.
 //
 // The lock is transaction-scoped (pg_advisory_xact_lock), so it
-// auto-releases on commit or rollback. It uses hashtextextended over the
-// concatenated (pubkey, namespace) key for a 64-bit key space to
-// minimize collisions; a hash collision merely causes brief unnecessary
-// serialization of two unrelated keys, never a correctness issue.
+// auto-releases on commit or rollback. The 64-bit lock key is computed
+// as hashtextextended(pubkey) XOR hashtextextended(namespace, seed=1) so
+// different namespaces yield independent key spaces without any string
+// concatenation — concatenation broke in production because Postgres
+// rejects NUL bytes (0x00) inside TEXT parameters with SQLSTATE 22021,
+// failing every bundle that touched a per-pubkey lock. A hash collision
+// merely causes brief unnecessary serialization of two unrelated keys,
+// never a correctness issue.
 func lockPubkeyForWriteTx(ctx context.Context, tx pgx.Tx, pubkey, namespace string) error {
 	if pubkey == "" {
 		return nil
@@ -122,10 +126,11 @@ func lockPubkeyForWriteTx(ctx context.Context, tx pgx.Tx, pubkey, namespace stri
 	if namespace == "" {
 		return fmt.Errorf("lockPubkeyForWriteTx: namespace is required")
 	}
-	// Use NUL byte separator so distinct pubkey/namespace pairs can never
-	// alias each other regardless of namespace string content.
-	key := pubkey + "\x00" + namespace
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key); err != nil {
+	if _, err := tx.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(
+			hashtextextended($1, 0) # hashtextextended($2, 1)
+		)
+	`, pubkey, namespace); err != nil {
 		return fmt.Errorf("acquire per-pubkey write lock for %s ns=%s: %w", pubkey, namespace, err)
 	}
 	return nil
