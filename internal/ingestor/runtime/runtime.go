@@ -12,6 +12,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/ingestor/backfill"
 	"github.com/xdzczk/nostrmash/internal/ingestor/live"
 	"github.com/xdzczk/nostrmash/internal/ingestor/relay"
+	"github.com/xdzczk/nostrmash/internal/jobs"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/relayregistry"
@@ -218,7 +219,7 @@ func runLifecycle(
 				ConnectTimeout: cfg.Backfill.ConnectTimeout,
 				IdleTimeout:    cfg.Backfill.IdleTimeout,
 			},
-			runner.processor.Handle,
+			handlerWithPool(runner.processor.Handle, jobs.WorkerPoolBackfill),
 		)
 		if backfillErr != nil {
 			log.Error("backfill_runner_config", "error", backfillErr)
@@ -244,7 +245,7 @@ func runLifecycle(
 				ConnectTimeout: cfg.Backfill.ConnectTimeout,
 				IdleTimeout:    cfg.Backfill.IdleTimeout,
 			},
-			runner.processor.Handle,
+			handlerWithPool(runner.processor.Handle, jobs.WorkerPoolBackfill),
 		)
 		log.Info(
 			"trust_fetch_started",
@@ -266,7 +267,7 @@ func runLifecycle(
 				ConnectTimeout: cfg.Backfill.ConnectTimeout,
 				IdleTimeout:    cfg.Backfill.IdleTimeout,
 			},
-			runner.processor.Handle,
+			handlerWithPool(runner.processor.Handle, jobs.WorkerPoolBackfill),
 		)
 		log.Info(
 			"author_metadata_discovery_started",
@@ -285,7 +286,7 @@ func runLifecycle(
 				FilterGroup:   cfg.Relay.ActiveFilterGroup,
 				SinceResolver: sinceResolver,
 			},
-			runner.processor.Handle,
+			handlerWithPool(runner.processor.Handle, jobs.WorkerPoolLive),
 			checkpointTracker,
 			registryStore,
 			relay.ReconcilerConfig{
@@ -320,7 +321,7 @@ func runLifecycle(
 				FilterGroup:   cfg.Relay.ActiveFilterGroup,
 				SinceResolver: sinceResolver,
 			},
-			runner.processor.Handle,
+			handlerWithPool(runner.processor.Handle, jobs.WorkerPoolLive),
 			log,
 		)
 		if err != nil {
@@ -383,6 +384,22 @@ func ResolveLiveKinds(cfg config.RelayConfig) ([]int, error) {
 
 func ResolveBuildVersion(appVersion, buildVersion string) string {
 	return runtimebootstrap.ResolveBuildVersion(appVersion, buildVersion)
+}
+
+// handlerWithPool wraps a relay event handler so that any derivation jobs
+// enqueued while persisting an event are routed to the supplied worker pool.
+// This lets live ingest bypass historical backlog by writing into a separate
+// queue lane.
+func handlerWithPool(
+	handler func(ctx context.Context, relayURL string, payload []byte) error,
+	workerPool string,
+) func(ctx context.Context, relayURL string, payload []byte) error {
+	if handler == nil || strings.TrimSpace(workerPool) == "" {
+		return handler
+	}
+	return func(ctx context.Context, relayURL string, payload []byte) error {
+		return handler(jobs.WithWorkerPool(ctx, workerPool), relayURL, payload)
+	}
 }
 
 func runMetricsLogger(ctx context.Context, log *slog.Logger, processor *live.Processor, every time.Duration) {

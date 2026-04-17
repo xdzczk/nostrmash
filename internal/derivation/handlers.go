@@ -54,6 +54,7 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.ProjectDMUnreadCounts,
 		h.ProjectZapReceipts,
 		h.UpdateThreadProjection,
+		h.RepairUnresolvedReferences,
 		h.ProjectNoteDiscoveryStats,
 		h.ProjectProfileDiscoveryStats,
 		h.ProjectProfilePublicStats,

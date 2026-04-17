@@ -35,8 +35,8 @@ func TestReplayFixtureMatchesGoldenSnapshot(t *testing.T) {
 	if result.EntriesReplayed != 3 {
 		t.Fatalf("unexpected replay entry count: got=%d want=3", result.EntriesReplayed)
 	}
-	if result.JobsProcessed != 3 {
-		t.Fatalf("unexpected processed jobs: got=%d want=3", result.JobsProcessed)
+	if result.JobsProcessed != 1 {
+		t.Fatalf("unexpected processed jobs: got=%d want=1", result.JobsProcessed)
 	}
 
 	got, err := replay.CaptureStateSnapshot(ctx, pool)

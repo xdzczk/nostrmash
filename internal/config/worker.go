@@ -10,6 +10,9 @@ import (
 type WorkerConfig struct {
 	Shared                SharedConfig
 	Concurrency           int
+	LiveConcurrency       int
+	BackfillConcurrency   int
+	ClaimBatchSize        int
 	JobRecovery           WorkerJobRecoveryConfig
 	JobRetention          WorkerJobRetentionConfig
 	InvalidEventRetention WorkerInvalidEventRetentionConfig
@@ -45,6 +48,18 @@ func LoadWorker() (WorkerConfig, error) {
 		return WorkerConfig{}, err
 	}
 	concurrency, err := getEnvPositiveIntStrict("WORKER_CONCURRENCY", 4)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	liveConcurrency, err := getEnvNonNegativeIntStrict("WORKER_LIVE_CONCURRENCY", concurrency)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	backfillConcurrency, err := getEnvNonNegativeIntStrict("WORKER_BACKFILL_CONCURRENCY", concurrency)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	claimBatchSize, err := getEnvPositiveIntStrict("WORKER_CLAIM_BATCH_SIZE", 10)
 	if err != nil {
 		return WorkerConfig{}, err
 	}
@@ -89,9 +104,12 @@ func LoadWorker() (WorkerConfig, error) {
 		return WorkerConfig{}, err
 	}
 	cfg := WorkerConfig{
-		Shared:      shared,
-		Concurrency: concurrency,
-		JobRecovery: jobRecovery,
+		Shared:              shared,
+		Concurrency:         concurrency,
+		LiveConcurrency:     liveConcurrency,
+		BackfillConcurrency: backfillConcurrency,
+		ClaimBatchSize:      claimBatchSize,
+		JobRecovery:         jobRecovery,
 		JobRetention: WorkerJobRetentionConfig{
 			Enabled:          getEnvBool("WORKER_JOB_RETENTION_ENABLED", true),
 			SucceededMaxAge:  succeededMaxAge,
@@ -138,6 +156,15 @@ func LoadWorker() (WorkerConfig, error) {
 func validateWorkerConfig(cfg WorkerConfig) error {
 	if cfg.Concurrency <= 0 {
 		return fmt.Errorf("WORKER_CONCURRENCY must be > 0")
+	}
+	if cfg.LiveConcurrency < 0 {
+		return fmt.Errorf("WORKER_LIVE_CONCURRENCY must be >= 0")
+	}
+	if cfg.BackfillConcurrency < 0 {
+		return fmt.Errorf("WORKER_BACKFILL_CONCURRENCY must be >= 0")
+	}
+	if cfg.ClaimBatchSize <= 0 {
+		return fmt.Errorf("WORKER_CLAIM_BATCH_SIZE must be > 0")
 	}
 	if err := validateWorkerJobRecoveryConfig(cfg.JobRecovery); err != nil {
 		return err

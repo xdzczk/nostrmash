@@ -58,22 +58,15 @@ func TestPersistFallbackProfileEnqueuesCanonicalJobs(t *testing.T) {
 		t.Fatalf("read jobs rows: %v", err)
 	}
 
-	if len(got) != 3 {
-		t.Fatalf("expected 3 derivation jobs for fallback event, got %d", len(got))
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 composite derivation job for fallback event, got %d (%+v)", len(got), got)
 	}
-	expected := map[string]string{
-		jobs.JobTypeDeriveEventBundle:      jobs.JobTypeDeriveEventBundle + ":fallback_meta_1",
-		jobs.JobTypeRepairUnresolvedRefs:   jobs.JobTypeRepairUnresolvedRefs + ":fallback_meta_1",
-		jobs.JobTypeUpdateThreadProjection: jobs.JobTypeUpdateThreadProjection + ":fallback_meta_1",
+	if got[0].jobType != jobs.JobTypeDeriveEventBundle {
+		t.Fatalf("unexpected job type: got %q want %q", got[0].jobType, jobs.JobTypeDeriveEventBundle)
 	}
-	for _, row := range got {
-		want, ok := expected[row.jobType]
-		if !ok {
-			t.Fatalf("unexpected job type %q", row.jobType)
-		}
-		if row.key != want {
-			t.Fatalf("unexpected idempotency key for %q: got %q want %q", row.jobType, row.key, want)
-		}
+	wantKey := jobs.JobTypeDeriveEventBundle + ":fallback_meta_1"
+	if got[0].key != wantKey {
+		t.Fatalf("unexpected idempotency key: got %q want %q", got[0].key, wantKey)
 	}
 
 	profile, err := s.GetProfileByPubkey(ctx, pp.Pubkey)

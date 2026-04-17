@@ -137,7 +137,9 @@ Do not hand-edit this file.
 | `TRUST_WORKER_CONCURRENCY` | `trust_worker` | optional | `2` | Trust worker goroutine concurrency. |
 | `TRUST_WORKER_POLL_INTERVAL` | `trust_worker` | optional | `1s` | Polling interval for trust queue claims. |
 | `TRUST_WORKER_RETRY_DELAY` | `trust_worker` | optional | `5s` | Retry delay when trust jobs fail. |
-| `WORKER_CONCURRENCY` | `worker` | optional | `4` | Worker goroutine concurrency. |
+| `WORKER_BACKFILL_CONCURRENCY` | `worker` | optional | `WORKER_CONCURRENCY` | Worker goroutine concurrency for the backfill job pool (events from historical fetch / trust fetch / metadata discovery). Set to 0 to disable. |
+| `WORKER_CLAIM_BATCH_SIZE` | `worker` | optional | `10` | Maximum number of jobs claimed per claim-loop iteration for each worker pool. |
+| `WORKER_CONCURRENCY` | `worker` | optional | `4` | Worker goroutine concurrency for the default job pool (legacy / backlog work). |
 | `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT` | `worker` | optional | `500` | Maximum invalid_events rows with raw_payload trimmed to NULL per retention run when payload trimming is enabled. |
 | `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_ENABLED` | `worker` | optional | `true` | Enable optional second-stage invalid_events payload trimming (raw_payload set to NULL before full-row retention purge). |
 | `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE` | `worker` | optional | `168h0m0s` | Max age for invalid_events rows before payload-only trimming (must be smaller than WORKER_INVALID_EVENTS_RETENTION_MAX_AGE). |
@@ -153,3 +155,4 @@ Do not hand-edit this file.
 | `WORKER_JOB_RUNNING_TIMEOUT` | `trust_worker, worker` | optional | `15m0s` | Lease timeout for running jobs before stale recovery treats them as orphaned. |
 | `WORKER_JOB_STALE_RECOVERY_BATCH_LIMIT` | `trust_worker, worker` | optional | `100` | Maximum stale running jobs processed per recovery interval. |
 | `WORKER_JOB_STALE_RECOVERY_INTERVAL` | `trust_worker, worker` | optional | `30s` | Interval between stale running-job recovery scans. |
+| `WORKER_LIVE_CONCURRENCY` | `worker` | optional | `WORKER_CONCURRENCY` | Worker goroutine concurrency for the live job pool (events from real-time relay subscriptions). Set to 0 to disable. |

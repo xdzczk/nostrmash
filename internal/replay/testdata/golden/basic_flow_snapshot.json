@@ -45,14 +45,6 @@
       {
         "job_type": "derive_event_bundle",
         "attempts": 0
-      },
-      {
-        "job_type": "repair_unresolved_references",
-        "attempts": 0
-      },
-      {
-        "job_type": "update_thread_projection",
-        "attempts": 0
       }
     ],
     "dead_letter_jobs": []

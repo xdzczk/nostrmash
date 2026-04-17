@@ -39,7 +39,7 @@ func TestInsertCanonicalEventEnqueuesDerivationJobsOnce(t *testing.T) {
 	}
 
 	rows, err := pool.Query(ctx, `
-		SELECT job_type, idempotency_key
+		SELECT job_type, idempotency_key, worker_pool
 		FROM jobs
 		ORDER BY job_type ASC
 	`)
@@ -49,13 +49,14 @@ func TestInsertCanonicalEventEnqueuesDerivationJobsOnce(t *testing.T) {
 	defer rows.Close()
 
 	type row struct {
-		jobType string
-		key     string
+		jobType    string
+		key        string
+		workerPool string
 	}
 	got := make([]row, 0)
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.jobType, &r.key); err != nil {
+		if err := rows.Scan(&r.jobType, &r.key, &r.workerPool); err != nil {
 			t.Fatalf("scan jobs row: %v", err)
 		}
 		got = append(got, r)
@@ -64,21 +65,68 @@ func TestInsertCanonicalEventEnqueuesDerivationJobsOnce(t *testing.T) {
 		t.Fatalf("read jobs rows: %v", err)
 	}
 
-	if len(got) != 3 {
-		t.Fatalf("expected 3 derivation jobs, got %d", len(got))
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 composite derivation job, got %d (%+v)", len(got), got)
 	}
-	expected := map[string]string{
-		jobs.JobTypeDeriveEventBundle:      jobs.JobTypeDeriveEventBundle + ":event_enqueue_1",
-		jobs.JobTypeRepairUnresolvedRefs:   jobs.JobTypeRepairUnresolvedRefs + ":event_enqueue_1",
-		jobs.JobTypeUpdateThreadProjection: jobs.JobTypeUpdateThreadProjection + ":event_enqueue_1",
+	if got[0].jobType != jobs.JobTypeDeriveEventBundle {
+		t.Fatalf("unexpected job type: got %q want %q", got[0].jobType, jobs.JobTypeDeriveEventBundle)
 	}
-	for _, row := range got {
-		key, ok := expected[row.jobType]
-		if !ok {
-			t.Fatalf("unexpected job type %q", row.jobType)
-		}
-		if row.key != key {
-			t.Fatalf("unexpected idempotency key for %q: got %q want %q", row.jobType, row.key, key)
-		}
+	wantKey := jobs.JobTypeDeriveEventBundle + ":event_enqueue_1"
+	if got[0].key != wantKey {
+		t.Fatalf("unexpected idempotency key: got %q want %q", got[0].key, wantKey)
+	}
+	if got[0].workerPool != jobs.WorkerPoolDefault {
+		t.Fatalf("unexpected worker pool when no override: got %q want %q", got[0].workerPool, jobs.WorkerPoolDefault)
+	}
+}
+
+func TestInsertCanonicalEventRoutesToContextWorkerPool(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	s := NewPostgresStore(pool)
+	cases := []struct {
+		name     string
+		eventID  string
+		pool     string
+		expected string
+	}{
+		{name: "live", eventID: "event_pool_live", pool: jobs.WorkerPoolLive, expected: jobs.WorkerPoolLive},
+		{name: "backfill", eventID: "event_pool_backfill", pool: jobs.WorkerPoolBackfill, expected: jobs.WorkerPoolBackfill},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			event := model.Event{
+				ID:          tc.eventID,
+				Pubkey:      "pub_pool",
+				CreatedAt:   123,
+				Kind:        1,
+				Sig:         "sig_pool",
+				Content:     "pool",
+				RawJSON:     json.RawMessage(`{"id":"` + tc.eventID + `","kind":1,"tags":[]}`),
+				FirstSeenAt: time.Date(2026, 4, 4, 15, 0, 0, 0, time.UTC),
+				InsertedAt:  time.Date(2026, 4, 4, 15, 0, 0, 0, time.UTC),
+			}
+			poolCtx := jobs.WithWorkerPool(ctx, tc.pool)
+			if err := s.InsertCanonicalEvent(poolCtx, event, nil, "wss://relay", event.FirstSeenAt); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+
+			var workerPool string
+			if err := pool.QueryRow(ctx, `
+				SELECT worker_pool FROM jobs
+				WHERE idempotency_key = $1
+			`, jobs.JobTypeDeriveEventBundle+":"+tc.eventID).Scan(&workerPool); err != nil {
+				t.Fatalf("query worker pool: %v", err)
+			}
+			if workerPool != tc.expected {
+				t.Fatalf("unexpected worker pool: got %q want %q", workerPool, tc.expected)
+			}
+		})
 	}
 }

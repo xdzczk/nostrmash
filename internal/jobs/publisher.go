@@ -32,16 +32,11 @@ func (p QueuePublisher) PublishCanonicalEventJobsTx(ctx context.Context, tx pgx.
 	if eventID == "" {
 		return fmt.Errorf("event id is required")
 	}
-	for _, jobType := range []string{
-		JobTypeDeriveEventBundle,
-		JobTypeUpdateThreadProjection,
-		JobTypeRepairUnresolvedRefs,
-	} {
-		if err := EnqueueEventJobTx(ctx, tx, jobType, eventID, "", p.maxAttempts); err != nil {
-			return err
-		}
-	}
-	return nil
+	// derive_event_bundle now invokes update_thread_projection and
+	// repair_unresolved_references inline (see derivation.Handlers.DeriveEventBundle),
+	// so a single composite job covers all per-event derivation work and keeps
+	// the queue at one row per ingested event.
+	return EnqueueEventJobTx(ctx, tx, JobTypeDeriveEventBundle, eventID, "", p.maxAttempts)
 }
 
 func EnqueueEventJobTx(
@@ -68,6 +63,12 @@ func EnqueueEventJobTx(
 		idempotencyKey = fmt.Sprintf("%s:%s", idempotencyKey, trimmed)
 	}
 
+	workerPool := WorkerPoolForJobType(jobType)
+	if override, ok := WorkerPoolFromContext(ctx); ok && WorkerPoolForJobType(jobType) != WorkerPoolTrust {
+		// Trust jobs are pinned to their dedicated pool regardless of caller context.
+		workerPool = override
+	}
+
 	_, err = tx.Exec(ctx, `
 		INSERT INTO jobs (job_type, worker_pool, payload, idempotency_key, max_attempts, run_after)
 		VALUES ($1, $2, $3, $4, $5, now())
@@ -75,7 +76,7 @@ func EnqueueEventJobTx(
 		DO NOTHING
 	`,
 		jobType,
-		WorkerPoolForJobType(jobType),
+		workerPool,
 		json.RawMessage(payload),
 		idempotencyKey,
 		maxAttempts,

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -170,8 +171,6 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, bootstrap Bootstrap, claimLoop ClaimLoopFn) {
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	runtimebootstrap.StartDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
-	go RunQueueAndRebuildMetricsReporter(ctx, log, bootstrap.Pool, 30*time.Second)
-	go RunStaleRecoveryLoop(ctx, log, bootstrap.Queue, jobs.WorkerPoolDefault, cfg.JobRecovery)
 	go RunJobRetentionLoop(ctx, log, bootstrap.Queue, cfg.JobRetention)
 	go RunInvalidEventsRetentionLoop(ctx, log, bootstrap.InvalidEventsStore, cfg.InvalidEventRetention)
 
@@ -185,26 +184,70 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		go registryController.RunRefreshLoop(ctx)
 	}
 	const (
-		claimBatchSize = 10
-		pollInterval   = 1 * time.Second
-		retryDelay     = 5 * time.Second
+		pollInterval = 1 * time.Second
+		retryDelay   = 5 * time.Second
 	)
 
-	log.Info("worker_started", "worker_id", bootstrap.WorkerID, "claim_batch_size", claimBatchSize)
-	claimLoop(
-		ctx,
-		log,
-		bootstrap.Queue,
-		bootstrap.WorkerID,
-		jobs.WorkerPoolDefault,
-		claimBatchSize,
-		cfg.Concurrency,
-		pollInterval,
-		retryDelay,
-		bootstrap.ProcessJob,
+	type poolSpec struct {
+		name        string
+		concurrency int
+	}
+	specs := []poolSpec{
+		{name: jobs.WorkerPoolDefault, concurrency: cfg.Concurrency},
+		{name: jobs.WorkerPoolLive, concurrency: cfg.LiveConcurrency},
+		{name: jobs.WorkerPoolBackfill, concurrency: cfg.BackfillConcurrency},
+	}
+
+	enabledPools := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		if spec.concurrency <= 0 {
+			log.Info("worker_pool_disabled", "worker_pool", spec.name)
+			continue
+		}
+		enabledPools = append(enabledPools, spec.name)
+		go RunStaleRecoveryLoop(ctx, log, bootstrap.Queue, spec.name, cfg.JobRecovery)
+	}
+	go RunQueueAndRebuildMetricsReporter(ctx, log, bootstrap.Pool, enabledPools, 30*time.Second)
+
+	log.Info(
+		"worker_started",
+		"worker_id", bootstrap.WorkerID,
+		"claim_batch_size", cfg.ClaimBatchSize,
+		"default_concurrency", cfg.Concurrency,
+		"live_concurrency", cfg.LiveConcurrency,
+		"backfill_concurrency", cfg.BackfillConcurrency,
 	)
+
+	loopCtx, cancelLoops := context.WithCancel(ctx)
+	defer cancelLoops()
+
+	var wg sync.WaitGroup
+	for _, spec := range specs {
+		if spec.concurrency <= 0 {
+			continue
+		}
+		spec := spec
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			claimLoop(
+				loopCtx,
+				log,
+				bootstrap.Queue,
+				bootstrap.WorkerID,
+				spec.name,
+				cfg.ClaimBatchSize,
+				spec.concurrency,
+				pollInterval,
+				retryDelay,
+				bootstrap.ProcessJob,
+			)
+		}()
+	}
 
 	<-ctx.Done()
+	cancelLoops()
+	wg.Wait()
 	log.Info("shutdown_complete")
 }
 
@@ -377,9 +420,25 @@ func RunStaleRecoveryLoop(ctx context.Context, log Logger, queue Queue, workerPo
 	}
 }
 
-func RunQueueAndRebuildMetricsReporter(ctx context.Context, log Logger, pool *pgxpool.Pool, every time.Duration) {
+func RunQueueAndRebuildMetricsReporter(ctx context.Context, log Logger, pool *pgxpool.Pool, workerPools []string, every time.Duration) {
 	if pool == nil || every <= 0 {
 		return
+	}
+	pools := make([]string, 0, len(workerPools))
+	seen := make(map[string]struct{}, len(workerPools))
+	for _, name := range workerPools {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		pools = append(pools, name)
+	}
+	if len(pools) == 0 {
+		pools = []string{jobs.WorkerPoolDefault}
 	}
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
@@ -388,19 +447,23 @@ func RunQueueAndRebuildMetricsReporter(ctx context.Context, log Logger, pool *pg
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			var oldestPending *float64
-			if err := pool.QueryRow(ctx, `
-				SELECT EXTRACT(EPOCH FROM (now() - MIN(run_after)))
-				FROM jobs
-				WHERE status = 'pending'
-				  AND worker_pool = 'default'
-			`).Scan(&oldestPending); err != nil {
-				log.Error("queue_backlog_metrics_query_failed", "error", err)
-			} else if oldestPending != nil {
-				metrics.SetWorkerQueueBacklogOldestPendingAge(*oldestPending)
-			} else {
-				metrics.SetWorkerQueueBacklogOldestPendingAge(0)
+			var maxAge float64
+			for _, workerPool := range pools {
+				var oldestPending *float64
+				if err := pool.QueryRow(ctx, `
+					SELECT EXTRACT(EPOCH FROM (now() - MIN(run_after)))
+					FROM jobs
+					WHERE status = 'pending'
+					  AND worker_pool = $1
+				`, workerPool).Scan(&oldestPending); err != nil {
+					log.Error("queue_backlog_metrics_query_failed", "worker_pool", workerPool, "error", err)
+					continue
+				}
+				if oldestPending != nil && *oldestPending > maxAge {
+					maxAge = *oldestPending
+				}
 			}
+			metrics.SetWorkerQueueBacklogOldestPendingAge(maxAge)
 
 			var rebuildCount float64
 			if err := pool.QueryRow(ctx, `

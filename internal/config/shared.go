@@ -84,6 +84,18 @@ func getEnvPositiveIntStrict(key string, def int) (int, error) {
 	return v, nil
 }
 
+func getEnvNonNegativeIntStrict(key string, def int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", key)
+	}
+	return v, nil
+}
+
 func getEnvPositiveInt64Strict(key string, def int64) (int64, error) {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
