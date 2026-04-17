@@ -77,6 +77,7 @@ func TestProjectAuthorAnalytics_WindowedStatsAndRebuild(t *testing.T) {
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingAuthorAnalyticsForTest(t, ctx, handlers)
 
 	var postCount int64
 	var noteCount int64
@@ -226,6 +227,7 @@ func TestProjectAuthorAnalytics_ActivityAndPostingBuckets_AreCorrectAndBounded(t
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingAuthorAnalyticsForTest(t, ctx, handlers)
 
 	postDay := int(postAt.Weekday())
 	postHour := postAt.Hour()

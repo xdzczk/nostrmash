@@ -65,6 +65,7 @@ type Bootstrap struct {
 	Queue              Queue
 	InvalidEventsStore InvalidEventRetentionStore
 	ProcessJob         ProcessJobFn
+	Handlers           *derivation.Handlers
 	WorkerID           string
 	MeiliClient        *meili.Client
 }
@@ -151,6 +152,7 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 				Payload: job.Payload,
 			})
 		},
+		Handlers:    handlers,
 		WorkerID:    ResolveWorkerID(),
 		MeiliClient: meiliClient,
 	}
@@ -168,6 +170,27 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	go RunInvalidEventsRetentionLoop(ctx, log, bootstrap.InvalidEventsStore, cfg.InvalidEventRetention)
 	go jobs.RunRowCountMetricsReporter(ctx, log, bootstrap.Pool, 60*time.Second)
 	go RunMeilisearchStartupSync(ctx, log, bootstrap.MeiliClient, bootstrap.Pool)
+
+	if cfg.AuthorAnalyticsSweeper.Enabled {
+		for i := 0; i < cfg.AuthorAnalyticsSweeper.Concurrency; i++ {
+			workerIdx := i
+			go RunAuthorAnalyticsSweeperLoop(
+				ctx,
+				log,
+				bootstrap.Handlers,
+				cfg.AuthorAnalyticsSweeper,
+				workerIdx,
+			)
+		}
+		log.Info(
+			"author_analytics_sweeper_enabled",
+			"concurrency", cfg.AuthorAnalyticsSweeper.Concurrency,
+			"interval", cfg.AuthorAnalyticsSweeper.Interval.String(),
+			"batch_size", cfg.AuthorAnalyticsSweeper.BatchSize,
+		)
+	} else {
+		log.Info("author_analytics_sweeper_disabled")
+	}
 
 	if cfg.RelayRegistry.Enabled {
 		slogLogger, ok := any(log).(*slog.Logger)
@@ -415,6 +438,79 @@ func RunStaleRecoveryLoop(ctx context.Context, log Logger, queue Queue, workerPo
 					"dead_lettered", result.DeadLettered,
 					"older_than", olderThan.Format(time.RFC3339),
 				)
+			}
+		}
+	}
+}
+
+// RunAuthorAnalyticsSweeperLoop drains the
+// pending_author_analytics_recomputes queue produced by
+// derive_event_bundle. It plays the role of "deferred per-author
+// projection rebuild" so the per-event bundle stays fast even for hot
+// pubkeys receiving high-frequency reactions/reposts/zaps.
+//
+// Multiple sweeper goroutines can run in parallel — claims use FOR
+// UPDATE SKIP LOCKED so they never block each other, and the per-pubkey
+// advisory lock inside projectAuthorAnalyticsForPubkey serializes any
+// remaining cross-worker conflicts (which should be rare given each
+// pubkey is claimed by exactly one sweeper at a time).
+func RunAuthorAnalyticsSweeperLoop(
+	ctx context.Context,
+	log Logger,
+	handlers *derivation.Handlers,
+	cfg config.WorkerAuthorAnalyticsSweeperConfig,
+	workerIdx int,
+) {
+	if handlers == nil {
+		log.Error("author_analytics_sweeper_no_handlers", "worker_idx", workerIdx)
+		return
+	}
+	if !cfg.Enabled || cfg.Interval <= 0 || cfg.BatchSize <= 0 {
+		return
+	}
+	ticker := time.NewTicker(cfg.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			started := time.Now()
+			processed, err := handlers.DrainPendingAuthorAnalyticsBatch(ctx, cfg.BatchSize)
+			outcome := "ok"
+			if err != nil {
+				outcome = "error"
+				log.Error(
+					"author_analytics_sweeper_batch_failed",
+					"worker_idx", workerIdx,
+					"processed", processed,
+					"error", err,
+				)
+			}
+			metrics.ObserveAuthorAnalyticsSweeperBatch(outcome, processed, time.Since(started))
+			// When the queue is hot, drain back-to-back without sleeping until
+			// a batch returns fewer rows than the limit. This lets the sweeper
+			// catch up after a burst without waiting cfg.Interval between
+			// every batch.
+			for err == nil && processed >= cfg.BatchSize {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				started = time.Now()
+				processed, err = handlers.DrainPendingAuthorAnalyticsBatch(ctx, cfg.BatchSize)
+				outcome = "ok"
+				if err != nil {
+					outcome = "error"
+					log.Error(
+						"author_analytics_sweeper_batch_failed",
+						"worker_idx", workerIdx,
+						"processed", processed,
+						"error", err,
+					)
+				}
+				metrics.ObserveAuthorAnalyticsSweeperBatch(outcome, processed, time.Since(started))
 			}
 		}
 	}

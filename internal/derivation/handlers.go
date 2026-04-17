@@ -60,7 +60,12 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.ProjectNoteDiscoveryStats,
 		h.ProjectProfileDiscoveryStats,
 		h.ProjectProfilePublicStats,
-		h.ProjectAuthorAnalytics,
+		// Heavy per-author analytics rebuild (author_activity_daily +
+		// 5 windowed projections × 3 windows) runs out-of-band via the
+		// author-analytics sweeper. The bundle just marks the affected
+		// pubkeys as dirty so a single rebuild covers any number of
+		// inbound events between sweeper cycles.
+		h.MarkAuthorAnalyticsDirty,
 		h.SyncMeilisearch,
 	}
 	for _, step := range steps {

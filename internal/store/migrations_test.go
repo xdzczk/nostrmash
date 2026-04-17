@@ -52,6 +52,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"ingest_pubkey_frontier",
 		"jobs",
 		"note_discovery_stats",
+		"pending_author_analytics_recomputes",
 		"profile_discovery_stats",
 		"profile_public_stats",
 		"profiles_latest",

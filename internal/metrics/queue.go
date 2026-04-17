@@ -14,6 +14,9 @@ var (
 	staleRecoveryRecoveredTotal    *prometheus.CounterVec
 	staleRecoveryDeadLetteredTotal *prometheus.CounterVec
 	staleRecoveryDuration          *prometheus.HistogramVec
+
+	authorAnalyticsSweeperBatchDuration *prometheus.HistogramVec
+	authorAnalyticsSweeperProcessed     *prometheus.CounterVec
 )
 
 func registerQueueMetrics() {
@@ -60,6 +63,21 @@ func registerQueueMetrics() {
 		},
 		[]string{"worker_pool", "result"},
 	)
+	authorAnalyticsSweeperBatchDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "nostrmash_worker_author_analytics_sweeper_batch_duration_seconds",
+			Help:    "Duration of author-analytics sweeper batches by result.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"result"},
+	)
+	authorAnalyticsSweeperProcessed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_worker_author_analytics_sweeper_processed_total",
+			Help: "Pubkeys whose author-analytics rebuild succeeded via the sweeper, by result.",
+		},
+		[]string{"result"},
+	)
 
 	registry.MustRegister(
 		queueOperationDuration,
@@ -68,6 +86,8 @@ func registerQueueMetrics() {
 		staleRecoveryRecoveredTotal,
 		staleRecoveryDeadLetteredTotal,
 		staleRecoveryDuration,
+		authorAnalyticsSweeperBatchDuration,
+		authorAnalyticsSweeperProcessed,
 	)
 }
 
@@ -106,4 +126,15 @@ func AddStaleRecoveryDeadLettered(workerPool string, count int) {
 func ObserveStaleRecoveryDuration(workerPool, result string, d time.Duration) {
 	ensureRegistered()
 	staleRecoveryDuration.WithLabelValues(workerPool, result).Observe(d.Seconds())
+}
+
+// ObserveAuthorAnalyticsSweeperBatch records duration and outcome of one
+// author-analytics sweeper batch. processed counts how many pubkeys were
+// successfully rebuilt in that batch (errors are surfaced via result).
+func ObserveAuthorAnalyticsSweeperBatch(result string, processed int, d time.Duration) {
+	ensureRegistered()
+	authorAnalyticsSweeperBatchDuration.WithLabelValues(result).Observe(d.Seconds())
+	if processed > 0 {
+		authorAnalyticsSweeperProcessed.WithLabelValues(result).Add(float64(processed))
+	}
 }

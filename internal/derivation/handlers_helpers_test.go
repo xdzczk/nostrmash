@@ -12,6 +12,29 @@ import (
 	"github.com/xdzczk/nostrmash/internal/testutil/dbtest"
 )
 
+// drainPendingAuthorAnalyticsForTest synchronously drains the
+// pending_author_analytics_recomputes queue produced by DeriveEventBundle.
+//
+// In production the heavy author-analytics rebuild runs in a background
+// sweeper so per-event bundles stay fast. Tests still want to assert on
+// the final projected rows synchronously, so this helper plays the
+// sweeper's role inline. It loops until the queue is empty (with a
+// generous safety bound) so tests can call it once after their event
+// fan-out without having to know how many pubkeys were marked.
+func drainPendingAuthorAnalyticsForTest(t *testing.T, ctx context.Context, handlers *derivation.Handlers) {
+	t.Helper()
+	for safety := 0; safety < 64; safety++ {
+		processed, err := handlers.DrainPendingAuthorAnalyticsBatch(ctx, 64)
+		if err != nil {
+			t.Fatalf("drain pending author analytics: %v", err)
+		}
+		if processed == 0 {
+			return
+		}
+	}
+	t.Fatalf("drain pending author analytics did not converge after 64 batches")
+}
+
 func newEventForTest(
 	id string,
 	pubkey string,

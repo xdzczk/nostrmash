@@ -81,6 +81,7 @@ func TestAuthorAnalyticsProjections_RebuildAfterTruncateMatchesBaseline(t *testi
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingAuthorAnalyticsForTest(t, ctx, handlers)
 
 	baselineState := captureAuthorAnalyticsProjectionState(t, ctx, pool, "alice")
 	baselineReads := captureAuthorAnalyticsReadSnapshot(t, ctx, pgStore, "alice")

@@ -8,16 +8,29 @@ import (
 )
 
 type WorkerConfig struct {
-	Shared                SharedConfig
-	Concurrency           int
-	LiveConcurrency       int
-	BackfillConcurrency   int
-	ClaimBatchSize        int
-	JobRecovery           WorkerJobRecoveryConfig
-	JobRetention          WorkerJobRetentionConfig
-	InvalidEventRetention WorkerInvalidEventRetentionConfig
-	Meilisearch           MeilisearchConfig
-	RelayRegistry         RelayRegistryConfig
+	Shared                 SharedConfig
+	Concurrency            int
+	LiveConcurrency        int
+	BackfillConcurrency    int
+	ClaimBatchSize         int
+	JobRecovery            WorkerJobRecoveryConfig
+	JobRetention           WorkerJobRetentionConfig
+	InvalidEventRetention  WorkerInvalidEventRetentionConfig
+	AuthorAnalyticsSweeper WorkerAuthorAnalyticsSweeperConfig
+	Meilisearch            MeilisearchConfig
+	RelayRegistry          RelayRegistryConfig
+}
+
+// WorkerAuthorAnalyticsSweeperConfig configures the background loop that
+// drains pending_author_analytics_recomputes. The per-event derive bundle
+// only marks affected pubkeys as dirty (cheap upsert); this sweeper runs
+// the heavy aggregation rebuild once per pubkey per cycle, naturally
+// coalescing event bursts into a single rebuild.
+type WorkerAuthorAnalyticsSweeperConfig struct {
+	Enabled     bool
+	Interval    time.Duration
+	BatchSize   int
+	Concurrency int
 }
 
 type WorkerJobRetentionConfig struct {
@@ -91,6 +104,18 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	authorAnalyticsSweeperInterval, err := getEnvPositiveDurationStrict("WORKER_AUTHOR_ANALYTICS_SWEEPER_INTERVAL", 5*time.Second)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	authorAnalyticsSweeperBatch, err := getEnvPositiveIntStrict("WORKER_AUTHOR_ANALYTICS_SWEEPER_BATCH_SIZE", 25)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	authorAnalyticsSweeperConcurrency, err := getEnvPositiveIntStrict("WORKER_AUTHOR_ANALYTICS_SWEEPER_CONCURRENCY", 4)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	cfg := WorkerConfig{
 		Shared:              shared,
 		Concurrency:         concurrency,
@@ -109,6 +134,12 @@ func LoadWorker() (WorkerConfig, error) {
 				MaxAge:     invalidPayloadTrimMaxAge,
 				BatchLimit: invalidPayloadTrimBatchLimit,
 			},
+		},
+		AuthorAnalyticsSweeper: WorkerAuthorAnalyticsSweeperConfig{
+			Enabled:     getEnvBool("WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED", true),
+			Interval:    authorAnalyticsSweeperInterval,
+			BatchSize:   authorAnalyticsSweeperBatch,
+			Concurrency: authorAnalyticsSweeperConcurrency,
 		},
 		Meilisearch: MeilisearchConfig{
 			Enabled:      getEnvBool("MEILI_ENABLED", false),
@@ -217,6 +248,17 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 			if cfg.InvalidEventRetention.PayloadTrim.MaxAge >= cfg.InvalidEventRetention.MaxAge {
 				return fmt.Errorf("WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE must be smaller than WORKER_INVALID_EVENTS_RETENTION_MAX_AGE")
 			}
+		}
+	}
+	if cfg.AuthorAnalyticsSweeper.Enabled {
+		if cfg.AuthorAnalyticsSweeper.Interval <= 0 {
+			return fmt.Errorf("WORKER_AUTHOR_ANALYTICS_SWEEPER_INTERVAL must be > 0")
+		}
+		if cfg.AuthorAnalyticsSweeper.BatchSize <= 0 {
+			return fmt.Errorf("WORKER_AUTHOR_ANALYTICS_SWEEPER_BATCH_SIZE must be > 0")
+		}
+		if cfg.AuthorAnalyticsSweeper.Concurrency <= 0 {
+			return fmt.Errorf("WORKER_AUTHOR_ANALYTICS_SWEEPER_CONCURRENCY must be > 0")
 		}
 	}
 	if cfg.Meilisearch.Enabled {

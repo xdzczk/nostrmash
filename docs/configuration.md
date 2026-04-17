@@ -137,6 +137,10 @@ Do not hand-edit this file.
 | `TRUST_WORKER_CONCURRENCY` | `trust_worker` | optional | `2` | Trust worker goroutine concurrency. |
 | `TRUST_WORKER_POLL_INTERVAL` | `trust_worker` | optional | `1s` | Polling interval for trust queue claims. |
 | `TRUST_WORKER_RETRY_DELAY` | `trust_worker` | optional | `5s` | Retry delay when trust jobs fail. |
+| `WORKER_AUTHOR_ANALYTICS_SWEEPER_BATCH_SIZE` | `worker` | optional | `25` | Maximum dirty pubkeys claimed and rebuilt per author-analytics sweeper batch. |
+| `WORKER_AUTHOR_ANALYTICS_SWEEPER_CONCURRENCY` | `worker` | optional | `4` | Number of concurrent author-analytics sweeper goroutines. Each independently claims dirty pubkeys via FOR UPDATE SKIP LOCKED. |
+| `WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED` | `worker` | optional | `true` | Enable the background sweeper that drains pending_author_analytics_recomputes (per-author analytics rebuilds deferred from derive_event_bundle). |
+| `WORKER_AUTHOR_ANALYTICS_SWEEPER_INTERVAL` | `worker` | optional | `5s` | Polling interval between author-analytics sweeper batches when the dirty queue is empty. Sweepers loop without sleeping while batches are full. |
 | `WORKER_BACKFILL_CONCURRENCY` | `worker` | optional | `WORKER_CONCURRENCY` | Worker goroutine concurrency for the backfill job pool (events from historical fetch / trust fetch / metadata discovery). Set to 0 to disable. |
 | `WORKER_CLAIM_BATCH_SIZE` | `worker` | optional | `10` | Maximum number of jobs claimed per claim-loop iteration for each worker pool. |
 | `WORKER_CONCURRENCY` | `worker` | optional | `4` | Worker goroutine concurrency for the default job pool (legacy / backlog work). |
