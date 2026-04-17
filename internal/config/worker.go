@@ -17,6 +17,7 @@ type WorkerConfig struct {
 	JobRetention           WorkerJobRetentionConfig
 	InvalidEventRetention  WorkerInvalidEventRetentionConfig
 	AuthorAnalyticsSweeper WorkerAuthorAnalyticsSweeperConfig
+	ProfileStatsSweeper    WorkerProfileStatsSweeperConfig
 	MeilisearchSweeper     WorkerMeilisearchSweeperConfig
 	Meilisearch            MeilisearchConfig
 	RelayRegistry          RelayRegistryConfig
@@ -28,6 +29,20 @@ type WorkerConfig struct {
 // the heavy aggregation rebuild once per pubkey per cycle, naturally
 // coalescing event bursts into a single rebuild.
 type WorkerAuthorAnalyticsSweeperConfig struct {
+	Enabled     bool
+	Interval    time.Duration
+	BatchSize   int
+	Concurrency int
+}
+
+// WorkerProfileStatsSweeperConfig configures the background loop that
+// drains pending_profile_stats_recomputes. The per-event derive bundle
+// only marks affected pubkeys as dirty (cheap upsert); this sweeper
+// runs the heavy ProjectProfilePublicStats and
+// ProjectProfileDiscoveryStats recompute once per pubkey per cycle,
+// coalescing event bursts into a single recompute and removing the
+// per-pubkey advisory-lock contention from the bundle critical path.
+type WorkerProfileStatsSweeperConfig struct {
 	Enabled     bool
 	Interval    time.Duration
 	BatchSize   int
@@ -129,6 +144,18 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	profileStatsSweeperInterval, err := getEnvPositiveDurationStrict("WORKER_PROFILE_STATS_SWEEPER_INTERVAL", 5*time.Second)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	profileStatsSweeperBatch, err := getEnvPositiveIntStrict("WORKER_PROFILE_STATS_SWEEPER_BATCH_SIZE", 25)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	profileStatsSweeperConcurrency, err := getEnvPositiveIntStrict("WORKER_PROFILE_STATS_SWEEPER_CONCURRENCY", 4)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	meilisearchSweeperInterval, err := getEnvPositiveDurationStrict("WORKER_MEILISEARCH_SWEEPER_INTERVAL", 2*time.Second)
 	if err != nil {
 		return WorkerConfig{}, err
@@ -165,6 +192,12 @@ func LoadWorker() (WorkerConfig, error) {
 			Interval:    authorAnalyticsSweeperInterval,
 			BatchSize:   authorAnalyticsSweeperBatch,
 			Concurrency: authorAnalyticsSweeperConcurrency,
+		},
+		ProfileStatsSweeper: WorkerProfileStatsSweeperConfig{
+			Enabled:     getEnvBool("WORKER_PROFILE_STATS_SWEEPER_ENABLED", true),
+			Interval:    profileStatsSweeperInterval,
+			BatchSize:   profileStatsSweeperBatch,
+			Concurrency: profileStatsSweeperConcurrency,
 		},
 		MeilisearchSweeper: WorkerMeilisearchSweeperConfig{
 			Enabled:     getEnvBool("WORKER_MEILISEARCH_SWEEPER_ENABLED", true),
@@ -290,6 +323,17 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.AuthorAnalyticsSweeper.Concurrency <= 0 {
 			return fmt.Errorf("WORKER_AUTHOR_ANALYTICS_SWEEPER_CONCURRENCY must be > 0")
+		}
+	}
+	if cfg.ProfileStatsSweeper.Enabled {
+		if cfg.ProfileStatsSweeper.Interval <= 0 {
+			return fmt.Errorf("WORKER_PROFILE_STATS_SWEEPER_INTERVAL must be > 0")
+		}
+		if cfg.ProfileStatsSweeper.BatchSize <= 0 {
+			return fmt.Errorf("WORKER_PROFILE_STATS_SWEEPER_BATCH_SIZE must be > 0")
+		}
+		if cfg.ProfileStatsSweeper.Concurrency <= 0 {
+			return fmt.Errorf("WORKER_PROFILE_STATS_SWEEPER_CONCURRENCY must be > 0")
 		}
 	}
 	if cfg.MeilisearchSweeper.Enabled {

@@ -35,6 +35,28 @@ func drainPendingAuthorAnalyticsForTest(t *testing.T, ctx context.Context, handl
 	t.Fatalf("drain pending author analytics did not converge after 64 batches")
 }
 
+// drainPendingProfileStatsForTest synchronously drains the
+// pending_profile_stats_recomputes queue produced by DeriveEventBundle.
+//
+// In production the per-pubkey ProjectProfilePublicStats and
+// ProjectProfileDiscoveryStats recomputes run in a background sweeper
+// so per-event bundles stay fast. Tests still want to assert on the
+// final projected rows synchronously, so this helper plays the
+// sweeper's role inline.
+func drainPendingProfileStatsForTest(t *testing.T, ctx context.Context, handlers *derivation.Handlers) {
+	t.Helper()
+	for safety := 0; safety < 64; safety++ {
+		processed, err := handlers.DrainPendingProfileStatsBatch(ctx, 64)
+		if err != nil {
+			t.Fatalf("drain pending profile stats: %v", err)
+		}
+		if processed == 0 {
+			return
+		}
+	}
+	t.Fatalf("drain pending profile stats did not converge after 64 batches")
+}
+
 func newEventForTest(
 	id string,
 	pubkey string,

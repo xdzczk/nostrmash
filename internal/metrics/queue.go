@@ -20,6 +20,9 @@ var (
 
 	meilisearchSweeperBatchDuration *prometheus.HistogramVec
 	meilisearchSweeperProcessed     *prometheus.CounterVec
+
+	profileStatsSweeperBatchDuration *prometheus.HistogramVec
+	profileStatsSweeperProcessed     *prometheus.CounterVec
 )
 
 func registerQueueMetrics() {
@@ -96,6 +99,21 @@ func registerQueueMetrics() {
 		},
 		[]string{"result"},
 	)
+	profileStatsSweeperBatchDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "nostrmash_worker_profile_stats_sweeper_batch_duration_seconds",
+			Help:    "Duration of profile-stats sweeper batches by result.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"result"},
+	)
+	profileStatsSweeperProcessed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_worker_profile_stats_sweeper_processed_total",
+			Help: "Pubkeys whose profile-stats recompute succeeded via the sweeper, by result.",
+		},
+		[]string{"result"},
+	)
 
 	registry.MustRegister(
 		queueOperationDuration,
@@ -108,6 +126,8 @@ func registerQueueMetrics() {
 		authorAnalyticsSweeperProcessed,
 		meilisearchSweeperBatchDuration,
 		meilisearchSweeperProcessed,
+		profileStatsSweeperBatchDuration,
+		profileStatsSweeperProcessed,
 	)
 }
 
@@ -167,5 +187,17 @@ func ObserveMeilisearchSweeperBatch(result string, processed int, d time.Duratio
 	meilisearchSweeperBatchDuration.WithLabelValues(result).Observe(d.Seconds())
 	if processed > 0 {
 		meilisearchSweeperProcessed.WithLabelValues(result).Add(float64(processed))
+	}
+}
+
+// ObserveProfileStatsSweeperBatch records duration and outcome of one
+// profile-stats sweeper batch. processed counts how many pubkeys had
+// both ProjectProfilePublicStats and ProjectProfileDiscoveryStats
+// successfully recomputed in that batch.
+func ObserveProfileStatsSweeperBatch(result string, processed int, d time.Duration) {
+	ensureRegistered()
+	profileStatsSweeperBatchDuration.WithLabelValues(result).Observe(d.Seconds())
+	if processed > 0 {
+		profileStatsSweeperProcessed.WithLabelValues(result).Add(float64(processed))
 	}
 }

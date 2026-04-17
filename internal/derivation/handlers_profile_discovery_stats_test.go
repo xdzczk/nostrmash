@@ -51,6 +51,7 @@ func TestProjectProfileDiscoveryStats_TracksScoresAndRisingOrder(t *testing.T) {
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
 
 	var smallScore24h float64
 	var smallRising24h float64
@@ -98,6 +99,7 @@ func TestProjectionRebuildScopes_ProfileDiscoveryStatsFull(t *testing.T) {
 	if err := handlers.DeriveEventBundle(ctx, note.ID); err != nil {
 		t.Fatalf("derive note bundle: %v", err)
 	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
 
 	run, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
 		DerivationName: derivation.DerivationProfileDiscoveryStats,

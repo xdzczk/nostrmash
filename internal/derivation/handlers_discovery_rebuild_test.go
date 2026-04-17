@@ -45,6 +45,7 @@ func TestDiscoveryProjections_RebuildAfterTruncateMatchesBaseline(t *testing.T) 
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
 
 	baselineState := captureDiscoveryProjectionState(t, ctx, pool)
 	baselineReads := captureDiscoveryReadSnapshot(t, ctx, pgStore)

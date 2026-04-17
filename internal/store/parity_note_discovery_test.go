@@ -151,3 +151,22 @@ func extractDiscoveryTagsForStoreTest(t *testing.T, raw json.RawMessage) [][]str
 	}
 	return payload.Tags
 }
+
+// drainPendingProfileStatsForStoreTest synchronously runs the
+// profile-stats sweeper until the dirty queue is empty so store-package
+// tests can assert on profile_public_stats / profile_discovery_stats
+// rows immediately after their DeriveEventBundle fan-out (in production
+// these projections run out-of-band on a background sweeper).
+func drainPendingProfileStatsForStoreTest(t *testing.T, ctx context.Context, handlers *derivation.Handlers) {
+	t.Helper()
+	for safety := 0; safety < 64; safety++ {
+		processed, err := handlers.DrainPendingProfileStatsBatch(ctx, 64)
+		if err != nil {
+			t.Fatalf("drain pending profile stats: %v", err)
+		}
+		if processed == 0 {
+			return
+		}
+	}
+	t.Fatalf("drain pending profile stats did not converge after 64 batches")
+}

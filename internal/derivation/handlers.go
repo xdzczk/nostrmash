@@ -58,8 +58,17 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.UpdateThreadProjection,
 		h.RepairUnresolvedReferences,
 		h.ProjectNoteDiscoveryStats,
-		h.ProjectProfileDiscoveryStats,
-		h.ProjectProfilePublicStats,
+		// ProjectProfilePublicStats and ProjectProfileDiscoveryStats both
+		// run multi-second per-pubkey COUNT/JOIN aggregates against
+		// follower_edges + events + reply_count_contributions +
+		// repost_events + reaction_events + zap_receipts under per-pubkey
+		// advisory locks. On hot pubkeys this collapsed live-pool
+		// throughput: production observed 8-13s advisory-lock waits per
+		// worker stacked on top of 19-30s aggregate queries. The bundle
+		// now records the affected pubkeys as dirty; the profile-stats
+		// sweeper recomputes both projections per dirty pubkey
+		// out-of-band, coalescing bursts.
+		h.MarkProfileStatsDirty,
 		// Heavy per-author analytics rebuild (author_activity_daily +
 		// 5 windowed projections × 3 windows) runs out-of-band via the
 		// author-analytics sweeper. The bundle just marks the affected

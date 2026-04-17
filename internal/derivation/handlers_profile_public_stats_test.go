@@ -71,6 +71,7 @@ func TestProjectProfilePublicStats_TracksCountsAndFollowerChanges(t *testing.T) 
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
 
 	aliceStats := mustReadProfilePublicStats(t, ctx, pgStore, "alice")
 	if aliceStats.FollowerCount != 1 || aliceStats.FollowingCount != 0 {
@@ -112,6 +113,7 @@ func TestProjectionRebuildScopes_ProfilePublicStatsFull(t *testing.T) {
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
 
 	run, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
 		DerivationName: derivation.DerivationProfilePublicStats,

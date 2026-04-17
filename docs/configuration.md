@@ -164,3 +164,7 @@ Do not hand-edit this file.
 | `WORKER_MEILISEARCH_SWEEPER_CONCURRENCY` | `worker` | optional | `4` | Number of concurrent Meilisearch sweeper goroutines. Each independently claims dirty events via FOR UPDATE SKIP LOCKED. |
 | `WORKER_MEILISEARCH_SWEEPER_ENABLED` | `worker` | optional | `true` | Enable the background sweeper that drains pending_meilisearch_syncs (per-event Meilisearch index syncs deferred from derive_event_bundle). Has no effect when MEILI_ENABLED=false. |
 | `WORKER_MEILISEARCH_SWEEPER_INTERVAL` | `worker` | optional | `2s` | Polling interval between Meilisearch sweeper batches when the dirty queue is empty. Sweepers loop without sleeping while batches are full. |
+| `WORKER_PROFILE_STATS_SWEEPER_BATCH_SIZE` | `worker` | optional | `25` | Maximum dirty pubkeys claimed and recomputed per profile-stats sweeper batch. |
+| `WORKER_PROFILE_STATS_SWEEPER_CONCURRENCY` | `worker` | optional | `4` | Number of concurrent profile-stats sweeper goroutines. Each independently claims dirty pubkeys via FOR UPDATE SKIP LOCKED. |
+| `WORKER_PROFILE_STATS_SWEEPER_ENABLED` | `worker` | optional | `true` | Enable the background sweeper that drains pending_profile_stats_recomputes (per-pubkey ProjectProfilePublicStats and ProjectProfileDiscoveryStats recomputes deferred from derive_event_bundle). |
+| `WORKER_PROFILE_STATS_SWEEPER_INTERVAL` | `worker` | optional | `5s` | Polling interval between profile-stats sweeper batches when the dirty queue is empty. Sweepers loop without sleeping while batches are full. |

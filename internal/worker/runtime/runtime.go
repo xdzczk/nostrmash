@@ -192,6 +192,27 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		log.Info("author_analytics_sweeper_disabled")
 	}
 
+	if cfg.ProfileStatsSweeper.Enabled {
+		for i := 0; i < cfg.ProfileStatsSweeper.Concurrency; i++ {
+			workerIdx := i
+			go RunProfileStatsSweeperLoop(
+				ctx,
+				log,
+				bootstrap.Handlers,
+				cfg.ProfileStatsSweeper,
+				workerIdx,
+			)
+		}
+		log.Info(
+			"profile_stats_sweeper_enabled",
+			"concurrency", cfg.ProfileStatsSweeper.Concurrency,
+			"interval", cfg.ProfileStatsSweeper.Interval.String(),
+			"batch_size", cfg.ProfileStatsSweeper.BatchSize,
+		)
+	} else {
+		log.Info("profile_stats_sweeper_disabled")
+	}
+
 	if cfg.MeilisearchSweeper.Enabled && bootstrap.MeiliClient != nil && bootstrap.MeiliClient.Enabled() {
 		for i := 0; i < cfg.MeilisearchSweeper.Concurrency; i++ {
 			workerIdx := i
@@ -600,6 +621,76 @@ func RunMeilisearchSweeperLoop(
 					)
 				}
 				metrics.ObserveMeilisearchSweeperBatch(outcome, processed, time.Since(started))
+			}
+		}
+	}
+}
+
+// RunProfileStatsSweeperLoop drains the
+// pending_profile_stats_recomputes queue produced by
+// derive_event_bundle. It runs ProjectProfilePublicStats and
+// ProjectProfileDiscoveryStats out-of-band so the bundle no longer
+// pays the per-pubkey advisory-lock + multi-second aggregate cost
+// inline.
+//
+// Multiple sweeper goroutines can run in parallel — claims use FOR
+// UPDATE SKIP LOCKED so they never block each other. Each pubkey is
+// claimed by exactly one sweeper at a time, so cross-worker conflict
+// on the per-pubkey advisory locks is rare.
+func RunProfileStatsSweeperLoop(
+	ctx context.Context,
+	log Logger,
+	handlers *derivation.Handlers,
+	cfg config.WorkerProfileStatsSweeperConfig,
+	workerIdx int,
+) {
+	if handlers == nil {
+		log.Error("profile_stats_sweeper_no_handlers", "worker_idx", workerIdx)
+		return
+	}
+	if !cfg.Enabled || cfg.Interval <= 0 || cfg.BatchSize <= 0 {
+		return
+	}
+	ticker := time.NewTicker(cfg.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			started := time.Now()
+			processed, err := handlers.DrainPendingProfileStatsBatch(ctx, cfg.BatchSize)
+			outcome := "ok"
+			if err != nil {
+				outcome = "error"
+				log.Error(
+					"profile_stats_sweeper_batch_failed",
+					"worker_idx", workerIdx,
+					"processed", processed,
+					"error", err,
+				)
+			}
+			metrics.ObserveProfileStatsSweeperBatch(outcome, processed, time.Since(started))
+			// Drain back-to-back when the queue is hot.
+			for err == nil && processed >= cfg.BatchSize {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				started = time.Now()
+				processed, err = handlers.DrainPendingProfileStatsBatch(ctx, cfg.BatchSize)
+				outcome = "ok"
+				if err != nil {
+					outcome = "error"
+					log.Error(
+						"profile_stats_sweeper_batch_failed",
+						"worker_idx", workerIdx,
+						"processed", processed,
+						"error", err,
+					)
+				}
+				metrics.ObserveProfileStatsSweeperBatch(outcome, processed, time.Since(started))
 			}
 		}
 	}

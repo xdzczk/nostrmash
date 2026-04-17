@@ -71,6 +71,7 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
 	trending24h, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
 	if err != nil {
@@ -141,6 +142,7 @@ func TestGetRelatedProfiles_RankedAndBounded(t *testing.T) {
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
 	related, err := pgStore.GetRelatedProfiles(ctx, "focal_author", 3)
 	if err != nil {
@@ -184,6 +186,7 @@ func TestGetRelatedProfiles_SparseAndMissing(t *testing.T) {
 	if err := handlers.DeriveEventBundle(ctx, sparseEvent.ID); err != nil {
 		t.Fatalf("derive sparse event: %v", err)
 	}
+	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
 	sparseRelated, err := pgStore.GetRelatedProfiles(ctx, "sparse_author", 10)
 	if err != nil {
@@ -229,6 +232,7 @@ func TestGetTrendingProfiles_ExcludesProfilesWithoutLocalMetadata(t *testing.T) 
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
 	profiles, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
 	if err != nil {
@@ -299,6 +303,7 @@ func TestTrendingAndRisingProfiles_PenalizeHighVolumeLowEngagement(t *testing.T)
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
 	trending, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
 	if err != nil {
@@ -371,6 +376,7 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 			t.Fatalf("derive event bundle %s: %v", event.ID, err)
 		}
 	}
+	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
 	trending, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
 	if err != nil {
