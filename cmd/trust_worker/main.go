@@ -116,6 +116,14 @@ func main() {
 	runtimebootstrap.StartDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
 	go runTrustMetricsReporter(ctx, log, pool, 30*time.Second)
 	go runStaleRecoveryLoop(ctx, log, queue, jobs.WorkerPoolTrust, cfg.JobRecovery)
+	go jobs.RunRetentionLoop(ctx, log, queue, jobs.RetentionConfig{
+		Enabled:          cfg.JobRetention.Enabled,
+		SucceededMaxAge:  cfg.JobRetention.SucceededMaxAge,
+		DeadMaxAge:       cfg.JobRetention.DeadMaxAge,
+		RunInterval:      cfg.JobRetention.RunInterval,
+		DeleteBatchLimit: cfg.JobRetention.DeleteBatchLimit,
+	})
+	go jobs.RunRowCountMetricsReporter(ctx, log, pool, 60*time.Second)
 
 	runClaimLoop(
 		ctx,

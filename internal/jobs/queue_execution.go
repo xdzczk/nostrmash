@@ -30,7 +30,8 @@ func (q *Queue) CompleteJob(ctx context.Context, jobID int64, workerID string) (
 		    locked_at = NULL,
 		    locked_by = NULL,
 		    last_error = NULL,
-		    updated_at = now()
+		    updated_at = now(),
+		    finished_at = now()
 		WHERE id = $2
 		  AND status = $3
 		  AND locked_by = $4
@@ -111,6 +112,10 @@ func (q *Queue) FailJob(
 		nextRunAfter = time.Now().UTC()
 	}
 
+	// Only set finished_at when this failure actually drives the job into a
+	// terminal `dead` state. Retries (back to pending) must NOT set it,
+	// otherwise retention would treat retried jobs as completed and the
+	// finished_at semantics would degrade back to "last touched".
 	_, err = tx.Exec(ctx, `
 		UPDATE jobs
 		SET status = $1,
@@ -119,7 +124,8 @@ func (q *Queue) FailJob(
 		    locked_at = NULL,
 		    locked_by = NULL,
 		    last_error = $4,
-		    updated_at = now()
+		    updated_at = now(),
+		    finished_at = CASE WHEN $1 = $6 THEN now() ELSE finished_at END
 		WHERE id = $5
 	`,
 		nextStatus,
@@ -127,6 +133,7 @@ func (q *Queue) FailJob(
 		nextRunAfter,
 		lastError,
 		jobID,
+		StatusDead,
 	)
 	if err != nil {
 		return result, fmt.Errorf("mark job failure: %w", err)

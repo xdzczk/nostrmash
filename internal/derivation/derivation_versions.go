@@ -55,6 +55,20 @@ func upsertDerivationVersion(
 	return nil
 }
 
+// resolveDerivationWriteVersion returns the active version for a derivation.
+//
+// Per-job hot path (versionOverride == nil): a pure SELECT against
+// derivation_active_versions. The row is guaranteed to exist because
+// EnsureRegisteredDerivations runs once at worker startup. We deliberately
+// avoid UPSERTing here: the underlying rows are keyed by a small fixed set of
+// projection names, so doing a write per job creates pathological row-lock
+// contention when many workers run in parallel and effectively serializes the
+// entire derivation pipeline.
+//
+// Rebuild path (versionOverride != nil): retains the original write semantics
+// so admin-triggered rebuilds can register new target versions and bump
+// metadata. Rebuilds are infrequent and sequential, so contention is
+// acceptable.
 func resolveDerivationWriteVersion(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -63,14 +77,10 @@ func resolveDerivationWriteVersion(
 	description string,
 	versionOverride *int,
 ) (int, error) {
-	versionToRecord := targetVersion
 	if versionOverride != nil {
-		versionToRecord = *versionOverride
-	}
-	if err := upsertDerivationVersion(ctx, tx, name, versionToRecord, description); err != nil {
-		return 0, err
-	}
-	if versionOverride != nil {
+		if err := upsertDerivationVersion(ctx, tx, name, *versionOverride, description); err != nil {
+			return 0, err
+		}
 		return *versionOverride, nil
 	}
 	var activeVersion int
@@ -79,7 +89,7 @@ func resolveDerivationWriteVersion(
 		FROM derivation_active_versions
 		WHERE derivation_name = $1
 	`, name).Scan(&activeVersion); err != nil {
-		return 0, fmt.Errorf("load active derivation version %q: %w", name, err)
+		return 0, fmt.Errorf("load active derivation version %q (ensure EnsureRegisteredDerivations ran at startup): %w", name, err)
 	}
 	return activeVersion, nil
 }

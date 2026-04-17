@@ -19,6 +19,7 @@ type TrustWorkerConfig struct {
 	PollInterval       time.Duration
 	RetryDelay         time.Duration
 	JobRecovery        WorkerJobRecoveryConfig
+	JobRetention       WorkerJobRetentionConfig
 	EnableRedisSync    bool
 	EnableScoreCompute bool
 }
@@ -48,6 +49,10 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 	if err != nil {
 		return TrustWorkerConfig{}, err
 	}
+	jobRetention, err := loadWorkerJobRetentionConfig()
+	if err != nil {
+		return TrustWorkerConfig{}, err
+	}
 
 	cfg := TrustWorkerConfig{
 		Shared: shared,
@@ -60,6 +65,7 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 		PollInterval:       pollInterval,
 		RetryDelay:         retryDelay,
 		JobRecovery:        jobRecovery,
+		JobRetention:       jobRetention,
 		EnableRedisSync:    getEnvBool("TRUST_ENABLE_REDIS_SYNC", false),
 		EnableScoreCompute: getEnvBool("TRUST_ENABLE_SCORE_COMPUTE", true),
 	}
@@ -84,6 +90,20 @@ func validateTrustWorkerConfig(cfg TrustWorkerConfig) error {
 	}
 	if err := validateWorkerJobRecoveryConfig(cfg.JobRecovery); err != nil {
 		return err
+	}
+	if cfg.JobRetention.Enabled {
+		if cfg.JobRetention.SucceededMaxAge <= 0 {
+			return fmt.Errorf("WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE must be > 0")
+		}
+		if cfg.JobRetention.DeadMaxAge <= 0 {
+			return fmt.Errorf("WORKER_JOB_RETENTION_DEAD_MAX_AGE must be > 0")
+		}
+		if cfg.JobRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_JOB_RETENTION_RUN_INTERVAL must be > 0")
+		}
+		if cfg.JobRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT must be > 0")
+		}
 	}
 	if !cfg.EnableRedisSync && !cfg.EnableScoreCompute {
 		return fmt.Errorf("at least one of TRUST_ENABLE_REDIS_SYNC or TRUST_ENABLE_SCORE_COMPUTE must be true")

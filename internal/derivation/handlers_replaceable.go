@@ -50,10 +50,6 @@ func (h *Handlers) UpdateReplaceableState(ctx context.Context, eventID string) e
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := upsertDerivationVersion(ctx, tx, DerivationReplaceableState, ReplaceableStateVersion, "Track deterministic latest-wins replaceable event state"); err != nil {
-		return err
-	}
-
 	_, err = tx.Exec(ctx, `
 		INSERT INTO replaceable_state (
 			pubkey, kind, d_tag, event_id, created_at, derivation_version

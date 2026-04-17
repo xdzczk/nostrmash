@@ -21,10 +21,6 @@ func (h *Handlers) RepairUnresolvedReferences(ctx context.Context, eventID strin
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := upsertDerivationVersion(ctx, tx, DerivationThreadProjection, ThreadProjectionVersion, "Repair unresolved thread references when missing events arrive"); err != nil {
-		return err
-	}
-
 	rows, err := tx.Query(ctx, `
 		SELECT DISTINCT source_event_id
 		FROM unresolved_thread_references

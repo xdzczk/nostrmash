@@ -66,6 +66,7 @@ type Bootstrap struct {
 	InvalidEventsStore InvalidEventRetentionStore
 	ProcessJob         ProcessJobFn
 	WorkerID           string
+	MeiliClient        *meili.Client
 }
 
 func Run(ctx context.Context, log Logger, cfg config.WorkerConfig, build BuildInfo, claimLoop ClaimLoopFn) error {
@@ -108,6 +109,13 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		pool.Close()
 		return Bootstrap{}, func() {}, fmt.Errorf("migrate: %w", err)
 	}
+	if err := derivation.EnsureRegisteredDerivations(ctx, pool); err != nil {
+		log.Error("ensure_registered_derivations", "error", err)
+		runtimebootstrap.ShutdownTracing(log)
+		pool.Close()
+		return Bootstrap{}, func() {}, fmt.Errorf("ensure registered derivations: %w", err)
+	}
+	log.Info("registered_derivations_ready", "count", len(derivation.RegisteredDerivations))
 
 	queue := jobs.NewQueue(pool)
 	postgresStore := store.NewPostgresStore(pool)
@@ -128,22 +136,6 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 			pool.Close()
 			return Bootstrap{}, func() {}, fmt.Errorf("ensure meilisearch indexes: %w", err)
 		}
-		needsSync, syncCheckErr := meiliClient.NeedsSync(ctx, pool)
-		if syncCheckErr != nil {
-			log.Error("meilisearch_sync_check", "error", syncCheckErr)
-		} else if needsSync {
-			log.Info("meilisearch_indexes_stale", "action", "starting_full_sync")
-			stats, syncErr := meiliClient.FullSync(ctx, pool, 1000)
-			if syncErr != nil {
-				log.Error("meilisearch_startup_sync_failed", "error", syncErr)
-			} else {
-				log.Info("meilisearch_startup_sync_complete",
-					"profiles", stats.Profiles,
-					"notes", stats.Notes,
-					"documents", stats.Documents,
-				)
-			}
-		}
 	}
 	handlers := derivation.NewHandlersWithOptions(pool, derivation.HandlersOptions{
 		MeiliClient: meiliClient,
@@ -159,7 +151,8 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 				Payload: job.Payload,
 			})
 		},
-		WorkerID: ResolveWorkerID(),
+		WorkerID:    ResolveWorkerID(),
+		MeiliClient: meiliClient,
 	}
 	shutdown := func() {
 		runtimebootstrap.ShutdownTracing(log)
@@ -173,6 +166,8 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	runtimebootstrap.StartDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
 	go RunJobRetentionLoop(ctx, log, bootstrap.Queue, cfg.JobRetention)
 	go RunInvalidEventsRetentionLoop(ctx, log, bootstrap.InvalidEventsStore, cfg.InvalidEventRetention)
+	go jobs.RunRowCountMetricsReporter(ctx, log, bootstrap.Pool, 60*time.Second)
+	go RunMeilisearchStartupSync(ctx, log, bootstrap.MeiliClient, bootstrap.Pool)
 
 	if cfg.RelayRegistry.Enabled {
 		slogLogger, ok := any(log).(*slog.Logger)
@@ -267,46 +262,18 @@ func ResolveWorkerID() string {
 	return fmt.Sprintf("%s:%d", host, os.Getpid())
 }
 
+// RunJobRetentionLoop is a thin wrapper that delegates to
+// jobs.RunRetentionLoop. Kept here so existing callers/imports do not break;
+// new callers should depend on jobs.RunRetentionLoop directly to avoid pulling
+// the entire worker runtime dependency graph.
 func RunJobRetentionLoop(ctx context.Context, log Logger, queue Queue, cfg config.WorkerJobRetentionConfig) {
-	if !cfg.Enabled {
-		log.Info("job_retention_disabled")
-		return
-	}
-	if cfg.RunInterval <= 0 || cfg.DeleteBatchLimit <= 0 {
-		log.Error("job_retention_invalid_config", "run_interval", cfg.RunInterval.String(), "delete_batch_limit", cfg.DeleteBatchLimit)
-		return
-	}
-	log.Info(
-		"job_retention_enabled",
-		"succeeded_max_age", cfg.SucceededMaxAge.String(),
-		"dead_max_age", cfg.DeadMaxAge.String(),
-		"run_interval", cfg.RunInterval.String(),
-		"delete_batch_limit", cfg.DeleteBatchLimit,
-	)
-
-	ticker := time.NewTicker(cfg.RunInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			now := time.Now().UTC()
-			succeededBefore := now.Add(-cfg.SucceededMaxAge)
-			deadBefore := now.Add(-cfg.DeadMaxAge)
-			deleted, err := queue.PurgeTerminalJobs(ctx, succeededBefore, deadBefore, cfg.DeleteBatchLimit)
-			if err != nil {
-				metrics.IncRetentionPurgeRun("jobs_terminal", "error")
-				log.Error("job_retention_purge_failed", "error", err)
-				continue
-			}
-			metrics.IncRetentionPurgeRun("jobs_terminal", "ok")
-			metrics.AddRetentionPurgedRows("jobs_terminal", deleted)
-			if deleted > 0 {
-				log.Info("job_retention_purged", "deleted", deleted, "succeeded_before", succeededBefore.Format(time.RFC3339), "dead_before", deadBefore.Format(time.RFC3339))
-			}
-		}
-	}
+	jobs.RunRetentionLoop(ctx, log, queue, jobs.RetentionConfig{
+		Enabled:          cfg.Enabled,
+		SucceededMaxAge:  cfg.SucceededMaxAge,
+		DeadMaxAge:       cfg.DeadMaxAge,
+		RunInterval:      cfg.RunInterval,
+		DeleteBatchLimit: cfg.DeleteBatchLimit,
+	})
 }
 
 func RunInvalidEventsRetentionLoop(ctx context.Context, log Logger, store InvalidEventRetentionStore, cfg config.WorkerInvalidEventRetentionConfig) {
@@ -365,6 +332,39 @@ func RunInvalidEventsRetentionLoop(ctx context.Context, log Logger, store Invali
 			}
 		}
 	}
+}
+
+// RunMeilisearchStartupSync performs a one-shot reconciliation between
+// PostgreSQL and Meilisearch in the background. It MUST NOT block the worker
+// lifecycle: with hundreds of thousands of notes/profiles a full reindex can
+// take many minutes, and during that time we still want claim loops, stale
+// recovery, and the metrics endpoint to be running.
+func RunMeilisearchStartupSync(ctx context.Context, log Logger, client *meili.Client, pool *pgxpool.Pool) {
+	if client == nil || !client.Enabled() || pool == nil {
+		return
+	}
+	needsSync, syncCheckErr := client.NeedsSync(ctx, pool)
+	if syncCheckErr != nil {
+		log.Error("meilisearch_sync_check", "error", syncCheckErr)
+		return
+	}
+	if !needsSync {
+		return
+	}
+	log.Info("meilisearch_indexes_stale", "action", "starting_full_sync")
+	started := time.Now()
+	stats, syncErr := client.FullSync(ctx, pool, 1000)
+	if syncErr != nil {
+		log.Error("meilisearch_startup_sync_failed", "error", syncErr, "duration_s", time.Since(started).Seconds())
+		return
+	}
+	log.Info(
+		"meilisearch_startup_sync_complete",
+		"profiles", stats.Profiles,
+		"notes", stats.Notes,
+		"documents", stats.Documents,
+		"duration_s", time.Since(started).Seconds(),
+	)
 }
 
 func RunStaleRecoveryLoop(ctx context.Context, log Logger, queue Queue, workerPool string, cfg config.WorkerJobRecoveryConfig) {

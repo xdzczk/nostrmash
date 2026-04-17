@@ -254,6 +254,161 @@ func TestPurgeTerminalJobs_DeletesOnlyOldTerminalRows(t *testing.T) {
 	}
 }
 
+// TestPurgeTerminalJobs_PurgesByFinishedAtNotUpdatedAt is the regression
+// guard for the migration to finished_at-based retention. A succeeded row
+// whose finished_at is old must be deleted even if updated_at is recent (e.g.
+// a maintenance UPDATE touched it). Conversely, a row whose finished_at is
+// recent must survive even if updated_at is ancient.
+func TestPurgeTerminalJobs_PurgesByFinishedAtNotUpdatedAt(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+
+	now := time.Now().UTC()
+	// Old finished_at, recent updated_at: should be purged.
+	oldFinishedRecentTouched := insertTerminalJobWithFinishedAtForTest(
+		t, ctx, pool,
+		jobs.StatusSucceeded,
+		now.Add(-40*24*time.Hour), // updated_at recent enough vs cutoff
+		ptrTime(now.Add(-40*24*time.Hour)),
+	)
+	// Recent finished_at, ancient updated_at: should survive.
+	recentFinishedAncientTouched := insertTerminalJobWithFinishedAtForTest(
+		t, ctx, pool,
+		jobs.StatusSucceeded,
+		now.Add(-365*24*time.Hour),
+		ptrTime(now.Add(-1*time.Hour)),
+	)
+	// Terminal but no finished_at (legacy row written by an OLD worker after
+	// the migration but before this code is rolled out): must NOT be purged.
+	terminalNullFinished := insertTerminalJobWithFinishedAtForTest(
+		t, ctx, pool,
+		jobs.StatusDead,
+		now.Add(-365*24*time.Hour),
+		nil,
+	)
+
+	deleted, err := queue.PurgeTerminalJobs(
+		ctx,
+		now.Add(-24*time.Hour),
+		now.Add(-14*24*time.Hour),
+		100,
+	)
+	if err != nil {
+		t.Fatalf("purge terminal jobs: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("expected exactly one purge (old finished_at), got %d", deleted)
+	}
+	assertJobMissing(t, ctx, pool, oldFinishedRecentTouched)
+	assertJobPresent(t, ctx, pool, recentFinishedAncientTouched)
+	assertJobPresent(t, ctx, pool, terminalNullFinished)
+}
+
+// TestCompleteJob_SetsFinishedAt and TestFailJob_SetsFinishedAtOnlyOnDead
+// pin the finished_at write semantics that retention depends on.
+func TestCompleteJob_SetsFinishedAt(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+	job, err := queue.Enqueue(ctx, jobs.EnqueueParams{
+		JobType:     "derive_profile",
+		Payload:     []byte(`{"event_id":"abc"}`),
+		MaxAttempts: 3,
+		RunAfter:    time.Now().UTC().Add(-time.Second),
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	claimed, err := queue.ClaimAvailable(ctx, "worker-a", 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim: %v len=%d", err, len(claimed))
+	}
+	if claimed[0].FinishedAt != nil {
+		t.Fatalf("expected freshly claimed job to have nil finished_at, got %v", claimed[0].FinishedAt)
+	}
+	if err := queue.CompleteJob(ctx, job.ID, "worker-a"); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	stored, err := queue.GetJobByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if stored.Status != jobs.StatusSucceeded {
+		t.Fatalf("expected succeeded, got %q", stored.Status)
+	}
+	if stored.FinishedAt == nil {
+		t.Fatalf("expected finished_at to be set after CompleteJob")
+	}
+	if time.Since(*stored.FinishedAt) > time.Minute {
+		t.Fatalf("expected finished_at to be recent, got %s", stored.FinishedAt)
+	}
+}
+
+func TestFailJob_SetsFinishedAtOnlyOnDead(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	queue := jobs.NewQueue(pool)
+	job, err := queue.Enqueue(ctx, jobs.EnqueueParams{
+		JobType:     "derive_profile",
+		Payload:     []byte(`{"event_id":"abc"}`),
+		MaxAttempts: 2,
+		RunAfter:    time.Now().UTC().Add(-time.Second),
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	if _, err := queue.ClaimAvailable(ctx, "worker-a", 1); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	first, err := queue.FailJob(ctx, job.ID, "worker-a", "transient", time.Millisecond)
+	if err != nil {
+		t.Fatalf("first fail: %v", err)
+	}
+	if first.Status != jobs.StatusPending {
+		t.Fatalf("expected first fail to retry, got %q", first.Status)
+	}
+	stored, err := queue.GetJobByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get after retry: %v", err)
+	}
+	if stored.FinishedAt != nil {
+		t.Fatalf("expected finished_at to remain nil after retry-to-pending, got %v", stored.FinishedAt)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	if _, err := queue.ClaimAvailable(ctx, "worker-a", 1); err != nil {
+		t.Fatalf("re-claim: %v", err)
+	}
+	second, err := queue.FailJob(ctx, job.ID, "worker-a", "permanent", 0)
+	if err != nil {
+		t.Fatalf("second fail: %v", err)
+	}
+	if second.Status != jobs.StatusDead {
+		t.Fatalf("expected dead after exhausting attempts, got %q", second.Status)
+	}
+	stored, err = queue.GetJobByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get after dead: %v", err)
+	}
+	if stored.FinishedAt == nil {
+		t.Fatalf("expected finished_at to be set after FailJob -> dead")
+	}
+	if time.Since(*stored.FinishedAt) > time.Minute {
+		t.Fatalf("expected finished_at to be recent, got %s", stored.FinishedAt)
+	}
+}
+
 func TestRecoverStaleRunningJobs_RequeuesStaleRunningJob(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
@@ -515,18 +670,53 @@ func derefString(v *string) string {
 	return *v
 }
 
-func insertTerminalJobForTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string, updatedAt time.Time) int64 {
+func insertTerminalJobForTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string, finishedAt time.Time) int64 {
+	t.Helper()
+	// Tests pre-finished_at conceptually meant "the row finished at this
+	// time"; the column was conflated with updated_at then. After the
+	// migration, retention purges by finished_at, so we set both to the
+	// same value so the suite keeps representing the intended scenario.
+	return insertTerminalJobWithFinishedAtForTest(t, ctx, pool, status, finishedAt, ptrTime(finishedAt))
+}
+
+func insertTerminalJobWithFinishedAtForTest(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	status string,
+	updatedAt time.Time,
+	finishedAt *time.Time,
+) int64 {
 	t.Helper()
 	var id int64
+	var finishedArg any
+	if finishedAt != nil {
+		finishedArg = finishedAt.UTC()
+	}
 	err := pool.QueryRow(ctx, `
-		INSERT INTO jobs (job_type, worker_pool, payload, status, attempts, max_attempts, run_after, updated_at)
-		VALUES ('derive_profile', 'default', '{}'::jsonb, $1, 1, 5, now(), $2)
+		INSERT INTO jobs (job_type, worker_pool, payload, status, attempts, max_attempts, run_after, updated_at, finished_at)
+		VALUES ('derive_profile', 'default', '{}'::jsonb, $1, 1, 5, now(), $2, $3)
 		RETURNING id
-	`, status, updatedAt.UTC()).Scan(&id)
+	`, status, updatedAt.UTC(), finishedArg).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert test job: %v", err)
 	}
 	return id
+}
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
+}
+
+func assertJobPresent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id int64) {
+	t.Helper()
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs WHERE id = $1`, id).Scan(&count); err != nil {
+		t.Fatalf("count job %d: %v", id, err)
+	}
+	if count != 1 {
+		t.Fatalf("expected job %d to remain, count=%d", id, count)
+	}
 }
 
 func assertJobMissing(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id int64) {

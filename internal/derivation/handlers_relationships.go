@@ -28,10 +28,6 @@ func (h *Handlers) DeriveEventRelationships(ctx context.Context, eventID string)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := upsertDerivationVersion(ctx, tx, DerivationEventRelationships, EventRelationshipsVersion, "Derive e/p references with v1 root/reply/mention semantics"); err != nil {
-		return err
-	}
-
 	if _, err := tx.Exec(ctx, `DELETE FROM event_references WHERE source_event_id = $1`, eventID); err != nil {
 		return fmt.Errorf("delete prior event references: %w", err)
 	}

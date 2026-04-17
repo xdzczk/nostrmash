@@ -43,6 +43,11 @@ type Job struct {
 	LastError      *string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	// FinishedAt is set when status transitions to a terminal value
+	// (`succeeded` or `dead`). It is NOT moved when a failed job is retried
+	// back to `pending`, so retention purges can use it as a faithful
+	// completion timestamp instead of `updated_at`.
+	FinishedAt *time.Time
 }
 
 type EnqueueParams struct {
@@ -116,7 +121,7 @@ func (q *Queue) Enqueue(ctx context.Context, params EnqueueParams) (job *Job, er
 		ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
 		DO UPDATE SET updated_at = jobs.updated_at
 		RETURNING id, job_type, worker_pool, payload, idempotency_key, status, attempts, max_attempts,
-		          run_after, locked_at, locked_by, last_error, created_at, updated_at
+		          run_after, locked_at, locked_by, last_error, created_at, updated_at, finished_at
 	`,
 		jobType,
 		workerPool,
@@ -183,10 +188,10 @@ func (q *Queue) ClaimAvailableForPool(ctx context.Context, workerID string, work
 			FROM claimable c
 			WHERE j.id = c.id
 			RETURNING j.id, j.job_type, j.worker_pool, j.payload, j.idempotency_key, j.status, j.attempts, j.max_attempts,
-			          j.run_after, j.locked_at, j.locked_by, j.last_error, j.created_at, j.updated_at
+			          j.run_after, j.locked_at, j.locked_by, j.last_error, j.created_at, j.updated_at, j.finished_at
 		)
 		SELECT id, job_type, worker_pool, payload, idempotency_key, status, attempts, max_attempts,
-		       run_after, locked_at, locked_by, last_error, created_at, updated_at
+		       run_after, locked_at, locked_by, last_error, created_at, updated_at, finished_at
 		FROM claimed
 		ORDER BY run_after ASC, id ASC
 	`,
@@ -249,6 +254,7 @@ func scanJob(row rowScanner) (Job, error) {
 		&job.LastError,
 		&job.CreatedAt,
 		&job.UpdatedAt,
+		&job.FinishedAt,
 	)
 	if err != nil {
 		return Job{}, err

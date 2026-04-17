@@ -18,7 +18,7 @@ func (q *Queue) GetJobByID(ctx context.Context, jobID int64) (*Job, error) {
 
 	row := q.pool.QueryRow(ctx, `
 		SELECT id, job_type, worker_pool, payload, idempotency_key, status, attempts, max_attempts,
-		       run_after, locked_at, locked_by, last_error, created_at, updated_at
+		       run_after, locked_at, locked_by, last_error, created_at, updated_at, finished_at
 		FROM jobs
 		WHERE id = $1
 	`,
@@ -77,7 +77,8 @@ func (q *Queue) RecoverStaleRunningJobs(
 			    locked_at = NULL,
 			    locked_by = NULL,
 			    last_error = $7,
-			    updated_at = now()
+			    updated_at = now(),
+			    finished_at = CASE WHEN (j.attempts + 1) >= j.max_attempts THEN now() ELSE j.finished_at END
 			FROM stale s
 			WHERE j.id = s.id
 			RETURNING j.status
@@ -145,13 +146,23 @@ func (q *Queue) PurgeTerminalJobs(
 		deadBefore = time.Unix(0, 0).UTC()
 	}
 
+	// Purge by finished_at (set on terminal transition by CompleteJob /
+	// FailJob / RecoverStaleRunningJobs). This intentionally diverges from
+	// updated_at so that maintenance UPDATEs (e.g., later admin annotations)
+	// do not extend the retention window of an already-finished job.
+	//
+	// Rows whose finished_at is NULL are skipped here; the migration
+	// 000040_jobs_finished_at.sql backfills existing terminal rows from
+	// updated_at, but anything written by an OLD worker after deploy is
+	// excluded from the purge until the next terminal-transition write.
 	tag, execErr := q.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT id
 			FROM jobs
-			WHERE (status = $1 AND updated_at < $3)
-			   OR (status = $2 AND updated_at < $4)
-			ORDER BY updated_at ASC, id ASC
+			WHERE finished_at IS NOT NULL
+			  AND ((status = $1 AND finished_at < $3)
+			       OR (status = $2 AND finished_at < $4))
+			ORDER BY finished_at ASC, id ASC
 			LIMIT $5
 		)
 		DELETE FROM jobs j

@@ -5,10 +5,38 @@ import (
 	"fmt"
 )
 
-// FindActiveAuthorsWithoutMetadata returns pubkeys that have authored kind-1
-// notes but have no kind-0 metadata event anywhere in the database and no
-// entry in profiles_latest. These are candidates for relay-based metadata
-// discovery.
+// FindActiveAuthorsWithoutMetadata returns pubkeys that have authored public
+// notes but have no entry in profiles_latest. These are candidates for
+// relay-based metadata discovery.
+//
+// Implementation note: the query intentionally drives off
+// profile_public_stats rather than scanning the (much larger) events table.
+//
+//   - profile_public_stats has at most one row per pubkey and is updated by
+//     the per-event derivation pipeline whenever any public-author event
+//     (kind 1, 6, 7, 3, ...) is processed, so every active note author ends
+//     up represented there.
+//   - The table has an index on (recent_activity_at DESC NULLS LAST, pubkey)
+//     which lets PostgreSQL satisfy the ORDER BY without a sort and stop
+//     scanning as soon as the LIMIT is satisfied.
+//   - The anti-join into profiles_latest is a primary-key lookup.
+//
+// The previous implementation issued
+//
+//	SELECT DISTINCT e.pubkey FROM events e WHERE e.kind = 1 AND NOT EXISTS (...)
+//
+// which forced a full scan + dedupe over the entire events table together
+// with two correlated NOT EXISTS subqueries against events itself. On a
+// multi-million-row table that query took >15 minutes per execution and
+// pinned database connections, starving the rest of the system.
+//
+// Authors that exist in events but have not yet been projected into
+// profile_public_stats (e.g., during initial backlog processing) are
+// temporarily invisible to discovery; they will be picked up automatically
+// on the next cycle once the projection catches up. This is an acceptable
+// trade-off because the discovery loop runs on a steady cadence and the
+// scan-based query was so slow it actively prevented projections from
+// catching up at all.
 func (s *PostgresStore) FindActiveAuthorsWithoutMetadata(ctx context.Context, limit int) ([]string, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
@@ -21,18 +49,14 @@ func (s *PostgresStore) FindActiveAuthorsWithoutMetadata(ctx context.Context, li
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT e.pubkey
-		FROM events e
-		WHERE e.kind = 1
-		  AND NOT EXISTS (
-			SELECT 1 FROM events e2
-			WHERE e2.kind = 0 AND e2.pubkey = e.pubkey
-		  )
+		SELECT pps.pubkey
+		FROM profile_public_stats pps
+		WHERE pps.note_count > 0
 		  AND NOT EXISTS (
 			SELECT 1 FROM profiles_latest pl
-			WHERE pl.pubkey = e.pubkey
+			WHERE pl.pubkey = pps.pubkey
 		  )
-		ORDER BY e.pubkey
+		ORDER BY pps.recent_activity_at DESC NULLS LAST, pps.pubkey ASC
 		LIMIT $1
 	`, limit)
 	if err != nil {
@@ -55,23 +79,20 @@ func (s *PostgresStore) FindActiveAuthorsWithoutMetadata(ctx context.Context, li
 }
 
 // CountActiveAuthorsWithoutMetadata returns the number of note authors that
-// have no kind-0 metadata at all (neither in events nor profiles_latest).
+// have no kind-0 metadata projected. See FindActiveAuthorsWithoutMetadata for
+// the rationale behind driving off profile_public_stats.
 func (s *PostgresStore) CountActiveAuthorsWithoutMetadata(ctx context.Context) (int64, error) {
 	if s == nil || s.pool == nil {
 		return 0, fmt.Errorf("store is not initialized")
 	}
 	var count int64
 	err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(DISTINCT e.pubkey)
-		FROM events e
-		WHERE e.kind = 1
-		  AND NOT EXISTS (
-			SELECT 1 FROM events e2
-			WHERE e2.kind = 0 AND e2.pubkey = e.pubkey
-		  )
+		SELECT COUNT(*)
+		FROM profile_public_stats pps
+		WHERE pps.note_count > 0
 		  AND NOT EXISTS (
 			SELECT 1 FROM profiles_latest pl
-			WHERE pl.pubkey = e.pubkey
+			WHERE pl.pubkey = pps.pubkey
 		  )
 	`).Scan(&count)
 	if err != nil {

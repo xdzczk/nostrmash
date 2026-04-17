@@ -67,19 +67,7 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
-	succeededMaxAge, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE", 30*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	deadMaxAge, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_DEAD_MAX_AGE", 180*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	runInterval, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_RUN_INTERVAL", 1*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	deleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT", 500)
+	jobRetention, err := loadWorkerJobRetentionConfig()
 	if err != nil {
 		return WorkerConfig{}, err
 	}
@@ -110,13 +98,7 @@ func LoadWorker() (WorkerConfig, error) {
 		BackfillConcurrency: backfillConcurrency,
 		ClaimBatchSize:      claimBatchSize,
 		JobRecovery:         jobRecovery,
-		JobRetention: WorkerJobRetentionConfig{
-			Enabled:          getEnvBool("WORKER_JOB_RETENTION_ENABLED", true),
-			SucceededMaxAge:  succeededMaxAge,
-			DeadMaxAge:       deadMaxAge,
-			RunInterval:      runInterval,
-			DeleteBatchLimit: deleteBatchLimit,
-		},
+		JobRetention:        jobRetention,
 		InvalidEventRetention: WorkerInvalidEventRetentionConfig{
 			Enabled:          getEnvBool("WORKER_INVALID_EVENTS_RETENTION_ENABLED", true),
 			MaxAge:           invalidRetentionMaxAge,
@@ -151,6 +133,38 @@ func LoadWorker() (WorkerConfig, error) {
 		return WorkerConfig{}, err
 	}
 	return cfg, nil
+}
+
+// loadWorkerJobRetentionConfig reads the WORKER_JOB_RETENTION_* envs and
+// returns the populated config. Called by both LoadWorker and LoadTrustWorker
+// so that the trust worker (which previously did not run the retention loop
+// at all) shares the same retention semantics. Defaults are tuned for the
+// observed steady-state job volume: succeeded jobs are queue exhaust and only
+// matter for live debugging, dead jobs deserve a longer triage window.
+func loadWorkerJobRetentionConfig() (WorkerJobRetentionConfig, error) {
+	succeededMaxAge, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE", 24*time.Hour)
+	if err != nil {
+		return WorkerJobRetentionConfig{}, err
+	}
+	deadMaxAge, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_DEAD_MAX_AGE", 14*24*time.Hour)
+	if err != nil {
+		return WorkerJobRetentionConfig{}, err
+	}
+	runInterval, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_RUN_INTERVAL", 15*time.Minute)
+	if err != nil {
+		return WorkerJobRetentionConfig{}, err
+	}
+	deleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT", 2000)
+	if err != nil {
+		return WorkerJobRetentionConfig{}, err
+	}
+	return WorkerJobRetentionConfig{
+		Enabled:          getEnvBool("WORKER_JOB_RETENTION_ENABLED", true),
+		SucceededMaxAge:  succeededMaxAge,
+		DeadMaxAge:       deadMaxAge,
+		RunInterval:      runInterval,
+		DeleteBatchLimit: deleteBatchLimit,
+	}, nil
 }
 
 func validateWorkerConfig(cfg WorkerConfig) error {

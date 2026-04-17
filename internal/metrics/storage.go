@@ -3,11 +3,13 @@ package metrics
 import "github.com/prometheus/client_golang/prometheus"
 
 var (
-	storageDatabaseBytes     prometheus.Gauge
-	storageTableBytes        *prometheus.GaugeVec
-	storageTableRows         *prometheus.GaugeVec
-	retentionPurgeRunsTotal  *prometheus.CounterVec
-	retentionPurgedRowsTotal *prometheus.CounterVec
+	storageDatabaseBytes        prometheus.Gauge
+	storageTableBytes           *prometheus.GaugeVec
+	storageTableRows            *prometheus.GaugeVec
+	retentionPurgeRunsTotal     *prometheus.CounterVec
+	retentionPurgedRowsTotal    *prometheus.CounterVec
+	jobsRowsByStatusType        *prometheus.GaugeVec
+	jobsOldestFinishedAgeByStat *prometheus.GaugeVec
 )
 
 func registerStorageMetrics() {
@@ -45,6 +47,20 @@ func registerStorageMetrics() {
 		},
 		[]string{"target"},
 	)
+	jobsRowsByStatusType = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_jobs_rows",
+			Help: "Current row count in the jobs queue by status and job_type. Cardinality is bounded by the known job-type enum (unknowns reported as job_type=\"other\").",
+		},
+		[]string{"status", "job_type"},
+	)
+	jobsOldestFinishedAgeByStat = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_jobs_oldest_finished_age_seconds",
+			Help: "Age in seconds of the oldest terminal job by status. 0 when no terminal rows exist for the status.",
+		},
+		[]string{"status"},
+	)
 
 	registry.MustRegister(
 		storageDatabaseBytes,
@@ -52,6 +68,8 @@ func registerStorageMetrics() {
 		storageTableRows,
 		retentionPurgeRunsTotal,
 		retentionPurgedRowsTotal,
+		jobsRowsByStatusType,
+		jobsOldestFinishedAgeByStat,
 	)
 }
 
@@ -90,4 +108,34 @@ func AddRetentionPurgedRows(target string, rows int64) {
 		return
 	}
 	retentionPurgedRowsTotal.WithLabelValues(target).Add(float64(rows))
+}
+
+// SetJobsRows publishes the current row count for one (status, job_type)
+// bucket in the jobs queue. Callers are expected to keep the job_type label
+// space bounded (use "other" for anything not in the known enum).
+func SetJobsRows(status, jobType string, count float64) {
+	ensureRegistered()
+	if count < 0 {
+		count = 0
+	}
+	jobsRowsByStatusType.WithLabelValues(status, jobType).Set(count)
+}
+
+// ResetJobsRows zeroes any previously published (status, job_type) buckets so
+// that disappearing combinations (e.g. a job_type whose backlog drained) do
+// not stick at their last value forever.
+func ResetJobsRows() {
+	ensureRegistered()
+	jobsRowsByStatusType.Reset()
+}
+
+// SetJobsOldestFinishedAgeSeconds publishes the age in seconds of the oldest
+// terminal (succeeded/dead) jobs row by status. Used to detect a stuck or
+// disabled retention loop.
+func SetJobsOldestFinishedAgeSeconds(status string, seconds float64) {
+	ensureRegistered()
+	if seconds < 0 {
+		seconds = 0
+	}
+	jobsOldestFinishedAgeByStat.WithLabelValues(status).Set(seconds)
 }
