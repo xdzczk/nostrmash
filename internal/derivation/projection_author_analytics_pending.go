@@ -194,21 +194,16 @@ func (h *Handlers) DrainPendingAuthorAnalyticsBatchWithTimeout(ctx context.Conte
 	return processed, firstErr
 }
 
-// processNextPendingAuthorAnalyticsPubkey runs the 3-phase claim/
-// rebuild/cleanup cycle for a single pubkey with no per-pubkey timeout.
+// processNextPendingAuthorAnalyticsPubkeyWithTimeout runs the 3-phase
+// claim/rebuild/cleanup cycle for a single pubkey. When perPubkeyTimeout
+// > 0, only the phase-2 rebuild is bounded by that duration; phase 1
+// and phase 3 always run on the parent ctx so claim management does not
+// race with the timeout. When perPubkeyTimeout is 0, phase 2 uses the
+// parent context with no additional deadline.
 //
 // Returns (false, nil) when there are no claimable pubkeys (queue empty
 // or every top-of-queue pubkey is already locked or freshly claimed by
 // another goroutine).
-func (h *Handlers) processNextPendingAuthorAnalyticsPubkey(ctx context.Context) (bool, error) {
-	return h.processNextPendingAuthorAnalyticsPubkeyWithTimeout(ctx, 0)
-}
-
-// processNextPendingAuthorAnalyticsPubkeyWithTimeout is the
-// rebuild-timeout-aware sibling of processNextPendingAuthorAnalyticsPubkey.
-// When perPubkeyTimeout > 0, only the phase-2 rebuild is bounded by
-// that duration; phase 1 and phase 3 always run on the parent ctx so
-// claim management does not race with the timeout.
 func (h *Handlers) processNextPendingAuthorAnalyticsPubkeyWithTimeout(ctx context.Context, perPubkeyTimeout time.Duration) (bool, error) {
 	pubkey, claimToken, markedAt, ok, err := h.claimPendingAuthorAnalyticsPubkey(ctx)
 	if err != nil || !ok {
