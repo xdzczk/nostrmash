@@ -222,6 +222,7 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	go RunInvalidEventsRetentionLoop(ctx, log, bootstrap.InvalidEventsStore, cfg.InvalidEventRetention)
 	go jobs.RunRowCountMetricsReporter(ctx, log, bootstrap.Pool, 60*time.Second)
 	go RunMeilisearchStartupSync(ctx, log, bootstrap.MeiliClient, bootstrap.Pool)
+	go RunRelayWindowSnapshotsLoop(ctx, log, bootstrap.Handlers)
 
 	if cfg.AuthorAnalyticsSweeper.Enabled {
 		// Apply WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS before any sweeper
@@ -457,6 +458,95 @@ func RunInvalidEventsRetentionLoop(ctx context.Context, log Logger, store Invali
 			}
 		}
 	}
+}
+
+// relayWindowSnapshotsRefreshInterval is how often the worker
+// recomputes the homepage relay summary stats (24h / 7d windows +
+// top-10 relays by activity) and overwrites
+// relay_window_snapshots. The underlying queries take ~10s of CPU
+// per run on production data, so 5 minutes is a good balance:
+//   - Fresh enough that the homepage's "active authors / events"
+//     numbers visibly track current network activity.
+//   - Cheap enough that a full refresh is well under 1% of one core
+//     in steady state, even with multiple worker replicas
+//     duplicating the work (the upserts are idempotent).
+const relayWindowSnapshotsRefreshInterval = 5 * time.Minute
+
+// relayWindowSnapshotsRefreshTimeout caps how long a single refresh
+// may run. The seed in migration 000047 takes ~12s on production,
+// and pathological cases (e.g. autovacuum holding locks during a
+// table bloat) could push it higher; 60s gives generous headroom
+// without ever permanently wedging the loop on a single bad run.
+const relayWindowSnapshotsRefreshTimeout = 60 * time.Second
+
+// RunRelayWindowSnapshotsLoop periodically refreshes the homepage
+// relay summary snapshot. The homepage handler reads
+// relay_window_snapshots with a sub-millisecond row lookup; without
+// this loop those rows would be frozen at whatever the migration
+// seeded.
+//
+// Why this is its own loop, not a sweeper
+// ---------------------------------------
+// Sweepers (author analytics, profile stats, meilisearch) drain a
+// per-event pending queue produced by derive_event_bundle: the
+// per-event upsert is cheap and the heavy work is pushed to the
+// sweeper. The relay snapshot has no per-event dirtiness signal —
+// a single new event_relays row barely changes any of the
+// aggregates — so a fixed-interval refresh is the right shape.
+//
+// Failure handling
+// ----------------
+// On any error the previous snapshot row is left in place and the
+// loop simply waits for the next tick. This means a transient DB
+// problem causes the homepage to serve slightly older numbers, not
+// to fail. Persistent failures show up as an old computed_at on
+// /api/v1/discovery/home and as repeated error logs here.
+func RunRelayWindowSnapshotsLoop(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	if handlers == nil {
+		log.Error("relay_window_snapshots_no_handlers")
+		return
+	}
+	log.Info(
+		"relay_window_snapshots_enabled",
+		"interval", relayWindowSnapshotsRefreshInterval.String(),
+		"timeout", relayWindowSnapshotsRefreshTimeout.String(),
+	)
+	// Fire one refresh immediately on startup so a worker restart
+	// doesn't leave the homepage serving a stale snapshot for up to
+	// the full refresh interval. The migration seeded the rows so
+	// this is just keeping them current; we still want the very
+	// first scheduled refresh to happen "soon" rather than 5
+	// minutes from now.
+	refreshRelayWindowSnapshotsOnce(ctx, log, handlers)
+
+	ticker := time.NewTicker(relayWindowSnapshotsRefreshInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refreshRelayWindowSnapshotsOnce(ctx, log, handlers)
+		}
+	}
+}
+
+func refreshRelayWindowSnapshotsOnce(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	runCtx, cancel := context.WithTimeout(ctx, relayWindowSnapshotsRefreshTimeout)
+	defer cancel()
+	started := time.Now()
+	if err := handlers.RefreshRelayWindowSnapshots(runCtx); err != nil {
+		log.Error(
+			"relay_window_snapshots_refresh_failed",
+			"error", err,
+			"duration_s", time.Since(started).Seconds(),
+		)
+		return
+	}
+	log.Info(
+		"relay_window_snapshots_refreshed",
+		"duration_s", time.Since(started).Seconds(),
+	)
 }
 
 // RunMeilisearchStartupSync performs a one-shot reconciliation between

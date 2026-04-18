@@ -186,6 +186,55 @@ func (s *PostgresStore) getTopLanguages(ctx context.Context, minCreatedAt int64,
 	return out, nil
 }
 
+// Snapshot label constants — must match the labels written by the
+// projection in internal/derivation/projection_relay_window_snapshots.go
+// and seeded by migration 000047_relay_window_snapshots.sql.
+const (
+	relaySnapshotLabelSummary     = "summary"
+	relaySnapshotLabelTopRelays7d = "top_relays_7d"
+)
+
+// relaySummarySnapshotPayload mirrors the JSONB shape stored under
+// snapshot_label = 'summary'. Kept private; the public response shape
+// is RelaySummaryStats (defined in parity_types.go).
+type relaySummarySnapshotPayload struct {
+	Total      int64 `json:"total"`
+	Active24h  int64 `json:"active_24h"`
+	Active7d   int64 `json:"active_7d"`
+	Events24h  int64 `json:"events_24h"`
+	Events7d   int64 `json:"events_7d"`
+	Authors24h int64 `json:"authors_24h"`
+	Authors7d  int64 `json:"authors_7d"`
+}
+
+type relaySnapshotTopRelayRow struct {
+	RelayURL      string `json:"relay_url"`
+	EventCount    int64  `json:"event_count"`
+	UniqueAuthors int64  `json:"unique_authors"`
+}
+
+// getTopRelaysByActivity reads the precomputed top-relays list from
+// relay_window_snapshots. The actual aggregate (which spends ~10s of
+// CPU per run on production) is owned by the worker process (see
+// internal/derivation/projection_relay_window_snapshots.go). Reading
+// is a single sub-millisecond row lookup followed by a JSON decode.
+//
+// Why we never fall back to a live query
+// --------------------------------------
+// The whole point of this snapshot is to keep the multi-second
+// COUNT(DISTINCT pubkey) aggregate off the request path. A
+// "fall back to live query when snapshot is missing" branch would
+// reintroduce exactly the failure mode this projection exists to
+// prevent: one cold cache could timeout the homepage handler and
+// starve every other endpoint of DB connections. The migration
+// seeds the row, the worker keeps it fresh, and on bootstrap
+// failure we'd rather serve stale-but-fast data than risk a
+// cascading outage.
+//
+// If the row is missing entirely we return an empty list and rely
+// on the missing-row signal in metrics/logs to surface the
+// operational failure (the migration has not run, or the table was
+// truncated).
 func (s *PostgresStore) getTopRelaysByActivity(ctx context.Context, limit int) ([]RelayUsageSummary, error) {
 	if limit <= 0 {
 		limit = 10
@@ -193,143 +242,78 @@ func (s *PostgresStore) getTopRelaysByActivity(ctx context.Context, limit int) (
 	if limit > 50 {
 		limit = 50
 	}
-	// Restricted to the last 7 days for two reasons:
-	//   1. Without a time filter the GROUP BY has to scan the entire
-	//      4.4M-row event_relays table; even with the covering index
-	//      that's ~7s on production.
-	//   2. Top-relay rankings on the public homepage are intrinsically
-	//      a "recent activity" view; an all-time view would be dominated
-	//      by historical noise.
-	//
-	// The query is wrapped in a short tx that bumps work_mem to keep
-	// the COUNT(DISTINCT pubkey) hashtable in memory — without this,
-	// the per-relay distinct-pubkey aggregation spills 200MB+ to disk
-	// and falls back to an external merge sort (~7-8s observed).
-	cutoff7d := time.Now().UTC().Add(-7 * 24 * time.Hour)
-	out := make([]RelayUsageSummary, 0, limit)
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, relayStatsWorkMemSQL); err != nil {
-			return fmt.Errorf("set work_mem: %w", err)
-		}
-		rows, err := tx.Query(ctx, `
-			SELECT
-				er.relay_url,
-				COUNT(*)::bigint AS event_count,
-				COUNT(DISTINCT er.pubkey)::bigint AS unique_authors
-			FROM event_relays er
-			WHERE er.seen_at >= $1
-			GROUP BY er.relay_url
-			ORDER BY event_count DESC, unique_authors DESC, er.relay_url ASC
-			LIMIT $2
-		`, cutoff7d, limit)
-		if err != nil {
-			return fmt.Errorf("get top relays by activity: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var row RelayUsageSummary
-			if err := rows.Scan(&row.RelayURL, &row.EventCount, &row.UniqueAuthors); err != nil {
-				return fmt.Errorf("scan top relay row: %w", err)
-			}
-			out = append(out, row)
-		}
-		return rows.Err()
-	})
+	var payload []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT payload
+		FROM relay_window_snapshots
+		WHERE snapshot_label = $1
+	`, relaySnapshotLabelTopRelays7d).Scan(&payload)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []RelayUsageSummary{}, nil
+		}
+		if isUndefinedRelationError(err) {
+			// Pre-000047 environments: the table doesn't exist yet.
+			// Serve an empty list so the homepage stays up while the
+			// deploy completes.
+			return []RelayUsageSummary{}, nil
+		}
+		return nil, fmt.Errorf("read top relays snapshot: %w", err)
+	}
+	var rows []relaySnapshotTopRelayRow
+	if err := json.Unmarshal(payload, &rows); err != nil {
+		return nil, fmt.Errorf("decode top relays snapshot payload: %w", err)
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]RelayUsageSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, RelayUsageSummary{
+			RelayURL:      r.RelayURL,
+			EventCount:    r.EventCount,
+			UniqueAuthors: r.UniqueAuthors,
+		})
 	}
 	return out, nil
 }
 
-// relayStatsWorkMemSQL is applied inside a tx before any aggregate
-// over event_relays that involves COUNT(DISTINCT pubkey). The default
-// work_mem (4MB) is too small to hold the distinct-pubkey hashtable
-// for the 7d window (~120k distinct values) or the per-relay grouped
-// aggregate, so the planner falls back to an external merge sort that
-// spills 100-200MB to disk and pushes the query well above 5s. 128MB
-// is enough headroom for the 7d window without risking OOM under
-// concurrent load (the session holds it for milliseconds, not the
-// lifetime of the pool connection, because we use SET LOCAL).
-const relayStatsWorkMemSQL = `SET LOCAL work_mem = '128MB'`
-
+// getRelaySummaryStats reads the precomputed summary row from
+// relay_window_snapshots. See the comment on getTopRelaysByActivity
+// for why there is intentionally no live-query fallback.
 func (s *PostgresStore) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, error) {
-	out := RelaySummaryStats{}
-	// One short tx so a single SET LOCAL work_mem covers all three
-	// aggregates. The tx contains only SELECTs, so the only thing
-	// committing actually does is release the per-tx work_mem
-	// override — there are no row locks to hold.
-	now := time.Now().UTC()
-	cutoff24h := now.Add(-24 * time.Hour)
-	cutoff7d := now.Add(-7 * 24 * time.Hour)
-
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, relayStatsWorkMemSQL); err != nil {
-			return fmt.Errorf("set work_mem: %w", err)
-		}
-
-		// Loose index scan: there are only ~20 distinct relay_urls in
-		// the entire 4.4M-row table, but a plain
-		//   SELECT COUNT(DISTINCT relay_url) FROM event_relays
-		// is forced to full-scan idx_event_relays_relay_url (~1.6s).
-		// The recursive CTE walks the index by repeatedly seeking to
-		// the next strictly-larger value, doing one btree descent per
-		// distinct value (~20 descents total, single-digit ms).
-		if err := tx.QueryRow(ctx, `
-			WITH RECURSIVE distinct_relays AS (
-				(SELECT relay_url FROM event_relays ORDER BY relay_url ASC LIMIT 1)
-				UNION ALL
-				SELECT (
-					SELECT relay_url
-					FROM event_relays
-					WHERE relay_url > prev.relay_url
-					ORDER BY relay_url ASC
-					LIMIT 1
-				)
-				FROM distinct_relays prev
-				WHERE prev.relay_url IS NOT NULL
-			)
-			SELECT COALESCE(COUNT(*), 0)::bigint
-			FROM distinct_relays
-			WHERE relay_url IS NOT NULL
-		`).Scan(&out.Total); err != nil {
-			return fmt.Errorf("get relay summary total: %w", err)
-		}
-
-		if err := tx.QueryRow(ctx, `
-			SELECT
-				COALESCE(COUNT(DISTINCT relay_url), 0)::bigint AS active,
-				COALESCE(COUNT(*), 0)::bigint                   AS events,
-				COALESCE(COUNT(DISTINCT pubkey), 0)::bigint     AS authors
-			FROM event_relays
-			WHERE seen_at >= $1
-		`, cutoff24h).Scan(
-			&out.Active24h,
-			&out.EventVolume.Last24h,
-			&out.UniqueAuthors.Last24h,
-		); err != nil {
-			return fmt.Errorf("get relay summary 24h window: %w", err)
-		}
-
-		if err := tx.QueryRow(ctx, `
-			SELECT
-				COALESCE(COUNT(DISTINCT relay_url), 0)::bigint AS active,
-				COALESCE(COUNT(*), 0)::bigint                   AS events,
-				COALESCE(COUNT(DISTINCT pubkey), 0)::bigint     AS authors
-			FROM event_relays
-			WHERE seen_at >= $1
-		`, cutoff7d).Scan(
-			&out.Active7d,
-			&out.EventVolume.Last7d,
-			&out.UniqueAuthors.Last7d,
-		); err != nil {
-			return fmt.Errorf("get relay summary 7d window: %w", err)
-		}
-		return nil
-	})
+	var payload []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT payload
+		FROM relay_window_snapshots
+		WHERE snapshot_label = $1
+	`, relaySnapshotLabelSummary).Scan(&payload)
 	if err != nil {
-		return out, err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RelaySummaryStats{}, nil
+		}
+		if isUndefinedRelationError(err) {
+			return RelaySummaryStats{}, nil
+		}
+		return RelaySummaryStats{}, fmt.Errorf("read relay summary snapshot: %w", err)
 	}
-	return out, nil
+	var p relaySummarySnapshotPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return RelaySummaryStats{}, fmt.Errorf("decode relay summary snapshot payload: %w", err)
+	}
+	return RelaySummaryStats{
+		Total:     p.Total,
+		Active24h: p.Active24h,
+		Active7d:  p.Active7d,
+		EventVolume: WindowedCount{
+			Last24h: p.Events24h,
+			Last7d:  p.Events7d,
+		},
+		UniqueAuthors: WindowedCount{
+			Last24h: p.Authors24h,
+			Last7d:  p.Authors7d,
+		},
+	}, nil
 }
 
 func (s *PostgresStore) getPublicWindowStats(ctx context.Context, minCreatedAt int64) (int64, int64, error) {

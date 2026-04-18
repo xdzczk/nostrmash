@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/model"
 )
 
@@ -74,6 +75,16 @@ func TestGetPublicDiscoveryNetworkStats_ComputesWindowedCounts(t *testing.T) {
 		`, pubkey, eventID, event.CreatedAt, pubkey); err != nil {
 			t.Fatalf("insert profile projection %s: %v", pubkey, err)
 		}
+	}
+
+	// Relay summary stats are served from the relay_window_snapshots
+	// projection (see internal/derivation/projection_relay_window_snapshots.go);
+	// the migration seed runs at schema bootstrap before any test
+	// event_relays rows exist, so we need to refresh the projection
+	// after seeding to see the newly inserted rows reflected in the
+	// homepage payload.
+	if err := derivation.NewHandlers(pool).RefreshRelayWindowSnapshots(ctx); err != nil {
+		t.Fatalf("RefreshRelayWindowSnapshots: %v", err)
 	}
 
 	stats, err := pgStore.GetPublicDiscoveryNetworkStats(ctx, 5)
