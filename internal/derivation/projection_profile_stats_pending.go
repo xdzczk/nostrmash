@@ -33,6 +33,24 @@ import (
 // out-of-band, naturally coalescing bursts (N events affecting the
 // same pubkey collapse into a single recompute per sweeper cycle).
 //
+// On conflict we DO UPDATE SET marked_at = now(). The CAS in
+// finalizePendingProfileStatsClaim relies on marked_at advancing
+// during a sweeper rebuild to detect re-marks: a producer that fires
+// while the sweeper is mid-rebuild bumps marked_at; phase 3 then
+// observes marked_at != captured-at-claim and leaves the row in place
+// (clearing only the claim) so the next sweeper cycle re-rebuilds.
+// The previous DO NOTHING semantics silently dropped re-marks during
+// claims, which could lose updates in long quiet periods where no
+// further event for the pubkey arrived to re-mark it.
+//
+// The row-level lock taken by ON CONFLICT DO UPDATE is held only for
+// this single-statement transaction (autocommit via pool.Exec), so
+// concurrent producers contend for at most a few hundred microseconds
+// per upsert. The sweeper-vs-producer row-lock chain that the previous
+// "claim+delete in long tx" design produced is gone in this layout
+// because the sweeper holds the row lock only for the brief phase-1
+// claim transaction.
+//
 // Affected-pubkey semantics: we use the discovery-stats affected set,
 // which is a superset of public-stats (event author plus referenced
 // pubkeys for replies / reposts / reactions / zaps / contact-list
@@ -93,7 +111,7 @@ func (h *Handlers) MarkProfileStatsDirty(ctx context.Context, eventID string) er
 	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO pending_profile_stats_recomputes (pubkey)
 		SELECT unnest($1::text[])
-		ON CONFLICT (pubkey) DO NOTHING
+		ON CONFLICT (pubkey) DO UPDATE SET marked_at = now()
 	`, pubkeys); err != nil {
 		return fmt.Errorf("mark profile stats dirty: %w", err)
 	}
@@ -101,25 +119,32 @@ func (h *Handlers) MarkProfileStatsDirty(ctx context.Context, eventID string) er
 }
 
 // profileStatsClaimCandidateWindow caps the candidate-row scan inside
-// the atomic claim+lock query. See author_analytics' equivalent
-// constant for rationale.
+// the phase-1 claim query. See author_analytics' equivalent constant
+// for rationale.
 const profileStatsClaimCandidateWindow = 32
 
+// profileStatsClaimLease bounds how long a claim is honored before
+// other sweeper goroutines can steal the pubkey back. See
+// authorAnalyticsClaimLease for rationale.
+const profileStatsClaimLease = 5 * time.Minute
+
 // DrainPendingProfileStatsBatch processes up to limit dirty pubkeys
-// from pending_profile_stats_recomputes. Each pubkey is claimed and
-// rebuilt in a single atomic transaction that holds the per-pubkey
-// advisory lock for the entire rebuild duration.
+// from pending_profile_stats_recomputes using the same 3-phase
+// claim/rebuild/cleanup pattern as DrainPendingAuthorAnalyticsBatch.
+// See that function's doc comment for the full rationale.
 //
-// See DrainPendingAuthorAnalyticsBatch for the rationale behind the
-// atomic claim+lock+rebuild pattern (avoids the lock-chain pathology
-// where multiple sweeper goroutines pick the same hot pubkey and
-// serialize on its advisory lock, monopolizing the pgx connection
-// pool).
+// Phase 2 here runs BOTH ProjectProfilePublicStats AND
+// ProjectProfileDiscoveryStats inside a single transaction. We use
+// the profile_public_stats namespace for the phase-1 advisory-lock
+// claim filter as a coarse per-pubkey mutex; the discovery_stats
+// projection acquires its own (different-namespace) lock inside
+// projectProfileDiscoveryStats, but because phase 1 already
+// established that no other sweeper goroutine is operating on this
+// pubkey, that acquisition is uncontested in the sweeper path.
 //
 // Returns the number of pubkeys whose recompute completed successfully
 // and the first error encountered (if any). On error, the failed
-// pubkey's transaction rolled back, leaving its row in
-// pending_profile_stats_recomputes for retry on the next cycle.
+// pubkey's claim is released so the next sweeper cycle retries it.
 func (h *Handlers) DrainPendingProfileStatsBatch(ctx context.Context, limit int) (int, error) {
 	if h == nil || h.pool == nil {
 		return 0, fmt.Errorf("handlers are not initialized")
@@ -149,70 +174,97 @@ func (h *Handlers) DrainPendingProfileStatsBatch(ctx context.Context, limit int)
 	return processed, firstErr
 }
 
-// processNextPendingProfileStatsPubkey atomically claims one dirty
-// pubkey (using row-level SKIP LOCKED + try-advisory-lock as a filter)
-// and runs both projections within the same transaction.
-//
-// The claim filter uses the profile_public_stats namespace as a coarse
-// per-pubkey mutex: a goroutine can only claim a pubkey it can
-// immediately lock on that namespace. Once claimed, the goroutine
-// proceeds to acquire the profile_discovery_stats namespace lock too
-// (via the inner refreshProfileDiscoveryStatsTx call) — that
-// acquisition is guaranteed not to block because the public_stats
-// claim filter ensures exactly one sweeper goroutine is operating on
-// this pubkey at a time, so no other goroutine can be holding the
-// discovery_stats lock for it either.
-//
-// On rebuild failure, the deferred rollback restores the
-// pending_profile_stats_recomputes row, so the pubkey is automatically
-// retried on the next sweeper cycle without any explicit re-mark.
-//
-// Returns (false, nil) when there are no claimable pubkeys (queue
-// empty, or every top-of-queue pubkey is already locked by another
-// goroutine).
+// processNextPendingProfileStatsPubkey runs the 3-phase
+// claim/rebuild/cleanup cycle for one profile-stats pubkey. Returns
+// (false, nil) when no pubkey is currently claimable.
 func (h *Handlers) processNextPendingProfileStatsPubkey(ctx context.Context) (bool, error) {
+	pubkey, claimToken, markedAt, ok, err := h.claimPendingProfileStatsPubkey(ctx)
+	if err != nil || !ok {
+		return false, err
+	}
+
+	if rebuildErr := h.rebuildClaimedProfileStatsPubkey(ctx, pubkey); rebuildErr != nil {
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = h.releasePendingProfileStatsClaim(releaseCtx, pubkey, claimToken)
+		releaseCancel()
+		return false, fmt.Errorf("rebuild profile stats for %s: %w", pubkey, rebuildErr)
+	}
+
+	if err := h.finalizePendingProfileStatsClaim(ctx, pubkey, claimToken, markedAt); err != nil {
+		return true, fmt.Errorf("finalize profile stats claim for %s: %w", pubkey, err)
+	}
+	return true, nil
+}
+
+// claimPendingProfileStatsPubkey runs the phase-1 claim transaction.
+// Mirrors claimPendingAuthorAnalyticsPubkey; see that function for
+// the rationale on each CTE stage.
+func (h *Handlers) claimPendingProfileStatsPubkey(ctx context.Context) (string, string, time.Time, bool, error) {
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("begin pending profile stats processing tx: %w", err)
+		return "", "", time.Time{}, false, fmt.Errorf("begin profile stats claim tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var pubkey string
+	var pubkey, claimToken string
+	var markedAt time.Time
 	err = tx.QueryRow(ctx, `
 		WITH candidates AS (
-			SELECT pubkey
+			SELECT pubkey, marked_at
 			FROM pending_profile_stats_recomputes
+			WHERE claimed_at IS NULL
+			   OR claimed_at < now() - $3::interval
 			ORDER BY marked_at ASC, pubkey ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
 		),
 		locked AS (
-			SELECT pubkey
+			SELECT pubkey, marked_at
 			FROM candidates
 			WHERE pg_try_advisory_xact_lock(
 				hashtextextended(pubkey, 0) # hashtextextended($2, 1)
 			)
 			LIMIT 1
 		)
-		DELETE FROM pending_profile_stats_recomputes p
-		USING locked l
+		UPDATE pending_profile_stats_recomputes p
+		SET claimed_at = now(),
+		    claim_token = gen_random_uuid()
+		FROM locked l
 		WHERE p.pubkey = l.pubkey
-		RETURNING p.pubkey
-	`, profileStatsClaimCandidateWindow, pubkeyLockNamespaceProfilePublicStats).Scan(&pubkey)
+		RETURNING p.pubkey, p.claim_token::text, l.marked_at
+	`,
+		profileStatsClaimCandidateWindow,
+		pubkeyLockNamespaceProfilePublicStats,
+		profileStatsClaimLease,
+	).Scan(&pubkey, &claimToken, &markedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
+			return "", "", time.Time{}, false, nil
 		}
-		return false, fmt.Errorf("claim+lock pending profile stats pubkey: %w", err)
+		return "", "", time.Time{}, false, fmt.Errorf("claim pending profile stats pubkey: %w", err)
 	}
 
-	// projectProfilePublicStatsForPubkeysTx re-acquires the
-	// profile_public_stats lock for this pubkey. Postgres advisory
-	// locks are reentrant within a transaction, so this is a no-op
-	// cost beyond a single SELECT round-trip and remains in place to
-	// preserve correctness for any other call path.
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", time.Time{}, false, fmt.Errorf("commit profile stats claim tx: %w", err)
+	}
+	return pubkey, claimToken, markedAt, true, nil
+}
+
+// rebuildClaimedProfileStatsPubkey runs the phase-2 rebuild
+// transaction, performing both projections under a single tx. The
+// per-pubkey advisory locks for both namespaces are acquired
+// (blocking) inside the projection helpers; both acquires are
+// uncontested in the sweeper path because phase 1's claim filter
+// guarantees we are the only sweeper touching this pubkey.
+func (h *Handlers) rebuildClaimedProfileStatsPubkey(ctx context.Context, pubkey string) error {
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin profile stats rebuild tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	if err := h.projectProfilePublicStatsForPubkeysTx(ctx, tx, []string{pubkey}, nil); err != nil {
-		return false, fmt.Errorf("rebuild profile public stats for %s: %w", pubkey, err)
+		return fmt.Errorf("rebuild profile public stats: %w", err)
 	}
 
 	writeVersion, err := resolveDerivationWriteVersion(
@@ -224,16 +276,52 @@ func (h *Handlers) processNextPendingProfileStatsPubkey(ctx context.Context) (bo
 		nil,
 	)
 	if err != nil {
-		return false, fmt.Errorf("resolve profile discovery stats version for %s: %w", pubkey, err)
+		return fmt.Errorf("resolve profile discovery stats version: %w", err)
 	}
 	if err := h.refreshProfileDiscoveryStatsTx(ctx, tx, pubkey, writeVersion, time.Now().UTC().Unix()); err != nil {
-		return false, fmt.Errorf("rebuild profile discovery stats for %s: %w", pubkey, err)
+		return fmt.Errorf("rebuild profile discovery stats: %w", err)
 	}
+	return tx.Commit(ctx)
+}
 
-	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit profile stats rebuild for %s: %w", pubkey, err)
+// finalizePendingProfileStatsClaim runs the phase-3 cleanup. See
+// finalizePendingAuthorAnalyticsClaim for the CAS rationale.
+func (h *Handlers) finalizePendingProfileStatsClaim(ctx context.Context, pubkey, claimToken string, markedAt time.Time) error {
+	tag, err := h.pool.Exec(ctx, `
+		DELETE FROM pending_profile_stats_recomputes
+		WHERE pubkey = $1
+		  AND claim_token::text = $2
+		  AND marked_at = $3
+	`, pubkey, claimToken, markedAt)
+	if err != nil {
+		return fmt.Errorf("finalize delete: %w", err)
 	}
-	return true, nil
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	if _, err := h.pool.Exec(ctx, `
+		UPDATE pending_profile_stats_recomputes
+		SET claimed_at = NULL,
+		    claim_token = NULL
+		WHERE pubkey = $1 AND claim_token::text = $2
+	`, pubkey, claimToken); err != nil {
+		return fmt.Errorf("clear claim after no-op finalize: %w", err)
+	}
+	return nil
+}
+
+// releasePendingProfileStatsClaim is called when the rebuild fails;
+// see releasePendingAuthorAnalyticsClaim for the rationale.
+func (h *Handlers) releasePendingProfileStatsClaim(ctx context.Context, pubkey, claimToken string) error {
+	if _, err := h.pool.Exec(ctx, `
+		UPDATE pending_profile_stats_recomputes
+		SET claimed_at = NULL,
+		    claim_token = NULL
+		WHERE pubkey = $1 AND claim_token::text = $2
+	`, pubkey, claimToken); err != nil {
+		return fmt.Errorf("release pending profile stats claim: %w", err)
+	}
+	return nil
 }
 
 // PendingProfileStatsBacklog returns the current depth of the dirty
