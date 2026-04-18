@@ -137,12 +137,43 @@ func (h *Handlers) projectContactListsLatestWithVersion(ctx context.Context, eve
 					return fmt.Errorf("upsert follower edge: %w", err)
 				}
 			}
+			// A kind=3 contact list rewrite changes follower_edges for
+			// (the author + every previously-followed pubkey + every
+			// newly-followed pubkey). Each of those pubkeys' profile_public_stats
+			// rows therefore need recomputing.
+			//
+			// Previously this step ran projectProfilePublicStatsForPubkeysTx
+			// inline, which acquires the per-pubkey profile_public_stats
+			// advisory lock for every impacted pubkey. Hot kind=3 lists
+			// have hundreds of contacts; if any one of those pubkeys is
+			// concurrently being rebuilt by the profile-stats sweeper the
+			// bundle blocks for the full sweeper rebuild duration (30-160s
+			// observed in production). With many bundle workers all stuck
+			// like this the entire derive_event_bundle pool starved.
+			//
+			// Now we just enqueue dirty markers for each impacted pubkey;
+			// the profile-stats sweeper picks them up and recomputes
+			// out-of-band, naturally coalescing bursts of kind=3 churn
+			// into one rebuild per pubkey per cycle.
+			//
+			// The dirty markers are written inside the same transaction as
+			// the contact_lists_latest / follower_edges writes so that a
+			// rollback of the bundle step also rolls back the markers; on
+			// the next retry we re-mark the same set, which is idempotent.
 			impactedPubkeys := make([]string, 0, 1+len(previousFollowed)+len(contacts))
 			impactedPubkeys = append(impactedPubkeys, pubkey)
 			impactedPubkeys = append(impactedPubkeys, previousFollowed...)
 			impactedPubkeys = append(impactedPubkeys, contacts...)
-			if err := h.projectProfilePublicStatsForPubkeysTx(ctx, tx, impactedPubkeys, versionOverride); err != nil {
-				return err
+			impactedPubkeys = normalizeUniqueIDs(impactedPubkeys)
+			if len(impactedPubkeys) == 0 {
+				return nil
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO pending_profile_stats_recomputes (pubkey)
+				SELECT unnest($1::text[])
+				ON CONFLICT (pubkey) DO UPDATE SET marked_at = now()
+			`, impactedPubkeys); err != nil {
+				return fmt.Errorf("mark profile stats dirty for contact-list impacted pubkeys: %w", err)
 			}
 			return nil
 		},
