@@ -9,7 +9,51 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var authorAnalyticsWindows = []int{7, 30, 90}
+// authorAnalyticsWindows controls which window_days values the live
+// per-pubkey rebuild aggregates. Exposed (via SetAuthorAnalyticsWindows)
+// so the live sweeper can be configured to skip the most expensive
+// windows when the operator prefers freshness over completeness.
+//
+// The default omits 90 because each window roughly doubles per-pubkey
+// rebuild cost (each window runs 5 heavy CTE-based INSERTs scanning
+// events/event_references/reaction_events/repost_events/zap_receipts
+// joined with events for the cutoff lookup). Production observed
+// per-pubkey rebuilds taking 30-160s with all three windows enabled,
+// monopolizing pgxpool connections and starving bundle workers.
+//
+// Schema constraints permit window_days IN (7, 30, 90) — see migrations
+// 000029 and 000030 — so dropping 90 from the live sweeper does not
+// change schema. Existing window_days=90 rows remain queryable but stop
+// being refreshed; operators who need 90d data refreshed in real time
+// can set WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS=7,30,90.
+var authorAnalyticsWindows = []int{7, 30}
+
+// SetAuthorAnalyticsWindows replaces the live sweeper's window list
+// with the provided values. Must be called before any sweeper
+// goroutines start. Values must satisfy the schema CHECK
+// (window_days IN (7, 30, 90)); unknown values are silently dropped.
+func SetAuthorAnalyticsWindows(windows []int) {
+	if len(windows) == 0 {
+		return
+	}
+	allowed := map[int]struct{}{7: {}, 30: {}, 90: {}}
+	seen := map[int]struct{}{}
+	out := make([]int, 0, len(windows))
+	for _, w := range windows {
+		if _, ok := allowed[w]; !ok {
+			continue
+		}
+		if _, dup := seen[w]; dup {
+			continue
+		}
+		seen[w] = struct{}{}
+		out = append(out, w)
+	}
+	if len(out) == 0 {
+		return
+	}
+	authorAnalyticsWindows = out
+}
 
 func (h *Handlers) ProjectAuthorAnalytics(ctx context.Context, eventID string) error {
 	return h.projectAuthorAnalyticsWithVersion(ctx, eventID, nil)

@@ -10,6 +10,13 @@ func configEnvDocsShared() []EnvVarDoc {
 			Description:  "PostgreSQL connection string.",
 		},
 		{
+			Name:         "DATABASE_MAX_CONNS",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "0",
+			Description:  "Override pgxpool max connections; when > 0, takes precedence over pool_max_conns parsed from DATABASE_URL. The pgx default of 4 is dangerously low for the worker process which runs the bundle pool plus several background sweeper goroutines (author_analytics, profile_stats, meilisearch); with the default pool the sweepers' multi-second aggregate queries monopolize all connections and block bundle workers indefinitely.",
+		},
+		{
 			Name:         "DEBUG_ADDR",
 			Runtimes:     []string{"api", "trust_worker", "worker"},
 			Required:     false,

@@ -47,7 +47,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL)
+	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL, cfg.Shared.Database.MaxConns)
 	if err != nil {
 		log.Error("db_connect", "error", err)
 		os.Exit(1)

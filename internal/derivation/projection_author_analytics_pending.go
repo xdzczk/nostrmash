@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -13,8 +14,8 @@ import (
 // call with a cheap upsert into pending_author_analytics_recomputes for
 // every pubkey whose author-analytics rows are affected by this event.
 //
-// The actual heavy aggregation (DELETE + 9-CTE rebuild of
-// author_activity_daily plus 5 windowed projections × 3 windows) runs
+// The actual heavy aggregation (DELETE + multi-CTE rebuild of
+// author_activity_daily plus 5 windowed projections × N windows) runs
 // out-of-band in DrainPendingAuthorAnalyticsBatch, scheduled by the
 // worker's author-analytics sweeper loop. This collapses bursts of N
 // events affecting the same pubkey into a single rebuild per sweeper
@@ -71,22 +72,64 @@ func (h *Handlers) MarkAuthorAnalyticsDirty(ctx context.Context, eventID string)
 	return nil
 }
 
-// DrainPendingAuthorAnalyticsBatch claims up to limit dirty pubkeys from
-// pending_author_analytics_recomputes using FOR UPDATE SKIP LOCKED, runs
-// the heavy ProjectAuthorAnalytics rebuild for each, and removes them
-// from the pending table on success.
+// authorAnalyticsClaimCandidateWindow caps the candidate-row scan inside
+// the atomic claim+lock query. The scan is filtered through
+// pg_try_advisory_xact_lock as a WHERE clause: with N candidates and K
+// goroutines already holding hot-pubkey locks, we pick the first
+// candidate whose advisory lock is acquirable. A larger window improves
+// the chance any one call returns a usable pubkey when many top-of-queue
+// pubkeys are simultaneously hot, at the cost of scanning more rows per
+// call. 32 is empirically large enough to keep all goroutines busy on
+// production workloads while still bounding per-call scan cost.
+const authorAnalyticsClaimCandidateWindow = 32
+
+// DrainPendingAuthorAnalyticsBatch processes up to limit dirty pubkeys
+// from pending_author_analytics_recomputes. Each pubkey is claimed and
+// rebuilt in a single atomic transaction that holds the per-pubkey
+// advisory lock for the entire rebuild duration.
 //
-// The claim uses SKIP LOCKED so multiple sweeper workers can drain the
-// table in parallel without blocking on each other. A failure on one
-// pubkey leaves it in the table (the deferred rollback covers the
-// SELECT...FOR UPDATE), so it will be retried on the next cycle. The
-// caller's context controls how long any individual rebuild can run
-// before being cancelled.
+// The atomic claim+lock+rebuild approach (vs. the previous "claim all,
+// commit, then rebuild each in its own transaction" pattern) eliminates
+// the lock-chain pathology observed in production:
+//
+//   - Old pattern: claim X, commit DELETE, start rebuild tx that locks X.
+//     During the gap between the two commits, new events for X re-mark
+//     it dirty. Another sweeper goroutine claims X again and queues up
+//     behind the advisory lock, blocking for the duration of the
+//     rebuild (observed: 145s wait chains for hot pubkeys, with 10
+//     goroutines all serialized on the same lock and consuming all
+//     pgxpool connections).
+//
+//   - New pattern: claim X via FOR UPDATE SKIP LOCKED filtered by
+//     pg_try_advisory_xact_lock, so a goroutine never picks a pubkey
+//     it can't immediately lock. A different goroutine simply picks a
+//     different pubkey, naturally distributing work across the dirty
+//     queue without contention.
 //
 // Returns the number of pubkeys whose rebuild completed successfully and
 // the first error encountered (if any). On error, callers should log and
-// continue — the next cycle will retry the failed pubkey.
+// continue — the failed pubkey's transaction rolled back, leaving its
+// row in pending_author_analytics_recomputes for retry on the next
+// cycle.
+//
+// Equivalent to DrainPendingAuthorAnalyticsBatchWithTimeout(ctx, limit, 0).
 func (h *Handlers) DrainPendingAuthorAnalyticsBatch(ctx context.Context, limit int) (int, error) {
+	return h.DrainPendingAuthorAnalyticsBatchWithTimeout(ctx, limit, 0)
+}
+
+// DrainPendingAuthorAnalyticsBatchWithTimeout is DrainPendingAuthorAnalyticsBatch
+// with an additional per-pubkey rebuild timeout. When perPubkeyTimeout > 0
+// each individual rebuild's transaction is bounded by that duration; on
+// timeout the transaction rolls back, the per-pubkey advisory lock
+// auto-releases, and the pending row is restored — so the pubkey is
+// automatically retried on the next sweeper cycle.
+//
+// This is a safety net: without it, a single hot pubkey with an
+// unexpectedly heavy aggregate (e.g., one with hundreds of thousands of
+// reactions over 90 days) could hold a pgxpool connection long enough to
+// starve bundle workers, reproducing the production stall we just fixed
+// architecturally.
+func (h *Handlers) DrainPendingAuthorAnalyticsBatchWithTimeout(ctx context.Context, limit int, perPubkeyTimeout time.Duration) (int, error) {
 	if h == nil || h.pool == nil {
 		return 0, fmt.Errorf("handlers are not initialized")
 	}
@@ -94,84 +137,107 @@ func (h *Handlers) DrainPendingAuthorAnalyticsBatch(ctx context.Context, limit i
 		return 0, nil
 	}
 
-	pubkeys, err := h.claimPendingAuthorAnalyticsPubkeys(ctx, limit)
-	if err != nil {
-		return 0, err
-	}
-	if len(pubkeys) == 0 {
-		return 0, nil
-	}
-
 	processed := 0
 	var firstErr error
-	for _, pubkey := range pubkeys {
-		if err := h.projectAuthorAnalyticsForPubkey(ctx, pubkey, nil); err != nil {
+	for i := 0; i < limit; i++ {
+		if err := ctx.Err(); err != nil {
+			return processed, err
+		}
+		ok, err := h.processNextPendingAuthorAnalyticsPubkeyWithTimeout(ctx, perPubkeyTimeout)
+		if err != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("rebuild author analytics for %s: %w", pubkey, err)
-			}
-			// Re-mark the pubkey so the next sweeper cycle retries it. We
-			// already removed it during the claim transaction, so without
-			// this re-mark the dirty signal would be lost.
-			if _, reinsertErr := h.pool.Exec(ctx, `
-				INSERT INTO pending_author_analytics_recomputes (pubkey)
-				VALUES ($1)
-				ON CONFLICT (pubkey) DO NOTHING
-			`, pubkey); reinsertErr != nil && firstErr == nil {
-				firstErr = fmt.Errorf("re-mark failed pubkey %s: %w", pubkey, reinsertErr)
+				firstErr = err
 			}
 			continue
+		}
+		if !ok {
+			break
 		}
 		processed++
 	}
 	return processed, firstErr
 }
 
-// claimPendingAuthorAnalyticsPubkeys atomically claims up to limit dirty
-// pubkeys using SELECT ... FOR UPDATE SKIP LOCKED followed by DELETE. A
-// crash between the DELETE-commit and the rebuild commit results in a
-// lost rebuild for the dropped pubkeys — but the next event from any of
-// them will re-mark them dirty, so the data converges. The window is
-// negligible compared to the throughput gain.
-func (h *Handlers) claimPendingAuthorAnalyticsPubkeys(ctx context.Context, limit int) ([]string, error) {
+// processNextPendingAuthorAnalyticsPubkey atomically claims one dirty
+// pubkey (using row-level SKIP LOCKED + try-advisory-lock as a filter)
+// and runs the rebuild within the same transaction. The advisory lock
+// is held for the lifetime of the transaction, so two sweeper
+// goroutines can never contend on the same hot pubkey: one of them
+// holds the lock, the other simply skips it and picks a different
+// pubkey from the candidate window.
+//
+// On rebuild failure, the deferred rollback restores the
+// pending_author_analytics_recomputes row, so the pubkey is
+// automatically retried on the next sweeper cycle without any explicit
+// re-mark.
+//
+// Returns (false, nil) when there are no claimable pubkeys (queue
+// empty, or every top-of-queue pubkey is already locked by another
+// goroutine).
+func (h *Handlers) processNextPendingAuthorAnalyticsPubkey(ctx context.Context) (bool, error) {
+	return h.processNextPendingAuthorAnalyticsPubkeyWithTimeout(ctx, 0)
+}
+
+// processNextPendingAuthorAnalyticsPubkeyWithTimeout is the
+// rebuild-timeout-aware sibling of processNextPendingAuthorAnalyticsPubkey.
+// When perPubkeyTimeout > 0, the entire claim+rebuild transaction is
+// bounded by that duration via context.WithTimeout.
+func (h *Handlers) processNextPendingAuthorAnalyticsPubkeyWithTimeout(ctx context.Context, perPubkeyTimeout time.Duration) (bool, error) {
+	if perPubkeyTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, perPubkeyTimeout)
+		defer cancel()
+	}
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("begin pending author analytics claim tx: %w", err)
+		return false, fmt.Errorf("begin pending author analytics processing tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	rows, err := tx.Query(ctx, `
-		WITH claimed AS (
+	var pubkey string
+	err = tx.QueryRow(ctx, `
+		WITH candidates AS (
 			SELECT pubkey
 			FROM pending_author_analytics_recomputes
 			ORDER BY marked_at ASC, pubkey ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
+		),
+		locked AS (
+			SELECT pubkey
+			FROM candidates
+			WHERE pg_try_advisory_xact_lock(
+				hashtextextended(pubkey, 0) # hashtextextended($2, 1)
+			)
+			LIMIT 1
 		)
 		DELETE FROM pending_author_analytics_recomputes p
-		USING claimed c
-		WHERE p.pubkey = c.pubkey
+		USING locked l
+		WHERE p.pubkey = l.pubkey
 		RETURNING p.pubkey
-	`, limit)
+	`, authorAnalyticsClaimCandidateWindow, pubkeyLockNamespaceAuthorAnalytics).Scan(&pubkey)
 	if err != nil {
-		return nil, fmt.Errorf("claim pending author analytics pubkeys: %w", err)
-	}
-	defer rows.Close()
-
-	pubkeys := make([]string, 0, limit)
-	for rows.Next() {
-		var pk string
-		if err := rows.Scan(&pk); err != nil {
-			return nil, fmt.Errorf("scan claimed pubkey: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
 		}
-		pubkeys = append(pubkeys, pk)
+		return false, fmt.Errorf("claim+lock pending author analytics pubkey: %w", err)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read claimed pubkeys: %w", err)
+
+	// projectAuthorAnalyticsForPubkeyTx will call lockPubkeyForWriteTx
+	// which re-acquires the same advisory lock. Postgres advisory locks
+	// are reentrant within a session/transaction (acquisition count is
+	// incremented), so the inner lockPubkeyForWriteTx is a no-op cost
+	// and remains in place to preserve correctness for any other call
+	// path that invokes projectAuthorAnalyticsForPubkeyTx without
+	// pre-claiming.
+	if err := h.projectAuthorAnalyticsForPubkeyTx(ctx, tx, pubkey, nil); err != nil {
+		return false, fmt.Errorf("rebuild author analytics for %s: %w", pubkey, err)
 	}
+
 	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit pending author analytics claim: %w", err)
+		return false, fmt.Errorf("commit author analytics rebuild for %s: %w", pubkey, err)
 	}
-	return pubkeys, nil
+	return true, nil
 }
 
 // PendingAuthorAnalyticsBacklog returns the current depth of the dirty

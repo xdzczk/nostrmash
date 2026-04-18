@@ -28,11 +28,28 @@ type WorkerConfig struct {
 // only marks affected pubkeys as dirty (cheap upsert); this sweeper runs
 // the heavy aggregation rebuild once per pubkey per cycle, naturally
 // coalescing event bursts into a single rebuild.
+//
+// WindowsDays controls which window_days values the per-pubkey rebuild
+// recomputes. The schema permits {7, 30, 90}; the default of {7, 30}
+// drops the most expensive window because each rebuild's cost is roughly
+// linear in the window count and dominated by the 90d scan. Operators
+// who need the 90d window refreshed in real time can set
+// WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS=7,30,90.
+//
+// RebuildTimeout caps how long a single per-pubkey rebuild can hold its
+// transaction (and therefore its pgxpool connection). On timeout the
+// transaction rolls back, the per-pubkey advisory lock auto-releases,
+// and the pending row is restored — so the pubkey is automatically
+// retried on the next sweeper cycle. This is a safety net against any
+// single hot pubkey monopolizing a connection long enough to starve
+// bundle workers.
 type WorkerAuthorAnalyticsSweeperConfig struct {
-	Enabled     bool
-	Interval    time.Duration
-	BatchSize   int
-	Concurrency int
+	Enabled        bool
+	Interval       time.Duration
+	BatchSize      int
+	Concurrency    int
+	WindowsDays    []int
+	RebuildTimeout time.Duration
 }
 
 // WorkerProfileStatsSweeperConfig configures the background loop that
@@ -144,6 +161,14 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	authorAnalyticsWindowsDays, err := getEnvIntListStrict("WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS", []int{7, 30})
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	authorAnalyticsRebuildTimeout, err := getEnvPositiveDurationStrict("WORKER_AUTHOR_ANALYTICS_REBUILD_TIMEOUT", 90*time.Second)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	profileStatsSweeperInterval, err := getEnvPositiveDurationStrict("WORKER_PROFILE_STATS_SWEEPER_INTERVAL", 5*time.Second)
 	if err != nil {
 		return WorkerConfig{}, err
@@ -188,10 +213,12 @@ func LoadWorker() (WorkerConfig, error) {
 			},
 		},
 		AuthorAnalyticsSweeper: WorkerAuthorAnalyticsSweeperConfig{
-			Enabled:     getEnvBool("WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED", true),
-			Interval:    authorAnalyticsSweeperInterval,
-			BatchSize:   authorAnalyticsSweeperBatch,
-			Concurrency: authorAnalyticsSweeperConcurrency,
+			Enabled:        getEnvBool("WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED", true),
+			Interval:       authorAnalyticsSweeperInterval,
+			BatchSize:      authorAnalyticsSweeperBatch,
+			Concurrency:    authorAnalyticsSweeperConcurrency,
+			WindowsDays:    authorAnalyticsWindowsDays,
+			RebuildTimeout: authorAnalyticsRebuildTimeout,
 		},
 		ProfileStatsSweeper: WorkerProfileStatsSweeperConfig{
 			Enabled:     getEnvBool("WORKER_PROFILE_STATS_SWEEPER_ENABLED", true),

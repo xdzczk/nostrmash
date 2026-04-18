@@ -22,6 +22,7 @@ Do not hand-edit this file.
 | `API_RELAY_FALLBACK_MAX_FANOUT` | `api` | optional | `3` | Maximum number of fallback relays queried per lookup. |
 | `API_RELAY_FALLBACK_TIMEOUT` | `api` | optional | `2s` | Per-relay timeout budget for fallback lookups. |
 | `API_RELAY_FALLBACK_URLS` | `api` | optional | `-` | CSV fallback relay URLs. If empty, API falls back to INGESTOR_RELAY_URLS. |
+| `DATABASE_MAX_CONNS` | `api, ingestor, trust_worker, worker` | optional | `0` | Override pgxpool max connections; when > 0, takes precedence over pool_max_conns parsed from DATABASE_URL. The pgx default of 4 is dangerously low for the worker process which runs the bundle pool plus several background sweeper goroutines (author_analytics, profile_stats, meilisearch); with the default pool the sweepers' multi-second aggregate queries monopolize all connections and block bundle workers indefinitely. |
 | `DATABASE_URL` | `api, ingestor, trust_worker, worker` | required | `-` | PostgreSQL connection string. |
 | `DEBUG_ADDR` | `api, trust_worker, worker` | optional | `-` | Optional debug/pprof listen address. Leave empty by default; prefer localhost binding. |
 | `ENVIRONMENT` | `api, ingestor, trust_worker, worker` | optional | `development` | Deployment environment label. |
@@ -137,10 +138,12 @@ Do not hand-edit this file.
 | `TRUST_WORKER_CONCURRENCY` | `trust_worker` | optional | `2` | Trust worker goroutine concurrency. |
 | `TRUST_WORKER_POLL_INTERVAL` | `trust_worker` | optional | `1s` | Polling interval for trust queue claims. |
 | `TRUST_WORKER_RETRY_DELAY` | `trust_worker` | optional | `5s` | Retry delay when trust jobs fail. |
+| `WORKER_AUTHOR_ANALYTICS_REBUILD_TIMEOUT` | `worker` | optional | `90s` | Maximum time a single per-pubkey author-analytics rebuild may hold its transaction (and therefore its pgxpool connection). On timeout the transaction rolls back, the per-pubkey advisory lock auto-releases, and the pubkey is retried on the next sweeper cycle. Safety net against any single hot pubkey monopolizing a connection long enough to starve bundle workers. |
 | `WORKER_AUTHOR_ANALYTICS_SWEEPER_BATCH_SIZE` | `worker` | optional | `25` | Maximum dirty pubkeys claimed and rebuilt per author-analytics sweeper batch. |
 | `WORKER_AUTHOR_ANALYTICS_SWEEPER_CONCURRENCY` | `worker` | optional | `4` | Number of concurrent author-analytics sweeper goroutines. Each independently claims dirty pubkeys via FOR UPDATE SKIP LOCKED. |
 | `WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED` | `worker` | optional | `true` | Enable the background sweeper that drains pending_author_analytics_recomputes (per-author analytics rebuilds deferred from derive_event_bundle). |
 | `WORKER_AUTHOR_ANALYTICS_SWEEPER_INTERVAL` | `worker` | optional | `5s` | Polling interval between author-analytics sweeper batches when the dirty queue is empty. Sweepers loop without sleeping while batches are full. |
+| `WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS` | `worker` | optional | `7,30` | Comma-separated window_days values the live author-analytics rebuild aggregates. Schema permits {7, 30, 90}; the default omits 90 because each window roughly doubles per-pubkey rebuild cost. Set to 7,30,90 to refresh the 90d window in real time at the cost of throughput. |
 | `WORKER_BACKFILL_CONCURRENCY` | `worker` | optional | `WORKER_CONCURRENCY` | Worker goroutine concurrency for the backfill job pool (events from historical fetch / trust fetch / metadata discovery). Set to 0 to disable. |
 | `WORKER_CLAIM_BATCH_SIZE` | `worker` | optional | `10` | Maximum number of jobs claimed per claim-loop iteration for each worker pool. |
 | `WORKER_CONCURRENCY` | `worker` | optional | `4` | Worker goroutine concurrency for the default job pool (legacy / backlog work). |

@@ -90,7 +90,7 @@ func TestExpandEventTags(t *testing.T) {
 
 func TestOpenPool(t *testing.T) {
 	t.Run("rejects invalid dsn", func(t *testing.T) {
-		pool, err := OpenPool(context.Background(), "not a postgres dsn")
+		pool, err := OpenPool(context.Background(), "not a postgres dsn", 0)
 		if err == nil {
 			if pool != nil {
 				pool.Close()
@@ -101,7 +101,7 @@ func TestOpenPool(t *testing.T) {
 
 	t.Run("connects to configured test database", func(t *testing.T) {
 		dbURL := dbtest.DatabaseURL(t, "store")
-		pool, err := OpenPool(context.Background(), dbURL)
+		pool, err := OpenPool(context.Background(), dbURL, 0)
 		if err != nil {
 			t.Fatalf("OpenPool(test DB): %v", err)
 		}

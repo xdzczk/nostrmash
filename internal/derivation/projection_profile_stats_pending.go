@@ -100,15 +100,26 @@ func (h *Handlers) MarkProfileStatsDirty(ctx context.Context, eventID string) er
 	return nil
 }
 
-// DrainPendingProfileStatsBatch claims up to limit dirty pubkeys from
-// pending_profile_stats_recomputes using FOR UPDATE SKIP LOCKED, runs
-// BOTH ProjectProfilePublicStats and ProjectProfileDiscoveryStats for
-// each, and removes them from the pending table on success.
+// profileStatsClaimCandidateWindow caps the candidate-row scan inside
+// the atomic claim+lock query. See author_analytics' equivalent
+// constant for rationale.
+const profileStatsClaimCandidateWindow = 32
+
+// DrainPendingProfileStatsBatch processes up to limit dirty pubkeys
+// from pending_profile_stats_recomputes. Each pubkey is claimed and
+// rebuilt in a single atomic transaction that holds the per-pubkey
+// advisory lock for the entire rebuild duration.
 //
-// Mirrors DrainPendingAuthorAnalyticsBatch: parallel-safe via SKIP
-// LOCKED, per-pubkey isolation so a single failure doesn't stall the
-// batch, automatic re-mark of failed pubkeys for retry on the next
-// cycle.
+// See DrainPendingAuthorAnalyticsBatch for the rationale behind the
+// atomic claim+lock+rebuild pattern (avoids the lock-chain pathology
+// where multiple sweeper goroutines pick the same hot pubkey and
+// serialize on its advisory lock, monopolizing the pgx connection
+// pool).
+//
+// Returns the number of pubkeys whose recompute completed successfully
+// and the first error encountered (if any). On error, the failed
+// pubkey's transaction rolled back, leaving its row in
+// pending_profile_stats_recomputes for retry on the next cycle.
 func (h *Handlers) DrainPendingProfileStatsBatch(ctx context.Context, limit int) (int, error) {
 	if h == nil || h.pool == nil {
 		return 0, fmt.Errorf("handlers are not initialized")
@@ -117,51 +128,91 @@ func (h *Handlers) DrainPendingProfileStatsBatch(ctx context.Context, limit int)
 		return 0, nil
 	}
 
-	pubkeys, err := h.claimPendingProfileStatsPubkeys(ctx, limit)
-	if err != nil {
-		return 0, err
-	}
-	if len(pubkeys) == 0 {
-		return 0, nil
-	}
-
 	processed := 0
 	var firstErr error
-	for _, pubkey := range pubkeys {
-		if err := h.recomputeProfileStatsForPubkey(ctx, pubkey); err != nil {
+	for i := 0; i < limit; i++ {
+		if err := ctx.Err(); err != nil {
+			return processed, err
+		}
+		ok, err := h.processNextPendingProfileStatsPubkey(ctx)
+		if err != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("recompute profile stats for %s: %w", pubkey, err)
-			}
-			if _, reinsertErr := h.pool.Exec(ctx, `
-				INSERT INTO pending_profile_stats_recomputes (pubkey)
-				VALUES ($1)
-				ON CONFLICT (pubkey) DO NOTHING
-			`, pubkey); reinsertErr != nil && firstErr == nil {
-				firstErr = fmt.Errorf("re-mark failed pubkey %s: %w", pubkey, reinsertErr)
+				firstErr = err
 			}
 			continue
+		}
+		if !ok {
+			break
 		}
 		processed++
 	}
 	return processed, firstErr
 }
 
-// recomputeProfileStatsForPubkey runs both projections for a single
-// pubkey in a single transaction. We acquire the per-pubkey advisory
-// locks (one per namespace) so any in-flight rebuild from another
-// worker — or any future inline projection still using these locks —
-// remains serialized, but contention here is only between sweeper
-// goroutines for the same pubkey, not against the bundle critical
-// path.
-func (h *Handlers) recomputeProfileStatsForPubkey(ctx context.Context, pubkey string) error {
+// processNextPendingProfileStatsPubkey atomically claims one dirty
+// pubkey (using row-level SKIP LOCKED + try-advisory-lock as a filter)
+// and runs both projections within the same transaction.
+//
+// The claim filter uses the profile_public_stats namespace as a coarse
+// per-pubkey mutex: a goroutine can only claim a pubkey it can
+// immediately lock on that namespace. Once claimed, the goroutine
+// proceeds to acquire the profile_discovery_stats namespace lock too
+// (via the inner refreshProfileDiscoveryStatsTx call) — that
+// acquisition is guaranteed not to block because the public_stats
+// claim filter ensures exactly one sweeper goroutine is operating on
+// this pubkey at a time, so no other goroutine can be holding the
+// discovery_stats lock for it either.
+//
+// On rebuild failure, the deferred rollback restores the
+// pending_profile_stats_recomputes row, so the pubkey is automatically
+// retried on the next sweeper cycle without any explicit re-mark.
+//
+// Returns (false, nil) when there are no claimable pubkeys (queue
+// empty, or every top-of-queue pubkey is already locked by another
+// goroutine).
+func (h *Handlers) processNextPendingProfileStatsPubkey(ctx context.Context) (bool, error) {
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin profile stats sweeper tx: %w", err)
+		return false, fmt.Errorf("begin pending profile stats processing tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	var pubkey string
+	err = tx.QueryRow(ctx, `
+		WITH candidates AS (
+			SELECT pubkey
+			FROM pending_profile_stats_recomputes
+			ORDER BY marked_at ASC, pubkey ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT $1
+		),
+		locked AS (
+			SELECT pubkey
+			FROM candidates
+			WHERE pg_try_advisory_xact_lock(
+				hashtextextended(pubkey, 0) # hashtextextended($2, 1)
+			)
+			LIMIT 1
+		)
+		DELETE FROM pending_profile_stats_recomputes p
+		USING locked l
+		WHERE p.pubkey = l.pubkey
+		RETURNING p.pubkey
+	`, profileStatsClaimCandidateWindow, pubkeyLockNamespaceProfilePublicStats).Scan(&pubkey)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("claim+lock pending profile stats pubkey: %w", err)
+	}
+
+	// projectProfilePublicStatsForPubkeysTx re-acquires the
+	// profile_public_stats lock for this pubkey. Postgres advisory
+	// locks are reentrant within a transaction, so this is a no-op
+	// cost beyond a single SELECT round-trip and remains in place to
+	// preserve correctness for any other call path.
 	if err := h.projectProfilePublicStatsForPubkeysTx(ctx, tx, []string{pubkey}, nil); err != nil {
-		return err
+		return false, fmt.Errorf("rebuild profile public stats for %s: %w", pubkey, err)
 	}
 
 	writeVersion, err := resolveDerivationWriteVersion(
@@ -173,64 +224,16 @@ func (h *Handlers) recomputeProfileStatsForPubkey(ctx context.Context, pubkey st
 		nil,
 	)
 	if err != nil {
-		return err
+		return false, fmt.Errorf("resolve profile discovery stats version for %s: %w", pubkey, err)
 	}
 	if err := h.refreshProfileDiscoveryStatsTx(ctx, tx, pubkey, writeVersion, time.Now().UTC().Unix()); err != nil {
-		return err
+		return false, fmt.Errorf("rebuild profile discovery stats for %s: %w", pubkey, err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit profile stats sweeper tx: %w", err)
+		return false, fmt.Errorf("commit profile stats rebuild for %s: %w", pubkey, err)
 	}
-	return nil
-}
-
-// claimPendingProfileStatsPubkeys atomically claims up to limit dirty
-// pubkeys using SELECT ... FOR UPDATE SKIP LOCKED followed by DELETE.
-// Same crash-window trade-off as the author-analytics sweeper: a crash
-// between the DELETE-commit and the recompute-commit drops the dirty
-// signal, but the next event from the pubkey re-marks it so data
-// converges.
-func (h *Handlers) claimPendingProfileStatsPubkeys(ctx context.Context, limit int) ([]string, error) {
-	tx, err := h.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin pending profile stats claim tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	rows, err := tx.Query(ctx, `
-		WITH claimed AS (
-			SELECT pubkey
-			FROM pending_profile_stats_recomputes
-			ORDER BY marked_at ASC, pubkey ASC
-			FOR UPDATE SKIP LOCKED
-			LIMIT $1
-		)
-		DELETE FROM pending_profile_stats_recomputes p
-		USING claimed c
-		WHERE p.pubkey = c.pubkey
-		RETURNING p.pubkey
-	`, limit)
-	if err != nil {
-		return nil, fmt.Errorf("claim pending profile stats pubkeys: %w", err)
-	}
-	defer rows.Close()
-
-	pubkeys := make([]string, 0, limit)
-	for rows.Next() {
-		var pk string
-		if err := rows.Scan(&pk); err != nil {
-			return nil, fmt.Errorf("scan claimed pubkey: %w", err)
-		}
-		pubkeys = append(pubkeys, pk)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read claimed pubkeys: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit pending profile stats claim: %w", err)
-	}
-	return pubkeys, nil
+	return true, nil
 }
 
 // PendingProfileStatsBacklog returns the current depth of the dirty

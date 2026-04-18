@@ -81,7 +81,7 @@ func Run(ctx context.Context, log Logger, cfg config.WorkerConfig, build BuildIn
 }
 
 func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, build BuildInfo) (Bootstrap, func(), error) {
-	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL)
+	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL, cfg.Shared.Database.MaxConns)
 	if err != nil {
 		log.Error("db_connect", "error", err)
 		return Bootstrap{}, func() {}, fmt.Errorf("db connect: %w", err)
@@ -163,15 +163,73 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 	return bootstrap, shutdown, nil
 }
 
+// logPoolCapacityBudget reports — and warns when violated — the worker
+// process's expected DB-connection demand vs. the configured pgxpool
+// MaxConns ceiling. It is a startup diagnostic that surfaced from a
+// production incident in which the default pool size of 4 was
+// monopolized by sweeper goroutines holding heavy multi-second
+// aggregate queries, blocking bundle workers indefinitely at
+// pgxpool.Acquire() and producing the symptom of a stalled pipeline
+// even though no individual SQL statement was failing.
+//
+// The demand is the sum of the bundle worker concurrencies and the
+// background sweeper concurrencies, plus a small safety reserve for
+// ad-hoc queries (metrics reporters, retention loops, registry sync,
+// admin endpoints). When demand exceeds capacity by more than the
+// reserve, we emit a warning so the operator can either raise
+// DATABASE_MAX_CONNS or lower the sweeper concurrencies.
+func logPoolCapacityBudget(log Logger, cfg config.WorkerConfig, pool *pgxpool.Pool) {
+	if pool == nil {
+		return
+	}
+	bundleDemand := cfg.Concurrency + cfg.LiveConcurrency + cfg.BackfillConcurrency
+	sweeperDemand := 0
+	if cfg.AuthorAnalyticsSweeper.Enabled {
+		sweeperDemand += cfg.AuthorAnalyticsSweeper.Concurrency
+	}
+	if cfg.ProfileStatsSweeper.Enabled {
+		sweeperDemand += cfg.ProfileStatsSweeper.Concurrency
+	}
+	if cfg.MeilisearchSweeper.Enabled {
+		sweeperDemand += cfg.MeilisearchSweeper.Concurrency
+	}
+	const ancillaryReserve = 4
+	totalDemand := bundleDemand + sweeperDemand + ancillaryReserve
+	maxConns := int(pool.Config().MaxConns)
+	log.Info(
+		"db_pool_capacity_budget",
+		"max_conns", maxConns,
+		"bundle_demand", bundleDemand,
+		"sweeper_demand", sweeperDemand,
+		"ancillary_reserve", ancillaryReserve,
+		"total_demand", totalDemand,
+	)
+	if totalDemand > maxConns {
+		log.Error(
+			"db_pool_capacity_undersized",
+			"max_conns", maxConns,
+			"total_demand", totalDemand,
+			"hint", "raise DATABASE_MAX_CONNS or lower WORKER_AUTHOR_ANALYTICS_SWEEPER_CONCURRENCY / WORKER_PROFILE_STATS_SWEEPER_CONCURRENCY / WORKER_MEILISEARCH_SWEEPER_CONCURRENCY; sweepers run multi-second aggregate queries that monopolize connections and block bundle workers when the pool is undersized",
+		)
+	}
+}
+
 func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, bootstrap Bootstrap, claimLoop ClaimLoopFn) {
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	runtimebootstrap.StartDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
+	logPoolCapacityBudget(log, cfg, bootstrap.Pool)
 	go RunJobRetentionLoop(ctx, log, bootstrap.Queue, cfg.JobRetention)
 	go RunInvalidEventsRetentionLoop(ctx, log, bootstrap.InvalidEventsStore, cfg.InvalidEventRetention)
 	go jobs.RunRowCountMetricsReporter(ctx, log, bootstrap.Pool, 60*time.Second)
 	go RunMeilisearchStartupSync(ctx, log, bootstrap.MeiliClient, bootstrap.Pool)
 
 	if cfg.AuthorAnalyticsSweeper.Enabled {
+		// Apply WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS before any sweeper
+		// goroutine starts so they all see a consistent window list.
+		// SetAuthorAnalyticsWindows silently ignores values outside the
+		// schema CHECK ({7, 30, 90}); on an entirely-invalid list it
+		// retains the package default ([7, 30]).
+		derivation.SetAuthorAnalyticsWindows(cfg.AuthorAnalyticsSweeper.WindowsDays)
 		for i := 0; i < cfg.AuthorAnalyticsSweeper.Concurrency; i++ {
 			workerIdx := i
 			go RunAuthorAnalyticsSweeperLoop(
@@ -187,6 +245,8 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 			"concurrency", cfg.AuthorAnalyticsSweeper.Concurrency,
 			"interval", cfg.AuthorAnalyticsSweeper.Interval.String(),
 			"batch_size", cfg.AuthorAnalyticsSweeper.BatchSize,
+			"windows_days", cfg.AuthorAnalyticsSweeper.WindowsDays,
+			"rebuild_timeout", cfg.AuthorAnalyticsSweeper.RebuildTimeout.String(),
 		)
 	} else {
 		log.Info("author_analytics_sweeper_disabled")
@@ -518,7 +578,7 @@ func RunAuthorAnalyticsSweeperLoop(
 			return
 		case <-ticker.C:
 			started := time.Now()
-			processed, err := handlers.DrainPendingAuthorAnalyticsBatch(ctx, cfg.BatchSize)
+			processed, err := handlers.DrainPendingAuthorAnalyticsBatchWithTimeout(ctx, cfg.BatchSize, cfg.RebuildTimeout)
 			outcome := "ok"
 			if err != nil {
 				outcome = "error"
@@ -541,7 +601,7 @@ func RunAuthorAnalyticsSweeperLoop(
 				default:
 				}
 				started = time.Now()
-				processed, err = handlers.DrainPendingAuthorAnalyticsBatch(ctx, cfg.BatchSize)
+				processed, err = handlers.DrainPendingAuthorAnalyticsBatchWithTimeout(ctx, cfg.BatchSize, cfg.RebuildTimeout)
 				outcome = "ok"
 				if err != nil {
 					outcome = "error"

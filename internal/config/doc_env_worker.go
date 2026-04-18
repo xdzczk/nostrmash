@@ -59,6 +59,20 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Description:  "Number of concurrent author-analytics sweeper goroutines. Each independently claims dirty pubkeys via FOR UPDATE SKIP LOCKED.",
 		},
 		{
+			Name:         "WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "7,30",
+			Description:  "Comma-separated window_days values the live author-analytics rebuild aggregates. Schema permits {7, 30, 90}; the default omits 90 because each window roughly doubles per-pubkey rebuild cost. Set to 7,30,90 to refresh the 90d window in real time at the cost of throughput.",
+		},
+		{
+			Name:         "WORKER_AUTHOR_ANALYTICS_REBUILD_TIMEOUT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "90s",
+			Description:  "Maximum time a single per-pubkey author-analytics rebuild may hold its transaction (and therefore its pgxpool connection). On timeout the transaction rolls back, the per-pubkey advisory lock auto-releases, and the pubkey is retried on the next sweeper cycle. Safety net against any single hot pubkey monopolizing a connection long enough to starve bundle workers.",
+		},
+		{
 			Name:         "WORKER_PROFILE_STATS_SWEEPER_ENABLED",
 			Runtimes:     []string{"worker"},
 			Required:     false,
