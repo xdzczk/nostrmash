@@ -14,9 +14,7 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -105,9 +103,7 @@ func TestGetRelatedProfiles_RankedAndBounded(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -171,9 +167,7 @@ func TestGetRelatedProfiles_SparseAndMissing(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -206,9 +200,7 @@ func TestGetTrendingProfiles_ExcludesProfilesWithoutLocalMetadata(t *testing.T) 
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -250,9 +242,7 @@ func TestTrendingAndRisingProfiles_PenalizeHighVolumeLowEngagement(t *testing.T)
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -332,9 +322,7 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)

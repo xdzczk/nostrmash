@@ -9,16 +9,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/xdzczk/nostrmash/internal/jobs"
-	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/testutil/dbtest"
+	"github.com/xdzczk/nostrmash/internal/testutil/derivationbootstrap"
 )
 
 func TestClaimAvailableConcurrentWorkersNoDoubleClaim(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 
 	queue := jobs.NewQueue(pool)
 	now := time.Now().UTC().Add(-1 * time.Second)
@@ -87,9 +85,7 @@ func TestClaimAvailableConcurrentWorkersNoDoubleClaim(t *testing.T) {
 func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 
 	queue := jobs.NewQueue(pool)
 	job, err := queue.Enqueue(ctx, jobs.EnqueueParams{
@@ -170,9 +166,7 @@ func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 func TestClaimAvailableForPool_ClaimsOnlyTargetPool(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 
 	queue := jobs.NewQueue(pool)
 	readyAt := time.Now().UTC().Add(-1 * time.Second)
@@ -219,9 +213,7 @@ func TestClaimAvailableForPool_ClaimsOnlyTargetPool(t *testing.T) {
 func TestPurgeTerminalJobs_DeletesOnlyOldTerminalRows(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 
 	oldSucceeded := insertTerminalJobForTest(t, ctx, pool, jobs.StatusSucceeded, time.Now().UTC().Add(-40*24*time.Hour))
@@ -262,9 +254,7 @@ func TestPurgeTerminalJobs_DeletesOnlyOldTerminalRows(t *testing.T) {
 func TestPurgeTerminalJobs_PurgesByFinishedAtNotUpdatedAt(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 
 	now := time.Now().UTC()
@@ -313,9 +303,7 @@ func TestPurgeTerminalJobs_PurgesByFinishedAtNotUpdatedAt(t *testing.T) {
 func TestCompleteJob_SetsFinishedAt(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 	job, err := queue.Enqueue(ctx, jobs.EnqueueParams{
 		JobType:     "derive_profile",
@@ -354,9 +342,7 @@ func TestCompleteJob_SetsFinishedAt(t *testing.T) {
 func TestFailJob_SetsFinishedAtOnlyOnDead(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 	job, err := queue.Enqueue(ctx, jobs.EnqueueParams{
 		JobType:     "derive_profile",
@@ -412,9 +398,7 @@ func TestFailJob_SetsFinishedAtOnlyOnDead(t *testing.T) {
 func TestRecoverStaleRunningJobs_RequeuesStaleRunningJob(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 	job := insertRunningJobForRecoveryTest(
 		t,
@@ -464,9 +448,7 @@ func TestRecoverStaleRunningJobs_RequeuesStaleRunningJob(t *testing.T) {
 func TestRecoverStaleRunningJobs_DeadLettersWhenAttemptsExhausted(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 	job := insertRunningJobForRecoveryTest(
 		t,
@@ -513,9 +495,7 @@ func TestRecoverStaleRunningJobs_DeadLettersWhenAttemptsExhausted(t *testing.T) 
 func TestRecoverStaleRunningJobs_DoesNotTouchFreshRunningJob(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 	job := insertRunningJobForRecoveryTest(
 		t,
@@ -551,9 +531,7 @@ func TestRecoverStaleRunningJobs_DoesNotTouchFreshRunningJob(t *testing.T) {
 func TestRecoverStaleRunningJobs_RespectsBatchLimit(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 	ids := []int64{
 		insertRunningJobForRecoveryTest(t, ctx, pool, jobs.WorkerPoolDefault, 0, 5, time.Now().UTC().Add(-3*time.Minute), "lost-worker-1"),
@@ -589,9 +567,7 @@ func TestRecoverStaleRunningJobs_RespectsBatchLimit(t *testing.T) {
 func TestRecoverStaleRunningJobs_OnlyRecoversTargetPool(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 	defaultJob := insertRunningJobForRecoveryTest(
 		t,
@@ -642,9 +618,7 @@ func TestRecoverStaleRunningJobs_OnlyRecoversTargetPool(t *testing.T) {
 func TestRecoverStaleRunningJobs_RequiresWorkerPool(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	queue := jobs.NewQueue(pool)
 
 	_, err := queue.RecoverStaleRunningJobs(ctx, "   ", time.Now().UTC().Add(-30*time.Second), 10)

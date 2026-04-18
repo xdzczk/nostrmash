@@ -10,15 +10,14 @@ import (
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/testutil/derivationbootstrap"
 )
 
 func TestProjectNoteDiscoveryStats_CountAccumulationAndScoreUpdate(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	handlers := derivation.NewHandlers(pool)
 	pgStore := store.NewPostgresStore(pool)
 	now := time.Now().UTC()
@@ -71,9 +70,7 @@ func TestProjectNoteDiscoveryStats_DerivesMediaFlags(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	handlers := derivation.NewHandlers(pool)
 	pgStore := store.NewPostgresStore(pool)
 	now := time.Now().UTC()
@@ -131,9 +128,7 @@ func TestProjectionRebuildScopes_NoteDiscoveryStatsFullRebuild(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	handlers := derivation.NewHandlers(pool)
 	pgStore := store.NewPostgresStore(pool)
 
@@ -174,9 +169,7 @@ func TestProjectNoteDiscoveryStats_LanguageClassificationFixtures(t *testing.T) 
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_ENABLED", "true")
 	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_MIN_CHARS", "10")
 	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_MIN_CONFIDENCE", "0.55")
@@ -225,9 +218,7 @@ func TestProjectNoteDiscoveryStats_LanguageUnknownShortAndDisabled(t *testing.T)
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	handlers := derivation.NewHandlers(pool)
 	pgStore := store.NewPostgresStore(pool)
 	now := time.Now().UTC()

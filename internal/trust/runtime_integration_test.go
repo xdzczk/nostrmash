@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/jobs"
-	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/testutil/dbtest"
+	"github.com/xdzczk/nostrmash/internal/testutil/derivationbootstrap"
 )
 
 func TestRuntime_TriggerGlobalRunAndProcessLifecycleWithoutRedis(t *testing.T) {
@@ -404,9 +404,7 @@ func setupTrustRuntimePool(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	dbURL := dbtest.DatabaseURL(t, "trust runtime")
 	pool := dbtest.SetupSchemaPool(t, ctx, dbURL, "trust_runtime")
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	return pool
 }
 

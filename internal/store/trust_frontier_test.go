@@ -14,9 +14,7 @@ import (
 func TestTrustFrontierRefreshClaimAndSuggestions(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	var runID int64
@@ -102,9 +100,7 @@ func TestTrustFrontierRefreshClaimAndSuggestions(t *testing.T) {
 func TestTrustPubkeyFrontier_RespectsStableWindowAndReactivatesFailedRows(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	runID := insertTrustRunForFrontierTest(t, ctx, pool)
@@ -184,9 +180,7 @@ func TestTrustPubkeyFrontier_RespectsStableWindowAndReactivatesFailedRows(t *tes
 func TestTrustPubkeyFrontier_PromotionCapClaimOrderAndConflictRefresh(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	runID := insertTrustRunForFrontierTest(t, ctx, pool)
@@ -282,9 +276,7 @@ func TestTrustPubkeyFrontier_PromotionCapClaimOrderAndConflictRefresh(t *testing
 func TestTrustRelaySuggestions_DemotesStaleAndRetainsRecommendationsOnEmptyBatch(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	runID := insertTrustRunForFrontierTest(t, ctx, pool)
@@ -385,9 +377,7 @@ func TestTrustRelaySuggestions_DemotesStaleAndRetainsRecommendationsOnEmptyBatch
 func TestTrustPubkeyFrontier_ConcurrentClaimsDoNotDuplicatePubkeys(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	runID := insertTrustRunForFrontierTest(t, ctx, pool)

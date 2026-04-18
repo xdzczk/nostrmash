@@ -13,9 +13,7 @@ func TestGetPublicDiscoveryNetworkStats_ComputesWindowedCounts(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC()
 
@@ -124,9 +122,7 @@ func TestGetPublicDiscoveryNetworkStats_HandlesMissingHashtagsProjection(t *test
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS event_hashtags`); err != nil {
 		t.Fatalf("drop event_hashtags: %v", err)

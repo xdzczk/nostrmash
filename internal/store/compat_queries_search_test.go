@@ -12,9 +12,7 @@ func TestSearchProfiles_PrefersLatestMetadataWhenProjectionIsStale(t *testing.T)
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC()

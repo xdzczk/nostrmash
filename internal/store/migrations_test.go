@@ -18,9 +18,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 
 	pool := setupSchemaPool(t, ctx, dbURL)
 
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("first migrate failed: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	expectedTables := []string{
 		"author_activity_daily",
@@ -108,9 +106,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		t.Fatalf("expected %d audit rows after first run, got %d", expectedMigrationCount, firstRunCount)
 	}
 
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("second migrate failed: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	var secondRunCount int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM schema_migrations_audit`).Scan(&secondRunCount); err != nil {
@@ -127,9 +123,7 @@ func TestMigrateDetectsChecksumDrift(t *testing.T) {
 
 	pool := setupSchemaPool(t, ctx, dbURL)
 
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("seed migrate failed: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	_, err := pool.Exec(ctx, `
 		UPDATE schema_migrations_audit
@@ -153,9 +147,7 @@ func TestMigrateTrustSchedulingSchemaGuards(t *testing.T) {
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
 
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	assertColumnsExist := func(tableName string, columns ...string) {
 		t.Helper()

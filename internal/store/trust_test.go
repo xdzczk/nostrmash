@@ -14,9 +14,7 @@ import (
 func TestTrustReads_GetAndList(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	var runID int64
@@ -78,9 +76,7 @@ func TestTrustReads_GetAndList(t *testing.T) {
 func TestTrustReads_NotFoundAndValidation(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	if _, err := s.GetTrustScore(ctx, " "); err == nil {
@@ -97,9 +93,7 @@ func TestTrustReads_NotFoundAndValidation(t *testing.T) {
 func TestTrustQualification_TrustedUntrustedAndMissing(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	var runID int64
@@ -181,9 +175,7 @@ func TestTrustQualification_TrustedUntrustedAndMissing(t *testing.T) {
 func TestTrustQualification_RespectsHopLimitAndBatchLookups(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	if _, err := pool.Exec(ctx, `
@@ -249,9 +241,7 @@ func TestTrustQualification_RespectsHopLimitAndBatchLookups(t *testing.T) {
 func TestTrustState_BatchLookupUnknownAndFreshnessGeneration(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 
 	var runID int64
@@ -329,9 +319,7 @@ func TestTrustState_BatchLookupUnknownAndFreshnessGeneration(t *testing.T) {
 func TestTrustQualifiedDiscoveryProjection_RefreshAndQueryModes(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	s := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
 	now := time.Now().UTC()

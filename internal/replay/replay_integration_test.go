@@ -10,17 +10,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/replay"
-	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/testutil/dbtest"
+	"github.com/xdzczk/nostrmash/internal/testutil/derivationbootstrap"
 )
 
 func TestReplayFixtureMatchesGoldenSnapshot(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 
 	runner, err := replay.NewRunner(nil, pool, replayValidationOptions())
 	if err != nil {
@@ -69,9 +67,7 @@ func TestReplayProjectsEventHashtags(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 
 	runner, err := replay.NewRunner(nil, pool, replayValidationOptions())
 	if err != nil {
@@ -97,9 +93,7 @@ func TestReplayProjectsEventHashtags(t *testing.T) {
 func runReplayAndSnapshot(t *testing.T, ctx context.Context, dbURL, fixturePath string) replay.StateSnapshot {
 	t.Helper()
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	runner, err := replay.NewRunner(nil, pool, replayValidationOptions())
 	if err != nil {
 		t.Fatalf("new replay runner: %v", err)

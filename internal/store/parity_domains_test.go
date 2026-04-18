@@ -15,9 +15,7 @@ func TestDomainQueries_PerNoteAndAggregates(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -77,9 +75,7 @@ func TestDomainSummaryAndNotesQueryBehavior(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -141,9 +137,7 @@ func TestGetTrendingDomains_PrioritizesUniqueAuthorsAndDiversity(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -191,9 +185,7 @@ func TestGetTopDomains_PrioritizesUniqueAuthorsAndDiversity(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -241,9 +233,7 @@ func TestDomainCalculations_ExcludeMediaLinks(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
@@ -288,9 +278,7 @@ func TestDomainQueries_NormalizationAndMissingBehavior(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	handlers := derivation.NewHandlers(pool)
 	now := time.Now().UTC()

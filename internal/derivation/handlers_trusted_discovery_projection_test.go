@@ -10,14 +10,13 @@ import (
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/testutil/derivationbootstrap"
 )
 
 func TestTrustedDiscoveryProjection_RebuildMatchesBaselineAfterTruncate(t *testing.T) {
 	ctx := context.Background()
 	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	if err := store.Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	handlers := derivation.NewHandlers(pool)
 	pgStore := store.NewPostgresStore(pool)
 	now := time.Now().UTC()

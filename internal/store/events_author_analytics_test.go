@@ -13,9 +13,7 @@ func TestGetAuthorTopNotes_OrderingAndWindow(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC().Unix()
 
@@ -61,9 +59,7 @@ func TestAuthorQuoteRepostRollupsAndRecentActivity(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC().Unix()
 
@@ -124,9 +120,7 @@ func TestGetAuthorRelayFootprint_ReturnsCountsAndTopRelays(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC().Unix()
 
@@ -163,9 +157,7 @@ func TestGetAuthorPerformanceAggregate_SummaryCorrectness(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC().Unix()
 
@@ -205,9 +197,7 @@ func TestGetAuthorRecycleCandidates_AppliesAgeReplyAndRecentRepostFilters(t *tes
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC().Unix()
 
@@ -240,9 +230,7 @@ func TestGetAuthorRecycleCandidates_RanksByWeightedEngagement(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC().Unix()
 
@@ -279,9 +267,7 @@ func TestGetGroupedNoteAnalytics_AggregatesAndWindowRollups(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC().Unix()
 
@@ -357,9 +343,7 @@ func TestGetGroupedNoteAnalytics_EmptyGroupBehavior(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
 	pool := setupSchemaPool(t, ctx, dbURL)
-	if err := Migrate(ctx, pool, "test-v1"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 	pgStore := NewPostgresStore(pool)
 	now := time.Now().UTC().Unix()
 
