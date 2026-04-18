@@ -1,0 +1,36 @@
+-- Refresh planner statistics after the column add + 4.4M-row backfill
+-- in migration 000045.
+--
+-- Why this needs its own migration
+-- --------------------------------
+-- Migration 000045 added event_relays.pubkey, backfilled it from events,
+-- and created two covering indexes. None of those operations refresh
+-- pg_statistic, and autovacuum's analyze threshold is "10% of the table
+-- changed since last analyze" — on a 4.4M row table the backfill is
+-- 100% changed, but autovacuum is asleep most of the time and may take
+-- minutes to hours to schedule the analyze. Until it does, the planner
+-- has zero statistics for the new pubkey column and falls back to a
+-- Parallel Seq Scan + external merge sort to disk for any query that
+-- aggregates over it. On the production data set this turned the
+-- homepage bundle query from "fast" to ~8.5s (per EXPLAIN ANALYZE),
+-- timing out the 30s HTTP handler and starving every other endpoint
+-- whose context got cancelled while the slow query held its connection.
+--
+-- Running ANALYZE explicitly here means:
+--   * Fresh deploys: stats are populated as part of migration apply,
+--     so the very first /home request after deploy uses the index plan.
+--   * Returning environments where 000045 already ran but stats were
+--     never refreshed: this migration recovers them in one step.
+--
+-- ANALYZE is safe inside the migration transaction. It only acquires
+-- ShareUpdateExclusiveLock on the target table, which does not block
+-- reads or writes; it conflicts only with VACUUM / DDL on the same
+-- table. On 4.4M rows it completes in seconds (Postgres samples the
+-- table; it does not read it cover-to-cover).
+--
+-- Idempotent by construction: ANALYZE has no failure mode on an
+-- empty/pre-analyzed table — it just re-samples and overwrites
+-- pg_statistic in place.
+
+ANALYZE event_relays;
+ANALYZE event_hashtags;

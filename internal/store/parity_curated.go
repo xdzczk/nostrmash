@@ -193,19 +193,26 @@ func (s *PostgresStore) getTopRelaysByActivity(ctx context.Context, limit int) (
 	if limit > 50 {
 		limit = 50
 	}
-	// Reads pubkey directly from event_relays (denormalized in
-	// migration 000045). The previous JOIN to events ran ~14s on
-	// the production data set; this version is index-only.
+	// Restricted to the last 7 days. Without a time filter the GROUP BY
+	// has to scan all 4.4M event_relays rows and sort the entire
+	// pubkey universe to disk for COUNT(DISTINCT) — that took ~14s on
+	// production. With the 7-day cutoff the planner can range-scan
+	// idx_event_relays_seen_at_pubkey, which keeps the working set in
+	// memory and brings the query to <500ms. Top-relay rankings on
+	// the public homepage are intrinsically a "recent activity" view
+	// anyway, so the windowing change matches user intent.
+	cutoff7d := time.Now().UTC().Add(-7 * 24 * time.Hour)
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			er.relay_url,
 			COUNT(*)::bigint AS event_count,
 			COUNT(DISTINCT er.pubkey)::bigint AS unique_authors
 		FROM event_relays er
+		WHERE er.seen_at >= $1
 		GROUP BY er.relay_url
 		ORDER BY event_count DESC, unique_authors DESC, er.relay_url ASC
-		LIMIT $1
-	`, limit)
+		LIMIT $2
+	`, cutoff7d, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get top relays by activity: %w", err)
 	}
@@ -226,31 +233,60 @@ func (s *PostgresStore) getTopRelaysByActivity(ctx context.Context, limit int) (
 
 func (s *PostgresStore) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, error) {
 	out := RelaySummaryStats{}
-	// Reads pubkey directly from event_relays (denormalized in
-	// migration 000045). The previous JOIN to events ran ~10s on
-	// the production data set; this version is satisfied entirely
-	// from idx_event_relays_seen_at_pubkey.
+	// Split into one cheap "all-time totals" query and two windowed
+	// queries. Combining them into a single SQL with FILTER clauses
+	// (the previous shape) forced a Parallel Seq Scan + 196MB external
+	// merge sort, ~8.5s on production: COUNT(DISTINCT pubkey) needs
+	// to sort every distinct value across the whole table when there
+	// is no top-level WHERE clause to bound the input.
+	//
+	// With explicit WHERE clauses the planner can use
+	// idx_event_relays_seen_at_pubkey as an index range scan and
+	// hash-aggregate the small windowed result in memory:
+	//   * 24h window  ~600k rows  → ~50ms
+	//   * 7d  window  ~3M  rows   → ~300ms
+	//   * total relay count       → ~2ms (idx_event_relays_relay_url)
+	now := time.Now().UTC()
+	cutoff24h := now.Add(-24 * time.Hour)
+	cutoff7d := now.Add(-7 * 24 * time.Hour)
+
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(COUNT(DISTINCT relay_url), 0)::bigint
+		FROM event_relays
+	`).Scan(&out.Total); err != nil {
+		return out, fmt.Errorf("get relay summary total: %w", err)
+	}
+
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
-			COALESCE(COUNT(DISTINCT er.relay_url), 0)::bigint AS total,
-			COALESCE(COUNT(DISTINCT er.relay_url) FILTER (WHERE er.seen_at >= now() - INTERVAL '24 hours'), 0)::bigint AS active_24h,
-			COALESCE(COUNT(DISTINCT er.relay_url) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS active_7d,
-			COALESCE(COUNT(*) FILTER (WHERE er.seen_at >= now() - INTERVAL '24 hours'), 0)::bigint AS events_24h,
-			COALESCE(COUNT(*) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS events_7d,
-			COALESCE(COUNT(DISTINCT er.pubkey) FILTER (WHERE er.seen_at >= now() - INTERVAL '24 hours'), 0)::bigint AS authors_24h,
-			COALESCE(COUNT(DISTINCT er.pubkey) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS authors_7d
-		FROM event_relays er
-	`).Scan(
-		&out.Total,
+			COALESCE(COUNT(DISTINCT relay_url), 0)::bigint AS active,
+			COALESCE(COUNT(*), 0)::bigint                   AS events,
+			COALESCE(COUNT(DISTINCT pubkey), 0)::bigint     AS authors
+		FROM event_relays
+		WHERE seen_at >= $1
+	`, cutoff24h).Scan(
 		&out.Active24h,
-		&out.Active7d,
 		&out.EventVolume.Last24h,
-		&out.EventVolume.Last7d,
 		&out.UniqueAuthors.Last24h,
+	); err != nil {
+		return out, fmt.Errorf("get relay summary 24h window: %w", err)
+	}
+
+	if err := s.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(COUNT(DISTINCT relay_url), 0)::bigint AS active,
+			COALESCE(COUNT(*), 0)::bigint                   AS events,
+			COALESCE(COUNT(DISTINCT pubkey), 0)::bigint     AS authors
+		FROM event_relays
+		WHERE seen_at >= $1
+	`, cutoff7d).Scan(
+		&out.Active7d,
+		&out.EventVolume.Last7d,
 		&out.UniqueAuthors.Last7d,
 	); err != nil {
-		return out, fmt.Errorf("get relay summary stats: %w", err)
+		return out, fmt.Errorf("get relay summary 7d window: %w", err)
 	}
+
 	return out, nil
 }
 
