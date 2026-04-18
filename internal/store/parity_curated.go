@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func (s *PostgresStore) GetNetworkStats(ctx context.Context) (NetworkStats, error) {
@@ -17,8 +18,20 @@ func (s *PostgresStore) GetNetworkStats(ctx context.Context) (NetworkStats, erro
 	if s == nil || s.pool == nil {
 		return out, fmt.Errorf("store is not initialized")
 	}
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM events`).Scan(&out.Events); err != nil {
-		return out, fmt.Errorf("count events: %w", err)
+	// events is the largest table in the schema (~10M+ rows in production).
+	// `SELECT count(*)` forces a sequential scan on every call and adds
+	// 1-3s of latency to the homepage bundle, which is recomputed every
+	// time the in-process cache expires. The "events ingested" number on
+	// the public homepage is informational only — an estimate within a
+	// few percent is indistinguishable to the user — so prefer the
+	// planner's live tuple estimate maintained by autoanalyze, falling
+	// back to the exact count only if the estimate is unavailable
+	// (fresh table that hasn't been analyzed yet).
+	out.Events, _ = approxLiveTupleCount(ctx, s.pool, "events")
+	if out.Events <= 0 {
+		if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM events`).Scan(&out.Events); err != nil {
+			return out, fmt.Errorf("count events: %w", err)
+		}
 	}
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM profiles_latest`).Scan(&out.Profiles); err != nil {
 		return out, fmt.Errorf("count profiles: %w", err)
@@ -27,6 +40,28 @@ func (s *PostgresStore) GetNetworkStats(ctx context.Context) (NetworkStats, erro
 		return out, fmt.Errorf("count relays: %w", err)
 	}
 	return out, nil
+}
+
+// approxLiveTupleCount returns the planner's estimate of the live row
+// count for `tableName` from pg_stat_user_tables. The estimate is updated
+// by autoanalyze and is good to within a few percent on busy tables,
+// which is sufficient for displaying ingestion volume on the public
+// homepage. Returns (0, nil) if the planner has no estimate yet.
+func approxLiveTupleCount(ctx context.Context, pool *pgxpool.Pool, tableName string) (int64, error) {
+	if pool == nil || strings.TrimSpace(tableName) == "" {
+		return 0, nil
+	}
+	var estimate int64
+	err := pool.QueryRow(ctx, `
+		SELECT COALESCE(MAX(n_live_tup), 0)::bigint
+		FROM pg_stat_user_tables
+		WHERE schemaname = current_schema()
+		  AND relname = $1
+	`, tableName).Scan(&estimate)
+	if err != nil {
+		return 0, fmt.Errorf("approx tuple count for %s: %w", tableName, err)
+	}
+	return estimate, nil
 }
 
 func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (PublicDiscoveryNetworkStats, error) {
@@ -158,13 +193,15 @@ func (s *PostgresStore) getTopRelaysByActivity(ctx context.Context, limit int) (
 	if limit > 50 {
 		limit = 50
 	}
+	// Reads pubkey directly from event_relays (denormalized in
+	// migration 000045). The previous JOIN to events ran ~14s on
+	// the production data set; this version is index-only.
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			er.relay_url,
 			COUNT(*)::bigint AS event_count,
-			COUNT(DISTINCT e.pubkey)::bigint AS unique_authors
+			COUNT(DISTINCT er.pubkey)::bigint AS unique_authors
 		FROM event_relays er
-		INNER JOIN events e ON e.id = er.event_id
 		GROUP BY er.relay_url
 		ORDER BY event_count DESC, unique_authors DESC, er.relay_url ASC
 		LIMIT $1
@@ -189,6 +226,10 @@ func (s *PostgresStore) getTopRelaysByActivity(ctx context.Context, limit int) (
 
 func (s *PostgresStore) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, error) {
 	out := RelaySummaryStats{}
+	// Reads pubkey directly from event_relays (denormalized in
+	// migration 000045). The previous JOIN to events ran ~10s on
+	// the production data set; this version is satisfied entirely
+	// from idx_event_relays_seen_at_pubkey.
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(COUNT(DISTINCT er.relay_url), 0)::bigint AS total,
@@ -196,10 +237,9 @@ func (s *PostgresStore) getRelaySummaryStats(ctx context.Context) (RelaySummaryS
 			COALESCE(COUNT(DISTINCT er.relay_url) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS active_7d,
 			COALESCE(COUNT(*) FILTER (WHERE er.seen_at >= now() - INTERVAL '24 hours'), 0)::bigint AS events_24h,
 			COALESCE(COUNT(*) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS events_7d,
-			COALESCE(COUNT(DISTINCT e.pubkey) FILTER (WHERE er.seen_at >= now() - INTERVAL '24 hours'), 0)::bigint AS authors_24h,
-			COALESCE(COUNT(DISTINCT e.pubkey) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS authors_7d
+			COALESCE(COUNT(DISTINCT er.pubkey) FILTER (WHERE er.seen_at >= now() - INTERVAL '24 hours'), 0)::bigint AS authors_24h,
+			COALESCE(COUNT(DISTINCT er.pubkey) FILTER (WHERE er.seen_at >= now() - INTERVAL '7 days'), 0)::bigint AS authors_7d
 		FROM event_relays er
-		INNER JOIN events e ON e.id = er.event_id
 	`).Scan(
 		&out.Total,
 		&out.Active24h,

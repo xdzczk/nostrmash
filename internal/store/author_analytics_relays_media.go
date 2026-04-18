@@ -29,13 +29,15 @@ func (s *PostgresStore) GetAuthorRelayFootprint(
 		topRelayLimit = 20
 	}
 	out.Pubkey = pubkey
+	// Reads pubkey directly from event_relays (denormalized in
+	// migration 000045) so the per-author footprint no longer has to
+	// JOIN events just to filter by author.
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(COUNT(DISTINCT er.relay_url), 0)::bigint AS relay_count,
 			COALESCE(COUNT(DISTINCT er.event_id), 0)::bigint AS seen_on_event_count
 		FROM event_relays er
-		INNER JOIN events e ON e.id = er.event_id
-		WHERE e.pubkey = $1
+		WHERE er.pubkey = $1
 	`, pubkey).Scan(&out.RelayCount, &out.SeenOnEventCount); err != nil {
 		return out, fmt.Errorf("get author relay footprint counts: %w", err)
 	}
@@ -45,8 +47,7 @@ func (s *PostgresStore) GetAuthorRelayFootprint(
 			er.relay_url,
 			COUNT(DISTINCT er.event_id)::bigint AS event_count
 		FROM event_relays er
-		INNER JOIN events e ON e.id = er.event_id
-		WHERE e.pubkey = $1
+		WHERE er.pubkey = $1
 		GROUP BY er.relay_url
 		ORDER BY event_count DESC, er.relay_url ASC
 		LIMIT $2

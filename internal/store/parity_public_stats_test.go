@@ -51,10 +51,10 @@ func TestGetPublicDiscoveryNetworkStats_ComputesWindowedCounts(t *testing.T) {
 		}
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO event_relays (event_id, relay_url)
+		INSERT INTO event_relays (event_id, relay_url, pubkey)
 		VALUES
-			('note_stats_1', 'wss://relay.two'),
-			('note_stats_2', 'wss://relay.two')
+			('note_stats_1', 'wss://relay.two', 'author_a'),
+			('note_stats_2', 'wss://relay.two', 'author_b')
 	`); err != nil {
 		t.Fatalf("insert secondary relay provenance: %v", err)
 	}

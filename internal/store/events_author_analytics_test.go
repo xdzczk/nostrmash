@@ -492,9 +492,13 @@ func mustInsertRepostEventWithQuote(
 
 func mustInsertEventRelay(t *testing.T, pool *pgxpool.Pool, eventID string, relayURL string) {
 	t.Helper()
+	// pubkey was denormalized onto event_relays in migration 000045
+	// and is NOT NULL. Look it up from the events row the caller has
+	// already inserted via mustInsertEventRow so individual test sites
+	// don't have to thread the pubkey through.
 	if _, err := pool.Exec(context.Background(), `
-		INSERT INTO event_relays (event_id, relay_url)
-		VALUES ($1, $2)
+		INSERT INTO event_relays (event_id, relay_url, pubkey)
+		SELECT $1, $2, e.pubkey FROM events e WHERE e.id = $1
 	`, eventID, relayURL); err != nil {
 		t.Fatalf("insert event relay %s/%s: %v", eventID, relayURL, err)
 	}

@@ -114,14 +114,16 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO event_relays (event_id, relay_url, seen_at)
-		VALUES ($1, $2, $3)
+		INSERT INTO event_relays (event_id, relay_url, seen_at, pubkey)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (event_id, relay_url) DO UPDATE
-		SET seen_at = LEAST(event_relays.seen_at, EXCLUDED.seen_at)
+		SET seen_at = LEAST(event_relays.seen_at, EXCLUDED.seen_at),
+		    pubkey = EXCLUDED.pubkey
 	`,
 		event.ID,
 		relayURL,
 		relaySeenAt,
+		event.Pubkey,
 	)
 	if err != nil {
 		return outcome, fmt.Errorf("upsert event relay: %w", err)
