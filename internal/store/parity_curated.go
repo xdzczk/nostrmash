@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -93,28 +92,35 @@ func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hash
 	}
 	out.TopRelays = topRelays
 
-	now := time.Now().UTC()
-	last24hNotes, last24hAuthors, err := s.getPublicWindowStats(ctx, now.Add(-24*time.Hour).Unix())
+	// Note volume + active authors are served from the
+	// home_window_24h / home_window_7d snapshot rows. The underlying
+	// COUNT(DISTINCT author_pubkey) over note_discovery_stats is
+	// CPU-bound at multiple seconds on production scale, so it lives
+	// in the projection (see
+	// internal/derivation/projection_relay_window_snapshots.go) just
+	// like the relay summary does.
+	homeWindow24h, err := s.getHomeWindowSnapshot(ctx, relaySnapshotLabelHomeWindow24h)
 	if err != nil {
 		return out, err
 	}
-	last7dNotes, last7dAuthors, err := s.getPublicWindowStats(ctx, now.Add(-7*24*time.Hour).Unix())
+	homeWindow7d, err := s.getHomeWindowSnapshot(ctx, relaySnapshotLabelHomeWindow7d)
 	if err != nil {
 		return out, err
 	}
 	out.NoteVolume = WindowedCount{
-		Last24h: last24hNotes,
-		Last7d:  last7dNotes,
+		Last24h: homeWindow24h.NoteVolume,
+		Last7d:  homeWindow7d.NoteVolume,
 	}
 	out.ActiveAuthors = WindowedCount{
-		Last24h: last24hAuthors,
-		Last7d:  last7dAuthors,
+		Last24h: homeWindow24h.ActiveAuthors,
+		Last7d:  homeWindow7d.ActiveAuthors,
 	}
-	topLanguages24h, err := s.getTopLanguages(ctx, now.Add(-24*time.Hour).Unix(), 8)
+
+	topLanguages24h, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages24h, 8)
 	if err != nil {
 		return out, err
 	}
-	topLanguages7d, err := s.getTopLanguages(ctx, now.Add(-7*24*time.Hour).Unix(), 8)
+	topLanguages7d, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages7d, 8)
 	if err != nil {
 		return out, err
 	}
@@ -133,19 +139,18 @@ func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hash
 		return out, nil
 	}
 
-	top24h, err := s.GetTrendingHashtags(ctx, 24*time.Hour, hashtagLimit, 0)
+	// Homepage trending hashtags are served from the snapshot. The
+	// general-purpose GetTrendingHashtags (used by other endpoints
+	// that need arbitrary windows / pagination) still runs a live
+	// query — only the homepage's fixed (24h, 7d, top-N) shape is
+	// snapshotted.
+	top24h, err := s.getTopHashtagsSnapshot(ctx, relaySnapshotLabelTopHashtags24h, hashtagLimit)
 	if err != nil {
-		if !isUndefinedRelationError(err) {
-			return out, err
-		}
-		return out, nil
+		return out, err
 	}
-	top7d, err := s.GetTrendingHashtags(ctx, 7*24*time.Hour, hashtagLimit, 0)
+	top7d, err := s.getTopHashtagsSnapshot(ctx, relaySnapshotLabelTopHashtags7d, hashtagLimit)
 	if err != nil {
-		if !isUndefinedRelationError(err) {
-			return out, err
-		}
-		return out, nil
+		return out, err
 	}
 	out.TopHashtags = &TrendingHashtagWindows{
 		Last24h: top24h,
@@ -154,44 +159,19 @@ func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hash
 	return out, nil
 }
 
-func (s *PostgresStore) getTopLanguages(ctx context.Context, minCreatedAt int64, limit int) ([]LanguageSummary, error) {
-	if limit <= 0 {
-		limit = 8
-	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT
-			COALESCE(primary_language, 'und') AS language,
-			COUNT(*)::bigint AS count_value
-		FROM note_discovery_stats
-		WHERE created_at >= $1
-		GROUP BY COALESCE(primary_language, 'und')
-		ORDER BY count_value DESC, language ASC
-		LIMIT $2
-	`, minCreatedAt, limit)
-	if err != nil {
-		return nil, fmt.Errorf("get top languages: %w", err)
-	}
-	defer rows.Close()
-	out := make([]LanguageSummary, 0, limit)
-	for rows.Next() {
-		var row LanguageSummary
-		if err := rows.Scan(&row.Language, &row.Count); err != nil {
-			return nil, fmt.Errorf("scan top language row: %w", err)
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read top language rows: %w", err)
-	}
-	return out, nil
-}
-
 // Snapshot label constants — must match the labels written by the
 // projection in internal/derivation/projection_relay_window_snapshots.go
-// and seeded by migration 000047_relay_window_snapshots.sql.
+// and seeded by migrations 000047_relay_window_snapshots.sql and
+// 000048_homepage_window_snapshots.sql.
 const (
-	relaySnapshotLabelSummary     = "summary"
-	relaySnapshotLabelTopRelays7d = "top_relays_7d"
+	relaySnapshotLabelSummary         = "summary"
+	relaySnapshotLabelTopRelays7d     = "top_relays_7d"
+	relaySnapshotLabelHomeWindow24h   = "home_window_24h"
+	relaySnapshotLabelHomeWindow7d    = "home_window_7d"
+	relaySnapshotLabelTopLanguages24h = "top_languages_24h"
+	relaySnapshotLabelTopLanguages7d  = "top_languages_7d"
+	relaySnapshotLabelTopHashtags24h  = "top_hashtags_24h"
+	relaySnapshotLabelTopHashtags7d   = "top_hashtags_7d"
 )
 
 // relaySummarySnapshotPayload mirrors the JSONB shape stored under
@@ -316,17 +296,114 @@ func (s *PostgresStore) getRelaySummaryStats(ctx context.Context) (RelaySummaryS
 	}, nil
 }
 
-func (s *PostgresStore) getPublicWindowStats(ctx context.Context, minCreatedAt int64) (int64, int64, error) {
-	var noteVolume int64
-	var activeAuthors int64
-	if err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(*)::bigint, COUNT(DISTINCT author_pubkey)::bigint
-		FROM note_discovery_stats
-		WHERE created_at >= $1
-	`, minCreatedAt).Scan(&noteVolume, &activeAuthors); err != nil {
-		return 0, 0, fmt.Errorf("get note discovery window stats: %w", err)
+// homeWindowSnapshotPayload mirrors the JSONB shape stored under
+// snapshot_label = 'home_window_24h' / 'home_window_7d'. Kept private
+// to the store package; the public response shape splits these into
+// PublicDiscoveryNetworkStats.NoteVolume and .ActiveAuthors.
+type homeWindowSnapshotPayload struct {
+	NoteVolume    int64 `json:"note_volume"`
+	ActiveAuthors int64 `json:"active_authors"`
+}
+
+func (s *PostgresStore) getHomeWindowSnapshot(ctx context.Context, label string) (homeWindowSnapshotPayload, error) {
+	var payload []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT payload
+		FROM relay_window_snapshots
+		WHERE snapshot_label = $1
+	`, label).Scan(&payload)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || isUndefinedRelationError(err) {
+			// Pre-000048 or freshly-truncated environments: serve
+			// zeros so the homepage stays up. The next worker tick
+			// will populate the row.
+			return homeWindowSnapshotPayload{}, nil
+		}
+		return homeWindowSnapshotPayload{}, fmt.Errorf("read home window snapshot %q: %w", label, err)
 	}
-	return noteVolume, activeAuthors, nil
+	var out homeWindowSnapshotPayload
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return homeWindowSnapshotPayload{}, fmt.Errorf("decode home window snapshot %q: %w", label, err)
+	}
+	return out, nil
+}
+
+type languageSnapshotRow struct {
+	Language string `json:"language"`
+	Count    int64  `json:"count"`
+}
+
+func (s *PostgresStore) getTopLanguagesSnapshot(ctx context.Context, label string, limit int) ([]LanguageSummary, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+	var payload []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT payload
+		FROM relay_window_snapshots
+		WHERE snapshot_label = $1
+	`, label).Scan(&payload)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || isUndefinedRelationError(err) {
+			return []LanguageSummary{}, nil
+		}
+		return nil, fmt.Errorf("read top languages snapshot %q: %w", label, err)
+	}
+	var rows []languageSnapshotRow
+	if err := json.Unmarshal(payload, &rows); err != nil {
+		return nil, fmt.Errorf("decode top languages snapshot %q: %w", label, err)
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]LanguageSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, LanguageSummary{Language: r.Language, Count: r.Count})
+	}
+	return out, nil
+}
+
+type hashtagSnapshotRow struct {
+	Hashtag       string `json:"hashtag"`
+	EventCount    int64  `json:"event_count"`
+	UniqueAuthors int64  `json:"unique_authors"`
+}
+
+func (s *PostgresStore) getTopHashtagsSnapshot(ctx context.Context, label string, limit int) ([]TrendingHashtag, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	var payload []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT payload
+		FROM relay_window_snapshots
+		WHERE snapshot_label = $1
+	`, label).Scan(&payload)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || isUndefinedRelationError(err) {
+			return []TrendingHashtag{}, nil
+		}
+		return nil, fmt.Errorf("read top hashtags snapshot %q: %w", label, err)
+	}
+	var rows []hashtagSnapshotRow
+	if err := json.Unmarshal(payload, &rows); err != nil {
+		return nil, fmt.Errorf("decode top hashtags snapshot %q: %w", label, err)
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]TrendingHashtag, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, TrendingHashtag{
+			Hashtag:       r.Hashtag,
+			EventCount:    r.EventCount,
+			UniqueAuthors: r.UniqueAuthors,
+		})
+	}
+	return out, nil
 }
 
 func isUndefinedRelationError(err error) bool {

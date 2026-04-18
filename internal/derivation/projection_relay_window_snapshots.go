@@ -9,47 +9,60 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// RefreshRelayWindowSnapshots recomputes the homepage relay summary
-// stats (24h / 7d windows + all-time relay total) and the top-10
-// relays by 7-day activity, then upserts them into
-// relay_window_snapshots.
+// RefreshRelayWindowSnapshots recomputes every homepage-bundle
+// snapshot stored in relay_window_snapshots:
+//
+//   * summary             — relay totals and 24h/7d activity
+//   * top_relays_7d       — top 10 relays by 7-day activity
+//   * home_window_24h     — note volume + active authors (24h)
+//   * home_window_7d      — note volume + active authors (7d)
+//   * top_languages_24h   — top 8 languages (24h)
+//   * top_languages_7d    — top 8 languages (7d)
+//   * top_hashtags_24h    — top 50 hashtags (24h)
+//   * top_hashtags_7d     — top 50 hashtags (7d)
 //
 // Why this is a projection, not an inline query
 // ---------------------------------------------
-// The underlying COUNT(DISTINCT pubkey) over event_relays is
-// CPU-bound at ~9s on production for the 7d window — it has to hash
-// 3.7M rows into 120k distinct pubkey buckets. There is no SQL trick
-// or index that can reduce that cost; it is fundamental to the
-// cardinality of the input. Running it on every homepage cache miss
-// caused the /api/v1/discovery/home endpoint to time out (30s) and
-// starve every other endpoint of database connections.
+// Every one of the underlying queries is a COUNT(DISTINCT) over
+// hundreds of thousands to millions of rows. On production each
+// individual aggregate takes 1-9s of CPU; running them inline on
+// every homepage cache miss was making /api/v1/discovery/home time
+// out at 30s and starving every other endpoint of DB connections.
 //
-// Running it once every few minutes from a background worker, then
-// serving the result from a single-row lookup, makes the homepage
-// O(1) and removes the slow query from the request path entirely.
+// There is no SQL trick or index that fixes COUNT(DISTINCT) at
+// these cardinalities — the cost is fundamental to the input
+// cardinality. The only fix is to compute these out-of-band on a
+// fixed cadence and serve the homepage from sub-millisecond row
+// lookups.
 //
 // Concurrency safety
 // ------------------
-// Two replicas calling this concurrently is safe — the upsert is
+// Two replicas calling this concurrently is safe — the upserts are
 // idempotent and the reads are non-locking. We do not bother with
 // an advisory lock to dedupe; doing the work twice every 5 minutes
-// is cheaper than the lock contention machinery.
+// is cheaper than the lock-contention machinery.
 //
 // Failure handling
 // ----------------
-// On error the previous snapshot row is left in place. Callers
-// (the worker loop) log the error but do not block — the homepage
-// keeps serving the last good snapshot until the next refresh
-// succeeds.
+// On any error the entire transaction rolls back, leaving the
+// previous snapshot rows in place. Callers (the worker loop) log
+// the error but do not block — the homepage keeps serving the last
+// good snapshot until the next refresh succeeds.
+//
+// We deliberately do not partition the refresh into per-label
+// transactions: keeping all snapshots under one tx means a partial
+// failure never publishes an inconsistent mix of "fresh relay
+// summary, stale active authors". Either everything advances or
+// nothing does.
 func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
 	}
 	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
-		// Default work_mem (4MB) forces the COUNT(DISTINCT pubkey)
-		// hashtables to spill ~200MB to disk for the 7d window. 128MB
-		// keeps everything in memory; SET LOCAL releases it on commit
-		// so the pool connection is unaffected.
+		// Default work_mem (4MB) forces the COUNT(DISTINCT) hashtables
+		// to spill ~100-200MB to disk for the 7d windows. 128MB keeps
+		// everything in memory; SET LOCAL releases it on commit so the
+		// pool connection is unaffected.
 		if _, err := tx.Exec(ctx, `SET LOCAL work_mem = '128MB'`); err != nil {
 			return fmt.Errorf("set work_mem: %w", err)
 		}
@@ -58,53 +71,114 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("compute relay summary snapshot: %w", err)
 		}
-		summaryPayload, err := json.Marshal(summary)
-		if err != nil {
-			return fmt.Errorf("marshal relay summary snapshot: %w", err)
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO relay_window_snapshots (snapshot_label, payload, computed_at)
-			VALUES ($1, $2::jsonb, now())
-			ON CONFLICT (snapshot_label) DO UPDATE
-			SET payload     = EXCLUDED.payload,
-			    computed_at = EXCLUDED.computed_at
-		`, relaySnapshotLabelSummary, summaryPayload); err != nil {
-			return fmt.Errorf("upsert relay summary snapshot: %w", err)
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelSummary, summary); err != nil {
+			return err
 		}
 
 		topRelays, err := computeTopRelaysSnapshot(ctx, tx, 10)
 		if err != nil {
 			return fmt.Errorf("compute top relays snapshot: %w", err)
 		}
-		// Always marshal as a JSON array, even when empty, so the
-		// reader can JSON-decode without a NULL-check branch.
-		if topRelays == nil {
-			topRelays = []relayActivityRow{}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopRelays7d, jsonArray(topRelays)); err != nil {
+			return err
 		}
-		topPayload, err := json.Marshal(topRelays)
+
+		now := time.Now().UTC()
+		cutoff24h := now.Add(-24 * time.Hour).Unix()
+		cutoff7d := now.Add(-7 * 24 * time.Hour).Unix()
+
+		homeWindow24h, err := computeHomeWindowSnapshot(ctx, tx, cutoff24h)
 		if err != nil {
-			return fmt.Errorf("marshal top relays snapshot: %w", err)
+			return fmt.Errorf("compute home window 24h snapshot: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO relay_window_snapshots (snapshot_label, payload, computed_at)
-			VALUES ($1, $2::jsonb, now())
-			ON CONFLICT (snapshot_label) DO UPDATE
-			SET payload     = EXCLUDED.payload,
-			    computed_at = EXCLUDED.computed_at
-		`, relaySnapshotLabelTopRelays7d, topPayload); err != nil {
-			return fmt.Errorf("upsert top relays snapshot: %w", err)
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow24h, homeWindow24h); err != nil {
+			return err
+		}
+		homeWindow7d, err := computeHomeWindowSnapshot(ctx, tx, cutoff7d)
+		if err != nil {
+			return fmt.Errorf("compute home window 7d snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow7d, homeWindow7d); err != nil {
+			return err
+		}
+
+		topLanguages24h, err := computeTopLanguagesSnapshot(ctx, tx, cutoff24h, 8)
+		if err != nil {
+			return fmt.Errorf("compute top languages 24h snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopLanguages24h, jsonArray(topLanguages24h)); err != nil {
+			return err
+		}
+		topLanguages7d, err := computeTopLanguagesSnapshot(ctx, tx, cutoff7d, 8)
+		if err != nil {
+			return fmt.Errorf("compute top languages 7d snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopLanguages7d, jsonArray(topLanguages7d)); err != nil {
+			return err
+		}
+
+		// Hashtags are snapshotted at the API max (50) so the store
+		// layer can serve any caller-requested limit ≤50 from one row.
+		topHashtags24h, err := computeTopHashtagsSnapshot(ctx, tx, cutoff24h, 50)
+		if err != nil {
+			return fmt.Errorf("compute top hashtags 24h snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags24h, jsonArray(topHashtags24h)); err != nil {
+			return err
+		}
+		topHashtags7d, err := computeTopHashtagsSnapshot(ctx, tx, cutoff7d, 50)
+		if err != nil {
+			return fmt.Errorf("compute top hashtags 7d snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags7d, jsonArray(topHashtags7d)); err != nil {
+			return err
 		}
 		return nil
 	})
 }
 
 // Snapshot label constants — also referenced by the API store
-// when reading. Keep these in sync with the seed in migration
-// 000047_relay_window_snapshots.sql.
+// when reading. Keep these in sync with the seeds in migrations
+// 000047_relay_window_snapshots.sql and
+// 000048_homepage_window_snapshots.sql.
 const (
-	relaySnapshotLabelSummary     = "summary"
-	relaySnapshotLabelTopRelays7d = "top_relays_7d"
+	relaySnapshotLabelSummary         = "summary"
+	relaySnapshotLabelTopRelays7d     = "top_relays_7d"
+	relaySnapshotLabelHomeWindow24h   = "home_window_24h"
+	relaySnapshotLabelHomeWindow7d    = "home_window_7d"
+	relaySnapshotLabelTopLanguages24h = "top_languages_24h"
+	relaySnapshotLabelTopLanguages7d  = "top_languages_7d"
+	relaySnapshotLabelTopHashtags24h  = "top_hashtags_24h"
+	relaySnapshotLabelTopHashtags7d   = "top_hashtags_7d"
 )
+
+// jsonArray normalizes a nil slice to an empty slice so json.Marshal
+// always emits "[]" instead of "null". The store-side reader expects
+// arrays and a "null" payload would force every reader to handle an
+// extra branch.
+func jsonArray[T any](in []T) []T {
+	if in == nil {
+		return []T{}
+	}
+	return in
+}
+
+func upsertSnapshotPayload(ctx context.Context, tx pgx.Tx, label string, payload any) error {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal snapshot payload %q: %w", label, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO relay_window_snapshots (snapshot_label, payload, computed_at)
+		VALUES ($1, $2::jsonb, now())
+		ON CONFLICT (snapshot_label) DO UPDATE
+		SET payload     = EXCLUDED.payload,
+		    computed_at = EXCLUDED.computed_at
+	`, label, encoded); err != nil {
+		return fmt.Errorf("upsert snapshot payload %q: %w", label, err)
+	}
+	return nil
+}
 
 // relaySummarySnapshotPayload mirrors the JSONB shape written into
 // relay_window_snapshots.payload for the "summary" row. Kept private
@@ -181,6 +255,115 @@ func computeRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySn
 		WHERE seen_at >= $1
 	`, cutoff7d).Scan(&out.Active7d, &out.Events7d, &out.Authors7d); err != nil {
 		return out, fmt.Errorf("query 7d window: %w", err)
+	}
+	return out, nil
+}
+
+// homeWindowSnapshotPayload mirrors the JSONB shape stored under
+// snapshot_label = 'home_window_24h' / 'home_window_7d'. note_volume
+// is COUNT(*) and active_authors is COUNT(DISTINCT author_pubkey)
+// over note_discovery_stats for the matching window.
+type homeWindowSnapshotPayload struct {
+	NoteVolume    int64 `json:"note_volume"`
+	ActiveAuthors int64 `json:"active_authors"`
+}
+
+type languageRow struct {
+	Language string `json:"language"`
+	Count    int64  `json:"count"`
+}
+
+type hashtagRow struct {
+	Hashtag       string `json:"hashtag"`
+	EventCount    int64  `json:"event_count"`
+	UniqueAuthors int64  `json:"unique_authors"`
+}
+
+func computeHomeWindowSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int64) (homeWindowSnapshotPayload, error) {
+	var out homeWindowSnapshotPayload
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			COALESCE(COUNT(*), 0)::bigint                    AS note_volume,
+			COALESCE(COUNT(DISTINCT author_pubkey), 0)::bigint AS active_authors
+		FROM note_discovery_stats
+		WHERE created_at >= $1
+	`, minCreatedAt).Scan(&out.NoteVolume, &out.ActiveAuthors); err != nil {
+		return out, fmt.Errorf("query home window stats: %w", err)
+	}
+	return out, nil
+}
+
+func computeTopLanguagesSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int64, limit int) ([]languageRow, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT
+			COALESCE(primary_language, 'und') AS language,
+			COUNT(*)::bigint                  AS count_value
+		FROM note_discovery_stats
+		WHERE created_at >= $1
+		GROUP BY COALESCE(primary_language, 'und')
+		ORDER BY count_value DESC, language ASC
+		LIMIT $2
+	`, minCreatedAt, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query top languages: %w", err)
+	}
+	defer rows.Close()
+	out := make([]languageRow, 0, limit)
+	for rows.Next() {
+		var row languageRow
+		if err := rows.Scan(&row.Language, &row.Count); err != nil {
+			return nil, fmt.Errorf("scan top language row: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read top language rows: %w", err)
+	}
+	return out, nil
+}
+
+// computeTopHashtagsSnapshot mirrors the ranking used by
+// store.GetTrendingHashtags: order by unique_authors DESC, then by
+// diversity (unique_authors / event_count) DESC, then by event_count
+// DESC, then by hashtag ASC. The store layer will slice this list
+// down to the per-request limit, so we always materialize up to the
+// API max.
+func computeTopHashtagsSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int64, limit int) ([]hashtagRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT
+			hashtag,
+			COUNT(*)::bigint                       AS event_count,
+			COUNT(DISTINCT author_pubkey)::bigint  AS unique_authors
+		FROM event_hashtags
+		WHERE created_at >= $1
+		GROUP BY hashtag
+		ORDER BY
+			unique_authors DESC,
+			(COUNT(DISTINCT author_pubkey))::double precision / GREATEST(COUNT(*), 1) DESC,
+			event_count DESC,
+			hashtag ASC
+		LIMIT $2
+	`, minCreatedAt, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query top hashtags: %w", err)
+	}
+	defer rows.Close()
+	out := make([]hashtagRow, 0, limit)
+	for rows.Next() {
+		var row hashtagRow
+		if err := rows.Scan(&row.Hashtag, &row.EventCount, &row.UniqueAuthors); err != nil {
+			return nil, fmt.Errorf("scan top hashtag row: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read top hashtag rows: %w", err)
 	}
 	return out, nil
 }
