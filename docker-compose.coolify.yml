@@ -20,7 +20,7 @@ x-common-env: &common-env
 
 services:
   meilisearch:
-    image: getmeili/meilisearch:v1.14
+    image: getmeili/meilisearch:v1.42.1
     restart: unless-stopped
     init: true
     expose:
