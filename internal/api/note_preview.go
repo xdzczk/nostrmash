@@ -116,18 +116,18 @@ func classifyNotePreview(content string) notePreviewMetadata {
 		mode = notePreviewModeConfigRawData
 		compact = true
 		containsRaw = true
-		display = compactSummaryText("Config-like note", firstLine, domains)
+		display = normalizeContentForDisplay(trimmed, 140)
 	case identifierHeavy:
 		mode = notePreviewModeIdentifierHeavy
 		compact = true
 		containsRaw = true
-		display = compactSummaryText("Identifier-heavy note", firstLine, domains)
+		display = normalizeContentForDisplay(trimmed, 140)
 	case hasMedia:
 		mode = notePreviewModeMediaLed
-		display = compactSummaryText("Media note", firstLine, domains)
+		display = normalizeContentForDisplay(trimmed, 280)
 	case urlHeavy:
 		mode = notePreviewModeLinkLed
-		display = compactSummaryText("Link-rich note", firstLine, domains)
+		display = normalizeContentForDisplay(trimmed, 220)
 	}
 
 	return notePreviewMetadata{
@@ -138,17 +138,6 @@ func classifyNotePreview(content string) notePreviewMetadata {
 		ContainsRawShape: containsRaw,
 		LinkDomains:      domains,
 	}
-}
-
-func compactSummaryText(label string, firstLine string, domains []string) string {
-	parts := []string{label}
-	if len(domains) > 0 {
-		parts = append(parts, "from "+strings.Join(domains, ", "))
-	}
-	if firstLine != "" {
-		parts = append(parts, "\""+firstLine+"\"")
-	}
-	return strings.Join(parts, " - ")
 }
 
 func isConfigLike(content string, urls []string) bool {

@@ -69,6 +69,12 @@ func TestClassifyNotePreview_ModeSelection(t *testing.T) {
 			if strings.TrimSpace(preview.DisplayContent) == "" {
 				t.Fatalf("expected non-empty display content")
 			}
+			if strings.Contains(preview.DisplayContent, "Config-like note") ||
+				strings.Contains(preview.DisplayContent, "Identifier-heavy note") ||
+				strings.Contains(preview.DisplayContent, "Media note - from") ||
+				strings.Contains(preview.DisplayContent, "Link-rich note - from") {
+				t.Fatalf("display content should not use synthetic summary labels: %q", preview.DisplayContent)
+			}
 		})
 	}
 }
