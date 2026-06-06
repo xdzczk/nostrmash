@@ -91,6 +91,14 @@ func main() {
 		"mode", trustWorkerModeLabel(cfg.EnableRedisSync, cfg.EnableScoreCompute),
 	)
 
+	st := store.NewPostgresStore(pool)
+	// Reconcile configured seeds into trust_seeds so the trust graph snapshot
+	// (and downstream ingest gate) have BFS roots. Non-fatal: a transient DB
+	// error here should not crash the worker; the next restart retries.
+	if err := reconcileTrustSeeds(ctx, log, st, cfg.Shared.TrustPolicy.SeedPubkeys); err != nil {
+		log.Error("trust_seed_reconcile_failed", "error", err)
+	}
+
 	queue := jobs.NewQueue(pool)
 	var runtime *trust.Runtime
 	if cfg.EnableRedisSync {
@@ -124,6 +132,10 @@ func main() {
 		DeleteBatchLimit: cfg.JobRetention.DeleteBatchLimit,
 	})
 	go jobs.RunRowCountMetricsReporter(ctx, log, pool, 60*time.Second)
+	go runTrustGraphSnapshotRefreshLoop(ctx, log, st, cfg.Shared.TrustPolicy.MaxHops, cfg.GraphSnapshotRefreshInterval)
+	if cfg.EnableScoreCompute {
+		go runTrustRunSchedulerLoop(ctx, log, pool, runtime, cfg.RunSchedulerInterval)
+	}
 
 	runClaimLoop(
 		ctx,
@@ -254,6 +266,140 @@ func runTrustMetricsReporter(ctx context.Context, log interface {
 			}
 		}
 	}
+}
+
+// trustGraphSnapshotRefresher is the slice of *store.PostgresStore the snapshot
+// refresh loop needs, declared as an interface for unit testing.
+type trustGraphSnapshotRefresher interface {
+	RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (store.TrustGraphSnapshotRefreshResult, error)
+}
+
+// globalTrustRunner triggers a global trust run; satisfied by *trust.Runtime.
+type globalTrustRunner interface {
+	TriggerGlobalRun(ctx context.Context) (trust.Run, error)
+}
+
+// runTrustGraphSnapshotRefreshLoop rebuilds trust_graph_snapshot from the
+// current seeds + follower_edges on an interval. The snapshot is the BFS
+// hop-distance materialization the ingest gate reads to decide trusted authors,
+// so it must be refreshed independently of the (heavier) global score runs.
+// Runs once immediately so a freshly-started worker populates the snapshot
+// without waiting a full interval.
+func runTrustGraphSnapshotRefreshLoop(ctx context.Context, log interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}, refresher trustGraphSnapshotRefresher, maxHops int, every time.Duration) {
+	if every <= 0 {
+		return
+	}
+	refresh := func() {
+		started := time.Now()
+		res, err := refresher.RefreshTrustGraphSnapshot(ctx, maxHops)
+		if err != nil {
+			log.Error("trust_graph_snapshot_refresh_failed", "error", err)
+			return
+		}
+		log.Info(
+			"trust_graph_snapshot_refreshed",
+			"rows", res.RowsUpserted,
+			"max_hops", maxHops,
+			"duration_ms", time.Since(started).Milliseconds(),
+		)
+	}
+	refresh()
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refresh()
+		}
+	}
+}
+
+// runTrustRunSchedulerLoop periodically triggers a global trust run (PageRank
+// scores). It skips triggering when a run is already pending/running so slow
+// compute cannot stack overlapping runs.
+func runTrustRunSchedulerLoop(ctx context.Context, log interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}, pool *pgxpool.Pool, runner globalTrustRunner, every time.Duration) {
+	if every <= 0 {
+		return
+	}
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			var active int64
+			if err := pool.QueryRow(ctx, `
+				SELECT COUNT(*)
+				FROM trust_runs
+				WHERE status IN ('pending', 'running')
+			`).Scan(&active); err != nil {
+				log.Error("trust_run_active_check_failed", "error", err)
+				continue
+			}
+			if active > 0 {
+				log.Info("trust_run_schedule_skipped", "reason", "run already active", "active", active)
+				continue
+			}
+			run, err := runner.TriggerGlobalRun(ctx)
+			if err != nil {
+				log.Error("trust_run_schedule_failed", "error", err)
+				continue
+			}
+			log.Info("trust_run_scheduled", "run_id", run.ID)
+		}
+	}
+}
+
+// trustSeedStore is the slice of *store.PostgresStore the seed reconcile needs.
+// Declared as an interface so the reconcile logic can be unit-tested with a fake.
+type trustSeedStore interface {
+	UpsertActiveSeeds(ctx context.Context, pubkeys []string) (int64, error)
+	DeactivateMissingSeeds(ctx context.Context, keep []string) (int64, error)
+}
+
+// reconcileTrustSeeds makes TRUST_SEED_PUBKEYS authoritative for active seeds:
+// configured pubkeys are upserted active and any active seed not in the
+// configured set is deactivated.
+//
+// When no seeds are configured, reconciliation is skipped entirely (rather than
+// deactivating everything) so operators can manage trust_seeds manually via SQL.
+// When admin seed-management endpoints are added later, this should become
+// additive instead of authoritative.
+func reconcileTrustSeeds(ctx context.Context, log interface {
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+}, seedStore trustSeedStore, seeds []string) error {
+	if len(seeds) == 0 {
+		log.Info(
+			"trust_seed_reconcile_skipped",
+			"reason", "TRUST_SEED_PUBKEYS empty; leaving trust_seeds unmanaged for manual seeding",
+		)
+		return nil
+	}
+	activated, err := seedStore.UpsertActiveSeeds(ctx, seeds)
+	if err != nil {
+		return fmt.Errorf("upsert active seeds: %w", err)
+	}
+	deactivated, err := seedStore.DeactivateMissingSeeds(ctx, seeds)
+	if err != nil {
+		return fmt.Errorf("deactivate missing seeds: %w", err)
+	}
+	log.Info(
+		"trust_seed_reconcile_completed",
+		"configured", len(seeds),
+		"activated", activated,
+		"deactivated", deactivated,
+	)
+	return nil
 }
 
 func resolveWorkerID() string {

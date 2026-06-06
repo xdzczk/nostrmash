@@ -63,9 +63,9 @@ Three design choices follow from that:
 NostrMash runs as six cooperating pieces:
 
 - `api` serves the native API, the Primal-compatible boundary for Primal Cache-style integration, health/metrics, and operator-facing admin endpoints
-- `ingestor` connects to relays, validates payloads, writes canonical rows, records checkpoints, and enqueues derivation work
-- `worker` drains the default Postgres-backed job queue and materializes derived state
-- `trust_worker` isolates trust-specific jobs, maintains Redis-backed working state, and promotes published trust outputs
+- `ingestor` connects to relays, validates payloads, optionally gates canonical writes by trust (kind-1 author / engagement target), writes canonical rows, records checkpoints, and enqueues derivation work
+- `worker` drains the default Postgres-backed job queue, materializes derived state, and purges aged raw engagement events
+- `trust_worker` reconciles seeds, refreshes `trust_graph_snapshot`, runs trust-specific jobs, and promotes published trust outputs (Redis optional)
 - `postgres` is the canonical store for raw events, checkpoints, queue state, derivation metadata, projections, and published trust outputs
 - `redis` is disposable working state for the trust pipeline
 
@@ -85,7 +85,8 @@ Choose the path that matches what you need:
 | Replacing or mirroring Primal Cache | [docs/primal_compatibility_matrix.md](docs/primal_compatibility_matrix.md) | [docs/compatibility_rollout.md](docs/compatibility_rollout.md) |
 | Contributing changes | [CONTRIBUTING.md](CONTRIBUTING.md) | [docs/testing.md](docs/testing.md) |
 | Operating compatibility surfaces | [docs/primal_compatibility_matrix.md](docs/primal_compatibility_matrix.md) | [docs/compatibility_rollout.md](docs/compatibility_rollout.md) |
-| Planning trust and ranking work | [docs/architecture/trust-subsystem.md](docs/architecture/trust-subsystem.md) | [docs/architecture.md](docs/architecture.md) |
+| Planning trust and ranking work | [docs/architecture/trust-subsystem.md](docs/architecture/trust-subsystem.md) | [docs/architecture/trust-bounded-ingest.md](docs/architecture/trust-bounded-ingest.md) |
+| Bounding storage after deploy/wipe | [docs/architecture/trust-bounded-ingest.md](docs/architecture/trust-bounded-ingest.md) | [docs/operations.md#trust-bounded-ingest-rollout](docs/operations.md#trust-bounded-ingest-rollout) |
 
 For the complete docs hub and source-of-truth map, use [docs/README.md](docs/README.md).
 
@@ -269,7 +270,7 @@ make ci
 - Postgres remains the canonical datastore in this repository today
 - the compatibility HTTP and WebSocket surface implements the currently supported legacy-shaped cache/API surface documented in this repository
 - use [docs/primal_compatibility_matrix.md](docs/primal_compatibility_matrix.md) for the current compatibility inventory and [docs/compatibility_rollout.md](docs/compatibility_rollout.md) for operational guidance
-- trust and ranking are active repository surfaces; the deeper design lives in [docs/architecture/trust-subsystem.md](docs/architecture/trust-subsystem.md)
+- trust and ranking are active repository surfaces; see [docs/architecture/trust-subsystem.md](docs/architecture/trust-subsystem.md) and the storage-bounding ingest gate in [docs/architecture/trust-bounded-ingest.md](docs/architecture/trust-bounded-ingest.md)
 
 ## Project policy references
 

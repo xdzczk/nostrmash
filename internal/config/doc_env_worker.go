@@ -233,5 +233,40 @@ func configEnvDocsWorker() []EnvVarDoc {
 			DefaultValue: "1h0m0s",
 			Description:  "Interval between invalid_events retention purge runs.",
 		},
+		{
+			Name:         "WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "168h0m0s",
+			Description:  "Derivation-safety grace window: a dead derive_event_bundle job only blocks purge of its engagement event while updated within this window. Past it, a permanently-dead derivation no longer blocks cleanup.",
+		},
+		{
+			Name:         "WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "2000",
+			Description:  "Maximum raw engagement events (kinds 6/7/9735) deleted per retention purge batch.",
+		},
+		{
+			Name:         "WORKER_RETENTION_ENGAGEMENT_ENABLED",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable periodic retention purge of raw engagement events (kinds 6/7/9735). Lifetime aggregate counters survive; only raw rows and cascade-cleaned contributions are removed.",
+		},
+		{
+			Name:         "WORKER_RETENTION_ENGAGEMENT_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "336h0m0s",
+			Description:  "Age (by event created_at) beyond which raw engagement events become eligible for retention purge.",
+		},
+		{
+			Name:         "WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "1h0m0s",
+			Description:  "Interval between engagement-events retention purge runs.",
+		},
 	}
 }

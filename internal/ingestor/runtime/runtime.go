@@ -31,6 +31,7 @@ type runner struct {
 	eventStore *store.PostgresStore
 	processor  *live.Processor
 	kinds      []int
+	trustedSet *TrustedAuthorSet
 }
 
 func Run(ctx context.Context, log *slog.Logger, cfg config.IngestorConfig, build BuildInfo) error {
@@ -107,10 +108,17 @@ func buildRunner(
 		return runner{}, err
 	}
 
+	// Always wire the trust gate. In "open" mode it only records shadow
+	// metrics; in "trusted_only" it enforces. Keeping it always wired lets
+	// operators watch trusted-set/gate metrics before flipping to enforce.
+	trustedSet := NewTrustedAuthorSet(cfg.TrustGate.MaxHops)
+	processor.SetTrustGate(cfg.TrustGate.Mode, trustedSet, eventStore)
+
 	return runner{
 		eventStore: eventStore,
 		processor:  processor,
 		kinds:      kinds,
+		trustedSet: trustedSet,
 	}, nil
 }
 
@@ -128,6 +136,7 @@ func runLifecycle(
 	)
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	go runMetricsLogger(ctx, log, runner.processor, 30*time.Second)
+	go runTrustedAuthorSetRefreshLoop(ctx, log, runner.trustedSet, runner.eventStore, cfg.TrustGate.Mode, cfg.TrustGate.MaxHops, cfg.TrustGate.RefreshInterval)
 
 	if cfg.Runtime.Mode == "replay" {
 		replayRunner, replayErr := replay.NewRunner(log, pool, nostr.Options{})
@@ -349,6 +358,7 @@ func runLifecycle(
 		"valid_total", final.Valid,
 		"duplicate_total", final.Duplicate,
 		"invalid_total", final.Invalid,
+		"gated_total", final.Gated,
 	)
 	log.Info("shutdown_complete")
 	return nil
@@ -402,6 +412,53 @@ func handlerWithPool(
 	}
 }
 
+// runTrustedAuthorSetRefreshLoop periodically reloads the in-memory trusted
+// author set from trust_graph_snapshot and publishes set-size/loaded/age
+// metrics. It refreshes once immediately so the gate has data shortly after
+// startup. On refresh failure the last-good set is retained (see
+// TrustedAuthorSet.Refresh) and the age metric keeps growing to surface
+// staleness.
+func runTrustedAuthorSetRefreshLoop(
+	ctx context.Context,
+	log *slog.Logger,
+	set *TrustedAuthorSet,
+	loader trustedAuthorLoader,
+	mode string,
+	maxHops int,
+	every time.Duration,
+) {
+	if set == nil || loader == nil || every <= 0 {
+		return
+	}
+	log.Info(
+		"ingest_trusted_set_refresh_started",
+		"mode", mode,
+		"max_hops", maxHops,
+		"refresh_interval", every.String(),
+	)
+	refresh := func() {
+		if err := set.Refresh(ctx, loader); err != nil {
+			log.Warn("ingest_trusted_set_refresh_failed", "error", err)
+		}
+		metrics.SetIngestTrustedSetLoaded(set.Loaded())
+		metrics.SetIngestTrustedSetSize(set.Size())
+		if last := set.LastRefreshAt(); !last.IsZero() {
+			metrics.SetIngestTrustedSetAge(time.Since(last).Seconds())
+		}
+	}
+	refresh()
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refresh()
+		}
+	}
+}
+
 func runMetricsLogger(ctx context.Context, log *slog.Logger, processor *live.Processor, every time.Duration) {
 	if processor == nil || every <= 0 {
 		return
@@ -420,6 +477,7 @@ func runMetricsLogger(ctx context.Context, log *slog.Logger, processor *live.Pro
 				"valid_total", snapshot.Valid,
 				"duplicate_total", snapshot.Duplicate,
 				"invalid_total", snapshot.Invalid,
+				"gated_total", snapshot.Gated,
 			)
 		}
 	}

@@ -96,6 +96,28 @@ TRUST_ENABLE_SCORE_COMPUTE=true
 TRUST_ENABLE_REDIS_SYNC=false
 ```
 
+Trust-bounded ingest (storage bounding) — set on the shared app env or per-service overrides:
+
+```bash
+# Required: at least one seed pubkey (hex, comma-separated)
+TRUST_SEED_PUBKEYS=<hex_pubkey>
+
+# trust_worker — feeds the ingest gate snapshot
+TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL=10m
+TRUST_RUN_INTERVAL=1h
+
+# ingestor — start in shadow, flip to trusted_only after warmup
+INGESTOR_TRUST_GATE_MODE=open
+INGESTOR_TRUST_GATE_MAX_HOPS=2
+INGESTOR_TRUST_GATE_REFRESH_INTERVAL=2m
+
+# worker — engagement raw retention (defaults are fine; shown for clarity)
+WORKER_RETENTION_ENGAGEMENT_ENABLED=true
+WORKER_RETENTION_ENGAGEMENT_MAX_AGE=336h
+```
+
+See [operations.md#trust-bounded-ingest-rollout](operations.md#trust-bounded-ingest-rollout) for the full rollout checklist.
+
 Trust-worker mode matrix:
 
 1. `TRUST_ENABLE_REDIS_SYNC=true` and `TRUST_ENABLE_SCORE_COMPUTE=true`  

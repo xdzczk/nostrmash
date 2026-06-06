@@ -12,7 +12,8 @@ This is the docs hub for NostrMash. Use the top-level [`README.md`](../README.md
 | Operating the stack | [operations.md](operations.md) | [observability.md](observability.md) |
 | Integrating with the API | [api.md](api.md) | [openapi.yaml](openapi.yaml) |
 | Changing compatibility behavior | [primal_compatibility_matrix.md](primal_compatibility_matrix.md) | [compatibility_rollout.md](compatibility_rollout.md) |
-| Planning trust and ranking work | [architecture/trust-subsystem.md](architecture/trust-subsystem.md) | [architecture.md](architecture.md) |
+| Planning trust and ranking work | [architecture/trust-subsystem.md](architecture/trust-subsystem.md) | [architecture/trust-bounded-ingest.md](architecture/trust-bounded-ingest.md) |
+| Bounding storage / post-wipe setup | [architecture/trust-bounded-ingest.md](architecture/trust-bounded-ingest.md) | [operations.md#trust-bounded-ingest-rollout](operations.md#trust-bounded-ingest-rollout) |
 | Extending trust policy safely | [architecture/trust-policy-boundaries.md](architecture/trust-policy-boundaries.md) | [hotspot-watchlist.md](hotspot-watchlist.md) |
 | Contributing safely | [../CONTRIBUTING.md](../CONTRIBUTING.md) | [testing.md](testing.md) |
 | Releasing or managing policy | [../RELEASE.md](../RELEASE.md) | [compatibility.md](compatibility.md) |
@@ -45,6 +46,7 @@ These pages are authoritative, but they are best used as targeted references:
 - [compatibility_rollout.md](compatibility_rollout.md): staged adoption plan
 - [coolify.md](coolify.md): production-oriented Coolify deployment path
 - [architecture/trust-subsystem.md](architecture/trust-subsystem.md): trust and ranking design
+- [architecture/trust-bounded-ingest.md](architecture/trust-bounded-ingest.md): trust-bounded ingest gate and engagement retention
 - [architecture/trust-policy-boundaries.md](architecture/trust-policy-boundaries.md): trust policy boundaries, defaults, and anti-patterns
 - [architecture/orchestration-surfaces.md](architecture/orchestration-surfaces.md): transport/query ownership map
 - [`../RELEASE.md`](../RELEASE.md), [`../VERSIONING.md`](../VERSIONING.md), [`../SECURITY.md`](../SECURITY.md): maintainer policy and release guidance
@@ -71,6 +73,7 @@ Each topic has one canonical home:
 | Performance ownership and evidence | [performance.md](performance.md) |
 | Maintainability hotspot watchlist | [hotspot-watchlist.md](hotspot-watchlist.md) |
 | Trust subsystem design | [architecture/trust-subsystem.md](architecture/trust-subsystem.md) |
+| Trust-bounded ingest and engagement retention | [architecture/trust-bounded-ingest.md](architecture/trust-bounded-ingest.md) |
 | Trust policy boundaries and review guardrails | [architecture/trust-policy-boundaries.md](architecture/trust-policy-boundaries.md) |
 
 ## Notes

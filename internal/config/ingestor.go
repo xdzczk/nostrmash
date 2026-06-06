@@ -21,8 +21,19 @@ type IngestorConfig struct {
 	Replay                  ReplayConfig
 	TrustPrioritization     IngestorTrustPrioritizationConfig
 	TrustFetch              IngestorTrustFetchConfig
+	TrustGate               IngestorTrustGateConfig
 	AuthorMetadataDiscovery IngestorAuthorMetadataDiscoveryConfig
 	RelayRegistry           RelayRegistryConfig
+}
+
+// IngestorTrustGateConfig controls trust-bounded canonical ingest enforcement
+// in the live hot path. Mode "open" runs in shadow (records metrics, never
+// rejects); "trusted_only" enforces the gate (kind 1 must be from a trusted
+// author; kinds 6/7/9735 must target an already-stored event).
+type IngestorTrustGateConfig struct {
+	Mode            string
+	RefreshInterval time.Duration
+	MaxHops         int
 }
 
 // IngestorAuthorMetadataDiscoveryConfig controls the background loop that
@@ -76,6 +87,14 @@ func LoadIngestor() (IngestorConfig, error) {
 	if err != nil {
 		return IngestorConfig{}, err
 	}
+	trustGateRefreshInterval, err := getEnvPositiveDurationStrict("INGESTOR_TRUST_GATE_REFRESH_INTERVAL", 2*time.Minute)
+	if err != nil {
+		return IngestorConfig{}, err
+	}
+	trustGateMaxHops, err := getEnvPositiveIntStrict("INGESTOR_TRUST_GATE_MAX_HOPS", 2)
+	if err != nil {
+		return IngestorConfig{}, err
+	}
 
 	cfg := IngestorConfig{
 		Shared: shared,
@@ -114,6 +133,11 @@ func LoadIngestor() (IngestorConfig, error) {
 		TrustPrioritization: IngestorTrustPrioritizationConfig{
 			Enabled:    getEnvBool("INGESTOR_TRUST_PRIORITIZATION_ENABLED", true),
 			TopPubkeys: getEnvInt("INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS", 2000),
+		},
+		TrustGate: IngestorTrustGateConfig{
+			Mode:            strings.ToLower(strings.TrimSpace(getEnv("INGESTOR_TRUST_GATE_MODE", "open"))),
+			RefreshInterval: trustGateRefreshInterval,
+			MaxHops:         trustGateMaxHops,
 		},
 		TrustFetch: IngestorTrustFetchConfig{
 			Enabled:               getEnvBool("INGESTOR_TRUST_FETCH_ENABLED", false),
@@ -158,6 +182,17 @@ func LoadIngestor() (IngestorConfig, error) {
 	}
 	if cfg.TrustPrioritization.Enabled && cfg.TrustPrioritization.TopPubkeys <= 0 {
 		return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS must be > 0 when trust prioritization is enabled")
+	}
+	switch cfg.TrustGate.Mode {
+	case "open", "trusted_only":
+	default:
+		return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_GATE_MODE %q must be one of: open, trusted_only", cfg.TrustGate.Mode)
+	}
+	if cfg.TrustGate.RefreshInterval <= 0 {
+		return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_GATE_REFRESH_INTERVAL must be > 0")
+	}
+	if cfg.TrustGate.MaxHops <= 0 {
+		return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_GATE_MAX_HOPS must be > 0")
 	}
 	if cfg.TrustFetch.Enabled {
 		if cfg.TrustFetch.MaxTrackedPubkeys <= 0 {

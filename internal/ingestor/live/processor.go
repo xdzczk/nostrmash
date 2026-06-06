@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -37,6 +38,7 @@ type Counters struct {
 	Valid     uint64
 	Duplicate uint64
 	Invalid   uint64
+	Gated     uint64
 }
 
 // Processor validates relay payloads and writes canonical/quarantine rows.
@@ -48,6 +50,13 @@ type Processor struct {
 	validCount       atomic.Uint64
 	dupeCount        atomic.Uint64
 	invalidCount     atomic.Uint64
+	gatedCount       atomic.Uint64
+
+	// Trust gate (optional). When trustedAuthors is nil the gate is disabled
+	// and all valid events pass.
+	gateMode       string
+	trustedAuthors TrustedAuthors
+	targetChecker  TargetExistenceChecker
 }
 
 func NewProcessor(log *slog.Logger, store EventStore, validateOpts nostr.Options) (*Processor, error) {
@@ -72,6 +81,18 @@ func (p *Processor) SetCheckpointWriter(writer CheckpointWriter) {
 	p.checkpointWriter = writer
 }
 
+// SetTrustGate enables the trust-bounded ingest gate. mode is "open" (shadow:
+// record metrics, never reject) or "trusted_only" (enforce). When this is never
+// called the gate stays disabled and all valid events pass.
+func (p *Processor) SetTrustGate(mode string, trusted TrustedAuthors, checker TargetExistenceChecker) {
+	if p == nil {
+		return
+	}
+	p.gateMode = strings.ToLower(strings.TrimSpace(mode))
+	p.trustedAuthors = trusted
+	p.targetChecker = checker
+}
+
 func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte) (err error) {
 	ctx, span := traceutil.StartSpan(ctx, "ingest.live.handle_event",
 		traceutil.KV("relay.url", relayURL),
@@ -82,6 +103,34 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 	seenAt := time.Now().UTC()
 	result := nostr.ParseAndValidate(payload, p.validateOpts)
 	if result.Valid() {
+		if p.trustedAuthors != nil {
+			decision := p.evaluateGate(ctx, result.Event.Kind, result.Event.Pubkey, result.Event.Tags)
+			metrics.IncIngestGateDecision(decision.kindLabel, decision.decision)
+			if !decision.accept {
+				p.gatedCount.Add(1)
+				metrics.IncIngestOutcome("gated")
+				p.log.Debug(
+					"ingest_event_gated",
+					"relay_url", relayURL,
+					"event_id", result.Event.ID,
+					"kind", result.Event.Kind,
+					"decision", decision.decision,
+				)
+				// Advance the resume checkpoint even for dropped events so a
+				// restart does not re-fetch and re-drop the same span.
+				if p.checkpointWriter != nil {
+					if err := p.checkpointWriter.MarkEventProcessed(
+						ctx,
+						relayURL,
+						result.Event.ID,
+						result.Event.CreatedAt,
+					); err != nil {
+						return fmt.Errorf("persist live checkpoint (gated): %w", err)
+					}
+				}
+				return nil
+			}
+		}
 		event := model.Event{
 			ID:          result.Event.ID,
 			Pubkey:      result.Event.Pubkey,
@@ -154,6 +203,7 @@ func (p *Processor) Snapshot() Counters {
 		Valid:     p.validCount.Load(),
 		Duplicate: p.dupeCount.Load(),
 		Invalid:   p.invalidCount.Load(),
+		Gated:     p.gatedCount.Load(),
 	}
 }
 

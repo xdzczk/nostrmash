@@ -36,13 +36,34 @@ Keep trust policy in one place per layer:
 
 If a PR adds trust conditionals in handlers or store methods, it is likely crossing boundaries and should be refactored toward query-layer policy.
 
-## Canonical ingest boundary (hard rule)
+## Canonical ingest boundary
 
-Canonical ingest should remain broader than trust policy surfaces.
+Canonical ingest has two distinct trust surfaces. Do not conflate them.
 
-- `TRUST_CANONICAL_INGEST_MODE` must default to `open` and should stay that way for general deployments.
-- Trust may bias ingest prioritization and targeted fetch, but should not become the gate for durable canonical writes.
-- "Prefer trusted first" is acceptable for scheduling; "discard untrusted canonical events entirely" is not the default operating model.
+### Read-side trust policy (query layer)
+
+Discovery, search, fallback, and retention hooks use `TRUST_*_MODE` env vars (`TRUST_DISCOVERY_CANDIDATE_MODE`, `TRUST_SEARCH_RANKING_MODE`, etc.). These shape read paths and derived-state retention; they do **not** drop events at the ingest hot path.
+
+### Trust-bounded ingest gate (ingestor)
+
+Live canonical write enforcement is owned by the ingestor via `INGESTOR_TRUST_GATE_*`:
+
+| Env | Default | Role |
+| --- | --- | --- |
+| `INGESTOR_TRUST_GATE_MODE` | `open` | `open` = shadow (metrics only); `trusted_only` = enforce kind-1 author trust and 6/7/9735 target-exists |
+| `INGESTOR_TRUST_GATE_MAX_HOPS` | `2` | Authors within this hop distance of a seed are trusted for kind `1` |
+| `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` | `2m` | Reload in-memory trusted set from `trust_graph_snapshot` |
+
+Prerequisites live in `trust_worker`: `TRUST_SEED_PUBKEYS`, `TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL`, `TRUST_RUN_INTERVAL`.
+
+Rules:
+
+- Deploy with `INGESTOR_TRUST_GATE_MODE=open` first; confirm trusted-set metrics before flipping to `trusted_only`.
+- Open kinds (`0`, `3`, `5`, `10002`) always pass the gate so the graph can bootstrap.
+- Rejected gate events are counted in metrics only — not written to `invalid_events`.
+- `TRUST_CANONICAL_INGEST_MODE` is **deprecated** (config placeholder, never wired). Use `INGESTOR_TRUST_GATE_MODE`.
+
+Full design: [trust-bounded-ingest.md](trust-bounded-ingest.md). Operator setup: [../operations.md#trust-bounded-ingest-rollout](../operations.md#trust-bounded-ingest-rollout).
 
 ## Recommended public-instance modes
 
@@ -94,7 +115,8 @@ Avoid these in reviews:
 - adding trust-specific `WHERE` clauses in store methods as one-off fixes
 - duplicating trust gating logic separately across discovery, search, and fallback codepaths
 - widening fallback into broad relay-backed global search
-- coupling canonical ingest durability to trust score thresholds
+- coupling canonical ingest durability to trust score thresholds on **open bootstrap kinds** (`0`, `3`, `5`, `10002`) — these must stay open while the graph warms up
+- enabling `INGESTOR_TRUST_GATE_MODE=trusted_only` before `trust_graph_snapshot` has loaded (kind `1` fail-closes until first successful trusted-set refresh)
 
 ## Review checklist
 

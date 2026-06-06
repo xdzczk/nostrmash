@@ -57,6 +57,7 @@ func ensureRegistered() {
 	registerQueueMetrics()
 	registerWorkerMetrics()
 	registerTrustMetrics()
+	registerIngestGateMetrics()
 	registerBuildMetrics()
 	registerStorageMetrics()
 	registerAuthorMetadataMetrics()

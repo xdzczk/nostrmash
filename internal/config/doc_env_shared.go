@@ -42,7 +42,7 @@ func configEnvDocsShared() []EnvVarDoc {
 			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
 			Required:     false,
 			DefaultValue: "open",
-			Description:  "Trust policy mode for canonical ingest candidates: open (ignore trust), prefer_trusted (bias toward trusted), trusted_only (allow trusted set only). Default stays open to preserve current ingest behavior.",
+			Description:  "Deprecated. Was a config placeholder for canonical ingest policy; not wired to the ingest hot path. Use INGESTOR_TRUST_GATE_MODE on the ingestor instead.",
 		},
 		{
 			Name:         "TRUST_SURFACE_POLICY_PRESET",

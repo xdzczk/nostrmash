@@ -17,6 +17,20 @@ func configEnvDocsTrustWorker() []EnvVarDoc {
 			Description:  "Enable trust score computation trust job phases.",
 		},
 		{
+			Name:         "TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL",
+			Runtimes:     []string{"trust_worker"},
+			Required:     false,
+			DefaultValue: "10m",
+			Description:  "Interval between trust_graph_snapshot rebuilds (seeds + follower edges) that the ingest gate reads.",
+		},
+		{
+			Name:         "TRUST_RUN_INTERVAL",
+			Runtimes:     []string{"trust_worker"},
+			Required:     false,
+			DefaultValue: "1h",
+			Description:  "Interval at which the trust worker schedules a global trust run when score compute is enabled and no run is active.",
+		},
+		{
 			Name:         "TRUST_REDIS_URL",
 			Runtimes:     []string{"trust_worker"},
 			Required:     false,

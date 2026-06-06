@@ -72,6 +72,9 @@ Do not hand-edit this file.
 | `INGESTOR_TRUST_FETCH_REFRESH_INTERVAL` | `ingestor` | optional | `2m` | Scheduler interval for trust frontier refresh and targeted fetch cycles. |
 | `INGESTOR_TRUST_FETCH_RETRY_DELAY` | `ingestor` | optional | `10m` | Delay before retrying a pubkey after targeted fetch errors. |
 | `INGESTOR_TRUST_FETCH_STABLE_WINDOW` | `ingestor` | optional | `10m` | Minimum stability window before newly seen trust candidates become active. |
+| `INGESTOR_TRUST_GATE_MAX_HOPS` | `ingestor` | optional | `2` | Maximum trust-graph hop distance from a seed for an author to be considered trusted by the live ingest gate. |
+| `INGESTOR_TRUST_GATE_MODE` | `ingestor` | optional | `open` | Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce kind-1 author trust and 6/7/9735 target-exists). |
+| `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` | `ingestor` | optional | `2m` | Interval between refreshes of the in-memory trusted-author set loaded from trust_graph_snapshot. |
 | `INGESTOR_TRUST_PRIORITIZATION_ENABLED` | `ingestor` | optional | `true` | Enable trust-driven relay ordering for ingestor startup ordering. |
 | `INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS` | `ingestor` | optional | `2000` | Maximum top trust pubkeys considered for relay ordering. |
 | `METRICS_ADDR` | `ingestor, trust_worker, worker` | optional | `:9090` | Prometheus metrics listen address for ingestor, worker, and trust_worker. API exposes /metrics on HTTP_ADDR. |
@@ -104,7 +107,7 @@ Do not hand-edit this file.
 | `RELAY_REGISTRY_RETENTION_PURGE_INTERVAL` | `worker` | optional | `1h` | Interval between probe observation retention purge cycles. |
 | `RELAY_REGISTRY_RETENTION_RAW_PROBE_DAYS` | `worker` | optional | `14` | Days to retain raw probe observation rows. |
 | `RELAY_REGISTRY_SEED_RELAYS` | `worker` | optional | `-` | Comma-separated list of seed relay URLs to bootstrap the registry. |
-| `TRUST_CANONICAL_INGEST_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for canonical ingest candidates: open (ignore trust), prefer_trusted (bias toward trusted), trusted_only (allow trusted set only). Default stays open to preserve current ingest behavior. |
+| `TRUST_CANONICAL_INGEST_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Deprecated. Was a config placeholder for canonical ingest policy; not wired to the ingest hot path. Use INGESTOR_TRUST_GATE_MODE on the ingestor instead. |
 | `TRUST_DISCOVERY_CANDIDATE_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for discovery candidate selection: open, prefer_trusted, or trusted_only. |
 | `TRUST_ENABLE_REDIS_SYNC` | `trust_worker` | optional | `false` | Enable Redis graph synchronization trust job phases. |
 | `TRUST_ENABLE_SCORE_COMPUTE` | `trust_worker` | optional | `true` | Enable trust score computation trust job phases. |
@@ -113,6 +116,7 @@ Do not hand-edit this file.
 | `TRUST_FALLBACK_FETCH_MAX_RELAYS_PER_ATTEMPT` | `api, ingestor, trust_worker, worker` | optional | `3` | Maximum relay fanout permitted for each fallback attempt. |
 | `TRUST_FALLBACK_FETCH_MAX_TIME_BUDGET` | `api, ingestor, trust_worker, worker` | optional | `2s` | Total fallback time budget per lookup before fallback stops. |
 | `TRUST_FALLBACK_FETCH_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for relay fallback fetches: open, prefer_trusted, or trusted_only. |
+| `TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL` | `trust_worker` | optional | `10m` | Interval between trust_graph_snapshot rebuilds (seeds + follower edges) that the ingest gate reads. |
 | `TRUST_MAX_HOPS` | `api, ingestor, trust_worker, worker` | optional | `3` | Maximum trust-graph expansion depth used by trust-aware policy surfaces. |
 | `TRUST_MINIMUM_SCORE` | `api, ingestor, trust_worker, worker` | optional | `0` | Minimum trust score threshold used by trust-aware policy surfaces. |
 | `TRUST_REDIS_KEY_PREFIX` | `trust_worker` | optional | `nostrmash` | Prefix namespace for trust-worker Redis graph/snapshot keys. |
@@ -131,6 +135,7 @@ Do not hand-edit this file.
 | `TRUST_RETENTION_FALLBACK_METADATA_TRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `2h0m0s` | Retention horizon for trusted transient fallback metadata. |
 | `TRUST_RETENTION_FALLBACK_METADATA_UNTRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `30m0s` | Retention horizon for untrusted transient fallback metadata (should be <= trusted horizon). |
 | `TRUST_RETENTION_POLICY_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Optional trust policy mode for retention hooks: open, prefer_trusted, or trusted_only. |
+| `TRUST_RUN_INTERVAL` | `trust_worker` | optional | `1h` | Interval at which the trust worker schedules a global trust run when score compute is enabled and no run is active. |
 | `TRUST_SEARCH_RANKING_MODE` | `api, ingestor, trust_worker, worker` | optional | `prefer_trusted` | Trust policy mode for search ranking inputs: open, prefer_trusted, or trusted_only. |
 | `TRUST_SEED_PUBKEYS` | `api, ingestor, trust_worker, worker` | optional | `-` | CSV trust seed pubkeys used as trust graph roots. Required when any trust mode is trusted_only. |
 | `TRUST_SURFACE_POLICY_PRESET` | `api, ingestor, trust_worker, worker` | optional | `-` | Optional preset for public discovery/search surfaces: open (all open), balanced (prefer_trusted for discovery/search/fallback), strict (trusted_only for discovery/search/fallback). Per-surface TRUST_*_MODE env vars still override this preset when set. |
@@ -171,3 +176,8 @@ Do not hand-edit this file.
 | `WORKER_PROFILE_STATS_SWEEPER_CONCURRENCY` | `worker` | optional | `4` | Number of concurrent profile-stats sweeper goroutines. Each independently claims dirty pubkeys via FOR UPDATE SKIP LOCKED. |
 | `WORKER_PROFILE_STATS_SWEEPER_ENABLED` | `worker` | optional | `true` | Enable the background sweeper that drains pending_profile_stats_recomputes (per-pubkey ProjectProfilePublicStats and ProjectProfileDiscoveryStats recomputes deferred from derive_event_bundle). |
 | `WORKER_PROFILE_STATS_SWEEPER_INTERVAL` | `worker` | optional | `5s` | Polling interval between profile-stats sweeper batches when the dirty queue is empty. Sweepers loop without sleeping while batches are full. |
+| `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` | `worker` | optional | `168h0m0s` | Derivation-safety grace window: a dead derive_event_bundle job only blocks purge of its engagement event while updated within this window. Past it, a permanently-dead derivation no longer blocks cleanup. |
+| `WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum raw engagement events (kinds 6/7/9735) deleted per retention purge batch. |
+| `WORKER_RETENTION_ENGAGEMENT_ENABLED` | `worker` | optional | `true` | Enable periodic retention purge of raw engagement events (kinds 6/7/9735). Lifetime aggregate counters survive; only raw rows and cascade-cleaned contributions are removed. |
+| `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` | `worker` | optional | `336h0m0s` | Age (by event created_at) beyond which raw engagement events become eligible for retention purge. |
+| `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | Interval between engagement-events retention purge runs. |

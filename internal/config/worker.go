@@ -16,6 +16,7 @@ type WorkerConfig struct {
 	JobRecovery            WorkerJobRecoveryConfig
 	JobRetention           WorkerJobRetentionConfig
 	InvalidEventRetention  WorkerInvalidEventRetentionConfig
+	EngagementRetention    WorkerEngagementRetentionConfig
 	AuthorAnalyticsSweeper WorkerAuthorAnalyticsSweeperConfig
 	ProfileStatsSweeper    WorkerProfileStatsSweeperConfig
 	MeilisearchSweeper     WorkerMeilisearchSweeperConfig
@@ -100,6 +101,25 @@ type WorkerInvalidEventPayloadTrimConfig struct {
 	BatchLimit int
 }
 
+// WorkerEngagementRetentionConfig configures the purger that deletes raw
+// engagement events (kinds 6/7/9735) older than MaxAge. Lifetime aggregate
+// counters (reaction_counts/repost_counts have no FK to events) survive the
+// delete; only the high-volume raw rows and their cascade-cleaned
+// contribution/interaction rows are removed.
+//
+// DeadGrace is the derivation-safety window: a raw event is never purged while
+// its derive_event_bundle job is pending/running, nor while that job is dead
+// and was last updated within DeadGrace. Past DeadGrace a permanently-dead
+// derivation no longer blocks cleanup, so one broken path cannot pin disk
+// forever.
+type WorkerEngagementRetentionConfig struct {
+	Enabled          bool
+	MaxAge           time.Duration
+	DeadGrace        time.Duration
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
 func LoadWorker() (WorkerConfig, error) {
 	shared, err := loadSharedConfig("worker")
 	if err != nil {
@@ -146,6 +166,22 @@ func LoadWorker() (WorkerConfig, error) {
 		return WorkerConfig{}, err
 	}
 	invalidPayloadTrimBatchLimit, err := getEnvPositiveIntStrict("WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT", 500)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	engagementRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_MAX_AGE", 14*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	engagementRetentionDeadGrace, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE", 7*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	engagementRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL", 1*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	engagementRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT", 2000)
 	if err != nil {
 		return WorkerConfig{}, err
 	}
@@ -211,6 +247,13 @@ func LoadWorker() (WorkerConfig, error) {
 				MaxAge:     invalidPayloadTrimMaxAge,
 				BatchLimit: invalidPayloadTrimBatchLimit,
 			},
+		},
+		EngagementRetention: WorkerEngagementRetentionConfig{
+			Enabled:          getEnvBool("WORKER_RETENTION_ENGAGEMENT_ENABLED", true),
+			MaxAge:           engagementRetentionMaxAge,
+			DeadGrace:        engagementRetentionDeadGrace,
+			RunInterval:      engagementRetentionRunInterval,
+			DeleteBatchLimit: engagementRetentionDeleteBatchLimit,
 		},
 		AuthorAnalyticsSweeper: WorkerAuthorAnalyticsSweeperConfig{
 			Enabled:        getEnvBool("WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED", true),
@@ -339,6 +382,20 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 			if cfg.InvalidEventRetention.PayloadTrim.MaxAge >= cfg.InvalidEventRetention.MaxAge {
 				return fmt.Errorf("WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE must be smaller than WORKER_INVALID_EVENTS_RETENTION_MAX_AGE")
 			}
+		}
+	}
+	if cfg.EngagementRetention.Enabled {
+		if cfg.EngagementRetention.MaxAge <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_ENGAGEMENT_MAX_AGE must be > 0")
+		}
+		if cfg.EngagementRetention.DeadGrace <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE must be > 0")
+		}
+		if cfg.EngagementRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL must be > 0")
+		}
+		if cfg.EngagementRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT must be > 0")
 		}
 	}
 	if cfg.AuthorAnalyticsSweeper.Enabled {

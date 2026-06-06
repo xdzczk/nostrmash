@@ -227,6 +227,27 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Description:  "Minimum stability window before newly seen trust candidates become active.",
 		},
 		{
+			Name:         "INGESTOR_TRUST_GATE_MAX_HOPS",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "2",
+			Description:  "Maximum trust-graph hop distance from a seed for an author to be considered trusted by the live ingest gate.",
+		},
+		{
+			Name:         "INGESTOR_TRUST_GATE_MODE",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "open",
+			Description:  "Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce kind-1 author trust and 6/7/9735 target-exists).",
+		},
+		{
+			Name:         "INGESTOR_TRUST_GATE_REFRESH_INTERVAL",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "2m",
+			Description:  "Interval between refreshes of the in-memory trusted-author set loaded from trust_graph_snapshot.",
+		},
+		{
 			Name:         "INGESTOR_TRUST_PRIORITIZATION_ENABLED",
 			Runtimes:     []string{"ingestor"},
 			Required:     false,

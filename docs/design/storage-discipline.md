@@ -119,6 +119,33 @@ All three are part of the search read path. Phase 4 may shrink the table by trim
 5. **`trusted_*_discovery_candidates`** — wire dormant `TrustRetentionHooks` to actual deletes. **Phase 4.**
 6. **`event_tags` partial indexes** — only after Phase 2 confirms that the DM/parity/highlights endpoints are not in this deployment's scope. Drop confirmed-dead indexes. **Phase 2.**
 
+## Tier 2/3: trust-bounded ingest + engagement retention (shipped)
+
+These changes bound storage growth at the source rather than pruning canonical notes after the fact.
+
+### Trust-bounded canonical ingest (ingest gate)
+
+- **Kind `1` author gate**: persist notes only when the author is in `trust_graph_snapshot` within `INGESTOR_TRUST_GATE_MAX_HOPS` of a seed.
+- **Kinds `6`/`7`/`9735` target gate**: persist engagement only when the target event already exists locally (self-consistent; lossy if engagement arrives before its target).
+- **Open kinds** (`0`, `3`, `5`, `10002`): still ingested so the trust graph and profiles can bootstrap.
+- **Shadow rollout**: default `INGESTOR_TRUST_GATE_MODE=open` records `nostrmash_ingest_gate_decisions_total` without rejecting; flip to `trusted_only` after trusted-set metrics look sane.
+- **Prerequisites**: `trust_worker` reconciles seeds, refreshes `trust_graph_snapshot`, and schedules global trust runs.
+
+See [architecture/trust-bounded-ingest.md](../architecture/trust-bounded-ingest.md).
+
+### Engagement raw retention
+
+- **Target**: raw `events WHERE kind IN (6,7,9735)` older than `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` (default 14d).
+- **Survivors**: `reaction_counts`, `repost_counts` (no FK to `events`); windowed discovery scores unaffected.
+- **Derivation-safe guard**: do not purge while `derive_event_bundle` is pending/running, or dead within `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` (default 7d).
+- **Metrics**: `nostrmash_retention_purged_rows_total{target="engagement_events"}`.
+
+### What remains unbounded (follow-ups)
+
+- Canonical kind-`1` notes from trusted authors (retention deferred by design).
+- Raw kind `0`/`3`/`10002` from the firehose (next Tier 2 lever once gate growth is measured).
+- `pubkey_references`, `author_recent_events`, `search_documents` (earlier phases).
+
 ## Implementation order
 
 1. **Phase 1 (this PR)**: jobs lifetime correctness + tighter retention + trust-worker retention + per-status/per-job_type metrics. See `## Phase 1` below.

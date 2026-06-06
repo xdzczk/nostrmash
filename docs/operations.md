@@ -27,6 +27,7 @@ What it does not try to be:
 - [SLO-driven triage](#slo-driven-triage)
 - [Alert response playbook](#alert-response-playbook)
 - [Debug and build identity](#debug-and-build-identity)
+- [Trust-bounded ingest rollout](#trust-bounded-ingest-rollout)
 - [Contributor handoff checklist](#contributor-handoff-checklist)
 
 ## Operator checklist
@@ -72,6 +73,100 @@ Use this sequence when the API is up but the data feels behind:
 3. Check `GET /admin/v1/jobs` for backlog, retries, or dead jobs that would slow projection freshness.
 4. If raw events appear current but product-facing reads still lag, inspect `GET /admin/v1/derivation-versions` and `GET /admin/v1/rebuilds`.
 5. Use [observability.md](observability.md) to decide whether the issue is ingest freshness, queue pressure, DB saturation, or a failing derivation path.
+
+## Trust-bounded ingest rollout
+
+Use this section when enabling the storage-bounding layer after deploy. Full design: [architecture/trust-bounded-ingest.md](architecture/trust-bounded-ingest.md).
+
+### Architecture at a glance
+
+1. **`trust_worker`** writes seeds → refreshes `trust_graph_snapshot` → runs global trust scores.
+2. **`ingestor`** loads the snapshot into memory and gates kind `1` (author) and kinds `6`/`7`/`9735` (target-exists) before canonical writes.
+3. **`worker`** purges raw engagement events older than ~14 days (lifetime counters survive).
+
+### Required env vars (production)
+
+Set these on the relevant Coolify services or in your Compose env blocks.
+
+**Shared (all services that load trust policy):**
+
+```bash
+# Comma-separated hex pubkeys — your WoT roots. Required before trusted_only gate.
+TRUST_SEED_PUBKEYS=<hex_pubkey>,<hex_pubkey>
+```
+
+**`trust_worker` service:**
+
+```bash
+TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL=10m
+TRUST_RUN_INTERVAL=1h
+TRUST_ENABLE_SCORE_COMPUTE=true
+```
+
+**`ingestor` service — phase 1 (shadow, default):**
+
+```bash
+INGESTOR_TRUST_GATE_MODE=open
+INGESTOR_TRUST_GATE_MAX_HOPS=2
+INGESTOR_TRUST_GATE_REFRESH_INTERVAL=2m
+```
+
+**`ingestor` service — phase 2 (enforce, after warmup):**
+
+```bash
+INGESTOR_TRUST_GATE_MODE=trusted_only
+```
+
+**`worker` service (engagement retention, on by default):**
+
+```bash
+WORKER_RETENTION_ENGAGEMENT_ENABLED=true
+WORKER_RETENTION_ENGAGEMENT_MAX_AGE=336h
+WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE=168h
+WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL=1h
+WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT=2000
+```
+
+### Rollout checklist
+
+**Before first deploy**
+
+1. Choose `TRUST_SEED_PUBKEYS` (at least one well-connected pubkey you trust).
+2. Confirm `trust_worker`, `ingestor`, and `worker` share the same `DATABASE_URL`.
+3. Leave `INGESTOR_TRUST_GATE_MODE=open` for the first deploy.
+
+**After deploy (shadow period, ~24–48h)**
+
+1. Check `trust_worker` logs for `trust_seed_reconcile_completed` and `trust_graph_snapshot_refreshed`.
+2. On ingestor metrics (`METRICS_ADDR`, default `:9090`):
+   - `nostrmash_ingest_trusted_set_loaded` should be `1`
+   - `nostrmash_ingest_trusted_set_size` should be ≥ seed count (grows as kind-3 edges arrive)
+   - `nostrmash_ingest_gate_decisions_total{decision="shadow_reject"}` shows what would be dropped
+3. Confirm disk/`events` growth is slowing relative to pre-gate baseline.
+4. Confirm worker logs show `engagement_retention_enabled`.
+
+**Flip to enforce**
+
+1. Set `INGESTOR_TRUST_GATE_MODE=trusted_only` on the ingestor and restart.
+2. Watch `reject_untrusted_author` and `reject_missing_target` gate decisions — non-zero is expected.
+3. Sustained `fail_closed` means the trusted set never loaded; check DB connectivity and `trust_graph_snapshot` before staying in enforce mode.
+
+**Ongoing**
+
+- `nostrmash_retention_purged_rows_total{target="engagement_events"}` — ticks when eligible rows exist.
+- `nostrmash_ingest_trusted_set_age_seconds` — alert if stale (see observability doc).
+- `nostrmash_trust_active_snapshot_age_seconds` — global score freshness (separate from gate snapshot).
+
+### Fresh database bootstrap
+
+1. Deploy with `INGESTOR_TRUST_GATE_MODE=open`.
+2. Snapshot starts as seeds only; trusted set grows as kind-3 contact lists ingest.
+3. Flip to `trusted_only` only when `trusted_set_loaded=1` and size reflects your expected subgraph.
+4. Enforce stops new untrusted kind-1 accumulation; it does not retroactively delete existing notes.
+
+### Deprecated
+
+- `TRUST_CANONICAL_INGEST_MODE` — deprecated, not wired. Use `INGESTOR_TRUST_GATE_MODE`.
 
 ## Contributor handoff checklist
 
@@ -242,7 +337,7 @@ Use structured logs for incident details (`query_fallback_lookup_failed` with `e
 Storage/retention signal ownership:
 
 - Storage gauges are emitted by the API process (`GET /metrics` on API).
-- Retention purge counters (`nostrmash_retention_purge_runs_total`, `nostrmash_retention_purged_rows_total`) are emitted by the worker process (`METRICS_ADDR` when enabled).
+- Retention purge counters (`nostrmash_retention_purge_runs_total`, `nostrmash_retention_purged_rows_total`) are emitted by the worker process (`METRICS_ADDR` when enabled). Targets include `jobs_terminal`, `invalid_events`, `invalid_events_payload`, and `engagement_events`.
 - Sustained growth slope matters more than one-off size steps after migrations/rebuilds.
 
 Build/runtime identification:
@@ -321,6 +416,8 @@ Worker throughput tuning:
 - `WORKER_INVALID_EVENTS_RETENTION_MAX_AGE`, `WORKER_INVALID_EVENTS_RETENTION_RUN_INTERVAL`, and `WORKER_INVALID_EVENTS_RETENTION_DELETE_BATCH_LIMIT` bound invalid-event retention behavior.
 - `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_ENABLED` enables optional payload-only trimming (`raw_payload -> NULL`) before full-row retention.
 - `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE` and `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT` bound payload trimming when enabled.
+- `WORKER_RETENTION_ENGAGEMENT_ENABLED` enables periodic purge of raw engagement events (kinds `6`/`7`/`9735`; default `true`).
+- `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` (default `336h`/14d), `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL`, and `WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT` bound engagement retention. Lifetime `reaction_counts`/`repost_counts` survive; derivation-safe guard blocks in-flight jobs.
 
 Primary inspection endpoint:
 
@@ -425,6 +522,13 @@ Trust-driven ingest prioritization:
 - A bounded trust-targeted pubkey frontier can be enabled with `INGESTOR_TRUST_FETCH_ENABLED`; it fetches author-scoped replaceable slices (kinds `0`, `3`, `10002`) from configured relays.
 - Frontier behavior is bounded and smoothed by `INGESTOR_TRUST_FETCH_MAX_TRACKED_PUBKEYS`, `INGESTOR_TRUST_FETCH_MAX_SELECTED_PER_CYCLE`, `INGESTOR_TRUST_FETCH_REFRESH_INTERVAL`, `INGESTOR_TRUST_FETCH_STABLE_WINDOW`, and `INGESTOR_TRUST_FETCH_MAX_PROMOTIONS_PER_CYCLE`.
 - Retry and fetch pacing are controlled by `INGESTOR_TRUST_FETCH_COOLDOWN` and `INGESTOR_TRUST_FETCH_RETRY_DELAY`; recent lookback is bounded by `INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS`.
+
+Trust-bounded ingest gate (storage bounding):
+
+- `INGESTOR_TRUST_GATE_MODE`: `open` (shadow, default) or `trusted_only` (enforce kind-1 author trust and 6/7/9735 target-exists).
+- `INGESTOR_TRUST_GATE_MAX_HOPS` (default `2`) and `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` (default `2m`) control the in-memory trusted set loaded from `trust_graph_snapshot`.
+- Prerequisites on `trust_worker`: `TRUST_SEED_PUBKEYS`, `TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL`, `TRUST_RUN_INTERVAL`.
+- Rollout guide: [Trust-bounded ingest rollout](#trust-bounded-ingest-rollout).
 
 Trust fetch and suggestion metrics:
 

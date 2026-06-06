@@ -39,6 +39,12 @@ type InvalidEventRetentionStore interface {
 	TrimInvalidEventPayloadsOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 }
 
+// EngagementRetentionStore purges expired raw engagement events. Satisfied by
+// *store.PostgresStore.
+type EngagementRetentionStore interface {
+	PurgeExpiredEngagementEvents(ctx context.Context, createdBefore time.Time, deadGraceBefore time.Time, limit int) (int64, error)
+}
+
 type ProcessJobFn func(jobCtx context.Context, job jobs.Job) error
 
 type ClaimLoopFn func(
@@ -64,6 +70,7 @@ type Bootstrap struct {
 	Pool               *pgxpool.Pool
 	Queue              Queue
 	InvalidEventsStore InvalidEventRetentionStore
+	EngagementStore    EngagementRetentionStore
 	ProcessJob         ProcessJobFn
 	Handlers           *derivation.Handlers
 	WorkerID           string
@@ -146,6 +153,7 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		Pool:               pool,
 		Queue:              queue,
 		InvalidEventsStore: postgresStore,
+		EngagementStore:    postgresStore,
 		ProcessJob: func(jobCtx context.Context, job jobs.Job) error {
 			return derivation.ProcessJob(jobCtx, handlers, derivation.Job{
 				JobType: job.JobType,
@@ -220,6 +228,13 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	logPoolCapacityBudget(log, cfg, bootstrap.Pool)
 	go RunJobRetentionLoop(ctx, log, bootstrap.Queue, cfg.JobRetention)
 	go RunInvalidEventsRetentionLoop(ctx, log, bootstrap.InvalidEventsStore, cfg.InvalidEventRetention)
+	go jobs.RunEngagementRetentionLoop(ctx, log, bootstrap.EngagementStore, jobs.EngagementRetentionConfig{
+		Enabled:          cfg.EngagementRetention.Enabled,
+		MaxAge:           cfg.EngagementRetention.MaxAge,
+		DeadGrace:        cfg.EngagementRetention.DeadGrace,
+		RunInterval:      cfg.EngagementRetention.RunInterval,
+		DeleteBatchLimit: cfg.EngagementRetention.DeleteBatchLimit,
+	})
 	go jobs.RunRowCountMetricsReporter(ctx, log, bootstrap.Pool, 60*time.Second)
 	go RunMeilisearchStartupSync(ctx, log, bootstrap.MeiliClient, bootstrap.Pool)
 	go RunRelayWindowSnapshotsLoop(ctx, log, bootstrap.Handlers)

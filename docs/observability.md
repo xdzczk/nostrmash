@@ -184,7 +184,7 @@ Queue/job operation metrics:
 - `nostrmash_retention_purge_runs_total{target,result}`
 - `nostrmash_retention_purged_rows_total{target}`
 - retention counters are emitted by the worker process retention loops
-- current retention targets include `jobs_terminal`, `invalid_events`, and optional `invalid_events_payload`
+- current retention targets include `jobs_terminal`, `invalid_events`, optional `invalid_events_payload`, and `engagement_events`
 
 Current queue/job operations instrumented:
 
@@ -210,6 +210,20 @@ Operator guidance:
 - If `get_event_replies`/`get_event_ancestors` latency grows while DB pool pressure also grows, prioritize query-plan/index and pool-capacity checks.
 - If `claim_available` or `fail_job` latency grows with rising worker retries/dead outcomes, inspect Postgres lock/wait pressure and job backlog.
 - If worker `complete_error` or `fail_mark_error` outcomes appear, worker derivation execution may succeed/fail but queue state transitions are failing and need immediate DB path inspection.
+
+Ingest gate metrics (ingestor):
+
+- `nostrmash_ingest_gate_decisions_total{kind,decision}` — bounded labels: `kind` ∈ `1`, `6`, `7`, `9735`, `open_kind`, `other`; `decision` ∈ `accept`, `reject_untrusted_author`, `reject_missing_target`, `shadow_reject`, `fail_closed`
+- `nostrmash_ingest_trusted_set_size`
+- `nostrmash_ingest_trusted_set_loaded` — `1` after first successful load; kind `1` fail-closes in `trusted_only` when `0`
+- `nostrmash_ingest_trusted_set_age_seconds`
+- `nostrmash_ingest_events_total{outcome="gated"}`
+
+Gate operator guidance:
+
+- Shadow rollout: compare `shadow_reject` vs `accept` before setting `INGESTOR_TRUST_GATE_MODE=trusted_only`.
+- Sustained `fail_closed` after enforce → trusted set never loaded; check `trust_worker` snapshot refresh.
+- Alert when `nostrmash_ingest_trusted_set_age_seconds` exceeds `2 × INGESTOR_TRUST_GATE_REFRESH_INTERVAL`.
 
 ## Tracing
 

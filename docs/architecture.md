@@ -11,6 +11,7 @@ Read this page when you want the system shape before diving into code. It explai
 - [Versioned derivations and rebuilds](#versioned-derivations-and-rebuilds)
 - [Why Postgres is primary](#why-postgres-is-primary)
 - [Trust and ranking expansion](#trust-and-ranking-expansion)
+- [Trust-bounded canonical ingest](#trust-bounded-canonical-ingest)
 
 ## Purpose
 
@@ -22,9 +23,9 @@ That split is the point: raw history must survive schema changes and bad project
 
 | Runtime | What it owns | Why it exists |
 | --- | --- | --- |
-| `ingestor` | Relay sessions, validation, canonical writes, invalid-event quarantine, checkpoints, and job enqueue | Keeps durable ingest truth on the front edge of the system |
-| `worker` | Default queue consumption, derivations, projections, and rebuild execution | Turns canonical truth into rebuildable read models |
-| `trust_worker` | Trust-specific job execution, Redis graph sync, trust score computation, and trust publication | Keeps heavier trust/ranking work isolated from normal projection flow |
+| `ingestor` | Relay sessions, validation, optional trust-bounded ingest gate, canonical writes, invalid-event quarantine, checkpoints, and job enqueue | Keeps durable ingest truth on the front edge of the system; can shadow or enforce author/target gates before Postgres writes |
+| `trust_worker` | Trust-specific job execution, seed reconcile, trust graph snapshot refresh, Redis graph sync, trust score computation, and trust publication | Keeps heavier trust/ranking work isolated; feeds the ingest gate via `trust_graph_snapshot` |
+| `worker` | Default queue consumption, derivations, projections, rebuild execution, and engagement raw retention | Turns canonical truth into rebuildable read models; purges aged raw engagement events (kinds 6/7/9735) |
 | `api` | Native reads, Primal compatibility, admin inspection endpoints, and API-facing metrics | Exposes product and operator surfaces without owning canonical truth |
 | `postgres` | Canonical storage, checkpoints, queue state, derivation metadata, projections, and published trust outputs | Remains the durability and consistency boundary |
 | `redis` | Disposable trust working state | Speeds graph-oriented trust computation without becoming canonical state |
@@ -177,4 +178,18 @@ A few limits are still explicit in the current code:
 - compatibility support currently covers the legacy-shaped surface documented in this repository, while future ecosystem-specific additions may still roll out in phases
 - trust/ranking continues to expand beyond the currently shipped trust worker, scores, relay suggestions, and trust-targeted ingest scheduling
 
-Use [architecture/trust-subsystem.md](architecture/trust-subsystem.md) for the deeper trust design and [architecture/orchestration-surfaces.md](architecture/orchestration-surfaces.md) for transport/query ownership on the read side.
+Use [architecture/trust-subsystem.md](architecture/trust-subsystem.md) for the deeper trust design, [architecture/trust-bounded-ingest.md](architecture/trust-bounded-ingest.md) for the storage-bounding ingest gate and engagement retention layer, and [architecture/orchestration-surfaces.md](architecture/orchestration-surfaces.md) for transport/query ownership on the read side.
+
+## Trust-bounded canonical ingest
+
+After a full firehose refill can exhaust fixed disk in weeks, NostrMash bounds canonical storage at the ingest boundary rather than treating Postgres as an infinite archive.
+
+The model:
+
+- **Trust prerequisites** (`trust_worker`): reconcile `TRUST_SEED_PUBKEYS` into `trust_seeds`, refresh `trust_graph_snapshot` on an interval, and schedule periodic global trust runs.
+- **Ingest gate** (`ingestor`): an in-memory trusted-author set loaded from the snapshot gates kind `1` by author trust and kinds `6`/`7`/`9735` by target-exists. Deploy in shadow mode (`INGESTOR_TRUST_GATE_MODE=open`) first, then flip to `trusted_only`.
+- **Engagement retention** (`worker`): purge raw engagement events after ~14 days while lifetime aggregate counters survive.
+
+Open kinds (`0`, `3`, `5`, `10002`) still enter canonical storage so the trust graph and profiles can bootstrap. That tradeoff is intentional for the first rollout but is not a permanent spam guarantee.
+
+See [architecture/trust-bounded-ingest.md](architecture/trust-bounded-ingest.md) for gate semantics, env var ownership, metrics, and rollout. See [operations.md](operations.md#trust-bounded-ingest-rollout) for the operator setup checklist.

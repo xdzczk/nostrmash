@@ -183,9 +183,20 @@ Vertex-style ideas are still useful, but should attach to NostrMash's pipeline:
 
 Important constraint:
 
-- trust may influence ingest prioritization, but canonical ingest should not stop being durable first
+- trust may influence ingest prioritization and, when explicitly enabled, the trust-bounded ingest gate (`INGESTOR_TRUST_GATE_*`). The gate is a separate, opt-in enforcement surface from read-side trust policy (`TRUST_DISCOVERY_*`, `TRUST_SEARCH_*`, etc.).
+- canonical ingest durability for **open kinds** (`0`, `3`, `5`, `10002`) and bootstrap behavior during gate warmup should remain broad even when the gate is in shadow mode.
 
-That means trust should bias scheduling and query behavior before it becomes a hard gate on whether raw events are durably written.
+See [trust-bounded-ingest.md](trust-bounded-ingest.md) for gate semantics and rollout.
+
+### Trust graph snapshot (feeds the ingest gate)
+
+`trust_worker` now maintains `trust_graph_snapshot` on a schedule:
+
+- **Seed reconcile** on startup: `TRUST_SEED_PUBKEYS` → `trust_seeds` (authoritative when configured).
+- **Snapshot refresh**: `TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL` (default `10m`) rebuilds the BFS reachable set from seeds + `follower_edges`.
+- **Global trust runs**: `TRUST_RUN_INTERVAL` (default `1h`) when score compute is enabled.
+
+The ingestor loads this snapshot into an in-memory `TrustedAuthorSet` for gate decisions without per-event DB lookups.
 
 ## Versioning and rebuild model
 
