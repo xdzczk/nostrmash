@@ -81,10 +81,13 @@ type socialCapabilities struct {
 }
 
 type eventCapabilities struct {
-	userZaps            userZapsCapability
-	highlightsByEventID highlightsByEventIDCapability
-	highlightsByATarget highlightsByATargetCapability
-	eventZapsBySats     eventZapsBySatsCapability
+	userZaps                 userZapsCapability
+	highlightsByEventID      highlightsByEventIDCapability
+	highlightsByATarget      highlightsByATargetCapability
+	eventZapsBySats          eventZapsBySatsCapability
+	authorSentZaps           authorSentZapsCapability
+	authorReactions          authorReactionsCapability
+	authorRecentEventsByKind authorRecentEventsByKindCapability
 }
 
 type threadCapabilities struct {

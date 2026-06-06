@@ -78,6 +78,8 @@ func buildRouteDefinitions(
 		newPublicRoute("POST /api/v1/profiles/batch", true, http.HandlerFunc(handlers.BatchGetProfiles)),
 		newPublicRoute("GET /api/v1/authors/{pubkey}/events", true, http.HandlerFunc(handlers.GetAuthorEvents)),
 		newPublicRoute("GET /api/v1/authors/{pubkey}/replies", true, http.HandlerFunc(handlers.GetAuthorReplies)),
+		newPublicRoute("GET /api/v1/authors/{pubkey}/zaps", true, http.HandlerFunc(handlers.GetAuthorZaps)),
+		newPublicRoute("GET /api/v1/authors/{pubkey}/reactions", true, http.HandlerFunc(handlers.GetAuthorReactions)),
 		newPublicRoute("GET /api/v1/authors/{pubkey}/analytics/summary", true, http.HandlerFunc(handlers.GetAuthorAnalyticsSummary)),
 		newPublicRoute("GET /api/v1/authors/{pubkey}/analytics/topics", true, http.HandlerFunc(handlers.GetAuthorAnalyticsTopics)),
 		newPublicRoute("GET /api/v1/authors/{pubkey}/analytics/grouped-notes", true, http.HandlerFunc(handlers.GetAuthorAnalyticsGroupedNotes)),

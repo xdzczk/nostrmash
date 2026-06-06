@@ -28,6 +28,12 @@ func normalizeProfileSearchQuery(raw string) normalizedProfileSearchQuery {
 	return out
 }
 
+// CanonicalizePubkey normalizes hex or bech32 npub identifiers to lowercase hex.
+// Returns an empty string when the input is not a valid pubkey identifier.
+func CanonicalizePubkey(raw string) string {
+	return canonicalizePubkeyIdentifier(raw)
+}
+
 func canonicalizePubkeyIdentifier(raw string) string {
 	value := strings.TrimSpace(strings.ToLower(raw))
 	if value == "" {

@@ -49,7 +49,10 @@ type fakeEventReader struct {
 	getAuthorRecycleCandidatesFn     func(context.Context, string, int, int, float64, bool, bool, int, int) ([]store.AuthorRecycleCandidateProjection, error)
 	getAuthorPerformanceAggregateFn  func(context.Context, string, int) (store.AuthorPerformanceAggregateProjection, store.AuthorPerformanceAggregateProjection, error)
 	getAuthorEventsFn                func(context.Context, string, int) ([]json.RawMessage, error)
+	getAuthorRecentEventsByKindFn    func(context.Context, string, int, int) ([]json.RawMessage, error)
 	getAuthorRepliesFn               func(context.Context, string, int) ([]json.RawMessage, error)
+	getAuthorSentZapsFn              func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	getAuthorReactionsFn             func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
 	getEventCountsFn                 func(context.Context, string) (store.EventCounts, error)
 	getEventRepliesFn                func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
 	getEventAncestors                func(context.Context, string, int) ([]json.RawMessage, []string, error)
@@ -153,6 +156,37 @@ func (f fakeEventReader) GetAuthorRecentEvents(ctx context.Context, pubkey strin
 		return nil, errors.New("not implemented")
 	}
 	return f.getAuthorEventsFn(ctx, pubkey, limit)
+}
+
+func (f fakeEventReader) GetAuthorRecentEventsByKind(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error) {
+	if f.getAuthorRecentEventsByKindFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getAuthorRecentEventsByKindFn(ctx, pubkey, kind, limit)
+}
+
+func (f fakeEventReader) GetAuthorSentZaps(
+	ctx context.Context,
+	pubkey string,
+	limit int,
+	cursor *store.EventOrderCursor,
+) ([]json.RawMessage, *store.EventOrderCursor, error) {
+	if f.getAuthorSentZapsFn == nil {
+		return nil, nil, errors.New("not implemented")
+	}
+	return f.getAuthorSentZapsFn(ctx, pubkey, limit, cursor)
+}
+
+func (f fakeEventReader) GetAuthorReactions(
+	ctx context.Context,
+	pubkey string,
+	limit int,
+	cursor *store.EventOrderCursor,
+) ([]json.RawMessage, *store.EventOrderCursor, error) {
+	if f.getAuthorReactionsFn == nil {
+		return nil, nil, errors.New("not implemented")
+	}
+	return f.getAuthorReactionsFn(ctx, pubkey, limit, cursor)
 }
 
 func (f fakeEventReader) GetAuthorAnalyticsSummary(

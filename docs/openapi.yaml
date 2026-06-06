@@ -333,6 +333,10 @@ paths:
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: kind
+          schema: { type: integer, minimum: 0 }
+          description: Optional kind filter (e.g. 9735 for sent zap receipts in author feed)
       responses:
         '200':
           description: Event list
@@ -351,6 +355,42 @@ paths:
       responses:
         '200':
           description: Reply list
+  /api/v1/authors/{pubkey}/zaps:
+    get:
+      tags: [public]
+      summary: Zap receipts sent by pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string, description: Hex pubkey or npub }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: Sent zap records with optional embedded target notes
+  /api/v1/authors/{pubkey}/reactions:
+    get:
+      tags: [public]
+      summary: Kind 7 reactions authored by pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string, description: Hex pubkey or npub }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reaction records with optional embedded target notes
   /api/v1/authors/{pubkey}/analytics/summary:
     get:
       tags: [public]
@@ -1021,7 +1061,7 @@ paths:
   /api/v1/users/{pubkey}/zaps:
     get:
       tags: [public]
-      summary: Kind 9735 zap receipts authored by pubkey
+      summary: Zap receipts received by pubkey
       parameters:
         - in: path
           name: pubkey

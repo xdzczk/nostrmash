@@ -3,6 +3,8 @@ package query
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 type isUserFollowingCapability interface {
@@ -38,6 +40,18 @@ type eventZapsBySatsCapability interface {
 	GetEventZapsBySats(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error)
 }
 
+type authorSentZapsCapability interface {
+	GetAuthorSentZaps(ctx context.Context, pubkey string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+}
+
+type authorReactionsCapability interface {
+	GetAuthorReactions(ctx context.Context, pubkey string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+}
+
+type authorRecentEventsByKindCapability interface {
+	GetAuthorRecentEventsByKind(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error)
+}
+
 func adaptEventCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(userZapsCapability); ok {
 		caps.event.userZaps = r
@@ -50,5 +64,14 @@ func adaptEventCapabilities(reader any, caps *serviceCapabilities) {
 	}
 	if r, ok := reader.(eventZapsBySatsCapability); ok {
 		caps.event.eventZapsBySats = r
+	}
+	if r, ok := reader.(authorSentZapsCapability); ok {
+		caps.event.authorSentZaps = r
+	}
+	if r, ok := reader.(authorReactionsCapability); ok {
+		caps.event.authorReactions = r
+	}
+	if r, ok := reader.(authorRecentEventsByKindCapability); ok {
+		caps.event.authorRecentEventsByKind = r
 	}
 }
