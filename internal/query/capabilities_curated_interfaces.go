@@ -70,6 +70,10 @@ type trendingNotesCapability interface {
 	GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error)
 }
 
+type trendingLongFormCapability interface {
+	GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error)
+}
+
 type hotConversationsCapability interface {
 	GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]HotConversation, error)
 }

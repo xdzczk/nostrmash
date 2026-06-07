@@ -123,10 +123,11 @@ type WorkerEngagementRetentionConfig struct {
 }
 
 // WorkerReplaceableRetentionConfig configures the purger that deletes raw
-// replaceable events (kinds 0/3/10002) that have been strictly superseded by a
-// newer winner. The latest-version projections (contact_lists_latest,
-// relay_lists_latest, profiles_latest, replaceable_state) all reference the
-// winner, so only superseded versions are removed and the read models survive.
+// replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023)
+// that have been strictly superseded by a newer winner. The latest-version
+// projections (contact_lists_latest, relay_lists_latest, profiles_latest,
+// replaceable_state) all reference the winner, so only superseded versions are
+// removed and the read models survive.
 //
 // MinAge is the stability window applied to events.first_seen_at: a superseded
 // version is only eligible once it has existed for at least this long, so a

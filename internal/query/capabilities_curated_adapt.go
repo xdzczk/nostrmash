@@ -79,6 +79,11 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	} else if legacy, ok := reader.(legacyTrendingNotesCapability); ok {
 		caps.curated.trendingNotes = legacyTrendingNotesAdapter{legacy: legacy}
 	}
+	if r, ok := reader.(trendingLongFormCapability); ok {
+		caps.curated.trendingLongForm = r
+	} else if legacy, ok := reader.(legacyTrendingLongFormCapability); ok {
+		caps.curated.trendingLongForm = legacyTrendingLongFormAdapter{legacy: legacy}
+	}
 	if r, ok := reader.(hotConversationsCapability); ok {
 		caps.curated.hotConversations = r
 	} else if legacy, ok := reader.(legacyHotConversationsCapability); ok {

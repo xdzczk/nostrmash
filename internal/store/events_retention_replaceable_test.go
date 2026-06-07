@@ -21,11 +21,26 @@ func insertReplaceableEventRow(t *testing.T, ctx context.Context, pool *pgxpool.
 
 func insertReplaceableWinner(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pubkey string, kind int, eventID string, createdAt int64) {
 	t.Helper()
+	insertParameterizedReplaceableWinner(t, ctx, pool, pubkey, kind, "", eventID, createdAt)
+}
+
+func insertParameterizedReplaceableWinner(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pubkey string, kind int, dTag, eventID string, createdAt int64) {
+	t.Helper()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO replaceable_state (pubkey, kind, d_tag, event_id, created_at, derivation_version)
-		VALUES ($1, $2, '', $3, $4, 1)
-	`, pubkey, kind, eventID, createdAt); err != nil {
+		VALUES ($1, $2, $3, $4, $5, 1)
+	`, pubkey, kind, dTag, eventID, createdAt); err != nil {
 		t.Fatalf("insert replaceable_state winner %s: %v", eventID, err)
+	}
+}
+
+func insertReplaceableDTag(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, dTag string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO event_tags (event_id, tag_name, tag_index, value_index, value, raw_values)
+		VALUES ($1, 'd', 0, 0, $2, '[]'::jsonb)
+	`, eventID, dTag); err != nil {
+		t.Fatalf("insert d tag for %s: %v", eventID, err)
 	}
 }
 
@@ -74,16 +89,36 @@ func TestPurgeSupersededReplaceableEvents_SafeGuards(t *testing.T) {
 	// Non-replaceable kind that is "superseded"-shaped should be ignored.
 	insertReplaceableEventRow(t, ctx, pool, "k1_old", "A", 1, 100, oldSeen)
 
+	// Pubkey F, parameterized kind 30023: superseded version under d_tag "art"
+	// -> purge. A separate d_tag "bio" has only its winner -> kept, and must not
+	// be matched as the superseding winner for the "art" address.
+	insertReplaceableEventRow(t, ctx, pool, "f_art_win", "F", 30023, 200, oldSeen)
+	insertReplaceableDTag(t, ctx, pool, "f_art_win", "art")
+	insertReplaceableEventRow(t, ctx, pool, "f_art_old", "F", 30023, 100, oldSeen)
+	insertReplaceableDTag(t, ctx, pool, "f_art_old", "art")
+	insertParameterizedReplaceableWinner(t, ctx, pool, "F", 30023, "art", "f_art_win", 200)
+	insertReplaceableEventRow(t, ctx, pool, "f_bio_only", "F", 30023, 300, oldSeen)
+	insertReplaceableDTag(t, ctx, pool, "f_bio_only", "bio")
+	insertParameterizedReplaceableWinner(t, ctx, pool, "F", 30023, "bio", "f_bio_only", 300)
+
+	// Pubkey G, kind 10003 (non-parameterized, d_tag ''): superseded -> purge.
+	insertReplaceableEventRow(t, ctx, pool, "g_win", "G", 10003, 200, oldSeen)
+	insertReplaceableEventRow(t, ctx, pool, "g_old", "G", 10003, 100, oldSeen)
+	insertReplaceableWinner(t, ctx, pool, "G", 10003, "g_win", 200)
+
 	deleted, err := NewPostgresStore(pool).PurgeSupersededReplaceableEvents(ctx, supersededBefore, deadGraceBefore, 100)
 	if err != nil {
 		t.Fatalf("purge: %v", err)
 	}
-	if deleted != 2 {
-		t.Fatalf("expected 2 deletions, got %d", deleted)
+	if deleted != 4 {
+		t.Fatalf("expected 4 deletions, got %d", deleted)
 	}
 
 	got := remainingEventIDs(t, ctx, pool)
-	want := []string{"a3_win", "b0_win", "c_win", "c_pending", "c_recent", "d3_only", "e3_old_proj", "e3_new", "k1_old"}
+	want := []string{
+		"a3_win", "b0_win", "c_win", "c_pending", "c_recent", "d3_only",
+		"e3_old_proj", "e3_new", "k1_old", "f_art_win", "f_bio_only", "g_win",
+	}
 	sort.Strings(want)
 	if len(got) != len(want) {
 		t.Fatalf("remaining mismatch: got %v want %v", got, want)

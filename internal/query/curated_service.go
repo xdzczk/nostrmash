@@ -118,6 +118,16 @@ func (s Service) GetTrendingNotes(ctx context.Context, window time.Duration, lim
 	return nil, unsupportedCapabilityError("trending notes")
 }
 
+func (s Service) GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+	if r := s.capabilities.curated.trendingLongForm; r != nil {
+		if s.discoveryTrustMode == trustModeOpen {
+			return r.GetTrendingLongForm(ctx, window, limit, offset)
+		}
+		return s.getTrendingLongFormTrustAware(ctx, window, limit, offset)
+	}
+	return nil, unsupportedCapabilityError("trending long-form")
+}
+
 func (s Service) GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]HotConversation, error) {
 	if r := s.capabilities.curated.hotConversations; r != nil {
 		return r.GetHotConversations(ctx, window, limit, offset)

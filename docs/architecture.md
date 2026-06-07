@@ -25,7 +25,7 @@ That split is the point: raw history must survive schema changes and bad project
 | --- | --- | --- |
 | `ingestor` | Relay sessions, validation, optional trust-bounded ingest gate, canonical writes, invalid-event quarantine, checkpoints, and job enqueue | Keeps durable ingest truth on the front edge of the system; can shadow or enforce author/target gates before Postgres writes |
 | `trust_worker` | Trust-specific job execution, seed reconcile, trust graph snapshot refresh, Redis graph sync, trust score computation, and trust publication | Keeps heavier trust/ranking work isolated; feeds the ingest gate via `trust_graph_snapshot` |
-| `worker` | Default queue consumption, derivations, projections, rebuild execution, and raw-event retention | Turns canonical truth into rebuildable read models; purges aged raw engagement events (kinds 6/7/9735), superseded replaceable events (kinds 0/3/10002), and processed deletion events (kind 5) |
+| `worker` | Default queue consumption, derivations, projections, rebuild execution, and raw-event retention | Turns canonical truth into rebuildable read models; purges aged raw engagement events (kinds 6/7/9735), superseded replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023), and processed deletion events (kind 5) |
 | `api` | Native reads, Primal compatibility, admin inspection endpoints, and API-facing metrics | Exposes product and operator surfaces without owning canonical truth |
 | `postgres` | Canonical storage, checkpoints, queue state, derivation metadata, projections, and published trust outputs | Remains the durability and consistency boundary |
 | `redis` | Disposable trust working state | Speeds graph-oriented trust computation without becoming canonical state |
@@ -187,7 +187,7 @@ After a full firehose refill can exhaust fixed disk in weeks, NostrMash bounds c
 The model:
 
 - **Trust prerequisites** (`trust_worker`): reconcile `TRUST_SEED_PUBKEYS` into `trust_seeds`, refresh `trust_graph_snapshot` on an interval, and schedule periodic global trust runs.
-- **Ingest gate** (`ingestor`): an in-memory trusted-author set loaded from the snapshot gates kind `1` by author trust and kinds `6`/`7`/`9735` by target-exists. Deploy in shadow mode (`INGESTOR_TRUST_GATE_MODE=open`) first, then flip to `trusted_only`.
+- **Ingest gate** (`ingestor`): an in-memory trusted-author set loaded from the snapshot gates authored kinds `1`/`4`/`9802`/`10000`/`10003`/`30023` by author trust and kinds `6`/`7`/`9735` by target-exists. Deploy in shadow mode (`INGESTOR_TRUST_GATE_MODE=open`) first, then flip to `trusted_only`.
 - **Engagement retention** (`worker`): purge raw engagement events after ~14 days while lifetime aggregate counters survive.
 
 Open kinds (`0`, `3`, `5`, `10002`) still enter canonical storage so the trust graph and profiles can bootstrap. That tradeoff is intentional for the first rollout but is not a permanent spam guarantee.

@@ -238,7 +238,7 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Runtimes:     []string{"ingestor"},
 			Required:     false,
 			DefaultValue: "open",
-			Description:  "Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce kind-1 author trust and 6/7/9735 target-exists).",
+			Description:  "Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce author trust for kinds 1/4/9802/10000/10003/30023 and 6/7/9735 target-exists).",
 		},
 		{
 			Name:         "INGESTOR_TRUST_GATE_REFRESH_INTERVAL",

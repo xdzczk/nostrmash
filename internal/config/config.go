@@ -331,10 +331,18 @@ func applyConfiguredFilterGroups(cfg *RelayConfig) error {
 	return nil
 }
 
+// defaultFilterGroupKinds is the canonical live-ingest kind set for
+// default_v1. Ordering is kept ascending so it matches the sorted form used by
+// validateFilterGroups. Authored kinds (1, 4, 9802, 10000, 10003, 30023) are
+// author-trust-gated in internal/ingestor/live/gate.go; engagement kinds
+// (6, 7, 9735) are target-gated; the rest (0, 3, 5, 10002) stay open so the
+// trust graph and profiles can bootstrap.
+var defaultFilterGroupKinds = []int{0, 1, 3, 4, 5, 6, 7, 9735, 9802, 10000, 10002, 10003, 30023}
+
 func defaultFilterGroups() map[string]FilterGroup {
 	return map[string]FilterGroup{
 		defaultFilterGroupName: {
-			Kinds: []int{0, 1, 3, 5, 6, 7, 9735, 10002},
+			Kinds: append([]int(nil), defaultFilterGroupKinds...),
 		},
 	}
 }
@@ -347,13 +355,13 @@ func validateFilterGroups(cfg RelayConfig) error {
 	if !ok {
 		return fmt.Errorf("relay filter group %q is required", defaultFilterGroupName)
 	}
-	wantKinds := []int{0, 1, 3, 5, 6, 7, 9735, 10002}
+	wantKinds := append([]int(nil), defaultFilterGroupKinds...)
 	gotKinds := append([]int(nil), defaultGroup.Kinds...)
 	slices.Sort(gotKinds)
 	slices.Sort(wantKinds)
 	if !slices.Equal(gotKinds, wantKinds) {
 		return fmt.Errorf(
-			"relay filter group %q must use kinds 0,1,3,5,6,7,9735,10002 in this chunk",
+			"relay filter group %q must use kinds 0,1,3,4,5,6,7,9735,9802,10000,10002,10003,30023 in this chunk",
 			defaultFilterGroupName,
 		)
 	}

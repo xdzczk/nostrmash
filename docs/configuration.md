@@ -73,7 +73,7 @@ Do not hand-edit this file.
 | `INGESTOR_TRUST_FETCH_RETRY_DELAY` | `ingestor` | optional | `10m` | Delay before retrying a pubkey after targeted fetch errors. |
 | `INGESTOR_TRUST_FETCH_STABLE_WINDOW` | `ingestor` | optional | `10m` | Minimum stability window before newly seen trust candidates become active. |
 | `INGESTOR_TRUST_GATE_MAX_HOPS` | `ingestor` | optional | `2` | Maximum trust-graph hop distance from a seed for an author to be considered trusted by the live ingest gate. |
-| `INGESTOR_TRUST_GATE_MODE` | `ingestor` | optional | `open` | Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce kind-1 author trust and 6/7/9735 target-exists). |
+| `INGESTOR_TRUST_GATE_MODE` | `ingestor` | optional | `open` | Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce author trust for kinds 1/4/9802/10000/10003/30023 and 6/7/9735 target-exists). |
 | `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` | `ingestor` | optional | `2m` | Interval between refreshes of the in-memory trusted-author set loaded from trust_graph_snapshot. |
 | `INGESTOR_TRUST_PRIORITIZATION_ENABLED` | `ingestor` | optional | `true` | Enable trust-driven relay ordering for ingestor startup ordering. |
 | `INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS` | `ingestor` | optional | `2000` | Maximum top trust pubkeys considered for relay ordering. |
@@ -187,7 +187,7 @@ Do not hand-edit this file.
 | `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` | `worker` | optional | `336h0m0s` | Age (by event created_at) beyond which raw engagement events become eligible for retention purge. |
 | `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | Interval between engagement-events retention purge runs. |
 | `WORKER_RETENTION_REPLACEABLE_DEAD_GRACE` | `worker` | optional | `168h0m0s` | Derivation-safety grace window: a dead derive_event_bundle job only blocks purge of its superseded replaceable event while updated within this window. Past it, a permanently-dead derivation no longer blocks cleanup. |
-| `WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum superseded replaceable events (kinds 0/3/10002) deleted per retention purge batch. |
-| `WORKER_RETENTION_REPLACEABLE_ENABLED` | `worker` | optional | `true` | Enable periodic retention purge of superseded raw replaceable events (kinds 0/3/10002). Only versions strictly older than the current winner are removed; latest-version projections (contact_lists_latest, relay_lists_latest, profiles_latest, replaceable_state) survive. |
+| `WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum superseded replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023) deleted per retention purge batch. |
+| `WORKER_RETENTION_REPLACEABLE_ENABLED` | `worker` | optional | `true` | Enable periodic retention purge of superseded raw replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023). Only versions strictly older than the current winner are removed; latest-version projections (contact_lists_latest, relay_lists_latest, profiles_latest, replaceable_state) survive. |
 | `WORKER_RETENTION_REPLACEABLE_MIN_AGE` | `worker` | optional | `24h0m0s` | Stability window (by events.first_seen_at) a superseded replaceable version must reach before it becomes eligible for retention purge. |
 | `WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | Interval between superseded-replaceable retention purge runs. |

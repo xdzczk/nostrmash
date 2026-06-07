@@ -74,7 +74,7 @@ func (s *PostgresStore) SearchNotes(
 				) AS rank
 			FROM events
 			LEFT JOIN note_discovery_stats nds ON nds.event_id = events.id
-			WHERE events.kind = 1
+			WHERE events.kind IN (1, 30023)
 			  AND ($3::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $3::bigint))
 			  AND (
 				$4::text IS NULL OR (

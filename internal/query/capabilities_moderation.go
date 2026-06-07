@@ -1,9 +1,16 @@
 package query
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 type moderationListByKindCapability interface {
 	GetModerationList(ctx context.Context, pubkey string, kind int) ([]string, error)
+}
+
+type moderationMutedByCapability interface {
+	GetMutedBy(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error)
 }
 
 type moderationListByIdentifierCapability interface {
@@ -17,6 +24,9 @@ type hiddenByContentModerationCapability interface {
 func adaptModerationCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(moderationListByKindCapability); ok {
 		caps.moderation.listByKind = r
+	}
+	if r, ok := reader.(moderationMutedByCapability); ok {
+		caps.moderation.mutedBy = r
 	}
 	if r, ok := reader.(moderationListByIdentifierCapability); ok {
 		caps.moderation.listByIdentifier = r

@@ -81,6 +81,24 @@ func TestEvaluateGate_Kind1Author(t *testing.T) {
 	}
 }
 
+func TestEvaluateGate_AuthorGatedProductKinds(t *testing.T) {
+	t.Parallel()
+	trusted := &fakeTrustedAuthors{loaded: true, members: map[string]struct{}{"alice": {}}}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, &fakeTargetChecker{})
+
+	for _, kind := range []int{4, 9802, 10000, 10003, 30023} {
+		if d := enforce.evaluateGate(context.Background(), kind, "alice", nil); !d.accept || d.decision != gateDecisionAccept {
+			t.Fatalf("kind %d trusted author: expected accept, got %+v", kind, d)
+		}
+		if d := enforce.evaluateGate(context.Background(), kind, "mallory", nil); d.accept || d.decision != gateDecisionRejectUntrustedAuthor {
+			t.Fatalf("kind %d untrusted author enforce: expected reject_untrusted_author, got %+v", kind, d)
+		}
+		if d := enforce.evaluateGate(context.Background(), kind, "mallory", nil); d.kindLabel != gateKindLabel(kind) || d.kindLabel == "other" {
+			t.Fatalf("kind %d: expected dedicated metric label, got %q", kind, d.kindLabel)
+		}
+	}
+}
+
 func TestEvaluateGate_Kind1FailClosedWhenNeverLoaded(t *testing.T) {
 	t.Parallel()
 	neverLoaded := &fakeTrustedAuthors{loaded: false}

@@ -315,14 +315,14 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "2000",
-			Description:  "Maximum superseded replaceable events (kinds 0/3/10002) deleted per retention purge batch.",
+			Description:  "Maximum superseded replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023) deleted per retention purge batch.",
 		},
 		{
 			Name:         "WORKER_RETENTION_REPLACEABLE_ENABLED",
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "true",
-			Description:  "Enable periodic retention purge of superseded raw replaceable events (kinds 0/3/10002). Only versions strictly older than the current winner are removed; latest-version projections (contact_lists_latest, relay_lists_latest, profiles_latest, replaceable_state) survive.",
+			Description:  "Enable periodic retention purge of superseded raw replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023). Only versions strictly older than the current winner are removed; latest-version projections (contact_lists_latest, relay_lists_latest, profiles_latest, replaceable_state) survive.",
 		},
 		{
 			Name:         "WORKER_RETENTION_REPLACEABLE_MIN_AGE",

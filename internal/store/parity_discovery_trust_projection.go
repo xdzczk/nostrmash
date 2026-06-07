@@ -14,8 +14,37 @@ const (
 	discoveryProjectionModeTrustedOnly   = "trusted_only"
 )
 
+// GetTrustQualifiedTrendingNotes returns trust-qualified trending short notes
+// (kind 1 only). Long-form articles are served by GetTrustQualifiedTrendingLongForm.
 func (s *PostgresStore) GetTrustQualifiedTrendingNotes(
 	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+	mode string,
+	policy TrustQualificationPolicy,
+	maxStaleness time.Duration,
+) ([]TrustQualifiedTrendingNote, bool, error) {
+	return s.getTrustQualifiedTrendingForKinds(ctx, []int{1}, window, limit, offset, mode, policy, maxStaleness)
+}
+
+// GetTrustQualifiedTrendingLongForm returns trust-qualified trending long-form
+// articles (kind 30023).
+func (s *PostgresStore) GetTrustQualifiedTrendingLongForm(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+	mode string,
+	policy TrustQualificationPolicy,
+	maxStaleness time.Duration,
+) ([]TrustQualifiedTrendingNote, bool, error) {
+	return s.getTrustQualifiedTrendingForKinds(ctx, []int{30023}, window, limit, offset, mode, policy, maxStaleness)
+}
+
+func (s *PostgresStore) getTrustQualifiedTrendingForKinds(
+	ctx context.Context,
+	kinds []int,
 	window time.Duration,
 	limit int,
 	offset int,
@@ -71,11 +100,12 @@ func (s *PostgresStore) GetTrustQualifiedTrendingNotes(
 		INNER JOIN trusted_note_discovery_candidates t ON t.event_id = n.event_id
 		INNER JOIN events e ON e.id = n.event_id
 		WHERE n.created_at >= $1
+		  AND e.kind = ANY($6::int[])
 		  %s
 		ORDER BY %s
 		LIMIT $4 OFFSET $5
 	`, scoreColumn, trustedExpr, whereTrusted, orderBy)
-	rows, err := s.pool.Query(ctx, query, minCreatedAt, policy.MaxHops, policy.MinimumScore, limit, offset)
+	rows, err := s.pool.Query(ctx, query, minCreatedAt, policy.MaxHops, policy.MinimumScore, limit, offset, kinds)
 	if err != nil {
 		return nil, false, fmt.Errorf("get trust-qualified trending notes: %w", err)
 	}

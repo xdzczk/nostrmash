@@ -60,6 +60,60 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, payloadResponse)
 }
 
+func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
+	window, windowLabel, err := parseTrendingWindow(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, 5000)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_long_form", map[string]any{
+		"window": windowLabel,
+		"limit":  limit,
+		"offset": offset,
+	})
+	if h.writePublicCachedResponse(w, cachePolicy) {
+		return
+	}
+	articles, err := h.service.GetTrendingLongForm(r.Context(), window, limit, offset)
+	if err != nil {
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "trending long-form is not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	authorPubkeys := make([]string, 0, len(articles))
+	for _, article := range articles {
+		authorPubkeys = append(authorPubkeys, article.AuthorPubkey)
+	}
+	authorIdentities, err := h.resolveProfileIdentities(r.Context(), authorPubkeys)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	payload := buildDiscoveryNoteItems(articles, authorIdentities)
+	payloadResponse := map[string]any{
+		"surface":     "trending_long_form",
+		"window":      windowLabel,
+		"articles":    payload,
+		"consistency": "eventual",
+	}
+	h.addDiscoveryTrustMetadata(payloadResponse)
+	h.cachePublicPayload(cachePolicy, payloadResponse)
+	writeJSON(w, http.StatusOK, payloadResponse)
+}
+
 func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 	window, windowLabel, err := parseTrendingWindow(r)
 	if err != nil {

@@ -729,8 +729,29 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Ranked trending notes with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Ranked trending notes (kind 1 only) with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
         '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/long-form/trending:
+    get:
+      tags: [public]
+      summary: Trending long-form articles (kind 30023) from projection-backed discovery stats
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 24h }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Ranked trending long-form articles with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+        '400':
+          $ref: '#/components/responses/Error'
+        '501':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/conversations/hot:
     get:
@@ -1103,6 +1124,37 @@ paths:
       responses:
         '200':
           description: Follower edge rows
+  /api/v1/users/{pubkey}/mute-list:
+    get:
+      tags: [public]
+      summary: Muted identifiers from the user's latest kind-10000 mute list
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Muted identifiers (pubkeys, events, hashtags, words)
+        '501':
+          $ref: '#/components/responses/Error'
+  /api/v1/users/{pubkey}/muted-by:
+    get:
+      tags: [public]
+      summary: Authors whose latest kind-10000 mute list includes this pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Muter rows (muter pubkey + source mute-list event metadata)
+        '501':
+          $ref: '#/components/responses/Error'
   /api/v1/users/{pubkey}/summary:
     get:
       tags: [public]

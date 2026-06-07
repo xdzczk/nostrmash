@@ -342,6 +342,31 @@ type legacyTrendingNotesCapability interface {
 	GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingNote, error)
 }
 
+type legacyTrendingLongFormCapability interface {
+	GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingNote, error)
+}
+
+type legacyTrendingLongFormAdapter struct {
+	legacy legacyTrendingLongFormCapability
+}
+
+func (a legacyTrendingLongFormAdapter) GetTrendingLongForm(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]TrendingNote, error) {
+	rows, err := a.legacy.GetTrendingLongForm(ctx, window, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TrendingNote, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, trendingNoteFromStore(row))
+	}
+	return out, nil
+}
+
 type legacyHotConversationsCapability interface {
 	GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]store.HotConversation, error)
 }

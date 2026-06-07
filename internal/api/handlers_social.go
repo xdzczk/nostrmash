@@ -161,6 +161,59 @@ func (h Handlers) GetFollowers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetMuteList returns the muted identifiers (pubkeys, events, hashtags, words)
+// from the pubkey's latest kind:10000 mute list.
+func (h Handlers) GetMuteList(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	muted, err := h.service.GetMuteList(r.Context(), pubkey)
+	if err != nil {
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "mute lists are not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":      pubkey,
+		"mute_list":   muted,
+		"consistency": "eventual",
+	})
+}
+
+// GetMutedBy returns authors who mute this pubkey (their latest kind:10000 mute
+// list includes this pubkey as a p-tag).
+func (h Handlers) GetMutedBy(w http.ResponseWriter, r *http.Request) {
+	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	items, err := h.service.GetMutedBy(r.Context(), pubkey, limit)
+	if err != nil {
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "muted-by lookups are not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pubkey":      pubkey,
+		"items":       items,
+		"consistency": "eventual",
+	})
+}
+
 func (h Handlers) getKindScopedEvents(w http.ResponseWriter, r *http.Request, kind int, responseKey string) {
 	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
 	if pubkey == "" {

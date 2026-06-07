@@ -2,12 +2,66 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
+
+// GetMutedBy returns the set of authors whose latest kind:10000 mute list
+// includes targetPubkey as a muted p-tag, i.e. "who mutes this profile". Each
+// row carries the muter pubkey plus the source mute-list event metadata so the
+// caller can hydrate and link back to the originating list.
+func (s *PostgresStore) GetMutedBy(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	targetPubkey = strings.TrimSpace(targetPubkey)
+	if targetPubkey == "" {
+		return nil, fmt.Errorf("target pubkey is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT json_build_object(
+			'muter_pubkey', rs.pubkey,
+			'source_event_id', rs.event_id,
+			'mute_list_created_at', rs.created_at
+		)::text
+		FROM replaceable_state rs
+		INNER JOIN event_tags et
+		        ON et.event_id = rs.event_id
+		WHERE rs.kind = 10000
+		  AND rs.d_tag = ''
+		  AND et.tag_name = 'p'
+		  AND et.value_index = 0
+		  AND et.value = $1
+		ORDER BY rs.created_at DESC, rs.event_id DESC, rs.pubkey ASC
+		LIMIT $2
+	`, targetPubkey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get muted by: %w", err)
+	}
+	defer rows.Close()
+	out := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan muted by row: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read muted by rows: %w", err)
+	}
+	return out, nil
+}
 
 func (s *PostgresStore) GetModerationList(ctx context.Context, pubkey string, kind int) ([]string, error) {
 	if s == nil || s.pool == nil {

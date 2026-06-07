@@ -7,7 +7,20 @@ import (
 	"time"
 )
 
+// GetTrendingNotes returns trending short notes (kind 1 only). Long-form
+// articles (kind 30023) are served separately by GetTrendingLongForm so the two
+// surfaces never blend together.
 func (s *PostgresStore) GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+	return s.getTrendingNotesForKinds(ctx, []int{1}, window, limit, offset)
+}
+
+// GetTrendingLongForm returns trending long-form articles (kind 30023). It
+// mirrors GetTrendingNotes but scopes the candidate set to articles.
+func (s *PostgresStore) GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+	return s.getTrendingNotesForKinds(ctx, []int{30023}, window, limit, offset)
+}
+
+func (s *PostgresStore) getTrendingNotesForKinds(ctx context.Context, kinds []int, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -41,6 +54,7 @@ func (s *PostgresStore) GetTrendingNotes(ctx context.Context, window time.Durati
 		FROM note_discovery_stats s
 		JOIN events e ON e.id = s.event_id
 		WHERE s.created_at >= $1
+		  AND e.kind = ANY($4::int[])
 		  AND NOT EXISTS (
 			SELECT 1
 			FROM event_references er
@@ -63,7 +77,7 @@ func (s *PostgresStore) GetTrendingNotes(ctx context.Context, window time.Durati
 		ORDER BY score DESC, s.created_at DESC, s.event_id ASC
 		LIMIT $2 OFFSET $3
 	`, scoreColumn)
-	rows, err := s.pool.Query(ctx, query, minCreatedAt, limit, offset)
+	rows, err := s.pool.Query(ctx, query, minCreatedAt, limit, offset, kinds)
 	if err != nil {
 		return nil, fmt.Errorf("get trending notes: %w", err)
 	}

@@ -13,9 +13,9 @@ import (
 const replaceableRetentionTarget = "replaceable_events"
 
 // ReplaceableRetentionPurger deletes a bounded batch of superseded raw
-// replaceable events (kinds 0/3/10002). Defined as an interface so the loop can
-// be unit tested without importing internal/store. Satisfied by
-// *store.PostgresStore.
+// replaceable events (kinds 0/3/10000/10002/10003 plus parameterized 30023).
+// Defined as an interface so the loop can be unit tested without importing
+// internal/store. Satisfied by *store.PostgresStore.
 type ReplaceableRetentionPurger interface {
 	PurgeSupersededReplaceableEvents(ctx context.Context, supersededBefore time.Time, deadGraceBefore time.Time, limit int) (int64, error)
 }
@@ -31,7 +31,8 @@ type ReplaceableRetentionConfig struct {
 }
 
 // RunReplaceableRetentionLoop periodically purges raw replaceable events
-// (kinds 0/3/10002) that have been strictly superseded by a newer winner and
+// (kinds 0/3/10000/10002/10003 and parameterized 30023) that have been
+// strictly superseded by a newer winner and
 // have been stable for at least MinAge, skipping events whose derivation is
 // still in-flight (or recently dead within DeadGrace). It uses the same
 // auto-pacing drain as the job/engagement retention loops: a saturated batch

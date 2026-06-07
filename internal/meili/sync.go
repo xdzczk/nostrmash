@@ -91,7 +91,7 @@ func (c *Client) SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID stri
 		}
 		return fmt.Errorf("load event for meilisearch sync: %w", err)
 	}
-	if kind == 1 {
+	if kind == 1 || kind == 30023 {
 		noteDocs, err := loadNoteDocumentsByIDs(ctx, pool, []string{eventID})
 		if err != nil {
 			return err
@@ -153,7 +153,7 @@ func (c *Client) SyncEventsBatch(ctx context.Context, pool *pgxpool.Pool, eventI
 		SELECT id, kind, pubkey
 		FROM events
 		WHERE id = ANY($1::text[])
-		  AND kind IN (0, 1)
+		  AND kind IN (0, 1, 30023)
 	`, eventIDs)
 	if err != nil {
 		return fmt.Errorf("load batch event metadata for meilisearch sync: %w", err)
@@ -172,7 +172,7 @@ func (c *Client) SyncEventsBatch(ctx context.Context, pool *pgxpool.Pool, eventI
 			return fmt.Errorf("scan batch event row: %w", err)
 		}
 		switch kind {
-		case 1:
+		case 1, 30023:
 			noteIDs = append(noteIDs, id)
 		case 0:
 			if _, ok := seenPubkey[pubkey]; !ok {
@@ -259,19 +259,41 @@ func (c *Client) FullSync(ctx context.Context, pool *pgxpool.Pool, batchSize int
 	return stats, nil
 }
 
+// noteDocumentSelect is the shared projection feeding the Meilisearch `notes`
+// index. Kind 1 text notes index their content directly; kind 30023 long-form
+// articles fold their `title` tag into the indexed content so articles are
+// findable by title. The index only matches/highlights on `content` and search
+// hydrates the raw event by id, so folding the title in here does not change
+// the payloads returned to clients. Callers append their own
+// WHERE/ORDER/pagination clauses; both note kinds share the same column shape.
+const noteDocumentSelect = `
+	SELECT
+		e.id,
+		CASE
+			WHEN e.kind = 30023 THEN btrim(coalesce(t.title, '') || E'\n' || coalesce(e.content, ''))
+			ELSE coalesce(e.content, '')
+		END,
+		e.pubkey,
+		e.created_at,
+		coalesce(nds.primary_language, 'und')
+	FROM events e
+	LEFT JOIN note_discovery_stats nds ON nds.event_id = e.id
+	LEFT JOIN LATERAL (
+		SELECT et.value AS title
+		FROM event_tags et
+		WHERE et.event_id = e.id
+		  AND et.tag_name = 'title'
+		  AND et.value_index = 0
+		ORDER BY et.tag_index ASC
+		LIMIT 1
+	) t ON true
+`
+
 func streamNotes(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume func([]NoteDocument) error) error {
 	offset := 0
 	for {
-		rows, err := pool.Query(ctx, `
-			SELECT
-				e.id,
-				coalesce(e.content, ''),
-				e.pubkey,
-				e.created_at,
-				coalesce(nds.primary_language, 'und')
-			FROM events e
-			LEFT JOIN note_discovery_stats nds ON nds.event_id = e.id
-			WHERE e.kind = 1
+		rows, err := pool.Query(ctx, noteDocumentSelect+`
+			WHERE e.kind IN (1, 30023)
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT $1
 			OFFSET $2
@@ -428,16 +450,8 @@ func streamSearchDocuments(ctx context.Context, pool *pgxpool.Pool, batchSize in
 }
 
 func loadNoteDocumentsByIDs(ctx context.Context, pool *pgxpool.Pool, ids []string) ([]NoteDocument, error) {
-	rows, err := pool.Query(ctx, `
-		SELECT
-			e.id,
-			coalesce(e.content, ''),
-			e.pubkey,
-			e.created_at,
-			coalesce(nds.primary_language, 'und')
-		FROM events e
-		LEFT JOIN note_discovery_stats nds ON nds.event_id = e.id
-		WHERE e.kind = 1
+	rows, err := pool.Query(ctx, noteDocumentSelect+`
+		WHERE e.kind IN (1, 30023)
 		  AND e.id = ANY($1::text[])
 	`, ids)
 	if err != nil {

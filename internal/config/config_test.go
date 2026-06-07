@@ -858,7 +858,7 @@ func TestGenerateConfigurationMarkdown_MatchesCommittedDocumentation(t *testing.
 func testRelayConfig() RelayConfig {
 	return RelayConfig{
 		FilterGroups: map[string]FilterGroup{
-			"default_v1": {Kinds: []int{0, 1, 3, 5, 6, 7, 9735, 10002}},
+			"default_v1": {Kinds: []int{0, 1, 3, 4, 5, 6, 7, 9735, 9802, 10000, 10002, 10003, 30023}},
 		},
 		ActiveFilterGroup:            "default_v1",
 		LiveBootstrapLookbackSeconds: 300,

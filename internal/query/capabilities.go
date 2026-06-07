@@ -27,6 +27,7 @@ type moderationCapabilities struct {
 	listByKind       moderationListByKindCapability
 	listByIdentifier moderationListByIdentifierCapability
 	hiddenByContent  hiddenByContentModerationCapability
+	mutedBy          moderationMutedByCapability
 }
 
 type curatedCapabilities struct {
@@ -36,6 +37,7 @@ type curatedCapabilities struct {
 	recommendedReads       curatedRecommendedReadsCapability
 	readsTopics            curatedReadsTopicsCapability
 	trendingNotes          trendingNotesCapability
+	trendingLongForm       trendingLongFormCapability
 	hotConversations       hotConversationsCapability
 	trustQualifiedNotes    trustQualifiedTrendingNotesCapability
 	trendingHashtags       trendingHashtagsCapability

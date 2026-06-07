@@ -114,7 +114,7 @@ func (c *Client) NeedsSync(ctx context.Context, pool *pgxpool.Pool) (bool, error
 	}
 	checks := []countQuery{
 		{IndexProfiles, `SELECT count(*) FROM profiles_latest`},
-		{IndexNotes, `SELECT count(*) FROM events WHERE kind = 1`},
+		{IndexNotes, `SELECT count(*) FROM events WHERE kind IN (1, 30023)`},
 	}
 	const syncThreshold = 0.80
 	for _, check := range checks {
