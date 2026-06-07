@@ -127,6 +127,30 @@ WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL=1h
 WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT=2000
 ```
 
+**`worker` service (superseded replaceable retention, on by default):**
+
+```bash
+WORKER_RETENTION_REPLACEABLE_ENABLED=true
+WORKER_RETENTION_REPLACEABLE_MIN_AGE=24h
+WORKER_RETENTION_REPLACEABLE_DEAD_GRACE=168h
+WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL=1h
+WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT=2000
+```
+
+Purges raw replaceable events (kinds `0`/`3`/`10002`) once a newer version wins. The current winner and the latest-version projections (`contact_lists_latest`, `relay_lists_latest`, `profiles_latest`, `replaceable_state`) are never touched.
+
+**`worker` service (processed deletion retention, on by default):**
+
+```bash
+WORKER_RETENTION_DELETION_ENABLED=true
+WORKER_RETENTION_DELETION_MAX_AGE=336h
+WORKER_RETENTION_DELETION_DEAD_GRACE=168h
+WORKER_RETENTION_DELETION_RUN_INTERVAL=1h
+WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT=2000
+```
+
+Purges raw deletion events (kind `5`) after their derivation completes. The distilled `deletion_events` tombstone ledger survives (migration `000050` dropped the `events` FK cascade), so DM/parity deletion knowledge is preserved while the high-volume raw rows and their tags are reclaimed.
+
 ### Rollout checklist
 
 **Before first deploy**
@@ -154,6 +178,8 @@ WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT=2000
 **Ongoing**
 
 - `nostrmash_retention_purged_rows_total{target="engagement_events"}` — ticks when eligible rows exist.
+- `nostrmash_retention_purged_rows_total{target="replaceable_events"}` — superseded kind `0`/`3`/`10002` versions purged; large initial burn-down on first deploy, then low steady-state.
+- `nostrmash_retention_purged_rows_total{target="deletion_events"}` — processed kind `5` raw events purged; tombstone ledger rows survive.
 - `nostrmash_ingest_trusted_set_age_seconds` — alert if stale (see observability doc).
 - `nostrmash_trust_active_snapshot_age_seconds` — global score freshness (separate from gate snapshot).
 
@@ -337,7 +363,7 @@ Use structured logs for incident details (`query_fallback_lookup_failed` with `e
 Storage/retention signal ownership:
 
 - Storage gauges are emitted by the API process (`GET /metrics` on API).
-- Retention purge counters (`nostrmash_retention_purge_runs_total`, `nostrmash_retention_purged_rows_total`) are emitted by the worker process (`METRICS_ADDR` when enabled). Targets include `jobs_terminal`, `invalid_events`, `invalid_events_payload`, and `engagement_events`.
+- Retention purge counters (`nostrmash_retention_purge_runs_total`, `nostrmash_retention_purged_rows_total`) are emitted by the worker process (`METRICS_ADDR` when enabled). Targets include `jobs_terminal`, `invalid_events`, `invalid_events_payload`, `engagement_events`, `replaceable_events`, and `deletion_events`.
 - Sustained growth slope matters more than one-off size steps after migrations/rebuilds.
 
 Build/runtime identification:
@@ -418,6 +444,10 @@ Worker throughput tuning:
 - `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE` and `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT` bound payload trimming when enabled.
 - `WORKER_RETENTION_ENGAGEMENT_ENABLED` enables periodic purge of raw engagement events (kinds `6`/`7`/`9735`; default `true`).
 - `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` (default `336h`/14d), `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL`, and `WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT` bound engagement retention. Lifetime `reaction_counts`/`repost_counts` survive; derivation-safe guard blocks in-flight jobs.
+- `WORKER_RETENTION_REPLACEABLE_ENABLED` enables periodic purge of superseded raw replaceable events (kinds `0`/`3`/`10002`; default `true`). Only versions strictly older than the current winner are removed.
+- `WORKER_RETENTION_REPLACEABLE_MIN_AGE` (default `24h`, by `first_seen_at`), `WORKER_RETENTION_REPLACEABLE_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL`, and `WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT` bound replaceable retention. The latest-version projections (`contact_lists_latest`, `relay_lists_latest`, `profiles_latest`, `replaceable_state`) survive; derivation-safe guard blocks in-flight jobs.
+- `WORKER_RETENTION_DELETION_ENABLED` enables periodic purge of processed raw deletion events (kind `5`; default `true`). The `deletion_events` tombstone ledger survives (migration `000050` dropped the `events` FK cascade).
+- `WORKER_RETENTION_DELETION_MAX_AGE` (default `336h`/14d), `WORKER_RETENTION_DELETION_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_DELETION_RUN_INTERVAL`, and `WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT` bound deletion retention. Derivation-safe guard blocks raw events whose `derive_event_bundle` job is still in-flight, so a tombstone is always projected before its raw event is purged.
 
 Primary inspection endpoint:
 

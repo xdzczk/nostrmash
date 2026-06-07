@@ -111,9 +111,13 @@ INGESTOR_TRUST_GATE_MODE=open
 INGESTOR_TRUST_GATE_MAX_HOPS=2
 INGESTOR_TRUST_GATE_REFRESH_INTERVAL=2m
 
-# worker — engagement raw retention (defaults are fine; shown for clarity)
+# worker — raw-event retention (defaults are fine; shown for clarity)
 WORKER_RETENTION_ENGAGEMENT_ENABLED=true
 WORKER_RETENTION_ENGAGEMENT_MAX_AGE=336h
+WORKER_RETENTION_REPLACEABLE_ENABLED=true
+WORKER_RETENTION_REPLACEABLE_MIN_AGE=24h
+WORKER_RETENTION_DELETION_ENABLED=true
+WORKER_RETENTION_DELETION_MAX_AGE=336h
 ```
 
 See [operations.md#trust-bounded-ingest-rollout](operations.md#trust-bounded-ingest-rollout) for the full rollout checklist.

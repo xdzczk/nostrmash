@@ -17,6 +17,8 @@ type WorkerConfig struct {
 	JobRetention           WorkerJobRetentionConfig
 	InvalidEventRetention  WorkerInvalidEventRetentionConfig
 	EngagementRetention    WorkerEngagementRetentionConfig
+	ReplaceableRetention   WorkerReplaceableRetentionConfig
+	DeletionRetention      WorkerDeletionRetentionConfig
 	AuthorAnalyticsSweeper WorkerAuthorAnalyticsSweeperConfig
 	ProfileStatsSweeper    WorkerProfileStatsSweeperConfig
 	MeilisearchSweeper     WorkerMeilisearchSweeperConfig
@@ -120,6 +122,46 @@ type WorkerEngagementRetentionConfig struct {
 	DeleteBatchLimit int
 }
 
+// WorkerReplaceableRetentionConfig configures the purger that deletes raw
+// replaceable events (kinds 0/3/10002) that have been strictly superseded by a
+// newer winner. The latest-version projections (contact_lists_latest,
+// relay_lists_latest, profiles_latest, replaceable_state) all reference the
+// winner, so only superseded versions are removed and the read models survive.
+//
+// MinAge is the stability window applied to events.first_seen_at: a superseded
+// version is only eligible once it has existed for at least this long, so a
+// freshly-ingested version (including backfilled events with an ancient
+// author-claimed created_at) is never purged immediately after being
+// superseded.
+//
+// DeadGrace is the derivation-safety window: a candidate is never purged while
+// its derive_event_bundle job is pending/running, nor while that job is dead
+// and was last updated within DeadGrace.
+type WorkerReplaceableRetentionConfig struct {
+	Enabled          bool
+	MinAge           time.Duration
+	DeadGrace        time.Duration
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
+// WorkerDeletionRetentionConfig configures the purger that deletes raw deletion
+// events (kind 5) older than MaxAge once their derivation has completed. The
+// distilled deletion_events ledger row survives (migration 000050 dropped the
+// events FK cascade), so tombstone knowledge is preserved while the
+// high-volume raw rows and their cascade-cleaned tags/references are removed.
+//
+// DeadGrace is the derivation-safety window: a raw event is never purged while
+// its derive_event_bundle job is pending/running, nor while that job is dead
+// and was last updated within DeadGrace.
+type WorkerDeletionRetentionConfig struct {
+	Enabled          bool
+	MaxAge           time.Duration
+	DeadGrace        time.Duration
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
 func LoadWorker() (WorkerConfig, error) {
 	shared, err := loadSharedConfig("worker")
 	if err != nil {
@@ -182,6 +224,38 @@ func LoadWorker() (WorkerConfig, error) {
 		return WorkerConfig{}, err
 	}
 	engagementRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT", 2000)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	replaceableRetentionMinAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_REPLACEABLE_MIN_AGE", 24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	replaceableRetentionDeadGrace, err := getEnvPositiveDurationStrict("WORKER_RETENTION_REPLACEABLE_DEAD_GRACE", 7*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	replaceableRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL", 1*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	replaceableRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT", 2000)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	deletionRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_MAX_AGE", 14*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	deletionRetentionDeadGrace, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_DEAD_GRACE", 7*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	deletionRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_RUN_INTERVAL", 1*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	deletionRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT", 2000)
 	if err != nil {
 		return WorkerConfig{}, err
 	}
@@ -254,6 +328,20 @@ func LoadWorker() (WorkerConfig, error) {
 			DeadGrace:        engagementRetentionDeadGrace,
 			RunInterval:      engagementRetentionRunInterval,
 			DeleteBatchLimit: engagementRetentionDeleteBatchLimit,
+		},
+		ReplaceableRetention: WorkerReplaceableRetentionConfig{
+			Enabled:          getEnvBool("WORKER_RETENTION_REPLACEABLE_ENABLED", true),
+			MinAge:           replaceableRetentionMinAge,
+			DeadGrace:        replaceableRetentionDeadGrace,
+			RunInterval:      replaceableRetentionRunInterval,
+			DeleteBatchLimit: replaceableRetentionDeleteBatchLimit,
+		},
+		DeletionRetention: WorkerDeletionRetentionConfig{
+			Enabled:          getEnvBool("WORKER_RETENTION_DELETION_ENABLED", true),
+			MaxAge:           deletionRetentionMaxAge,
+			DeadGrace:        deletionRetentionDeadGrace,
+			RunInterval:      deletionRetentionRunInterval,
+			DeleteBatchLimit: deletionRetentionDeleteBatchLimit,
 		},
 		AuthorAnalyticsSweeper: WorkerAuthorAnalyticsSweeperConfig{
 			Enabled:        getEnvBool("WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED", true),
@@ -396,6 +484,34 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.EngagementRetention.DeleteBatchLimit <= 0 {
 			return fmt.Errorf("WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.ReplaceableRetention.Enabled {
+		if cfg.ReplaceableRetention.MinAge <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_REPLACEABLE_MIN_AGE must be > 0")
+		}
+		if cfg.ReplaceableRetention.DeadGrace <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_REPLACEABLE_DEAD_GRACE must be > 0")
+		}
+		if cfg.ReplaceableRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL must be > 0")
+		}
+		if cfg.ReplaceableRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.DeletionRetention.Enabled {
+		if cfg.DeletionRetention.MaxAge <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_DELETION_MAX_AGE must be > 0")
+		}
+		if cfg.DeletionRetention.DeadGrace <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_DELETION_DEAD_GRACE must be > 0")
+		}
+		if cfg.DeletionRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_DELETION_RUN_INTERVAL must be > 0")
+		}
+		if cfg.DeletionRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT must be > 0")
 		}
 	}
 	if cfg.AuthorAnalyticsSweeper.Enabled {

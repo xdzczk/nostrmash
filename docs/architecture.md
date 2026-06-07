@@ -25,7 +25,7 @@ That split is the point: raw history must survive schema changes and bad project
 | --- | --- | --- |
 | `ingestor` | Relay sessions, validation, optional trust-bounded ingest gate, canonical writes, invalid-event quarantine, checkpoints, and job enqueue | Keeps durable ingest truth on the front edge of the system; can shadow or enforce author/target gates before Postgres writes |
 | `trust_worker` | Trust-specific job execution, seed reconcile, trust graph snapshot refresh, Redis graph sync, trust score computation, and trust publication | Keeps heavier trust/ranking work isolated; feeds the ingest gate via `trust_graph_snapshot` |
-| `worker` | Default queue consumption, derivations, projections, rebuild execution, and engagement raw retention | Turns canonical truth into rebuildable read models; purges aged raw engagement events (kinds 6/7/9735) |
+| `worker` | Default queue consumption, derivations, projections, rebuild execution, and raw-event retention | Turns canonical truth into rebuildable read models; purges aged raw engagement events (kinds 6/7/9735), superseded replaceable events (kinds 0/3/10002), and processed deletion events (kind 5) |
 | `api` | Native reads, Primal compatibility, admin inspection endpoints, and API-facing metrics | Exposes product and operator surfaces without owning canonical truth |
 | `postgres` | Canonical storage, checkpoints, queue state, derivation metadata, projections, and published trust outputs | Remains the durability and consistency boundary |
 | `redis` | Disposable trust working state | Speeds graph-oriented trust computation without becoming canonical state |

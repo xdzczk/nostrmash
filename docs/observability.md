@@ -184,7 +184,7 @@ Queue/job operation metrics:
 - `nostrmash_retention_purge_runs_total{target,result}`
 - `nostrmash_retention_purged_rows_total{target}`
 - retention counters are emitted by the worker process retention loops
-- current retention targets include `jobs_terminal`, `invalid_events`, optional `invalid_events_payload`, and `engagement_events`
+- current retention targets include `jobs_terminal`, `invalid_events`, optional `invalid_events_payload`, `engagement_events`, `replaceable_events`, and `deletion_events`
 
 Current queue/job operations instrumented:
 

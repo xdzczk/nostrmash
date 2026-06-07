@@ -45,6 +45,18 @@ type EngagementRetentionStore interface {
 	PurgeExpiredEngagementEvents(ctx context.Context, createdBefore time.Time, deadGraceBefore time.Time, limit int) (int64, error)
 }
 
+// ReplaceableRetentionStore purges superseded raw replaceable events
+// (kinds 0/3/10002). Satisfied by *store.PostgresStore.
+type ReplaceableRetentionStore interface {
+	PurgeSupersededReplaceableEvents(ctx context.Context, supersededBefore time.Time, deadGraceBefore time.Time, limit int) (int64, error)
+}
+
+// DeletionRetentionStore purges processed raw deletion events (kind 5).
+// Satisfied by *store.PostgresStore.
+type DeletionRetentionStore interface {
+	PurgeProcessedDeletionEvents(ctx context.Context, createdBefore time.Time, deadGraceBefore time.Time, limit int) (int64, error)
+}
+
 type ProcessJobFn func(jobCtx context.Context, job jobs.Job) error
 
 type ClaimLoopFn func(
@@ -71,6 +83,8 @@ type Bootstrap struct {
 	Queue              Queue
 	InvalidEventsStore InvalidEventRetentionStore
 	EngagementStore    EngagementRetentionStore
+	ReplaceableStore   ReplaceableRetentionStore
+	DeletionStore      DeletionRetentionStore
 	ProcessJob         ProcessJobFn
 	Handlers           *derivation.Handlers
 	WorkerID           string
@@ -154,6 +168,8 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		Queue:              queue,
 		InvalidEventsStore: postgresStore,
 		EngagementStore:    postgresStore,
+		ReplaceableStore:   postgresStore,
+		DeletionStore:      postgresStore,
 		ProcessJob: func(jobCtx context.Context, job jobs.Job) error {
 			return derivation.ProcessJob(jobCtx, handlers, derivation.Job{
 				JobType: job.JobType,
@@ -234,6 +250,20 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		DeadGrace:        cfg.EngagementRetention.DeadGrace,
 		RunInterval:      cfg.EngagementRetention.RunInterval,
 		DeleteBatchLimit: cfg.EngagementRetention.DeleteBatchLimit,
+	})
+	go jobs.RunReplaceableRetentionLoop(ctx, log, bootstrap.ReplaceableStore, jobs.ReplaceableRetentionConfig{
+		Enabled:          cfg.ReplaceableRetention.Enabled,
+		MinAge:           cfg.ReplaceableRetention.MinAge,
+		DeadGrace:        cfg.ReplaceableRetention.DeadGrace,
+		RunInterval:      cfg.ReplaceableRetention.RunInterval,
+		DeleteBatchLimit: cfg.ReplaceableRetention.DeleteBatchLimit,
+	})
+	go jobs.RunDeletionRetentionLoop(ctx, log, bootstrap.DeletionStore, jobs.DeletionRetentionConfig{
+		Enabled:          cfg.DeletionRetention.Enabled,
+		MaxAge:           cfg.DeletionRetention.MaxAge,
+		DeadGrace:        cfg.DeletionRetention.DeadGrace,
+		RunInterval:      cfg.DeletionRetention.RunInterval,
+		DeleteBatchLimit: cfg.DeletionRetention.DeleteBatchLimit,
 	})
 	go jobs.RunRowCountMetricsReporter(ctx, log, bootstrap.Pool, 60*time.Second)
 	go RunMeilisearchStartupSync(ctx, log, bootstrap.MeiliClient, bootstrap.Pool)

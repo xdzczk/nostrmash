@@ -140,10 +140,26 @@ See [architecture/trust-bounded-ingest.md](../architecture/trust-bounded-ingest.
 - **Derivation-safe guard**: do not purge while `derive_event_bundle` is pending/running, or dead within `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` (default 7d).
 - **Metrics**: `nostrmash_retention_purged_rows_total{target="engagement_events"}`.
 
+### Superseded replaceable retention
+
+- **Target**: raw `events WHERE kind IN (0,3,10002)` that are strictly superseded by a newer winner in `replaceable_state` and whose `first_seen_at` is older than `WORKER_RETENTION_REPLACEABLE_MIN_AGE` (default 24h).
+- **Survivors**: the current winner plus `contact_lists_latest`, `relay_lists_latest`, `profiles_latest`, `replaceable_state` (all reference the winner). A newer-but-unprojected version is protected because it ranks above the recorded winner.
+- **Derivation-safe guard**: do not purge while `derive_event_bundle` is pending/running, or dead within `WORKER_RETENTION_REPLACEABLE_DEAD_GRACE` (default 7d).
+- **Payoff**: kind `3` dominates — superseded contact lists carry the largest tag fan-out, so this is the primary lever against `event_tags` / `pubkey_references` growth.
+- **Metrics**: `nostrmash_retention_purged_rows_total{target="replaceable_events"}`.
+
+### Processed deletion retention
+
+- **Target**: raw `events WHERE kind = 5` older than `WORKER_RETENTION_DELETION_MAX_AGE` (default 14d) whose derivation has completed.
+- **Survivors**: the distilled `deletion_events` ledger `(deleter_pubkey, target_event_id, created_at)`. Migration `000050` dropped the `deletion_events.event_id` FK cascade so the tombstone outlives the raw event.
+- **Derivation-safe guard**: the `derive_event_bundle` job is enqueued in the same transaction as the event insert, so a freshly-ingested deletion is always blocked until its ledger row is projected; dead jobs stop blocking past `WORKER_RETENTION_DELETION_DEAD_GRACE` (default 7d).
+- **Payoff**: kind `5` is the largest raw-event population on the firehose; the ledger is a fraction of the raw size.
+- **Metrics**: `nostrmash_retention_purged_rows_total{target="deletion_events"}`.
+- **Rebuild caveat**: a full projection rebuild cannot recreate `deletion_events` rows whose raw kind-5 event was purged. This matches the engagement-retention tradeoff: retention trades rebuildability for the durable distilled form.
+
 ### What remains unbounded (follow-ups)
 
 - Canonical kind-`1` notes from trusted authors (retention deferred by design).
-- Raw kind `0`/`3`/`10002` from the firehose (next Tier 2 lever once gate growth is measured).
 - `pubkey_references`, `author_recent_events`, `search_documents` (earlier phases).
 
 ## Implementation order

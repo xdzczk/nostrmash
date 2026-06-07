@@ -80,6 +80,30 @@ Rejected events increment metrics only. They are **not** written to `invalid_eve
 
 Cascade FKs clean contribution/interaction rows. `reaction_counts` / `repost_counts` have no FK and survive.
 
+### Superseded replaceable retention (`worker`)
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `WORKER_RETENTION_REPLACEABLE_ENABLED` | `true` | Enable the superseded-replaceable purge loop. |
+| `WORKER_RETENTION_REPLACEABLE_MIN_AGE` | `24h` | A superseded version is only eligible once its `events.first_seen_at` is older than this (protects freshly-ingested/backfilled versions). |
+| `WORKER_RETENTION_REPLACEABLE_DEAD_GRACE` | `168h` (7d) | Derivation-safety: block purge while `derive_event_bundle` is pending/running, or dead with `updated_at` within this window. |
+| `WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL` | `1h` | Scheduled purge cadence. |
+| `WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT` | `2000` | Max rows deleted per batch (auto-paced like job retention). |
+
+Purges raw kinds `0`/`3`/`10002` that have been strictly superseded by a newer winner recorded in `replaceable_state` (latest-wins Nostr semantics). The current winner is never deleted, and a newer-but-not-yet-projected version is protected because it ranks above the recorded winner. Cascade FKs clean `event_tags`, `event_relays`, `event_references`, `pubkey_references`, and `follower_edges`; the latest-version projections (`contact_lists_latest`, `relay_lists_latest`, `profiles_latest`, `replaceable_state`) reference the winner and survive. Kind `3` carries the bulk of the savings because superseded contact lists hold the largest tag fan-out.
+
+### Processed deletion retention (`worker`)
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `WORKER_RETENTION_DELETION_ENABLED` | `true` | Enable the processed-deletion purge loop. |
+| `WORKER_RETENTION_DELETION_MAX_AGE` | `336h` (14d) | Purge raw kind `5` older than this (by `events.created_at`). |
+| `WORKER_RETENTION_DELETION_DEAD_GRACE` | `168h` (7d) | Derivation-safety: block purge while `derive_event_bundle` is pending/running, or dead with `updated_at` within this window. |
+| `WORKER_RETENTION_DELETION_RUN_INTERVAL` | `1h` | Scheduled purge cadence. |
+| `WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT` | `2000` | Max rows deleted per batch (auto-paced like job retention). |
+
+Migration `000050` dropped the `deletion_events.event_id` FK cascade, turning `deletion_events` into a durable tombstone ledger. The purge removes raw kind-5 events (and their cascade-cleaned tags/references) once derivation has completed; the `(deleter_pubkey, target_event_id, created_at)` ledger row survives so DM/parity deletion knowledge is preserved.
+
 ## Config ownership
 
 | Prefix | Owner | Purpose |
@@ -87,6 +111,8 @@ Cascade FKs clean contribution/interaction rows. `reaction_counts` / `repost_cou
 | `TRUST_*` | `trust_worker` (+ shared policy) | Seeds, snapshot refresh, global trust runs, graph policy for read surfaces |
 | `INGESTOR_TRUST_GATE_*` | `ingestor` | Live ingest enforcement |
 | `WORKER_RETENTION_ENGAGEMENT_*` | `worker` | Raw engagement purge |
+| `WORKER_RETENTION_REPLACEABLE_*` | `worker` | Superseded replaceable purge (kinds 0/3/10002) |
+| `WORKER_RETENTION_DELETION_*` | `worker` | Processed deletion purge (kind 5; tombstone ledger kept) |
 
 `TRUST_CANONICAL_INGEST_MODE` is **deprecated**. It was a config placeholder that was never wired into the ingest hot path. Use `INGESTOR_TRUST_GATE_MODE` instead.
 
@@ -103,12 +129,15 @@ Retention metrics (worker, reuses existing retention vectors):
 
 - `nostrmash_retention_purge_runs_total{target="engagement_events",result}`
 - `nostrmash_retention_purged_rows_total{target="engagement_events"}`
+- `nostrmash_retention_purge_runs_total{target="replaceable_events",result}`
+- `nostrmash_retention_purged_rows_total{target="replaceable_events"}`
+- `nostrmash_retention_purge_runs_total{target="deletion_events",result}`
+- `nostrmash_retention_purged_rows_total{target="deletion_events"}`
 
 Also watch `nostrmash_ingest_events_total{outcome="gated"}` for cumulative gated events.
 
 ## Explicit non-goals (follow-ups)
 
 - Note time-window retention for kind `1` (deferred).
-- Retention/latest-only for raw `0`/`3`/`10002` from untrusted authors.
 - Optional pending buffer for engagement whose target has not arrived yet.
 - Admin seed HTTP endpoints (`/admin/v1/trust/seeds`).
