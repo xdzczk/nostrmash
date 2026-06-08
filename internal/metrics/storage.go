@@ -5,7 +5,11 @@ import "github.com/prometheus/client_golang/prometheus"
 var (
 	storageDatabaseBytes        prometheus.Gauge
 	storageTableBytes           *prometheus.GaugeVec
+	storageTableIndexBytes      *prometheus.GaugeVec
+	storageTierBytes            *prometheus.GaugeVec
 	storageTableRows            *prometheus.GaugeVec
+	storagePressureRatio        prometheus.Gauge
+	storagePressureLevel        prometheus.Gauge
 	retentionPurgeRunsTotal     *prometheus.CounterVec
 	retentionPurgedRowsTotal    *prometheus.CounterVec
 	jobsRowsByStatusType        *prometheus.GaugeVec
@@ -26,12 +30,38 @@ func registerStorageMetrics() {
 		},
 		[]string{"table"},
 	)
+	storageTableIndexBytes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_storage_table_index_bytes",
+			Help: "Current index size in bytes for tracked tables (pg_indexes_size).",
+		},
+		[]string{"table"},
+	)
+	storageTierBytes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_storage_tier_bytes",
+			Help: "Total bytes per storage tier (canonical/derived/operational). Bounded label set.",
+		},
+		[]string{"tier"},
+	)
 	storageTableRows = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "nostrmash_storage_table_rows",
 			Help: "Current row count for tracked tables.",
 		},
 		[]string{"table"},
+	)
+	storagePressureRatio = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_storage_pressure_ratio",
+			Help: "Database size as a fraction of the configured capacity budget (0..1+). 0 when capacity is unset.",
+		},
+	)
+	storagePressureLevel = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_storage_pressure_level",
+			Help: "Storage pressure level: 0 normal, 1 warn, 2 aggressive, 3 disable_hydration, 4 pause_candidate.",
+		},
 	)
 	retentionPurgeRunsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -65,7 +95,11 @@ func registerStorageMetrics() {
 	registry.MustRegister(
 		storageDatabaseBytes,
 		storageTableBytes,
+		storageTableIndexBytes,
+		storageTierBytes,
 		storageTableRows,
+		storagePressureRatio,
+		storagePressureLevel,
 		retentionPurgeRunsTotal,
 		retentionPurgedRowsTotal,
 		jobsRowsByStatusType,
@@ -89,12 +123,39 @@ func SetStorageTableBytes(table string, bytes float64) {
 	storageTableBytes.WithLabelValues(table).Set(bytes)
 }
 
+func SetStorageTableIndexBytes(table string, bytes float64) {
+	ensureRegistered()
+	if bytes < 0 {
+		bytes = 0
+	}
+	storageTableIndexBytes.WithLabelValues(table).Set(bytes)
+}
+
+func SetStorageTierBytes(tier string, bytes float64) {
+	ensureRegistered()
+	if bytes < 0 {
+		bytes = 0
+	}
+	storageTierBytes.WithLabelValues(tier).Set(bytes)
+}
+
 func SetStorageTableRows(table string, rows float64) {
 	ensureRegistered()
 	if rows < 0 {
 		rows = 0
 	}
 	storageTableRows.WithLabelValues(table).Set(rows)
+}
+
+// SetStoragePressure publishes the current pressure ratio (db_bytes/capacity)
+// and discrete level. Level enum is bounded (0..4).
+func SetStoragePressure(ratio float64, level int) {
+	ensureRegistered()
+	if ratio < 0 {
+		ratio = 0
+	}
+	storagePressureRatio.Set(ratio)
+	storagePressureLevel.Set(float64(level))
 }
 
 func IncRetentionPurgeRun(target, result string) {

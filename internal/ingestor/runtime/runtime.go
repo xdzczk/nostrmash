@@ -28,10 +28,11 @@ type BuildInfo struct {
 }
 
 type runner struct {
-	eventStore *store.PostgresStore
-	processor  *live.Processor
-	kinds      []int
-	trustedSet *TrustedAuthorSet
+	eventStore   *store.PostgresStore
+	processor    *live.Processor
+	kinds        []int
+	trustedSet   *TrustedAuthorSet
+	observations *ObservationBuffer
 }
 
 func Run(ctx context.Context, log *slog.Logger, cfg config.IngestorConfig, build BuildInfo) error {
@@ -113,12 +114,20 @@ func buildRunner(
 	// operators watch trusted-set/gate metrics before flipping to enforce.
 	trustedSet := NewTrustedAuthorSet(cfg.TrustGate.MaxHops)
 	processor.SetTrustGate(cfg.TrustGate.Mode, trustedSet, eventStore)
+	processor.SetBlockedAuthors(trustedSet)
+
+	var observations *ObservationBuffer
+	if cfg.AccountObservation.Enabled {
+		observations = NewObservationBuffer(cfg.AccountObservation.MaxBufferKeys)
+		processor.SetObservationSink(observations)
+	}
 
 	return runner{
-		eventStore: eventStore,
-		processor:  processor,
-		kinds:      kinds,
-		trustedSet: trustedSet,
+		eventStore:   eventStore,
+		processor:    processor,
+		kinds:        kinds,
+		trustedSet:   trustedSet,
+		observations: observations,
 	}, nil
 }
 
@@ -137,6 +146,9 @@ func runLifecycle(
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	go runMetricsLogger(ctx, log, runner.processor, 30*time.Second)
 	go runTrustedAuthorSetRefreshLoop(ctx, log, runner.trustedSet, runner.eventStore, cfg.TrustGate.Mode, cfg.TrustGate.MaxHops, cfg.TrustGate.RefreshInterval)
+	if runner.observations != nil {
+		go RunObservationFlushLoop(ctx, log, runner.eventStore, runner.observations, cfg.AccountObservation.FlushInterval)
+	}
 
 	if cfg.Runtime.Mode == "replay" {
 		replayRunner, replayErr := replay.NewRunner(log, pool, nostr.Options{})

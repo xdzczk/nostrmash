@@ -81,6 +81,7 @@ type BuildInfo struct {
 type Bootstrap struct {
 	Pool               *pgxpool.Pool
 	Queue              Queue
+	Store              *store.PostgresStore
 	InvalidEventsStore InvalidEventRetentionStore
 	EngagementStore    EngagementRetentionStore
 	ReplaceableStore   ReplaceableRetentionStore
@@ -163,14 +164,26 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		MeiliClient: meiliClient,
 	})
 
+	hydrationService, err := buildHydrationService(log, cfg, pool, postgresStore)
+	if err != nil {
+		log.Error("hydration_service_init", "error", err)
+		runtimebootstrap.ShutdownTracing(log)
+		pool.Close()
+		return Bootstrap{}, func() {}, fmt.Errorf("init hydration service: %w", err)
+	}
+
 	bootstrap := Bootstrap{
 		Pool:               pool,
 		Queue:              queue,
+		Store:              postgresStore,
 		InvalidEventsStore: postgresStore,
 		EngagementStore:    postgresStore,
 		ReplaceableStore:   postgresStore,
 		DeletionStore:      postgresStore,
 		ProcessJob: func(jobCtx context.Context, job jobs.Job) error {
+			if job.JobType == jobs.JobTypeHydrateAccount {
+				return processHydrateAccountJob(jobCtx, hydrationService, job)
+			}
 			return derivation.ProcessJob(jobCtx, handlers, derivation.Job{
 				JobType: job.JobType,
 				Payload: job.Payload,
@@ -266,6 +279,8 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		DeleteBatchLimit: cfg.DeletionRetention.DeleteBatchLimit,
 	})
 	go jobs.RunRowCountMetricsReporter(ctx, log, bootstrap.Pool, 60*time.Second)
+	go RunStorageGovernorLoop(ctx, log, bootstrap.Store, bootstrap.Queue, cfg)
+	go RunAccountStateRecomputeLoop(ctx, log, bootstrap.Store, cfg.AccountState)
 	go RunMeilisearchStartupSync(ctx, log, bootstrap.MeiliClient, bootstrap.Pool)
 	go RunRelayWindowSnapshotsLoop(ctx, log, bootstrap.Handlers)
 

@@ -826,8 +826,8 @@ func (s Service) GetAuthorReactions(ctx context.Context, pubkey string, limit in
 
 func buildFallbackAuthorZapRecord(senderPubkey string, event json.RawMessage) json.RawMessage {
 	var payload struct {
-		ID        string `json:"id"`
-		CreatedAt int64  `json:"created_at"`
+		ID        string     `json:"id"`
+		CreatedAt int64      `json:"created_at"`
 		Tags      [][]string `json:"tags"`
 	}
 	if err := json.Unmarshal(event, &payload); err != nil {

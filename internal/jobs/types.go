@@ -29,7 +29,16 @@ const (
 	JobTypeTrustSyncGraphRedis     = "trust_sync_graph_redis"
 	JobTypeTrustComputeGlobalScore = "trust_compute_global_scores"
 	JobTypeTrustPromoteRun         = "trust_promote_run"
+
+	JobTypeHydrateAccount = "hydrate_account"
 )
+
+// HydrateAccountPayload is the payload for an on-demand account hydration job.
+type HydrateAccountPayload struct {
+	Pubkey      string `json:"pubkey"`
+	Reason      string `json:"reason,omitempty"`
+	RequestedBy string `json:"requested_by,omitempty"`
+}
 
 const (
 	WorkerPoolDefault  = "default"

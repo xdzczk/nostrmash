@@ -219,5 +219,47 @@ func configEnvDocsShared() []EnvVarDoc {
 			DefaultValue: "",
 			Description:  "CSV trust seed pubkeys used as trust graph roots. Required when any trust mode is trusted_only.",
 		},
+		{
+			Name:         "STORAGE_PRESSURE_CAPACITY_BYTES",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "0",
+			Description:  "Storage governor capacity budget for the Postgres database in bytes. 0 (default) keeps the governor in observe-only mode (reports ratio/level but takes no defensive action).",
+		},
+		{
+			Name:         "STORAGE_PRESSURE_WARN_PERCENT",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "80",
+			Description:  "Database-size-to-capacity percent at which the governor emits a warning (level 1).",
+		},
+		{
+			Name:         "STORAGE_PRESSURE_AGGRESSIVE_PERCENT",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "90",
+			Description:  "Percent at which the governor immediately drains existing retention loops (level 2).",
+		},
+		{
+			Name:         "STORAGE_PRESSURE_DISABLE_HYDRATION_PERCENT",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "95",
+			Description:  "Percent at which new on-demand hydration runs are refused (level 3).",
+		},
+		{
+			Name:         "STORAGE_PRESSURE_PAUSE_CANDIDATE_PERCENT",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "98",
+			Description:  "Percent at which candidate-expanding ingest is paused and the gate is forced trusted_only (level 4).",
+		},
+		{
+			Name:         "STORAGE_PRESSURE_RUN_INTERVAL",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "2m0s",
+			Description:  "How often the worker storage governor recomputes the pressure level.",
+		},
 	}
 }

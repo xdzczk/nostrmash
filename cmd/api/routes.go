@@ -136,6 +136,8 @@ func buildRouteDefinitions(
 		newPublicRoute("GET /api/v1/users/{pubkey}/summary", true, http.HandlerFunc(handlers.GetProfilePublicSummary)),
 		newPublicRoute("GET /api/v1/trust/scores/{pubkey}", false, http.HandlerFunc(handlers.GetTrustScore)),
 		newPublicRoute("GET /api/v1/trust/scores", false, http.HandlerFunc(handlers.ListTopTrustScores)),
+		newPublicRoute("GET /api/v1/accounts/{pubkey}/status", false, http.HandlerFunc(handlers.GetAccountStatus)),
+		newPublicRoute("POST /api/v1/accounts/{pubkey}/hydrate", false, http.HandlerFunc(handlers.HydrateAccount)),
 
 		newPublicRoute("GET /primal/v1/events/{id}", true, http.HandlerFunc(primalHandlers.GetEventByID)),
 		newPublicRoute("POST /primal/v1/events/batch", true, http.HandlerFunc(primalHandlers.BatchGetEvents)),
@@ -166,6 +168,8 @@ func buildRouteDefinitions(
 		newAdminRoute("GET /admin/v1/rebuilds", true, http.HandlerFunc(adminHandlers.GetRebuilds)),
 		newAdminRoute("POST /admin/v1/rebuilds", true, http.HandlerFunc(adminHandlers.TriggerRebuild)),
 		newAdminRoute("GET /admin/v1/storage", true, http.HandlerFunc(adminHandlers.GetStorage)),
+		newAdminRoute("POST /admin/v1/accounts/{pubkey}/state", false, http.HandlerFunc(adminHandlers.SetAccountState)),
+		newAdminRoute("POST /admin/v1/accounts/{pubkey}/hydrate", false, http.HandlerFunc(adminHandlers.HydrateAccount)),
 		newAdminRoute("GET /admin/v1/system", true, http.HandlerFunc(adminHandlers.GetSystem)),
 		newAdminRoute("GET /admin/v1/derivation-versions", true, http.HandlerFunc(adminHandlers.GetDerivationVersions)),
 		newAdminRoute("GET /admin/v1/trust/runs", false, http.HandlerFunc(adminHandlers.GetTrustRuns)),

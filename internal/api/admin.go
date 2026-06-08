@@ -39,6 +39,9 @@ type AdminService interface {
 	SetRelayRegistryPolicy(context.Context, adminSetPolicyRequest) error
 	GetRelayDiagnostics(context.Context, string) (adminRelayDiagnosticsResponse, error)
 	GetRelayAdmissionDryRun(context.Context) (adminAdmissionDryRunResponse, error)
+
+	SetAccountState(ctx context.Context, pubkey, state, reason string) (adminAccountStateResponse, error)
+	EnqueueAccountHydration(ctx context.Context, pubkey, reason string) (accountHydrateResponse, error)
 }
 
 type AdminServiceOptions struct {
@@ -53,6 +56,7 @@ type AdminServiceOptions struct {
 	TrustRefreshInterval time.Duration
 	MeiliClient          *meili.Client
 	AdmissionConfig      config.RelayRegistryAdmissionConfig
+	Hydration            config.HydrationConfig
 }
 
 type adminService struct {
@@ -72,6 +76,7 @@ type adminService struct {
 	trustRefreshInterval time.Duration
 	meili                *meili.Client
 	admissionCfg         config.RelayRegistryAdmissionConfig
+	hydration            config.HydrationConfig
 }
 
 func NewAdminService(
@@ -107,6 +112,7 @@ func NewAdminService(
 		trustRefreshInterval: opts.TrustRefreshInterval,
 		meili:                opts.MeiliClient,
 		admissionCfg:         opts.AdmissionConfig,
+		hydration:            opts.Hydration,
 	}
 }
 

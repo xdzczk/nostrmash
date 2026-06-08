@@ -40,6 +40,22 @@ Do not hand-edit this file.
 | `HTTP_RATE_LIMIT_RPM` | `api` | optional | `240` | Per-IP requests per minute for default HTTP routes. |
 | `HTTP_SEARCH_RATE_LIMIT_RPM` | `api` | optional | `60` | Per-IP requests per minute for the search endpoint. |
 | `HTTP_SUGGEST_RATE_LIMIT_RPM` | `api` | optional | `120` | Per-IP requests per minute for public suggestion endpoints. |
+| `HYDRATION_CONNECT_TIMEOUT` | `api, worker` | optional | `10s` | Per-relay websocket connect timeout during hydration. |
+| `HYDRATION_COOLDOWN` | `api, worker` | optional | `6h0m0s` | Minimum interval between successive hydrations of the same account. |
+| `HYDRATION_ENABLED` | `api, worker` | optional | `true` | Enable the on-demand account hydration feature (job handler on the worker and the trigger endpoints on the API). |
+| `HYDRATION_IDLE_TIMEOUT` | `api, worker` | optional | `4s` | Per-relay idle timeout (no frames) before a hydration fetch concludes. |
+| `HYDRATION_MAX_BYTES` | `api, worker` | optional | `33554432` | Soft byte budget for a single hydration run (0 = unbounded by bytes). |
+| `HYDRATION_MAX_CONCURRENCY` | `api, worker` | optional | `2` | Maximum simultaneous hydration runs on the worker. |
+| `HYDRATION_MAX_EVENTS_PER_ACCOUNT` | `api, worker` | optional | `2000` | Maximum events persisted per hydration run. |
+| `HYDRATION_MAX_LOOKBACK_DAYS` | `api, worker` | optional | `90` | How far back authored notes are fetched during hydration; also the full-coverage window for completeness. |
+| `HYDRATION_MAX_RELAYS` | `api, worker` | optional | `8` | Maximum relays queried during a single hydration run. |
+| `HYDRATION_MAX_RUNTIME` | `api, worker` | optional | `1m0s` | Wall-clock cap for a single hydration run. |
+| `HYDRATION_PUBLIC_ENABLED` | `api, worker` | optional | `false` | Allow unauthenticated, rate-limited public triggering of hydration via POST /api/v1/accounts/{pubkey}/hydrate. |
+| `HYDRATION_RATE_LIMIT` | `api, worker` | optional | `10` | Per-minute cap on public-triggered hydration enqueues. |
+| `HYDRATION_RELAYS` | `api, worker` | optional | `-` | CSV explicit relay set for hydration. When empty the worker falls back to the most recently active relays known locally. |
+| `INGESTOR_ACCOUNT_OBSERVATION_ENABLED` | `ingestor` | optional | `true` | Enable counts-only observation accounting: buffer seen pubkeys in memory and batch account_states observed_count UPSERTs out-of-band. |
+| `INGESTOR_ACCOUNT_OBSERVATION_FLUSH_INTERVAL` | `ingestor` | optional | `10s` | How often the in-memory observation buffer is flushed to account_states. |
+| `INGESTOR_ACCOUNT_OBSERVATION_MAX_BUFFER_KEYS` | `ingestor` | optional | `100000` | Cap on distinct pubkeys buffered between flushes (bounds memory under a flood; excess new pubkeys are dropped until the next flush). |
 | `INGESTOR_BACKFILL_CONNECT_TIMEOUT` | `ingestor` | optional | `10s` | Connection timeout used by backfill relay sessions. |
 | `INGESTOR_BACKFILL_EMPTY_PAGE_MAX` | `ingestor` | optional | `2` | Maximum consecutive empty pages before backfill stops. |
 | `INGESTOR_BACKFILL_ENABLED` | `ingestor` | optional | `false` | Enables bootstrap/backfill mode. |
@@ -107,6 +123,12 @@ Do not hand-edit this file.
 | `RELAY_REGISTRY_RETENTION_PURGE_INTERVAL` | `worker` | optional | `1h` | Interval between probe observation retention purge cycles. |
 | `RELAY_REGISTRY_RETENTION_RAW_PROBE_DAYS` | `worker` | optional | `14` | Days to retain raw probe observation rows. |
 | `RELAY_REGISTRY_SEED_RELAYS` | `worker` | optional | `-` | Comma-separated list of seed relay URLs to bootstrap the registry. |
+| `STORAGE_PRESSURE_AGGRESSIVE_PERCENT` | `api, ingestor, trust_worker, worker` | optional | `90` | Percent at which the governor immediately drains existing retention loops (level 2). |
+| `STORAGE_PRESSURE_CAPACITY_BYTES` | `api, ingestor, trust_worker, worker` | optional | `0` | Storage governor capacity budget for the Postgres database in bytes. 0 (default) keeps the governor in observe-only mode (reports ratio/level but takes no defensive action). |
+| `STORAGE_PRESSURE_DISABLE_HYDRATION_PERCENT` | `api, ingestor, trust_worker, worker` | optional | `95` | Percent at which new on-demand hydration runs are refused (level 3). |
+| `STORAGE_PRESSURE_PAUSE_CANDIDATE_PERCENT` | `api, ingestor, trust_worker, worker` | optional | `98` | Percent at which candidate-expanding ingest is paused and the gate is forced trusted_only (level 4). |
+| `STORAGE_PRESSURE_RUN_INTERVAL` | `api, ingestor, trust_worker, worker` | optional | `2m0s` | How often the worker storage governor recomputes the pressure level. |
+| `STORAGE_PRESSURE_WARN_PERCENT` | `api, ingestor, trust_worker, worker` | optional | `80` | Database-size-to-capacity percent at which the governor emits a warning (level 1). |
 | `TRUST_CANONICAL_INGEST_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Deprecated. Was a config placeholder for canonical ingest policy; not wired to the ingest hot path. Use INGESTOR_TRUST_GATE_MODE on the ingestor instead. |
 | `TRUST_DISCOVERY_CANDIDATE_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for discovery candidate selection: open, prefer_trusted, or trusted_only. |
 | `TRUST_ENABLE_REDIS_SYNC` | `trust_worker` | optional | `false` | Enable Redis graph synchronization trust job phases. |
@@ -143,6 +165,11 @@ Do not hand-edit this file.
 | `TRUST_WORKER_CONCURRENCY` | `trust_worker` | optional | `2` | Trust worker goroutine concurrency. |
 | `TRUST_WORKER_POLL_INTERVAL` | `trust_worker` | optional | `1s` | Polling interval for trust queue claims. |
 | `TRUST_WORKER_RETRY_DELAY` | `trust_worker` | optional | `5s` | Retry delay when trust jobs fail. |
+| `WORKER_ACCOUNT_STATE_BATCH_SIZE` | `worker` | optional | `500` | Number of accounts recomputed per cycle (oldest-updated first). |
+| `WORKER_ACCOUNT_STATE_ENABLED` | `worker` | optional | `true` | Enable the derived account-state recompute loop (recomputes lifecycle state from trust/observation/profile signals and records transitions). |
+| `WORKER_ACCOUNT_STATE_INTERVAL` | `worker` | optional | `1m0s` | Interval between account-state recompute cycles. |
+| `WORKER_ACCOUNT_STATE_STALE_AFTER` | `worker` | optional | `15m0s` | Only accounts whose state is older than this are recomputed each cycle. |
+| `WORKER_ACCOUNT_STATE_TRANSITION_MAX_AGE` | `worker` | optional | `720h0m0s` | Retention horizon for the append-only account_state_transitions audit table. |
 | `WORKER_AUTHOR_ANALYTICS_REBUILD_TIMEOUT` | `worker` | optional | `90s` | Maximum time a single per-pubkey author-analytics rebuild may hold its transaction (and therefore its pgxpool connection). On timeout the transaction rolls back, the per-pubkey advisory lock auto-releases, and the pubkey is retried on the next sweeper cycle. Safety net against any single hot pubkey monopolizing a connection long enough to starve bundle workers. |
 | `WORKER_AUTHOR_ANALYTICS_SWEEPER_BATCH_SIZE` | `worker` | optional | `25` | Maximum dirty pubkeys claimed and rebuilt per author-analytics sweeper batch. |
 | `WORKER_AUTHOR_ANALYTICS_SWEEPER_CONCURRENCY` | `worker` | optional | `4` | Number of concurrent author-analytics sweeper goroutines. Each independently claims dirty pubkeys via FOR UPDATE SKIP LOCKED. |

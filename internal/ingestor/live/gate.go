@@ -33,6 +33,7 @@ const (
 	gateDecisionAccept                = "accept"
 	gateDecisionRejectUntrustedAuthor = "reject_untrusted_author"
 	gateDecisionRejectMissingTarget   = "reject_missing_target"
+	gateDecisionRejectBlockedAuthor   = "reject_blocked_author"
 	gateDecisionShadowReject          = "shadow_reject"
 	gateDecisionFailClosed            = "fail_closed"
 )

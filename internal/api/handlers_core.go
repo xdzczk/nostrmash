@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/query"
@@ -50,6 +51,8 @@ type Handlers struct {
 	discoveryCache      *discoveryResponseCache
 	cacheConfig         discoveryCacheConfig
 	cacheLookupObserver cacheLookupObserver
+	hydration           config.HydrationConfig
+	hydrationLimiter    *minuteRateLimiter
 }
 
 var apiErrLog = logging.New("api")
@@ -60,6 +63,7 @@ type HandlersOptions struct {
 	QueryOptions        query.ServiceOptions
 	DiscoveryCache      *DiscoveryCacheOptions
 	CacheLookupObserver cacheLookupObserver
+	Hydration           config.HydrationConfig
 }
 
 func NewHandlers(reader EventReader, maxBatchSize int) (Handlers, error) {
@@ -89,6 +93,10 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 			metrics.ObservePublicResponseCacheLookup(family, endpoint, hit)
 		}
 	}
+	var hydrationLimiter *minuteRateLimiter
+	if options.Hydration.PublicEnabled && options.Hydration.RateLimitPerMinute > 0 {
+		hydrationLimiter = newMinuteRateLimiter(options.Hydration.RateLimitPerMinute)
+	}
 	return Handlers{
 		service:             service,
 		pool:                options.Pool,
@@ -96,6 +104,8 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 		discoveryCache:      discoveryCache,
 		cacheConfig:         cacheConfig,
 		cacheLookupObserver: lookupObserver,
+		hydration:           options.Hydration,
+		hydrationLimiter:    hydrationLimiter,
 	}, nil
 }
 

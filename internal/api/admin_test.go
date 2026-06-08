@@ -126,6 +126,12 @@ func (f fakeAdminService) GetRelayDiagnostics(ctx context.Context, relayURL stri
 func (f fakeAdminService) GetRelayAdmissionDryRun(ctx context.Context) (adminAdmissionDryRunResponse, error) {
 	return adminAdmissionDryRunResponse{Proposals: []adminAdmissionProposal{}}, nil
 }
+func (f fakeAdminService) SetAccountState(ctx context.Context, pubkey, state, reason string) (adminAccountStateResponse, error) {
+	return adminAccountStateResponse{Pubkey: pubkey, State: state}, nil
+}
+func (f fakeAdminService) EnqueueAccountHydration(ctx context.Context, pubkey, reason string) (accountHydrateResponse, error) {
+	return accountHydrateResponse{Pubkey: pubkey, Status: "queued"}, nil
+}
 
 func TestAdminRoutes_RequireBearerToken(t *testing.T) {
 	mux := newAdminTestMux("token", fakeAdminService{

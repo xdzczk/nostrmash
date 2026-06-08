@@ -354,6 +354,8 @@ func TestProductHandlerFilesDoNotUseDirectStoreReads(t *testing.T) {
 				"internal/api/admin_relay_registry.go": "admin relay registry endpoints use relayregistry store directly",
 				"internal/api/admin_storage.go":        "admin storage stats endpoint intentionally uses store-level collector",
 				"internal/api/admin_trust.go":          "admin trust run endpoints intentionally read trust-run projections directly",
+				"internal/api/admin_accounts.go":       "admin account-state override + hydration trigger intentionally use the account_states store directly (ops surface, not content reads)",
+				"internal/api/accounts.go":             "account coverage/completeness status + hydration trigger read account_states/jobs directly; this is account-lifecycle state, not query-orchestrated content",
 			},
 		},
 		{

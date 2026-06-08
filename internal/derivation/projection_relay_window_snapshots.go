@@ -12,14 +12,14 @@ import (
 // RefreshRelayWindowSnapshots recomputes every homepage-bundle
 // snapshot stored in relay_window_snapshots:
 //
-//   * summary             — relay totals and 24h/7d activity
-//   * top_relays_7d       — top 10 relays by 7-day activity
-//   * home_window_24h     — note volume + active authors (24h)
-//   * home_window_7d      — note volume + active authors (7d)
-//   * top_languages_24h   — top 8 languages (24h)
-//   * top_languages_7d    — top 8 languages (7d)
-//   * top_hashtags_24h    — top 50 hashtags (24h)
-//   * top_hashtags_7d     — top 50 hashtags (7d)
+//   - summary             — relay totals and 24h/7d activity
+//   - top_relays_7d       — top 10 relays by 7-day activity
+//   - home_window_24h     — note volume + active authors (24h)
+//   - home_window_7d      — note volume + active authors (7d)
+//   - top_languages_24h   — top 8 languages (24h)
+//   - top_languages_7d    — top 8 languages (7d)
+//   - top_hashtags_24h    — top 50 hashtags (24h)
+//   - top_hashtags_7d     — top 50 hashtags (7d)
 //
 // Why this is a projection, not an inline query
 // ---------------------------------------------

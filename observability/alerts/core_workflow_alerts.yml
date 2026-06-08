@@ -199,3 +199,25 @@ groups:
           summary: "invalid_events table growth is elevated"
           description: "invalid_events growth exceeds 10 MiB/hour over 6h. Check malformed traffic/relays and invalid_events retention effectiveness."
           runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashDiskUsageHigh
+        expr: nostrmash_storage_pressure_ratio > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          slo: capacity-planning
+        annotations:
+          summary: "Storage pressure is high"
+          description: "Database size exceeds 90% of the configured STORAGE_PRESSURE_CAPACITY_BYTES budget for 10m. The storage governor is running aggressive retention; review high-growth tiers (nostrmash_storage_tier_bytes) and consider raising capacity or tightening retention."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashStoragePressureCritical
+        expr: nostrmash_storage_pressure_level >= 4
+        for: 5m
+        labels:
+          severity: critical
+          slo: capacity-planning
+        annotations:
+          summary: "Storage pressure critical: candidate ingest paused"
+          description: "Storage pressure level 4 (pause_candidate) for 5m. Candidate-expanding ingest is paused and the gate is forced trusted_only. Operator intervention required: expand storage or reduce retained data."
+          runbook: "docs/operations.md#alert-response-playbook"

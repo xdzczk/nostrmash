@@ -81,4 +81,87 @@ func TestTrustedAuthorSet_NilSafe(t *testing.T) {
 	if set.Contains("x") || set.Loaded() || set.Size() != 0 || !set.LastRefreshAt().IsZero() {
 		t.Fatal("nil set accessors should be safe and empty")
 	}
+	if set.Blocked("x") {
+		t.Fatal("nil set Blocked should be false")
+	}
+}
+
+// fakeAccountStateLoader satisfies both trustedAuthorLoader and
+// accountStateLoader so the refresh exercises account-state augmentation.
+type fakeAccountStateLoader struct {
+	trusted []string
+	accept  []string
+	blocked []string
+
+	acceptErr  error
+	blockedErr error
+}
+
+func (f *fakeAccountStateLoader) LoadTrustedSnapshotPubkeys(context.Context, int) ([]string, error) {
+	return append([]string(nil), f.trusted...), nil
+}
+
+func (f *fakeAccountStateLoader) LoadIngestAcceptPubkeys(context.Context) ([]string, error) {
+	if f.acceptErr != nil {
+		return nil, f.acceptErr
+	}
+	return append([]string(nil), f.accept...), nil
+}
+
+func (f *fakeAccountStateLoader) LoadBlockedPubkeys(context.Context) ([]string, error) {
+	if f.blockedErr != nil {
+		return nil, f.blockedErr
+	}
+	return append([]string(nil), f.blocked...), nil
+}
+
+func TestTrustedAuthorSet_UnionsAcceptSetAndRecordsBlocked(t *testing.T) {
+	t.Parallel()
+	set := NewTrustedAuthorSet(2)
+	loader := &fakeAccountStateLoader{
+		trusted: []string{"alice"},
+		accept:  []string{" TRACKED ", "strategic"},
+		blocked: []string{"BadActor"},
+	}
+	if err := set.Refresh(context.Background(), loader); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	// Graph-trusted author plus account-state accept-set authors are all members.
+	for _, pk := range []string{"alice", "tracked", "strategic"} {
+		if !set.Contains(pk) {
+			t.Fatalf("expected %q in accept set", pk)
+		}
+	}
+	if set.Size() != 3 {
+		t.Fatalf("expected 3 accept members, got %d", set.Size())
+	}
+	// Blocked is normalized and recorded, and is not in the accept set.
+	if !set.Blocked("badactor") {
+		t.Fatal("expected badactor to be blocked")
+	}
+	if set.Contains("badactor") {
+		t.Fatal("blocked author must not be an accept-set member")
+	}
+}
+
+func TestTrustedAuthorSet_AccountStateErrorsDoNotCollapseTrusted(t *testing.T) {
+	t.Parallel()
+	set := NewTrustedAuthorSet(2)
+	loader := &fakeAccountStateLoader{
+		trusted:    []string{"alice", "bob"},
+		acceptErr:  errors.New("accept query failed"),
+		blockedErr: errors.New("blocked query failed"),
+	}
+	if err := set.Refresh(context.Background(), loader); err != nil {
+		t.Fatalf("Refresh should succeed despite account-state errors: %v", err)
+	}
+	if !set.Contains("alice") || !set.Contains("bob") {
+		t.Fatal("graph-trusted members must survive account-state augmentation errors")
+	}
+	if set.Size() != 2 {
+		t.Fatalf("expected 2 trusted members, got %d", set.Size())
+	}
+	if set.Blocked("anyone") {
+		t.Fatal("no blocked entries expected when blocked query failed")
+	}
 }

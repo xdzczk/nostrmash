@@ -18,7 +18,9 @@ type StorageStatsOptions struct {
 type StorageTableStats struct {
 	TableName    string
 	RowCount     int64
-	StorageBytes int64
+	StorageBytes int64  // total relation size (table + indexes + toast)
+	TableBytes   int64  // table heap + toast only (pg_table_size)
+	IndexBytes   int64  // indexes only (pg_indexes_size)
 	RowCountMode string // "exact" or "estimated"
 }
 
@@ -56,6 +58,8 @@ func CollectStorageStats(
 		)
 		SELECT requested.table_name,
 		       COALESCE(pg_total_relation_size(to_regclass(requested.table_name)), 0)::bigint AS storage_bytes,
+		       COALESCE(pg_table_size(to_regclass(requested.table_name)), 0)::bigint AS table_bytes,
+		       COALESCE(pg_indexes_size(to_regclass(requested.table_name)), 0)::bigint AS index_bytes,
 		       COALESCE(pg_class.reltuples, 0)::bigint AS estimated_rows
 		FROM requested
 		LEFT JOIN pg_class ON pg_class.oid = to_regclass(requested.table_name)
@@ -69,8 +73,10 @@ func CollectStorageStats(
 	for rows.Next() {
 		var tableName string
 		var storageBytes int64
+		var tableBytes int64
+		var indexBytes int64
 		var estimatedRows int64
-		if err := rows.Scan(&tableName, &storageBytes, &estimatedRows); err != nil {
+		if err := rows.Scan(&tableName, &storageBytes, &tableBytes, &indexBytes, &estimatedRows); err != nil {
 			return stats, fmt.Errorf("scan storage stats: %w", err)
 		}
 
@@ -89,6 +95,8 @@ func CollectStorageStats(
 			TableName:    tableName,
 			RowCount:     rowCount,
 			StorageBytes: storageBytes,
+			TableBytes:   tableBytes,
+			IndexBytes:   indexBytes,
 			RowCountMode: rowCountMode,
 		})
 	}

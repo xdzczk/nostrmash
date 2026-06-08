@@ -36,6 +36,8 @@ var knownJobTypes = map[string]struct{}{
 	JobTypeTrustSyncGraphRedis:     {},
 	JobTypeTrustComputeGlobalScore: {},
 	JobTypeTrustPromoteRun:         {},
+
+	JobTypeHydrateAccount: {},
 }
 
 // metricsReporterLogger is the logger surface used by the row-count reporter.

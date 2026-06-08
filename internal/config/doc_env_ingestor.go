@@ -424,5 +424,26 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			DefaultValue: "10s",
 			Description:  "Grace period before disconnecting a relay removed from the desired set.",
 		},
+		{
+			Name:         "INGESTOR_ACCOUNT_OBSERVATION_ENABLED",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable counts-only observation accounting: buffer seen pubkeys in memory and batch account_states observed_count UPSERTs out-of-band.",
+		},
+		{
+			Name:         "INGESTOR_ACCOUNT_OBSERVATION_FLUSH_INTERVAL",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "10s",
+			Description:  "How often the in-memory observation buffer is flushed to account_states.",
+		},
+		{
+			Name:         "INGESTOR_ACCOUNT_OBSERVATION_MAX_BUFFER_KEYS",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "100000",
+			Description:  "Cap on distinct pubkeys buffered between flushes (bounds memory under a flood; excess new pubkeys are dropped until the next flush).",
+		},
 	}
 }

@@ -15,6 +15,7 @@ type APIConfig struct {
 	RelayFallback  APIRelayFallbackConfig
 	DiscoveryCache APIDiscoveryCacheConfig
 	Meilisearch    MeilisearchConfig
+	Hydration      HydrationConfig
 }
 
 type APIHTTPConfig struct {
@@ -258,6 +259,11 @@ func LoadAPI() (APIConfig, error) {
 	if cfg.Meilisearch.SearchAPIKey == "" {
 		cfg.Meilisearch.SearchAPIKey = cfg.Meilisearch.MasterKey
 	}
+	hydrationCfg, err := loadHydrationConfig()
+	if err != nil {
+		return APIConfig{}, err
+	}
+	cfg.Hydration = hydrationCfg
 	if err := validateAPIConfig(cfg); err != nil {
 		return APIConfig{}, err
 	}

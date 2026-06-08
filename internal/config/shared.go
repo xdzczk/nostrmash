@@ -11,11 +11,12 @@ import (
 
 // SharedConfig holds runtime settings shared across binaries.
 type SharedConfig struct {
-	ServiceName   string
-	Environment   string
-	Database      DatabaseConfig
-	Observability ObservabilityConfig
-	TrustPolicy   TrustPolicyConfig
+	ServiceName     string
+	Environment     string
+	Database        DatabaseConfig
+	Observability   ObservabilityConfig
+	TrustPolicy     TrustPolicyConfig
+	StoragePressure StoragePressureConfig
 }
 
 // DatabaseConfig owns database connectivity settings.
@@ -43,6 +44,10 @@ func loadSharedConfig(serviceName string) (SharedConfig, error) {
 	if err != nil {
 		return SharedConfig{}, err
 	}
+	storagePressure, err := loadStoragePressureConfig()
+	if err != nil {
+		return SharedConfig{}, err
+	}
 	maxConns, err := getEnvNonNegativeIntStrict("DATABASE_MAX_CONNS", 0)
 	if err != nil {
 		return SharedConfig{}, err
@@ -58,7 +63,8 @@ func loadSharedConfig(serviceName string) (SharedConfig, error) {
 			MetricsAddr: strings.TrimSpace(getEnv("METRICS_ADDR", ":9090")),
 			DebugAddr:   strings.TrimSpace(getEnv("DEBUG_ADDR", "")),
 		},
-		TrustPolicy: trustPolicy,
+		TrustPolicy:     trustPolicy,
+		StoragePressure: storagePressure,
 	}
 	if cfg.ServiceName == "" {
 		return SharedConfig{}, fmt.Errorf("service name is required")

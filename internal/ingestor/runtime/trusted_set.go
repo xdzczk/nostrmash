@@ -14,6 +14,17 @@ type trustedAuthorLoader interface {
 	LoadTrustedSnapshotPubkeys(ctx context.Context, maxHops int) ([]string, error)
 }
 
+// accountStateLoader optionally augments the trusted set with account-state
+// signals: tracked/strategic accounts are unioned into the accept set (so the
+// gate accepts on-demand-hydrated authors) and blocked accounts are recorded
+// for a hard drop. Satisfied by *store.PostgresStore. The trusted-set refresh
+// degrades gracefully when the loader does not implement this (e.g. test
+// fakes).
+type accountStateLoader interface {
+	LoadIngestAcceptPubkeys(ctx context.Context) ([]string, error)
+	LoadBlockedPubkeys(ctx context.Context) ([]string, error)
+}
+
 // TrustedAuthorSet is an in-memory, periodically-refreshed view of the
 // trusted-author pubkeys the ingest gate enforces against. Holding it in
 // memory avoids a per-event DB lookup on the live hot path.
@@ -30,6 +41,7 @@ type TrustedAuthorSet struct {
 
 	mu            sync.RWMutex
 	members       map[string]struct{}
+	blocked       map[string]struct{}
 	loaded        bool
 	lastRefreshAt time.Time
 }
@@ -43,7 +55,24 @@ func NewTrustedAuthorSet(maxHops int) *TrustedAuthorSet {
 	return &TrustedAuthorSet{
 		maxHops: maxHops,
 		members: make(map[string]struct{}),
+		blocked: make(map[string]struct{}),
 	}
+}
+
+// Blocked reports whether pubkey is explicitly blocked. Blocked authors have
+// all their events dropped at ingest regardless of gate mode.
+func (t *TrustedAuthorSet) Blocked(pubkey string) bool {
+	if t == nil {
+		return false
+	}
+	pubkey = strings.ToLower(strings.TrimSpace(pubkey))
+	if pubkey == "" {
+		return false
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	_, ok := t.blocked[pubkey]
+	return ok
 }
 
 // Contains reports whether pubkey is in the current trusted set. The pubkey is
@@ -116,8 +145,35 @@ func (t *TrustedAuthorSet) Refresh(ctx context.Context, loader trustedAuthorLoad
 		}
 		members[p] = struct{}{}
 	}
+
+	// Best-effort augmentation from account states: union tracked/strategic
+	// accounts into the accept set and record blocked accounts. Failures here
+	// must not collapse the (already-loaded) trusted set, so they are logged via
+	// the returned error path only when the trusted load itself failed; here we
+	// simply skip augmentation on error.
+	blocked := make(map[string]struct{})
+	if asl, ok := loader.(accountStateLoader); ok {
+		if accept, acceptErr := asl.LoadIngestAcceptPubkeys(ctx); acceptErr == nil {
+			for _, p := range accept {
+				p = strings.ToLower(strings.TrimSpace(p))
+				if p != "" {
+					members[p] = struct{}{}
+				}
+			}
+		}
+		if blk, blockedErr := asl.LoadBlockedPubkeys(ctx); blockedErr == nil {
+			for _, p := range blk {
+				p = strings.ToLower(strings.TrimSpace(p))
+				if p != "" {
+					blocked[p] = struct{}{}
+				}
+			}
+		}
+	}
+
 	t.mu.Lock()
 	t.members = members
+	t.blocked = blocked
 	t.loaded = true
 	t.lastRefreshAt = time.Now().UTC()
 	t.mu.Unlock()

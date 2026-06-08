@@ -22,8 +22,23 @@ type WorkerConfig struct {
 	AuthorAnalyticsSweeper WorkerAuthorAnalyticsSweeperConfig
 	ProfileStatsSweeper    WorkerProfileStatsSweeperConfig
 	MeilisearchSweeper     WorkerMeilisearchSweeperConfig
+	AccountState           WorkerAccountStateConfig
+	Hydration              HydrationConfig
 	Meilisearch            MeilisearchConfig
 	RelayRegistry          RelayRegistryConfig
+}
+
+// WorkerAccountStateConfig configures the derived account-state recompute loop.
+// The loop periodically reads a batch of accounts whose state is stale, derives
+// a fresh state from cheap signals (trust hops, observation count, profile
+// presence, note count), records any transition, and refreshes the per-state
+// count metrics. It also prunes the append-only transition audit table.
+type WorkerAccountStateConfig struct {
+	Enabled                   bool
+	Interval                  time.Duration
+	BatchSize                 int
+	StaleAfter                time.Duration
+	TransitionRetentionMaxAge time.Duration
 }
 
 // WorkerAuthorAnalyticsSweeperConfig configures the background loop that
@@ -304,6 +319,26 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	accountStateInterval, err := getEnvPositiveDurationStrict("WORKER_ACCOUNT_STATE_INTERVAL", 1*time.Minute)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	accountStateBatch, err := getEnvPositiveIntStrict("WORKER_ACCOUNT_STATE_BATCH_SIZE", 500)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	accountStateStaleAfter, err := getEnvPositiveDurationStrict("WORKER_ACCOUNT_STATE_STALE_AFTER", 15*time.Minute)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	accountStateTransitionMaxAge, err := getEnvPositiveDurationStrict("WORKER_ACCOUNT_STATE_TRANSITION_MAX_AGE", 30*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	hydrationCfg, err := loadHydrationConfig()
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	cfg := WorkerConfig{
 		Shared:              shared,
 		Concurrency:         concurrency,
@@ -364,6 +399,14 @@ func LoadWorker() (WorkerConfig, error) {
 			BatchSize:   meilisearchSweeperBatch,
 			Concurrency: meilisearchSweeperConcurrency,
 		},
+		AccountState: WorkerAccountStateConfig{
+			Enabled:                   getEnvBool("WORKER_ACCOUNT_STATE_ENABLED", true),
+			Interval:                  accountStateInterval,
+			BatchSize:                 accountStateBatch,
+			StaleAfter:                accountStateStaleAfter,
+			TransitionRetentionMaxAge: accountStateTransitionMaxAge,
+		},
+		Hydration: hydrationCfg,
 		Meilisearch: MeilisearchConfig{
 			Enabled:      getEnvBool("MEILI_ENABLED", false),
 			URL:          getEnv("MEILI_URL", ""),

@@ -57,6 +57,27 @@ type Processor struct {
 	gateMode       string
 	trustedAuthors TrustedAuthors
 	targetChecker  TargetExistenceChecker
+
+	// blockedAuthors (optional) is consulted before the gate: any event from a
+	// blocked author is dropped regardless of gate mode.
+	blockedAuthors BlockedAuthors
+
+	// observationSink (optional) records that a pubkey was seen at ingest
+	// (including gated/blocked events). Must be cheap and non-blocking.
+	observationSink ObservationSink
+}
+
+// BlockedAuthors reports whether a pubkey is explicitly blocked. Satisfied by
+// *runtime.TrustedAuthorSet.
+type BlockedAuthors interface {
+	Blocked(pubkey string) bool
+}
+
+// ObservationSink records cheap, counts-only observation accounting for a seen
+// pubkey. Implementations must be non-blocking (in-memory buffering); the live
+// hot path never performs a synchronous per-event DB write.
+type ObservationSink interface {
+	Observe(pubkey string)
 }
 
 func NewProcessor(log *slog.Logger, store EventStore, validateOpts nostr.Options) (*Processor, error) {
@@ -93,6 +114,25 @@ func (p *Processor) SetTrustGate(mode string, trusted TrustedAuthors, checker Ta
 	p.targetChecker = checker
 }
 
+// SetBlockedAuthors wires an optional blocked-author drop. Blocked authors have
+// all events dropped before the trust gate, in any mode.
+func (p *Processor) SetBlockedAuthors(blocked BlockedAuthors) {
+	if p == nil {
+		return
+	}
+	p.blockedAuthors = blocked
+}
+
+// SetObservationSink wires an optional, non-blocking observation accounting
+// sink. When set, every valid event's author is recorded (including gated and
+// blocked events) so account promotion can be signal-driven.
+func (p *Processor) SetObservationSink(sink ObservationSink) {
+	if p == nil {
+		return
+	}
+	p.observationSink = sink
+}
+
 func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte) (err error) {
 	ctx, span := traceutil.StartSpan(ctx, "ingest.live.handle_event",
 		traceutil.KV("relay.url", relayURL),
@@ -103,6 +143,31 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 	seenAt := time.Now().UTC()
 	result := nostr.ParseAndValidate(payload, p.validateOpts)
 	if result.Valid() {
+		if p.observationSink != nil {
+			p.observationSink.Observe(result.Event.Pubkey)
+		}
+		if p.blockedAuthors != nil && p.blockedAuthors.Blocked(result.Event.Pubkey) {
+			p.gatedCount.Add(1)
+			metrics.IncIngestGateDecision(gateKindLabel(result.Event.Kind), gateDecisionRejectBlockedAuthor)
+			metrics.IncIngestOutcome("gated")
+			p.log.Debug(
+				"ingest_event_blocked_author",
+				"relay_url", relayURL,
+				"event_id", result.Event.ID,
+				"kind", result.Event.Kind,
+			)
+			if p.checkpointWriter != nil {
+				if err := p.checkpointWriter.MarkEventProcessed(
+					ctx,
+					relayURL,
+					result.Event.ID,
+					result.Event.CreatedAt,
+				); err != nil {
+					return fmt.Errorf("persist live checkpoint (blocked): %w", err)
+				}
+			}
+			return nil
+		}
 		if p.trustedAuthors != nil {
 			decision := p.evaluateGate(ctx, result.Event.Kind, result.Event.Pubkey, result.Event.Tags)
 			metrics.IncIngestGateDecision(decision.kindLabel, decision.decision)

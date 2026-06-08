@@ -8,7 +8,7 @@ import (
 
 // supersededReplaceableKinds are the replaceable kinds whose older versions
 // carry no value once a newer version wins. Two families share this purge:
-//   - non-parameterized (addressable by pubkey+kind, d_tag always ''):
+//   - non-parameterized (addressable by pubkey+kind, d_tag always ”):
 //     profile metadata (0), contact/follow lists (3), relay lists (10002),
 //     mute lists (10000), bookmark lists (10003).
 //   - parameterized (addressable by pubkey+kind+d_tag): long-form articles
@@ -16,7 +16,7 @@ import (
 //
 // Nostr semantics define all of these as latest-wins, so every superseded
 // version is dead weight. The purge query derives each candidate's d_tag and
-// joins replaceable_state on (pubkey, kind, d_tag), which reduces to d_tag=''
+// joins replaceable_state on (pubkey, kind, d_tag), which reduces to d_tag=”
 // for the non-parameterized family.
 var supersededReplaceableKinds = []int{0, 3, 10000, 10002, 10003, 30023}
 

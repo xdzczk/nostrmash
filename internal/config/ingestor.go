@@ -23,7 +23,17 @@ type IngestorConfig struct {
 	TrustFetch              IngestorTrustFetchConfig
 	TrustGate               IngestorTrustGateConfig
 	AuthorMetadataDiscovery IngestorAuthorMetadataDiscoveryConfig
+	AccountObservation      IngestorAccountObservationConfig
 	RelayRegistry           RelayRegistryConfig
+}
+
+// IngestorAccountObservationConfig controls the cheap, counts-only observation
+// accounting on the live hot path. Observe() only buffers in memory; this loop
+// batches the account_states UPSERT.
+type IngestorAccountObservationConfig struct {
+	Enabled       bool
+	FlushInterval time.Duration
+	MaxBufferKeys int
 }
 
 // IngestorTrustGateConfig controls trust-bounded canonical ingest enforcement
@@ -156,6 +166,11 @@ func LoadIngestor() (IngestorConfig, error) {
 			BatchSize:         getEnvInt("INGESTOR_AUTHOR_METADATA_DISCOVERY_BATCH_SIZE", 50),
 			Interval:          getEnvDuration("INGESTOR_AUTHOR_METADATA_DISCOVERY_INTERVAL", 3*time.Minute),
 			PageLimitPerRelay: getEnvInt("INGESTOR_AUTHOR_METADATA_DISCOVERY_PAGE_LIMIT", 10),
+		},
+		AccountObservation: IngestorAccountObservationConfig{
+			Enabled:       getEnvBool("INGESTOR_ACCOUNT_OBSERVATION_ENABLED", true),
+			FlushInterval: getEnvDuration("INGESTOR_ACCOUNT_OBSERVATION_FLUSH_INTERVAL", 10*time.Second),
+			MaxBufferKeys: getEnvInt("INGESTOR_ACCOUNT_OBSERVATION_MAX_BUFFER_KEYS", 100000),
 		},
 	}
 

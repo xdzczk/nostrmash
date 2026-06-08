@@ -202,6 +202,7 @@ func main() {
 		MaxBatchSize: cfg.HTTP.MaxBatchSize,
 		Pool:         pool,
 		QueryOptions: queryOptions,
+		Hydration:    cfg.Hydration,
 		DiscoveryCache: &api.DiscoveryCacheOptions{
 			Enabled:        &discoveryCacheEnabled,
 			MaxEntries:     cfg.DiscoveryCache.MaxEntries,
@@ -252,6 +253,7 @@ func main() {
 		SearchTrustMode:      cfg.Shared.TrustPolicy.SearchRankingMode,
 		TrustRefreshInterval: cfg.Shared.TrustPolicy.RefreshInterval,
 		MeiliClient:          meiliClient,
+		Hydration:            cfg.Hydration,
 	})
 	adminHandlers := api.NewAdminHandlers(adminService)
 
@@ -396,9 +398,15 @@ func runStorageMetricsReporter(
 				continue
 			}
 			metrics.SetStorageDatabaseBytes(float64(snapshot.DatabaseBytes))
+			tierBytes := make(map[string]float64, 3)
 			for _, table := range snapshot.Tables {
 				metrics.SetStorageTableRows(table.TableName, float64(table.RowCount))
 				metrics.SetStorageTableBytes(table.TableName, float64(table.StorageBytes))
+				metrics.SetStorageTableIndexBytes(table.TableName, float64(table.IndexBytes))
+				tierBytes[api.StorageTableTier(table.TableName)] += float64(table.StorageBytes)
+			}
+			for _, tier := range []string{api.StorageTierCanonical, api.StorageTierDerived, api.StorageTierOperational} {
+				metrics.SetStorageTierBytes(tier, tierBytes[tier])
 			}
 		}
 	}
