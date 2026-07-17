@@ -22,7 +22,8 @@ func (h Handlers) GetAuthorEvents(w http.ResponseWriter, r *http.Request) {
 	kindRaw := strings.TrimSpace(r.URL.Query().Get("kind"))
 	var events []json.RawMessage
 	if kindRaw != "" {
-		kind, err := strconv.Atoi(kindRaw)
+		var kind int
+		kind, err = strconv.Atoi(kindRaw)
 		if err != nil || kind < 0 {
 			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "kind must be a non-negative integer")
 			return

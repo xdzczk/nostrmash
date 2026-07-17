@@ -121,6 +121,14 @@ func TestRuntime_TriggerGlobalRunAndProcessLifecycleWithoutRedis(t *testing.T) {
 	if publishedRows != 2 {
 		t.Fatalf("expected two published trust score rows, got %d", publishedRows)
 	}
+
+	var remainingStageRows int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM trust_scores_global_stage WHERE run_id = $1`, run.ID).Scan(&remainingStageRows); err != nil {
+		t.Fatalf("count staged trust scores after promote: %v", err)
+	}
+	if remainingStageRows != 0 {
+		t.Fatalf("expected stage rows cleared after promote, got %d", remainingStageRows)
+	}
 }
 
 func TestRuntime_ComputePhaseFailureAfterSuccessfulSyncMarksRunFailedWithoutPublishing(t *testing.T) {

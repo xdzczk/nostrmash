@@ -78,6 +78,19 @@ func (r *Runtime) executePromoteRun(ctx context.Context, runID int64, snapshotRe
 	}
 	metrics.AddTrustScoreRowsPublished(tag.RowsAffected())
 
+	// Stage rows are only needed until promote publishes them into
+	// trust_scores_global. Leaving them forever blew trust_scores_global_stage
+	// to tens of GB across many runs. Clear this run's stage in the same
+	// transaction. Pre-existing backlog from older runs should be reclaimed
+	// with a one-time TRUNCATE/DELETE when no trust promote is in flight —
+	// do not DELETE the whole history here (can be 100M+ rows under load).
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM trust_scores_global_stage
+		WHERE run_id = $1
+	`, runID); err != nil {
+		return fmt.Errorf("clear trust score staging rows after promote: %w", err)
+	}
+
 	_, err = tx.Exec(ctx, `
 		UPDATE trust_runs
 		SET status = $1,

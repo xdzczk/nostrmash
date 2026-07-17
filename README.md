@@ -26,7 +26,7 @@ If you want durable local ownership, operational visibility, and a realistic mig
 
 | Area | Value |
 | --- | --- |
-| Runtime | Go `1.26+` (CI/Docker pin `1.26.2`) |
+| Runtime | Go `1.26+` (CI/Docker pin `1.26.5`) |
 | Primary datastore | Postgres (canonical) |
 | Trust working state | Redis |
 | Deployment posture | Docker-first, self-hostable |
@@ -191,7 +191,7 @@ Use [CONTRIBUTING.md](CONTRIBUTING.md) as the contributor entrypoint. The canoni
 make verify-docker
 ```
 
-Use `make verify-local` or `make ci` when you already have Go `1.26.2` and local dependencies aligned and want faster inner-loop checks.
+Use `make verify-local` or `make ci` when you already have Go `1.26.5` and local dependencies aligned and want faster inner-loop checks.
 
 Common local follow-up commands:
 
@@ -203,8 +203,8 @@ make cover
 ## Go toolchain policy
 
 - Minimum supported language/runtime version: Go `1.26` (`go.mod` uses `go 1.26`)
-- Recommended local toolchain: Go `1.26.2` (`go.mod` uses `toolchain go1.26.2`)
-- CI and Docker builders are pinned to Go `1.26.2` for reproducible verification (including `make verify-docker`)
+- Recommended local toolchain: Go `1.26.5` (`go.mod` uses `toolchain go1.26.5`)
+- CI and Docker builders are pinned to Go `1.26.5` for reproducible verification (including `make verify-docker`)
 
 Why this split:
 

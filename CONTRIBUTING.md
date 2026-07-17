@@ -18,8 +18,8 @@ Use this page as the contributor entrypoint. It is the shortest path from local 
 Go toolchain policy:
 
 - Minimum supported version: Go `1.26` (`go.mod` `go` directive)
-- Recommended local toolchain: Go `1.26.2` (`go.mod` `toolchain go1.26.2`)
-- CI and Docker builders pin Go `1.26.2` for reproducible checks
+- Recommended local toolchain: Go `1.26.5` (`go.mod` `toolchain go1.26.5`)
+- CI and Docker builders pin Go `1.26.5` for reproducible checks
 
 If your local Go supports toolchain auto-selection, the `toolchain` directive helps keep local behavior aligned with CI patch-level behavior while preserving a clear minimum-version policy.
 
@@ -60,7 +60,7 @@ Run this baseline sequence for reproducible CI parity (pinned Go toolchain in Do
 make verify-docker
 ```
 
-`make verify-docker` runs the same blocking gates as CI inside a pinned Go `1.26.2` container, with an isolated Postgres sidecar for integration-backed checks.
+`make verify-docker` runs the same blocking gates as CI inside a pinned Go `1.26.5` container, with an isolated Postgres sidecar for integration-backed checks.
 
 If your host already matches the pinned toolchain and you want faster local loops, use:
 

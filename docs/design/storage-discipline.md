@@ -74,8 +74,9 @@ All of these can be rebuilt from canonical events and lower projections. They sh
 - `profile_discovery_stats` — one row per scored pubkey. Self-deletes when all metrics are zero.
 - `thread_summaries`, `thread_edges`, `unresolved_thread_references` — thread graph. Bounded by participating roots.
 - `search_documents` — Meili-style local search index, trigger-maintained from `profiles_latest` / `events` (kind 1) / `event_hashtags` / `ingest_checkpoints`. Rebuildable. No retention currently. `body` holds full note content for search. Phase 4 candidate for body trim or stale-row prune.
-- `trusted_note_discovery_candidates`, `trusted_profile_discovery_candidates`, `trusted_discovery_projection_state` — trust-qualified discovery. Refreshed in bulk with the trust snapshot; CASCADE from parent stats tables. `TrustRetentionHooks` exist in config ([internal/config/trust_retention.go](../../internal/config/trust_retention.go)) but are not wired into actual deletes. Phase 4.
-- `trust_graph_snapshot`, `trust_scores_global`, `trust_scores_global_stage` — trust outputs. Bulk-refreshed. Bounded by distinct pubkeys.
+- `trusted_note_discovery_candidates`, `trusted_profile_discovery_candidates`, `trusted_discovery_projection_state` — trust-qualified discovery. Refreshed in bulk with the trust snapshot. Parent FKs were dropped (migration `000051`) because concurrent parent-row deletes raced the refresh INSERT and aborted `trust_graph_snapshot` rebuilds; soft cleanup (`DELETE WHERE NOT EXISTS` parent) remains. `TrustRetentionHooks` exist in config ([internal/config/trust_retention.go](../../internal/config/trust_retention.go)) but are not wired into actual deletes. Phase 4.
+- `trust_graph_snapshot`, `trust_scores_global` — trust outputs. Bulk-refreshed. Bounded by distinct pubkeys.
+- `trust_scores_global_stage` — per-run staging for score promote. Cleared for the promoted run (and any already-terminal runs) on successful promote; must not accumulate across runs.
 - Reaction / repost / deletion / DM / zap / curated parity tables — projection family, bounded by activity volume.
 
 ## Index ownership audit

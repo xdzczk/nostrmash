@@ -519,7 +519,18 @@ Trust execution phases:
 
 - `trust_sync_graph_redis`: materialize run-scoped graph snapshot keys in Redis from `follower_edges` and active `trust_seeds`
 - `trust_compute_global_scores`: run deterministic iterative graph ranking and stage rows for promotion
-- `trust_promote_run`: atomically publish staged rows into `trust_scores_global` and mark the run succeeded
+- `trust_promote_run`: atomically publish staged rows into `trust_scores_global`, clear that run's `trust_scores_global_stage` rows, and mark the run succeeded
+
+If `trust_graph_snapshot_refresh_failed` mentions `trusted_profile_discovery_candidates_pubkey_fkey` / `23503`, deploy migration `000051` (drops parent FKs on trusted discovery candidate tables; soft cleanup remains). Until then the refresh aborts and rolls back.
+
+If `trust_scores_global_stage` is multi-GB with tens of millions of rows, older runs accumulated stage data before promote cleanup existed. Reclaim when no trust promote is in flight:
+
+```sql
+-- Safe when no trust run is mid-compute/promote.
+TRUNCATE trust_scores_global_stage;
+```
+
+After failed/rolled-back discovery refreshes, candidate tables can also bloat with dead tuples (`trusted_note_discovery_candidates` especially). After the FK fix is live and refreshes succeed again, run `VACUUM (VERBOSE) trusted_note_discovery_candidates;` and `VACUUM (VERBOSE) trusted_profile_discovery_candidates;` (or `VACUUM FULL` during a maintenance window for full reclaim).
 
 Operational run metadata:
 
