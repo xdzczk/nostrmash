@@ -163,7 +163,7 @@ These changes bound storage growth at the source rather than pruning canonical n
 
 - **Author gate** (kinds `1`/`4`/`9802`/`10000`/`10003`/`30023`): persist authored content (notes, DMs, highlights, mute/bookmark lists, long-form articles) only when the author is in `trust_graph_snapshot` within `INGESTOR_TRUST_GATE_MAX_HOPS` of a seed. Kind `4` DMs gate on the sender.
 - **Kinds `6`/`7`/`9735` target gate**: persist engagement only when the target event already exists locally (self-consistent; lossy if engagement arrives before its target).
-- **Open kinds** (`0`, `3`, `5`, `10002`): still ingested so the trust graph and profiles can bootstrap.
+- **Open kinds** (`0`, `3`, `10002`): still ingested so the trust graph and profiles can bootstrap. Kind `5` deletions were moved out of the open set once production showed tombstone spam at ~79% of the events table: they now require a trusted author or a locally-stored `e`-tag target, mirroring the engagement rule.
 - **Shadow rollout**: default `INGESTOR_TRUST_GATE_MODE=open` records `nostrmash_ingest_gate_decisions_total` without rejecting; flip to `trusted_only` after trusted-set metrics look sane.
 - **Prerequisites**: `trust_worker` reconciles seeds, refreshes `trust_graph_snapshot`, and schedules global trust runs.
 

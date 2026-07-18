@@ -223,7 +223,7 @@ Do not hand-edit this file.
 | `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | Interval between engagement-events retention purge runs. |
 | `WORKER_RETENTION_EVENT_RELAYS_DELETE_BATCH_LIMIT` | `worker` | optional | `5000` | Maximum event_relays rows deleted per retention purge batch. |
 | `WORKER_RETENTION_EVENT_RELAYS_ENABLED` | `worker` | optional | `true` | Enable pruning of duplicate event_relays provenance rows past the age horizon. The earliest-seen row per event always survives, so first-provenance is preserved forever. |
-| `WORKER_RETENTION_EVENT_RELAYS_MAX_AGE` | `worker` | optional | `4320h0m0s` | Age (by seen_at) beyond which non-first event_relays provenance rows are pruned. |
+| `WORKER_RETENTION_EVENT_RELAYS_MAX_AGE` | `worker` | optional | `720h0m0s` | Age (by seen_at) beyond which non-first event_relays provenance rows are pruned. Relay window snapshots read at most 7d, so the 30d default keeps ample margin. |
 | `WORKER_RETENTION_EVENT_RELAYS_RUN_INTERVAL` | `worker` | optional | `6h0m0s` | How often the event_relays provenance retention loop runs. |
 | `WORKER_RETENTION_REPLACEABLE_DEAD_GRACE` | `worker` | optional | `168h0m0s` | Derivation-safety grace window: a dead derive_event_bundle job only blocks purge of its superseded replaceable event while updated within this window. Past it, a permanently-dead derivation no longer blocks cleanup. |
 | `WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum superseded replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023) deleted per retention purge batch. |

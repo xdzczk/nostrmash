@@ -408,7 +408,7 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
-	eventRelaysRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EVENT_RELAYS_MAX_AGE", 180*24*time.Hour)
+	eventRelaysRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EVENT_RELAYS_MAX_AGE", 30*24*time.Hour)
 	if err != nil {
 		return WorkerConfig{}, err
 	}

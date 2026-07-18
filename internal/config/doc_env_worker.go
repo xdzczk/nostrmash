@@ -587,8 +587,8 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Name:         "WORKER_RETENTION_EVENT_RELAYS_MAX_AGE",
 			Runtimes:     []string{"worker"},
 			Required:     false,
-			DefaultValue: "4320h0m0s",
-			Description:  "Age (by seen_at) beyond which non-first event_relays provenance rows are pruned.",
+			DefaultValue: "720h0m0s",
+			Description:  "Age (by seen_at) beyond which non-first event_relays provenance rows are pruned. Relay window snapshots read at most 7d, so the 30d default keeps ample margin.",
 		},
 		{
 			Name:         "WORKER_RETENTION_EVENT_RELAYS_RUN_INTERVAL",

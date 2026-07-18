@@ -11,22 +11,26 @@ On a fixed disk, subscribing to broad relay filters and storing every kind indef
 ## Design summary
 
 - Relay subscriptions stay broad (relays cannot filter by author at scale). Enforcement happens locally in the ingest hot path.
-- Kinds `0`, `3`, `5`, `10002` remain open so the trust graph can grow and profiles resolve. This is acceptable for the first rollout, not a permanent guarantee against kind-0/3 spam.
+- Kinds `0`, `3`, `10002` remain open so the trust graph can grow and profiles resolve. This is acceptable for the first rollout, not a permanent guarantee against kind-0/3 spam.
 - Authored kinds `1` (notes), `4` (DMs, gated on sender trust), `9802` (highlights), `10000` (mute lists), `10003` (bookmark lists), and `30023` (long-form articles) are hard-gated: persist only when the author is in the trusted set.
 - Kinds `6`, `7`, `9735` are kept only when their target event already exists locally (engagement on already-stored/trusted content). Engagement that arrives before its target is dropped permanently in v1 (no pending buffer).
+- Kind `5` (deletions) is kept when the author is trusted, or when at least one referenced `e`-tag target exists locally (same existence rule as engagement, capped at 100 probed ids per event). Open ingestion of kind 5 previously let tombstone spam dominate the events table.
 - Raw engagement events are purged after a short retention window. Lifetime aggregate counters (`reaction_counts`, `repost_counts`) survive because they have no FK to `events`.
 
 ```mermaid
 flowchart TD
   E["Event from relay"] --> V["ParseAndValidate"]
   V -->|valid| K{"kind?"}
-  K -->|"0,3,5,10002"| Store["InsertCanonicalEvent"]
+  K -->|"0,3,10002"| Store["InsertCanonicalEvent"]
   K -->|"1,4,9802,10000,10003,30023"| T{"author in trusted set?"}
   T -->|yes| Store
   T -->|no| Drop["metric only; no invalid_events"]
   K -->|"6,7,9735"| Tgt{"target event exists locally?"}
   Tgt -->|yes| Store
   Tgt -->|no| Drop
+  K -->|"5"| D5{"author trusted OR e-tag target exists locally?"}
+  D5 -->|yes| Store
+  D5 -->|no| Drop
   Store --> J["enqueue derive_event_bundle"]
 ```
 
@@ -62,9 +66,10 @@ On a fresh database the snapshot is seeds-only until kind-3 contact lists arrive
 
 Gate decisions per kind:
 
-- `0`, `3`, `5`, `10002`: always accept.
+- `0`, `3`, `10002`: always accept.
 - `1`, `4`, `9802`, `10000`, `10003`, `30023`: accept iff author in trusted set (or shadow-reject in `open` mode). Kind `4` is gated on the sender (author) being trusted.
 - `6`, `7`, `9735`: accept iff target event exists locally (`EventsExist`). Kind `9735` uses the same first-`e`-tag rule as zap derivation.
+- `5`: accept iff the author is trusted OR any referenced `e`-tag target exists locally (at most 100 ids probed per event). Trusted authors bypass the target check so their deletions of `a`-tag addressable targets and not-yet-hydrated events survive. Unlike the author-gated kinds, kind `5` does not fail closed when the trusted set has never loaded — the target-existence check alone decides.
 
 Rejected events increment metrics only. They are **not** written to `invalid_events` (they are valid Nostr events, just out of scope). The live resume checkpoint still advances so restarts do not re-fetch and re-drop the same span.
 
@@ -120,7 +125,7 @@ Migration `000050` dropped the `deletion_events.event_id` FK cascade, turning `d
 
 Gate metrics (ingestor, bounded labels):
 
-- `nostrmash_ingest_gate_decisions_total{kind,decision}` — `kind` is one of `1`, `4`, `6`, `7`, `9735`, `9802`, `10000`, `10003`, `30023`, `open_kind`, `other`; `decision` is one of `accept`, `reject_untrusted_author`, `reject_missing_target`, `shadow_reject`, `fail_closed`
+- `nostrmash_ingest_gate_decisions_total{kind,decision}` — `kind` is one of `1`, `4`, `5`, `6`, `7`, `9735`, `9802`, `10000`, `10003`, `30023`, `open_kind`, `other`; `decision` is one of `accept`, `reject_untrusted_author`, `reject_missing_target`, `shadow_reject`, `fail_closed`
 - `nostrmash_ingest_trusted_set_size`
 - `nostrmash_ingest_trusted_set_loaded` (0/1)
 - `nostrmash_ingest_trusted_set_age_seconds`

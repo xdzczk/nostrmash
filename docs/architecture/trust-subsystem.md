@@ -184,7 +184,7 @@ Vertex-style ideas are still useful, but should attach to NostrMash's pipeline:
 Important constraint:
 
 - trust may influence ingest prioritization and, when explicitly enabled, the trust-bounded ingest gate (`INGESTOR_TRUST_GATE_*`). The gate is a separate, opt-in enforcement surface from read-side trust policy (`TRUST_DISCOVERY_*`, `TRUST_SEARCH_*`, etc.).
-- canonical ingest durability for **open kinds** (`0`, `3`, `5`, `10002`) and bootstrap behavior during gate warmup should remain broad even when the gate is in shadow mode.
+- canonical ingest durability for **open kinds** (`0`, `3`, `10002`) and bootstrap behavior during gate warmup should remain broad even when the gate is in shadow mode.
 
 See [trust-bounded-ingest.md](trust-bounded-ingest.md) for gate semantics and rollout.
 

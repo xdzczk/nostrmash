@@ -59,7 +59,7 @@ Prerequisites live in `trust_worker`: `TRUST_SEED_PUBKEYS`, `TRUST_GRAPH_SNAPSHO
 Rules:
 
 - Deploy with `INGESTOR_TRUST_GATE_MODE=open` first; confirm trusted-set metrics before flipping to `trusted_only`.
-- Open kinds (`0`, `3`, `5`, `10002`) always pass the gate so the graph can bootstrap.
+- Open kinds (`0`, `3`, `10002`) always pass the gate so the graph can bootstrap. Kind `5` deletions require a trusted author or a locally-stored `e`-tag target.
 - Rejected gate events are counted in metrics only — not written to `invalid_events`.
 - `TRUST_CANONICAL_INGEST_MODE` is **deprecated** (config placeholder, never wired). Use `INGESTOR_TRUST_GATE_MODE`.
 
@@ -115,7 +115,7 @@ Avoid these in reviews:
 - adding trust-specific `WHERE` clauses in store methods as one-off fixes
 - duplicating trust gating logic separately across discovery, search, and fallback codepaths
 - widening fallback into broad relay-backed global search
-- coupling canonical ingest durability to trust score thresholds on **open bootstrap kinds** (`0`, `3`, `5`, `10002`) — these must stay open while the graph warms up
+- coupling canonical ingest durability to trust score thresholds on **open bootstrap kinds** (`0`, `3`, `10002`) — these must stay open while the graph warms up
 - enabling `INGESTOR_TRUST_GATE_MODE=trusted_only` before `trust_graph_snapshot` has loaded (kind `1` fail-closes until first successful trusted-set refresh)
 
 ## Review checklist

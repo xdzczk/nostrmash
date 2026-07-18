@@ -335,8 +335,8 @@ func applyConfiguredFilterGroups(cfg *RelayConfig) error {
 // default_v1. Ordering is kept ascending so it matches the sorted form used by
 // validateFilterGroups. Authored kinds (1, 4, 9802, 10000, 10003, 30023) are
 // author-trust-gated in internal/ingestor/live/gate.go; engagement kinds
-// (6, 7, 9735) are target-gated; the rest (0, 3, 5, 10002) stay open so the
-// trust graph and profiles can bootstrap.
+// (6, 7, 9735) and deletions (5) are target-gated; the rest (0, 3, 10002)
+// stay open so the trust graph and profiles can bootstrap.
 var defaultFilterGroupKinds = []int{0, 1, 3, 4, 5, 6, 7, 9735, 9802, 10000, 10002, 10003, 30023}
 
 func defaultFilterGroups() map[string]FilterGroup {

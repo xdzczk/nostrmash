@@ -67,7 +67,9 @@ func gateKindLabel(kind int) string {
 		return "10003"
 	case 30023:
 		return "30023"
-	case 0, 3, 5, 10002:
+	case 5:
+		return "5"
+	case 0, 3, 10002:
 		return "open_kind"
 	default:
 		return "other"
@@ -97,6 +99,15 @@ func isEngagementKind(kind int) bool {
 	}
 }
 
+// maxDeletionTargetChecks bounds how many e-tag target ids a single kind-5
+// event may probe in the existence check, so a spam deletion carrying
+// thousands of tags cannot turn the gate into an unbounded ANY() query. A
+// genuine deletion whose real target is beyond the cap is rejected exactly
+// like one whose targets are all absent — an acceptable miss, since deletions
+// from untrusted authors can only ever match the engagement/open-kind rows we
+// chose to store.
+const maxDeletionTargetChecks = 100
+
 // evaluateGate decides whether a valid event should be persisted under the
 // configured gate mode. It never rejects in open mode (records shadow_reject
 // for would-be drops); in trusted_only mode it enforces, including
@@ -119,6 +130,39 @@ func (p *Processor) evaluateGate(ctx context.Context, kind int, pubkey string, t
 		}
 		if enforce {
 			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectUntrustedAuthor}
+		}
+		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
+
+	case kind == 5:
+		// Deletion tombstones (NIP-09). A deletion for an event we never
+		// stored is useless to serve, and open ingestion of kind 5 let
+		// tombstone spam grow to ~79% of the events table in production. A
+		// trusted author's deletion is always kept (it may cover an a-tag
+		// addressable target or an event hydrated later); otherwise the
+		// deletion must reference at least one locally-stored event, the same
+		// existence rule the engagement kinds use.
+		if p.trustedAuthors.Loaded() && p.trustedAuthors.Contains(pubkey) {
+			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
+		}
+		ids := allETagValues(tags)
+		if len(ids) > maxDeletionTargetChecks {
+			ids = ids[:maxDeletionTargetChecks]
+		}
+		exists := false
+		if len(ids) > 0 {
+			var err error
+			exists, err = p.targetChecker.EventsExist(ctx, ids)
+			if err != nil {
+				// Transient store error: fail OPEN, same as engagement kinds.
+				p.log.Warn("ingest_gate_target_check_failed", "error", err, "kind", kind)
+				return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
+			}
+		}
+		if exists {
+			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
+		}
+		if enforce {
+			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectMissingTarget}
 		}
 		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
 
@@ -145,7 +189,7 @@ func (p *Processor) evaluateGate(ctx context.Context, kind int, pubkey string, t
 		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
 
 	default:
-		// Open kinds (0,3,5,10002) and any other subscribed kind always pass.
+		// Open kinds (0,3,10002) and any other subscribed kind always pass.
 		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
 	}
 }

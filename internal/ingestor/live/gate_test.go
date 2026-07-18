@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/xdzczk/nostrmash/internal/nostr"
@@ -52,7 +53,7 @@ func newGateProcessor(t *testing.T, mode string, trusted *fakeTrustedAuthors, ch
 func TestEvaluateGate_OpenKindsAlwaysAccept(t *testing.T) {
 	t.Parallel()
 	p := newGateProcessor(t, TrustGateModeTrustedOnly, &fakeTrustedAuthors{loaded: false}, &fakeTargetChecker{})
-	for _, kind := range []int{0, 3, 5, 10002} {
+	for _, kind := range []int{0, 3, 10002} {
 		d := p.evaluateGate(context.Background(), kind, "anyone", nil)
 		if !d.accept || d.decision != gateDecisionAccept {
 			t.Fatalf("kind %d: expected accept, got %+v", kind, d)
@@ -60,6 +61,92 @@ func TestEvaluateGate_OpenKindsAlwaysAccept(t *testing.T) {
 		if d.kindLabel != "open_kind" {
 			t.Fatalf("kind %d: expected open_kind label, got %q", kind, d.kindLabel)
 		}
+	}
+}
+
+func TestEvaluateGate_DeletionTrustedAuthorAlwaysAccepted(t *testing.T) {
+	t.Parallel()
+	trusted := &fakeTrustedAuthors{loaded: true, members: map[string]struct{}{"alice": {}}}
+	checker := &fakeTargetChecker{exists: map[string]struct{}{}}
+
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, checker)
+	// No e-tags and no stored targets: trust alone must carry the decision.
+	if d := enforce.evaluateGate(context.Background(), 5, "alice", nil); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("trusted deleter: expected accept, got %+v", d)
+	}
+	if checker.calls != 0 {
+		t.Fatalf("trusted deleter: expected no target lookups, got %d", checker.calls)
+	}
+	if d := enforce.evaluateGate(context.Background(), 5, "alice", nil); d.kindLabel != "5" {
+		t.Fatalf("expected dedicated kind label 5, got %q", d.kindLabel)
+	}
+}
+
+func TestEvaluateGate_DeletionTargetExists(t *testing.T) {
+	t.Parallel()
+	trusted := &fakeTrustedAuthors{loaded: true}
+	checker := &fakeTargetChecker{exists: map[string]struct{}{"note1": {}}}
+
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, checker)
+	tags := [][]string{{"e", "note1"}, {"a", "30023:someone:post"}}
+	if d := enforce.evaluateGate(context.Background(), 5, "mallory", tags); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("deletion with stored target: expected accept, got %+v", d)
+	}
+}
+
+func TestEvaluateGate_DeletionMissingTarget(t *testing.T) {
+	t.Parallel()
+	trusted := &fakeTrustedAuthors{loaded: true}
+	checker := &fakeTargetChecker{exists: map[string]struct{}{}}
+	tags := [][]string{{"e", "missing"}}
+
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, checker)
+	if d := enforce.evaluateGate(context.Background(), 5, "mallory", tags); d.accept || d.decision != gateDecisionRejectMissingTarget {
+		t.Fatalf("deletion missing target enforce: expected reject_missing_target, got %+v", d)
+	}
+
+	shadow := newGateProcessor(t, TrustGateModeOpen, trusted, checker)
+	if d := shadow.evaluateGate(context.Background(), 5, "mallory", tags); !d.accept || d.decision != gateDecisionShadowReject {
+		t.Fatalf("deletion missing target shadow: expected accept+shadow_reject, got %+v", d)
+	}
+}
+
+func TestEvaluateGate_DeletionNoETagsRejectedWhenEnforced(t *testing.T) {
+	t.Parallel()
+	checker := &fakeTargetChecker{exists: map[string]struct{}{}}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, &fakeTrustedAuthors{loaded: true}, checker)
+	if d := enforce.evaluateGate(context.Background(), 5, "mallory", [][]string{{"a", "30023:someone:post"}}); d.accept || d.decision != gateDecisionRejectMissingTarget {
+		t.Fatalf("deletion without e-tags enforce: expected reject_missing_target, got %+v", d)
+	}
+	if checker.calls != 0 {
+		t.Fatalf("expected no target lookups when no e-tags present, got %d", checker.calls)
+	}
+}
+
+func TestEvaluateGate_DeletionTargetCheckErrorFailsOpen(t *testing.T) {
+	t.Parallel()
+	checker := &fakeTargetChecker{err: errors.New("db down")}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, &fakeTrustedAuthors{loaded: true}, checker)
+	tags := [][]string{{"e", "note1"}}
+	if d := enforce.evaluateGate(context.Background(), 5, "mallory", tags); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("deletion target check error: expected fail-open accept, got %+v", d)
+	}
+}
+
+func TestEvaluateGate_DeletionTargetChecksAreBounded(t *testing.T) {
+	t.Parallel()
+	checker := &fakeTargetChecker{exists: map[string]struct{}{"beyond_cap": {}}}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, &fakeTrustedAuthors{loaded: true}, checker)
+
+	tags := make([][]string, 0, maxDeletionTargetChecks+1)
+	for i := 0; i < maxDeletionTargetChecks; i++ {
+		tags = append(tags, []string{"e", fmt.Sprintf("missing_%d", i)})
+	}
+	// The only stored target sits past the cap, so the probe must miss it.
+	tags = append(tags, []string{"e", "beyond_cap"})
+
+	if d := enforce.evaluateGate(context.Background(), 5, "mallory", tags); d.accept || d.decision != gateDecisionRejectMissingTarget {
+		t.Fatalf("expected capped probe to reject, got %+v", d)
 	}
 }
 

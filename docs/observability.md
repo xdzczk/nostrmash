@@ -213,7 +213,7 @@ Operator guidance:
 
 Ingest gate metrics (ingestor):
 
-- `nostrmash_ingest_gate_decisions_total{kind,decision}` — bounded labels: `kind` ∈ `1`, `4`, `6`, `7`, `9735`, `9802`, `10000`, `10003`, `30023`, `open_kind`, `other`; `decision` ∈ `accept`, `reject_untrusted_author`, `reject_missing_target`, `shadow_reject`, `fail_closed`
+- `nostrmash_ingest_gate_decisions_total{kind,decision}` — bounded labels: `kind` ∈ `1`, `4`, `5`, `6`, `7`, `9735`, `9802`, `10000`, `10003`, `30023`, `open_kind`, `other`; `decision` ∈ `accept`, `reject_untrusted_author`, `reject_missing_target`, `shadow_reject`, `fail_closed`
 - `nostrmash_ingest_trusted_set_size`
 - `nostrmash_ingest_trusted_set_loaded` — `1` after first successful load; author-gated kinds (`1`/`4`/`9802`/`10000`/`10003`/`30023`) fail-close in `trusted_only` when `0`
 - `nostrmash_ingest_trusted_set_age_seconds`
