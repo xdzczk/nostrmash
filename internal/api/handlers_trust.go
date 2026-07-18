@@ -2,13 +2,12 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 )
 
 func (h Handlers) GetTrustScore(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return

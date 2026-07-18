@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/account"
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/jobs"
+	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
@@ -185,16 +185,10 @@ func enqueueHydration(ctx context.Context, pool *pgxpool.Pool, cfg config.Hydrat
 }
 
 func normalizePubkeyParam(raw string) (string, bool) {
-	pubkey := strings.ToLower(strings.TrimSpace(raw))
-	if len(pubkey) != 64 {
-		return "", false
+	if canonical := query.CanonicalizePubkey(raw); canonical != "" {
+		return canonical, true
 	}
-	for _, c := range pubkey {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return "", false
-		}
-	}
-	return pubkey, true
+	return "", false
 }
 
 // minuteRateLimiter is a simple fixed-window per-minute limiter for public

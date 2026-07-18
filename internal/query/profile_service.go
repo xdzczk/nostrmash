@@ -34,7 +34,10 @@ func (s Service) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosRe
 }
 
 func (s profileService) GetProfile(ctx context.Context, pubkey string) (Profile, error) {
-	normalized := strings.TrimSpace(pubkey)
+	normalized := CanonicalizePubkey(pubkey)
+	if normalized == "" {
+		normalized = strings.TrimSpace(pubkey)
+	}
 	if normalized == "" {
 		return Profile{}, fmt.Errorf("pubkey is required")
 	}
@@ -92,7 +95,17 @@ func (s profileService) GetProfile(ctx context.Context, pubkey string) (Profile,
 }
 
 func (s profileService) GetProfiles(ctx context.Context, pubkeys []string) (UserInfosResult, error) {
-	normalized := normalizeUniqueStrings(pubkeys)
+	canonicalized := make([]string, 0, len(pubkeys))
+	for _, pubkey := range pubkeys {
+		if canonical := CanonicalizePubkey(pubkey); canonical != "" {
+			canonicalized = append(canonicalized, canonical)
+			continue
+		}
+		if trimmed := strings.TrimSpace(pubkey); trimmed != "" {
+			canonicalized = append(canonicalized, trimmed)
+		}
+	}
+	normalized := normalizeUniqueStrings(canonicalized)
 	if len(normalized) == 0 {
 		return UserInfosResult{}, fmt.Errorf("pubkeys must include at least one non-empty value")
 	}

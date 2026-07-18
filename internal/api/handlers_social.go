@@ -2,14 +2,13 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 )
 
 // GetContactList returns projected latest contact list (kind=3) for one pubkey.
 func (h Handlers) GetContactList(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -35,7 +34,7 @@ func (h Handlers) GetContactList(w http.ResponseWriter, r *http.Request) {
 
 // GetRelayList returns projected latest relay list (kind=10002) for one pubkey.
 func (h Handlers) GetRelayList(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -60,7 +59,7 @@ func (h Handlers) GetRelayList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetBookmarks(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -91,7 +90,7 @@ func (h Handlers) GetLongForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetZaps(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -115,7 +114,7 @@ func (h Handlers) GetZaps(w http.ResponseWriter, r *http.Request) {
 
 // GetMentions returns events referencing this pubkey via p-tags.
 func (h Handlers) GetMentions(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -139,7 +138,7 @@ func (h Handlers) GetMentions(w http.ResponseWriter, r *http.Request) {
 
 // GetFollowers returns follower edges derived from latest contact lists.
 func (h Handlers) GetFollowers(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -164,7 +163,7 @@ func (h Handlers) GetFollowers(w http.ResponseWriter, r *http.Request) {
 // GetMuteList returns the muted identifiers (pubkeys, events, hashtags, words)
 // from the pubkey's latest kind:10000 mute list.
 func (h Handlers) GetMuteList(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -188,7 +187,7 @@ func (h Handlers) GetMuteList(w http.ResponseWriter, r *http.Request) {
 // GetMutedBy returns authors who mute this pubkey (their latest kind:10000 mute
 // list includes this pubkey as a p-tag).
 func (h Handlers) GetMutedBy(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -215,7 +214,7 @@ func (h Handlers) GetMutedBy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) getKindScopedEvents(w http.ResponseWriter, r *http.Request, kind int, responseKey string) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return

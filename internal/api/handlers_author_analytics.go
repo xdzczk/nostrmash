@@ -10,7 +10,7 @@ import (
 )
 
 func (h Handlers) GetAuthorAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -28,7 +28,7 @@ func (h Handlers) GetAuthorAnalyticsSummary(w http.ResponseWriter, r *http.Reque
 }
 
 func (h Handlers) GetAuthorAnalyticsTopics(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -56,7 +56,7 @@ func (h Handlers) GetAuthorAnalyticsTopics(w http.ResponseWriter, r *http.Reques
 }
 
 func (h Handlers) GetAuthorAnalyticsGroupedNotes(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -106,7 +106,7 @@ func (h Handlers) GetAuthorAnalyticsGroupedNotes(w http.ResponseWriter, r *http.
 }
 
 func (h Handlers) GetAuthorAnalyticsMediaMix(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -129,7 +129,7 @@ func (h Handlers) GetAuthorAnalyticsMediaMix(w http.ResponseWriter, r *http.Requ
 }
 
 func (h Handlers) GetAuthorAnalyticsActivityWindows(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -155,7 +155,7 @@ func (h Handlers) GetAuthorAnalyticsActivityWindows(w http.ResponseWriter, r *ht
 }
 
 func (h Handlers) GetAuthorAnalyticsPostingPatterns(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -181,7 +181,7 @@ func (h Handlers) GetAuthorAnalyticsPostingPatterns(w http.ResponseWriter, r *ht
 }
 
 func (h Handlers) GetAuthorAnalyticsTopNotes(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -214,7 +214,7 @@ func (h Handlers) GetAuthorAnalyticsTopNotes(w http.ResponseWriter, r *http.Requ
 }
 
 func (h Handlers) GetAuthorAnalyticsPerformanceSummary(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -242,7 +242,7 @@ func (h Handlers) GetAuthorAnalyticsPerformanceSummary(w http.ResponseWriter, r 
 }
 
 func (h Handlers) GetAuthorAnalyticsRecycleCandidates(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return

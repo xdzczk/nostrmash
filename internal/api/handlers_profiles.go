@@ -1,15 +1,21 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 )
+
+// profileSummaryEnrichmentTimeout bounds optional summary extras (related/rising)
+// so a slow discovery query cannot stall the hero counters for ~minutes.
+const profileSummaryEnrichmentTimeout = 2 * time.Second
 
 type profileResponse struct {
 	Pubkey            string          `json:"pubkey"`
@@ -85,7 +91,7 @@ type profileMetadataValue struct {
 }
 
 func (h Handlers) GetProfileByPubkey(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -108,7 +114,7 @@ func (h Handlers) GetProfileByPubkey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetProfileTopics(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -167,15 +173,15 @@ func (h Handlers) BatchGetProfiles(w http.ResponseWriter, r *http.Request) {
 	normalizedPubkeys := make([]string, 0, len(req.Pubkeys))
 	seen := make(map[string]struct{}, len(req.Pubkeys))
 	for _, pubkey := range req.Pubkeys {
-		trimmed := strings.TrimSpace(pubkey)
-		if trimmed == "" {
+		normalized := normalizePathPubkey(pubkey)
+		if normalized == "" {
 			continue
 		}
-		if _, ok := seen[trimmed]; ok {
+		if _, ok := seen[normalized]; ok {
 			continue
 		}
-		seen[trimmed] = struct{}{}
-		normalizedPubkeys = append(normalizedPubkeys, trimmed)
+		seen[normalized] = struct{}{}
+		normalizedPubkeys = append(normalizedPubkeys, normalized)
 	}
 	if len(normalizedPubkeys) == 0 {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkeys must include at least one non-empty value")
@@ -205,7 +211,7 @@ func (h Handlers) BatchGetProfiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetProfilePublicSummary(w http.ResponseWriter, r *http.Request) {
-	pubkey := strings.TrimSpace(r.PathValue("pubkey"))
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
@@ -294,31 +300,52 @@ func (h Handlers) loadProfileRelatedDiscovery(r *http.Request, pubkey string) pr
 		RelatedProfiles: []map[string]any{},
 		RisingProfiles:  []map[string]any{},
 	}
-	related, err := h.service.GetRelatedProfiles(r.Context(), pubkey, 8)
-	if err == nil {
+	ctx, cancel := context.WithTimeout(r.Context(), profileSummaryEnrichmentTimeout)
+	defer cancel()
+
+	var (
+		wg      sync.WaitGroup
+		related []query.RelatedProfile
+		rising  []query.TrendingProfile
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		rows, err := h.service.GetRelatedProfiles(ctx, pubkey, 8)
+		if err == nil {
+			related = rows
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		rows, err := h.service.GetRisingProfiles(ctx, 7*24*time.Hour, 8, 0)
+		if err == nil {
+			rising = rows
+		}
+	}()
+	wg.Wait()
+
+	if len(related) > 0 {
 		relatedPubkeys := make([]string, 0, len(related))
 		for _, profile := range related {
 			relatedPubkeys = append(relatedPubkeys, profile.Pubkey)
 		}
-		identities, identityErr := h.resolveProfileIdentities(r.Context(), relatedPubkeys)
-		if identityErr == nil {
-			out.RelatedProfiles = buildRelatedProfileItems(related, identities)
-		} else {
-			out.RelatedProfiles = buildRelatedProfileItems(related, map[string]profileIdentityFields{})
+		identities, identityErr := h.resolveProfileIdentities(ctx, relatedPubkeys)
+		if identityErr != nil {
+			identities = map[string]profileIdentityFields{}
 		}
+		out.RelatedProfiles = buildRelatedProfileItems(related, identities)
 	}
-	rising, err := h.service.GetRisingProfiles(r.Context(), 7*24*time.Hour, 8, 0)
-	if err == nil {
+	if len(rising) > 0 {
 		risingPubkeys := make([]string, 0, len(rising))
 		for _, profile := range rising {
 			risingPubkeys = append(risingPubkeys, profile.Pubkey)
 		}
-		identities, identityErr := h.resolveProfileIdentities(r.Context(), risingPubkeys)
-		if identityErr == nil {
-			out.RisingProfiles = buildDiscoveryProfileItems(rising, identities)
-		} else {
-			out.RisingProfiles = buildDiscoveryProfileItems(rising, map[string]profileIdentityFields{})
+		identities, identityErr := h.resolveProfileIdentities(ctx, risingPubkeys)
+		if identityErr != nil {
+			identities = map[string]profileIdentityFields{}
 		}
+		out.RisingProfiles = buildDiscoveryProfileItems(rising, identities)
 	}
 	return out
 }

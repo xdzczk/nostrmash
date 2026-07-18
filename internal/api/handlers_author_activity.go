@@ -8,12 +8,19 @@ import (
 	"github.com/xdzczk/nostrmash/internal/query"
 )
 
-func normalizeAuthorPubkey(raw string) string {
+// normalizePathPubkey normalizes hex or bech32 npub path params to lowercase hex.
+// Invalid identifiers are returned trimmed (callers may still 404).
+func normalizePathPubkey(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if canonical := query.CanonicalizePubkey(raw); canonical != "" {
 		return canonical
 	}
 	return raw
+}
+
+// normalizeAuthorPubkey is kept as an alias for author activity handlers.
+func normalizeAuthorPubkey(raw string) string {
+	return normalizePathPubkey(raw)
 }
 
 func (h Handlers) writeAuthorActivityPage(

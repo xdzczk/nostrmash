@@ -156,7 +156,10 @@ func (s Service) GetRisingProfiles(ctx context.Context, window time.Duration, li
 }
 
 func (s Service) GetRelatedProfiles(ctx context.Context, pubkey string, limit int) ([]RelatedProfile, error) {
-	normalized := strings.TrimSpace(pubkey)
+	normalized := CanonicalizePubkey(pubkey)
+	if normalized == "" {
+		normalized = strings.TrimSpace(pubkey)
+	}
 	if normalized == "" {
 		return nil, fmt.Errorf("pubkey is required")
 	}
