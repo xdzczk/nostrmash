@@ -74,14 +74,8 @@ func TestDeriveEventRelationships_UnmarkedV1Semantics(t *testing.T) {
 	}
 	assertRefRowsEqual(t, eventRefRows, expectedEventRefs)
 
-	pubkeyRefRows, err := readPubkeyRefRows(ctx, pool, event.ID)
-	if err != nil {
-		t.Fatalf("read pubkey references: %v", err)
-	}
-	expectedPubkeyRefs := []refRow{
-		{referenced: "pub_root", relation: "root", tagIndex: 3},
-		{referenced: "pub_mention", relation: "mention", tagIndex: 4},
-		{referenced: "pub_reply", relation: "reply", tagIndex: 5},
-	}
-	assertRefRowsEqual(t, pubkeyRefRows, expectedPubkeyRefs)
+	// p-tag references are no longer materialized (pubkey_references was
+	// dropped); mention reads go straight to canonical event_tags, which
+	// InsertCanonicalEvent populated above and the store-layer test
+	// TestGetEventsReferencingPubkey covers.
 }

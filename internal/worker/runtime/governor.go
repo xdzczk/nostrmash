@@ -17,6 +17,9 @@ type GovernorStore interface {
 	PurgeExpiredEngagementEvents(ctx context.Context, createdBefore, deadGraceBefore time.Time, limit int) (int64, error)
 	PurgeSupersededReplaceableEvents(ctx context.Context, supersededBefore, deadGraceBefore time.Time, limit int) (int64, error)
 	PurgeProcessedDeletionEvents(ctx context.Context, createdBefore, deadGraceBefore time.Time, limit int) (int64, error)
+	PurgeUntrustedAuthorEvents(ctx context.Context, olderThan, deadGraceBefore time.Time, limit int) (int64, error)
+	PruneAuthorRecentEvents(ctx context.Context, olderThan time.Time, perAuthorCap, authorBatchLimit, deleteBatchLimit int) (int64, error)
+	PurgeStaleEventRelays(ctx context.Context, seenBefore time.Time, limit int) (int64, error)
 }
 
 // GovernorQueue is the jobs-queue slice the governor uses for terminal job
@@ -54,6 +57,14 @@ func RunStorageGovernorLoop(
 	if store == nil {
 		log.Error("storage_governor_no_store")
 		return
+	}
+	if !pressure.Enabled() {
+		// Deliberately logged at error level: an unprotected disk is the
+		// single most common way a self-hosted deployment degrades.
+		log.Error(
+			"storage_governor_observe_only",
+			"hint", "STORAGE_PRESSURE_CAPACITY_BYTES is unset (0); the governor will report the database size but take no defensive action. Set it to ~80% of the volume backing Postgres to enable automatic retention drains and ingest backpressure.",
+		)
 	}
 	log.Info(
 		"storage_governor_enabled",
@@ -173,6 +184,48 @@ func drainUnderPressure(
 		} else if deleted > 0 {
 			metrics.AddRetentionPurgedRows("deletion_events", deleted)
 			log.Info("storage_governor_drained", "target", "deletion_events", "deleted", deleted, "level", int(level))
+		}
+	}
+
+	if cfg.UntrustedAuthorRetention.Enabled {
+		if deleted, err := store.PurgeUntrustedAuthorEvents(
+			ctx,
+			now.Add(-cfg.UntrustedAuthorRetention.MaxAge),
+			now.Add(-cfg.UntrustedAuthorRetention.DeadGrace),
+			cfg.UntrustedAuthorRetention.DeleteBatchLimit,
+		); err != nil {
+			log.Error("storage_governor_drain_failed", "target", "untrusted_author_events", "error", err)
+		} else if deleted > 0 {
+			metrics.AddRetentionPurgedRows("untrusted_author_events", deleted)
+			log.Info("storage_governor_drained", "target", "untrusted_author_events", "deleted", deleted, "level", int(level))
+		}
+	}
+
+	if cfg.AuthorRecentRetention.Enabled {
+		if deleted, err := store.PruneAuthorRecentEvents(
+			ctx,
+			now.Add(-cfg.AuthorRecentRetention.MaxAge),
+			cfg.AuthorRecentRetention.PerAuthorCap,
+			cfg.AuthorRecentRetention.AuthorBatchLimit,
+			cfg.AuthorRecentRetention.DeleteBatchLimit,
+		); err != nil {
+			log.Error("storage_governor_drain_failed", "target", "author_recent_events", "error", err)
+		} else if deleted > 0 {
+			metrics.AddRetentionPurgedRows("author_recent_events", deleted)
+			log.Info("storage_governor_drained", "target", "author_recent_events", "deleted", deleted, "level", int(level))
+		}
+	}
+
+	if cfg.EventRelaysRetention.Enabled {
+		if deleted, err := store.PurgeStaleEventRelays(
+			ctx,
+			now.Add(-cfg.EventRelaysRetention.MaxAge),
+			cfg.EventRelaysRetention.DeleteBatchLimit,
+		); err != nil {
+			log.Error("storage_governor_drain_failed", "target", "event_relays", "error", err)
+		} else if deleted > 0 {
+			metrics.AddRetentionPurgedRows("event_relays", deleted)
+			log.Info("storage_governor_drained", "target", "event_relays", "deleted", deleted, "level", int(level))
 		}
 	}
 }

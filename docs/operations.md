@@ -24,6 +24,7 @@ What it does not try to be:
 - [What to inspect first](#what-to-inspect-first)
 - [Troubleshooting flow](#troubleshooting-flow)
 - [Backup and restore cautions](#backup-and-restore-cautions)
+- [Storage reclamation](#storage-reclamation)
 - [SLO-driven triage](#slo-driven-triage)
 - [Alert response playbook](#alert-response-playbook)
 - [Debug and build identity](#debug-and-build-identity)
@@ -750,6 +751,49 @@ Operationally that means:
 If projections are suspect after restore, rebuild them. If canonical raw storage is suspect, treat that as a data integrity incident.
 
 For release-time schema change risk decisions, follow [migrations.md](migrations.md) and [../RELEASE.md](../RELEASE.md) together.
+
+## Storage reclamation
+
+Retention loops DELETE rows, but Postgres does not return that space to the
+filesystem: autovacuum marks dead tuples for reuse, so a healthy steady state
+is a database that stops growing, not one that shrinks. Migration 000055
+tightens per-table autovacuum thresholds on the churn tables so dead-tuple
+pressure stays bounded.
+
+Two operator surfaces make this visible:
+
+- `GET /admin/v1/storage` — per-table size, split by canonical / derived /
+  operational tiers.
+- `GET /admin/v1/storage/indexes` — per-index `idx_scan` counts (evidence for
+  index drops, which stay operator-gated) and per-table live/dead tuple counts
+  plus last (auto)vacuum times.
+
+### One-time shrink with pg_repack
+
+After first enabling the retention loops on a database that grew unbounded
+(months of firehose with no untrusted-author retention, or before the
+`pubkey_references` drop), a large fraction of the biggest tables can be dead
+space. To actually return it to the filesystem, run
+[pg_repack](https://reorg.github.io/pg_repack/) once, online, per table:
+
+```bash
+# requires the pg_repack extension and the matching client binary
+psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS pg_repack'
+pg_repack --dbname "$DATABASE_URL" --table events --table event_tags \
+  --table event_relays --table jobs --table search_documents
+```
+
+Notes:
+
+- pg_repack rebuilds tables online (brief exclusive locks at swap time only)
+  and needs free disk roughly equal to the table being repacked — run it
+  table-by-table under the storage governor's warn threshold, not at 95%.
+- Rewriting `events` also re-compresses `raw_json` with LZ4 (migration
+  000055), so the first repack typically shrinks more than dead space alone.
+- `VACUUM FULL` is the fallback when pg_repack cannot be installed; it takes
+  an exclusive lock for the whole rewrite, so schedule downtime for it.
+- This is a one-time cleanup. Do not schedule recurring repacks: with
+  retention and autovacuum tuned, tables should plateau on their own.
 
 ## Curated data operations
 

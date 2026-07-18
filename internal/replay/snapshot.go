@@ -26,7 +26,6 @@ type Layer1Snapshot struct {
 
 type Layer2Snapshot struct {
 	EventReferences  []EventReferenceRow   `json:"event_references"`
-	PubkeyReferences []PubkeyReferenceRow  `json:"pubkey_references"`
 	ReplaceableState []ReplaceableStateRow `json:"replaceable_state"`
 	ThreadEdges      []ThreadEdgeRow       `json:"thread_edges"`
 	UnresolvedThread []UnresolvedThreadRow `json:"unresolved_thread_references"`
@@ -82,13 +81,6 @@ type EventReferenceRow struct {
 	ReferencedEventID string `json:"referenced_event_id"`
 	Relation          string `json:"relation"`
 	TagIndex          int    `json:"tag_index"`
-}
-
-type PubkeyReferenceRow struct {
-	SourceEventID    string `json:"source_event_id"`
-	ReferencedPubkey string `json:"referenced_pubkey"`
-	Relation         string `json:"relation"`
-	TagIndex         int    `json:"tag_index"`
 }
 
 type ReplaceableStateRow struct {
@@ -236,13 +228,6 @@ func CaptureStateSnapshot(ctx context.Context, pool *pgxpool.Pool) (StateSnapsho
 	`); err != nil {
 		return out, err
 	}
-	if err := queryRows(ctx, pool, &out.Layer2.PubkeyReferences, `
-		SELECT source_event_id, referenced_pubkey, relation, tag_index
-		FROM pubkey_references
-		ORDER BY source_event_id ASC, tag_index ASC, referenced_pubkey ASC, relation ASC
-	`); err != nil {
-		return out, err
-	}
 	if err := queryRows(ctx, pool, &out.Layer2.ReplaceableState, `
 		SELECT pubkey, kind, d_tag, event_id, created_at
 		FROM replaceable_state
@@ -387,10 +372,6 @@ func queryRows[T any](ctx context.Context, pool *pgxpool.Pool, out *[]T, sql str
 		case *EventReferenceRow:
 			if err := rows.Scan(&v.SourceEventID, &v.ReferencedEventID, &v.Relation, &v.TagIndex); err != nil {
 				return fmt.Errorf("scan event reference row: %w", err)
-			}
-		case *PubkeyReferenceRow:
-			if err := rows.Scan(&v.SourceEventID, &v.ReferencedPubkey, &v.Relation, &v.TagIndex); err != nil {
-				return fmt.Errorf("scan pubkey reference row: %w", err)
 			}
 		case *ReplaceableStateRow:
 			if err := rows.Scan(&v.Pubkey, &v.Kind, &v.DTag, &v.EventID, &v.CreatedAt); err != nil {

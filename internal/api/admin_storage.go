@@ -50,31 +50,38 @@ var trackedStorageTableTiers = map[string]string{
 	"trust_seeds":                StorageTierOperational,
 	"account_state_transitions":  StorageTierOperational,
 	// Derived / rebuildable projections.
-	"event_references":             StorageTierDerived,
-	"pubkey_references":            StorageTierDerived,
-	"replaceable_state":            StorageTierDerived,
-	"profiles_latest":              StorageTierDerived,
-	"author_recent_events":         StorageTierDerived,
-	"thread_edges":                 StorageTierDerived,
-	"thread_summaries":             StorageTierDerived,
-	"follower_edges":               StorageTierDerived,
-	"reply_count_contributions":    StorageTierDerived,
-	"reaction_count_contributions": StorageTierDerived,
-	"repost_count_contributions":   StorageTierDerived,
-	"reaction_events":              StorageTierDerived,
-	"repost_events":                StorageTierDerived,
-	"deletion_events":              StorageTierDerived,
-	"dm_unread_counts":             StorageTierDerived,
-	"dm_read_cursors":              StorageTierDerived,
-	"zap_receipts":                 StorageTierDerived,
-	"trust_scores_global":          StorageTierDerived,
-	"trust_graph_snapshot":         StorageTierDerived,
-	"search_documents":             StorageTierDerived,
-	"note_discovery_stats":         StorageTierDerived,
-	"profile_discovery_stats":      StorageTierDerived,
-	"event_hashtags":               StorageTierDerived,
-	"event_urls":                   StorageTierDerived,
-	"account_states":               StorageTierDerived,
+	"event_references":                     StorageTierDerived,
+	"replaceable_state":                    StorageTierDerived,
+	"profiles_latest":                      StorageTierDerived,
+	"author_recent_events":                 StorageTierDerived,
+	"thread_edges":                         StorageTierDerived,
+	"thread_summaries":                     StorageTierDerived,
+	"follower_edges":                       StorageTierDerived,
+	"reply_count_contributions":            StorageTierDerived,
+	"reaction_count_contributions":         StorageTierDerived,
+	"repost_count_contributions":           StorageTierDerived,
+	"reaction_events":                      StorageTierDerived,
+	"repost_events":                        StorageTierDerived,
+	"deletion_events":                      StorageTierDerived,
+	"dm_unread_counts":                     StorageTierDerived,
+	"dm_read_cursors":                      StorageTierDerived,
+	"zap_receipts":                         StorageTierDerived,
+	"trust_scores_global":                  StorageTierDerived,
+	"trust_graph_snapshot":                 StorageTierDerived,
+	"search_documents":                     StorageTierDerived,
+	"note_discovery_stats":                 StorageTierDerived,
+	"profile_discovery_stats":              StorageTierDerived,
+	"event_hashtags":                       StorageTierDerived,
+	"event_urls":                           StorageTierDerived,
+	"account_states":                       StorageTierDerived,
+	"reply_counts":                         StorageTierDerived,
+	"reaction_counts":                      StorageTierDerived,
+	"repost_counts":                        StorageTierDerived,
+	"contact_lists_latest":                 StorageTierDerived,
+	"relay_lists_latest":                   StorageTierDerived,
+	"unresolved_thread_references":         StorageTierDerived,
+	"trusted_note_discovery_candidates":    StorageTierDerived,
+	"trusted_profile_discovery_candidates": StorageTierDerived,
 }
 
 var trackedStorageTables = []string{
@@ -85,7 +92,6 @@ var trackedStorageTables = []string{
 	"invalid_events",
 	"jobs",
 	"event_references",
-	"pubkey_references",
 	"replaceable_state",
 	"derivation_active_versions",
 	"projection_rebuild_runs",
@@ -114,6 +120,14 @@ var trackedStorageTables = []string{
 	"event_urls",
 	"account_states",
 	"account_state_transitions",
+	"reply_counts",
+	"reaction_counts",
+	"repost_counts",
+	"contact_lists_latest",
+	"relay_lists_latest",
+	"unresolved_thread_references",
+	"trusted_note_discovery_candidates",
+	"trusted_profile_discovery_candidates",
 }
 
 func TrackedStorageTables() []string {
@@ -129,6 +143,68 @@ func StorageTableTier(table string) string {
 		return tier
 	}
 	return StorageTierDerived
+}
+
+type adminStorageIndexesResponse struct {
+	Indexes []adminIndexUsageDetails  `json:"indexes"`
+	Tables  []adminTableVacuumDetails `json:"tables"`
+}
+
+type adminIndexUsageDetails struct {
+	TableName  string `json:"table_name"`
+	IndexName  string `json:"index_name"`
+	IndexB     int64  `json:"index_bytes"`
+	IdxScan    int64  `json:"idx_scan"`
+	IdxTupRead int64  `json:"idx_tup_read"`
+}
+
+type adminTableVacuumDetails struct {
+	TableName      string  `json:"table_name"`
+	LiveTuples     int64   `json:"live_tuples"`
+	DeadTuples     int64   `json:"dead_tuples"`
+	LastVacuum     *string `json:"last_vacuum"`
+	LastAutovacuum *string `json:"last_autovacuum"`
+}
+
+// GetStorageIndexes serves the Phase 2 index-ownership audit evidence:
+// pg_stat_user_indexes usage per index plus per-table dead-tuple pressure.
+// Index drops stay operator-gated; this endpoint only provides the evidence
+// (idx_scan must stay 0 across a fresh window before a drop is justified).
+func (s *adminService) GetStorageIndexes(ctx context.Context) (adminStorageIndexesResponse, error) {
+	resp := adminStorageIndexesResponse{
+		Indexes: make([]adminIndexUsageDetails, 0),
+		Tables:  make([]adminTableVacuumDetails, 0),
+	}
+	indexes, tables, err := store.CollectIndexStats(ctx, s.pool, trackedStorageTables)
+	if err != nil {
+		return resp, fmt.Errorf("collect index stats: %w", err)
+	}
+	for _, idx := range indexes {
+		resp.Indexes = append(resp.Indexes, adminIndexUsageDetails{
+			TableName:  idx.TableName,
+			IndexName:  idx.IndexName,
+			IndexB:     idx.IndexBytes,
+			IdxScan:    idx.IdxScan,
+			IdxTupRead: idx.IdxTupRead,
+		})
+	}
+	for _, table := range tables {
+		detail := adminTableVacuumDetails{
+			TableName:  table.TableName,
+			LiveTuples: table.LiveTuples,
+			DeadTuples: table.DeadTuples,
+		}
+		if table.LastVacuum != nil {
+			v := table.LastVacuum.UTC().Format("2006-01-02T15:04:05Z07:00")
+			detail.LastVacuum = &v
+		}
+		if table.LastAutovacuum != nil {
+			v := table.LastAutovacuum.UTC().Format("2006-01-02T15:04:05Z07:00")
+			detail.LastAutovacuum = &v
+		}
+		resp.Tables = append(resp.Tables, detail)
+	}
+	return resp, nil
 }
 
 func (s *adminService) GetStorage(ctx context.Context) (adminStorageResponse, error) {

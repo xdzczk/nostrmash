@@ -1,6 +1,9 @@
 services:
   postgres:
     image: postgres:18-alpine
+    # LZ4 TOAST compression for new writes (faster decompression than pglz on
+    # the hot raw_json read path); pairs with migration 000055.
+    command: ["postgres", "-c", "default_toast_compression=lz4"]
     ports:
       - "5432:5432"
     environment:
@@ -72,6 +75,11 @@ services:
       DATABASE_URL: postgres://nostrmash:nostrmash@postgres:5432/nostrmash?sslmode=disable
       LOG_LEVEL: info
       ENVIRONMENT: development
+      # Storage governor budget (50 GiB). With this set, the worker escalates
+      # through warn -> aggressive retention drain -> disable hydration ->
+      # pause candidate ingest as the database approaches the budget. Unset
+      # (0) the governor only observes and the disk is unprotected.
+      STORAGE_PRESSURE_CAPACITY_BYTES: "53687091200"
       MEILI_ENABLED: "true"
       MEILI_URL: http://meilisearch:7700
       MEILI_MASTER_KEY: nostrmash-dev-key

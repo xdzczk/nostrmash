@@ -27,6 +27,7 @@ type AdminService interface {
 	GetRebuilds(context.Context, int) ([]adminRebuildRunResponse, error)
 	TriggerRebuild(context.Context, derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error)
 	GetStorage(context.Context) (adminStorageResponse, error)
+	GetStorageIndexes(context.Context) (adminStorageIndexesResponse, error)
 	GetSystem(context.Context) (adminSystemResponse, error)
 	GetDerivationVersions(context.Context) ([]adminDerivationVersionResponse, error)
 	GetTrustRuns(context.Context, int) ([]adminTrustRunResponse, error)
@@ -293,6 +294,15 @@ func (h AdminHandlers) TriggerRebuild(w http.ResponseWriter, r *http.Request) {
 
 func (h AdminHandlers) GetStorage(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.GetStorage(r.Context())
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h AdminHandlers) GetStorageIndexes(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.service.GetStorageIndexes(r.Context())
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return

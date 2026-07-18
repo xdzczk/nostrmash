@@ -23,7 +23,7 @@ type RegisteredDerivation struct {
 // a new derivation requires appending it here so that EnsureRegisteredDerivations
 // can pre-create the rows that resolveDerivationWriteVersion expects to read.
 var RegisteredDerivations = []RegisteredDerivation{
-	{Name: DerivationEventRelationships, Version: EventRelationshipsVersion, Description: "Derive e/p references with v1 root/reply/mention semantics"},
+	{Name: DerivationEventRelationships, Version: EventRelationshipsVersion, Description: "Derive e references with v1 root/reply/mention semantics (p references read from event_tags directly)"},
 	{Name: DerivationReplaceableState, Version: ReplaceableStateVersion, Description: "Track deterministic latest-wins replaceable event state"},
 	{Name: DerivationProfilesLatest, Version: ProfilesLatestVersion, Description: "Project latest effective replaceable metadata (kind 0) per pubkey"},
 	{Name: DerivationAuthorRecentEvents, Version: AuthorRecentEventsVersion, Description: "Project author recent events ordered by created_at desc, id desc"},

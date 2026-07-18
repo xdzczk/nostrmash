@@ -144,6 +144,7 @@ Do not hand-edit this file.
 | `TRUST_REDIS_KEY_PREFIX` | `trust_worker` | optional | `nostrmash` | Prefix namespace for trust-worker Redis graph/snapshot keys. |
 | `TRUST_REDIS_URL` | `trust_worker` | optional | `-` | Redis connection string used for trust graph working state; required when TRUST_ENABLE_REDIS_SYNC=true. |
 | `TRUST_REFRESH_INTERVAL` | `api, ingestor, trust_worker, worker` | optional | `10m` | Refresh cadence for trust policy inputs (seed graph and score snapshots). |
+| `TRUST_RETENTION_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum rows deleted per trust-retention hook purge batch. |
 | `TRUST_RETENTION_DISCOVERY_CACHE_ENABLED` | `api, ingestor, trust_worker, worker` | optional | `true` | Enable trust-aware retention hook parameters for discovery cache TTL shaping. |
 | `TRUST_RETENTION_DISCOVERY_CACHE_TRUSTED_TTL` | `api, ingestor, trust_worker, worker` | optional | `10m0s` | Retention horizon for trusted discovery cache rows. |
 | `TRUST_RETENTION_DISCOVERY_CACHE_UNTRUSTED_TTL` | `api, ingestor, trust_worker, worker` | optional | `2m0s` | Retention horizon for untrusted discovery cache rows (should be <= trusted TTL). |
@@ -157,6 +158,7 @@ Do not hand-edit this file.
 | `TRUST_RETENTION_FALLBACK_METADATA_TRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `2h0m0s` | Retention horizon for trusted transient fallback metadata. |
 | `TRUST_RETENTION_FALLBACK_METADATA_UNTRUSTED_MAX_AGE` | `api, ingestor, trust_worker, worker` | optional | `30m0s` | Retention horizon for untrusted transient fallback metadata (should be <= trusted horizon). |
 | `TRUST_RETENTION_POLICY_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Optional trust policy mode for retention hooks: open, prefer_trusted, or trusted_only. |
+| `TRUST_RETENTION_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | How often the durable trust-retention hooks loop runs (stale trusted discovery candidates, idle low-value account_states rows). Per-scope enablement and horizons come from the TRUST_RETENTION_* hook envs. |
 | `TRUST_RUN_INTERVAL` | `trust_worker` | optional | `1h` | Interval at which the trust worker schedules a global trust run when score compute is enabled and no run is active. |
 | `TRUST_SEARCH_RANKING_MODE` | `api, ingestor, trust_worker, worker` | optional | `prefer_trusted` | Trust policy mode for search ranking inputs: open, prefer_trusted, or trusted_only. |
 | `TRUST_SEED_PUBKEYS` | `api, ingestor, trust_worker, worker` | optional | `-` | CSV trust seed pubkeys used as trust graph roots. Required when any trust mode is trusted_only. |
@@ -203,6 +205,12 @@ Do not hand-edit this file.
 | `WORKER_PROFILE_STATS_SWEEPER_CONCURRENCY` | `worker` | optional | `4` | Number of concurrent profile-stats sweeper goroutines. Each independently claims dirty pubkeys via FOR UPDATE SKIP LOCKED. |
 | `WORKER_PROFILE_STATS_SWEEPER_ENABLED` | `worker` | optional | `true` | Enable the background sweeper that drains pending_profile_stats_recomputes (per-pubkey ProjectProfilePublicStats and ProjectProfileDiscoveryStats recomputes deferred from derive_event_bundle). |
 | `WORKER_PROFILE_STATS_SWEEPER_INTERVAL` | `worker` | optional | `5s` | Polling interval between profile-stats sweeper batches when the dirty queue is empty. Sweepers loop without sleeping while batches are full. |
+| `WORKER_RETENTION_AUTHOR_RECENT_AUTHOR_BATCH_LIMIT` | `worker` | optional | `500` | Maximum over-cap authors trimmed per cap pass, bounding the per-run aggregation work. |
+| `WORKER_RETENTION_AUTHOR_RECENT_DELETE_BATCH_LIMIT` | `worker` | optional | `5000` | Maximum author_recent_events rows deleted per prune batch (applies to the age and cap passes independently). |
+| `WORKER_RETENTION_AUTHOR_RECENT_ENABLED` | `worker` | optional | `true` | Enable retention pruning of the author_recent_events projection (age horizon plus per-author cap). The projection is rebuildable from canonical events. |
+| `WORKER_RETENTION_AUTHOR_RECENT_MAX_AGE` | `worker` | optional | `2160h0m0s` | Age (by event created_at) beyond which author_recent_events rows are pruned. |
+| `WORKER_RETENTION_AUTHOR_RECENT_PER_AUTHOR_CAP` | `worker` | optional | `200` | Maximum author_recent_events rows retained per author (newest first). Must be >= 100 because the API serves up to 100 recent events per request. |
+| `WORKER_RETENTION_AUTHOR_RECENT_RUN_INTERVAL` | `worker` | optional | `6h0m0s` | How often the author_recent_events retention loop runs. |
 | `WORKER_RETENTION_DELETION_DEAD_GRACE` | `worker` | optional | `168h0m0s` | Derivation-safety grace window: a dead derive_event_bundle job only blocks purge of its deletion event while updated within this window. Past it, a permanently-dead derivation no longer blocks cleanup. |
 | `WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum raw deletion events (kind 5) deleted per retention purge batch. |
 | `WORKER_RETENTION_DELETION_ENABLED` | `worker` | optional | `true` | Enable periodic retention purge of processed raw deletion events (kind 5). The distilled deletion_events tombstone ledger survives; only the raw rows and cascade-cleaned tags/references are removed. |
@@ -213,8 +221,22 @@ Do not hand-edit this file.
 | `WORKER_RETENTION_ENGAGEMENT_ENABLED` | `worker` | optional | `true` | Enable periodic retention purge of raw engagement events (kinds 6/7/9735). Lifetime aggregate counters survive; only raw rows and cascade-cleaned contributions are removed. |
 | `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` | `worker` | optional | `336h0m0s` | Age (by event created_at) beyond which raw engagement events become eligible for retention purge. |
 | `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | Interval between engagement-events retention purge runs. |
+| `WORKER_RETENTION_EVENT_RELAYS_DELETE_BATCH_LIMIT` | `worker` | optional | `5000` | Maximum event_relays rows deleted per retention purge batch. |
+| `WORKER_RETENTION_EVENT_RELAYS_ENABLED` | `worker` | optional | `true` | Enable pruning of duplicate event_relays provenance rows past the age horizon. The earliest-seen row per event always survives, so first-provenance is preserved forever. |
+| `WORKER_RETENTION_EVENT_RELAYS_MAX_AGE` | `worker` | optional | `4320h0m0s` | Age (by seen_at) beyond which non-first event_relays provenance rows are pruned. |
+| `WORKER_RETENTION_EVENT_RELAYS_RUN_INTERVAL` | `worker` | optional | `6h0m0s` | How often the event_relays provenance retention loop runs. |
 | `WORKER_RETENTION_REPLACEABLE_DEAD_GRACE` | `worker` | optional | `168h0m0s` | Derivation-safety grace window: a dead derive_event_bundle job only blocks purge of its superseded replaceable event while updated within this window. Past it, a permanently-dead derivation no longer blocks cleanup. |
 | `WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum superseded replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023) deleted per retention purge batch. |
 | `WORKER_RETENTION_REPLACEABLE_ENABLED` | `worker` | optional | `true` | Enable periodic retention purge of superseded raw replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023). Only versions strictly older than the current winner are removed; latest-version projections (contact_lists_latest, relay_lists_latest, profiles_latest, replaceable_state) survive. |
 | `WORKER_RETENTION_REPLACEABLE_MIN_AGE` | `worker` | optional | `24h0m0s` | Stability window (by events.first_seen_at) a superseded replaceable version must reach before it becomes eligible for retention purge. |
 | `WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | Interval between superseded-replaceable retention purge runs. |
+| `WORKER_RETENTION_SEARCH_DOCS_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum search documents trimmed or pruned per grooming batch. |
+| `WORKER_RETENTION_SEARCH_DOCS_BODY_MAX_AGE` | `worker` | optional | `720h0m0s` | Freshness age beyond which note search-document bodies are trimmed to the configured prefix. |
+| `WORKER_RETENTION_SEARCH_DOCS_BODY_MAX_CHARS` | `worker` | optional | `280` | Number of body characters retained when trimming stale note search documents. |
+| `WORKER_RETENTION_SEARCH_DOCS_ENABLED` | `worker` | optional | `true` | Enable search_documents grooming: stale note bodies are trimmed (the generated tsvector and GIN index shrink with them) and orphaned note documents are pruned. |
+| `WORKER_RETENTION_SEARCH_DOCS_RUN_INTERVAL` | `worker` | optional | `6h0m0s` | How often the search_documents grooming loop runs. |
+| `WORKER_RETENTION_UNTRUSTED_AUTHOR_DEAD_GRACE` | `worker` | optional | `168h0m0s` | Derivation-safety grace window: a dead derive_event_bundle job only blocks purge of its untrusted-author event while updated within this window. |
+| `WORKER_RETENTION_UNTRUSTED_AUTHOR_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum untrusted-author events deleted per retention purge batch. |
+| `WORKER_RETENTION_UNTRUSTED_AUTHOR_ENABLED` | `worker` | optional | `true` | Enable retention purge of author-gated raw events (kinds 1/4/9802/10000/10003/30023) whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty. |
+| `WORKER_RETENTION_UNTRUSTED_AUTHOR_MAX_AGE` | `worker` | optional | `336h0m0s` | Age beyond which untrusted-author events become eligible for purge; enforced on both created_at and first_seen_at so freshly backfilled events are never purged early. Deliberately short (14d) because with the default open ingest gate this horizon is what bounds steady-state disk usage. |
+| `WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | How often the untrusted-author retention loop runs. |

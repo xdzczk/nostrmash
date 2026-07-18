@@ -27,7 +27,7 @@ var supersededReplaceableKinds = []int{0, 3, 10000, 10002, 10003, 30023}
 // yet been projected is also protected because it ranks above the recorded
 // winner rather than below it.
 //
-// Cascade FKs (event_tags, event_relays, event_references, pubkey_references,
+// Cascade FKs (event_tags, event_relays, event_references,
 // follower_edges, …) clean the dependent rows. The latest-version projections
 // (contact_lists_latest, relay_lists_latest, profiles_latest, replaceable_state)
 // all reference the winner, so deleting older versions leaves the read models

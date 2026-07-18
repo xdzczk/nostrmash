@@ -168,6 +168,7 @@ func buildRouteDefinitions(
 		newAdminRoute("GET /admin/v1/rebuilds", true, http.HandlerFunc(adminHandlers.GetRebuilds)),
 		newAdminRoute("POST /admin/v1/rebuilds", true, http.HandlerFunc(adminHandlers.TriggerRebuild)),
 		newAdminRoute("GET /admin/v1/storage", true, http.HandlerFunc(adminHandlers.GetStorage)),
+		newAdminRoute("GET /admin/v1/storage/indexes", true, http.HandlerFunc(adminHandlers.GetStorageIndexes)),
 		newAdminRoute("POST /admin/v1/accounts/{pubkey}/state", false, http.HandlerFunc(adminHandlers.SetAccountState)),
 		newAdminRoute("POST /admin/v1/accounts/{pubkey}/hydrate", false, http.HandlerFunc(adminHandlers.HydrateAccount)),
 		newAdminRoute("GET /admin/v1/system", true, http.HandlerFunc(adminHandlers.GetSystem)),

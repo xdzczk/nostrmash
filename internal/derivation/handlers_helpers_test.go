@@ -201,29 +201,6 @@ func readEventRefRows(ctx context.Context, pool *pgxpool.Pool, eventID string) (
 	return out, rows.Err()
 }
 
-func readPubkeyRefRows(ctx context.Context, pool *pgxpool.Pool, eventID string) ([]refRow, error) {
-	rows, err := pool.Query(ctx, `
-		SELECT referenced_pubkey, relation, tag_index
-		FROM pubkey_references
-		WHERE source_event_id = $1
-		ORDER BY tag_index ASC
-	`, eventID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := make([]refRow, 0)
-	for rows.Next() {
-		var row refRow
-		if err := rows.Scan(&row.referenced, &row.relation, &row.tagIndex); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
 type refRow struct {
 	referenced string
 	relation   string

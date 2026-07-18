@@ -1671,6 +1671,14 @@ paths:
       responses:
         '200':
           description: Storage stats
+  /admin/v1/storage/indexes:
+    get:
+      tags: [admin]
+      summary: Index usage audit evidence (pg_stat_user_indexes) and per-table dead-tuple pressure
+      security: [{ BearerToken: [] }]
+      responses:
+        '200':
+          description: Per-index scan counts and sizes plus per-table vacuum stats
   /admin/v1/system:
     get:
       tags: [admin]

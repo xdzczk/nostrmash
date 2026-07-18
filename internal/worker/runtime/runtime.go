@@ -57,6 +57,37 @@ type DeletionRetentionStore interface {
 	PurgeProcessedDeletionEvents(ctx context.Context, createdBefore time.Time, deadGraceBefore time.Time, limit int) (int64, error)
 }
 
+// UntrustedRetentionStore purges author-gated raw events from authors outside
+// trust_graph_snapshot. Satisfied by *store.PostgresStore.
+type UntrustedRetentionStore interface {
+	PurgeUntrustedAuthorEvents(ctx context.Context, olderThan time.Time, deadGraceBefore time.Time, limit int) (int64, error)
+}
+
+// AuthorRecentRetentionStore bounds the author_recent_events projection.
+// Satisfied by *store.PostgresStore.
+type AuthorRecentRetentionStore interface {
+	PruneAuthorRecentEvents(ctx context.Context, olderThan time.Time, perAuthorCap, authorBatchLimit, deleteBatchLimit int) (int64, error)
+}
+
+// SearchDocsRetentionStore grooms the search_documents projection.
+// Satisfied by *store.PostgresStore.
+type SearchDocsRetentionStore interface {
+	GroomSearchDocuments(ctx context.Context, freshnessBefore time.Time, maxBodyChars, batchLimit int) (trimmed int64, pruned int64, err error)
+}
+
+// EventRelaysRetentionStore prunes stale event_relays provenance rows.
+// Satisfied by *store.PostgresStore.
+type EventRelaysRetentionStore interface {
+	PurgeStaleEventRelays(ctx context.Context, seenBefore time.Time, limit int) (int64, error)
+}
+
+// TrustRetentionStore performs the durable trust-retention hook deletes.
+// Satisfied by *store.PostgresStore.
+type TrustRetentionStore interface {
+	PurgeStaleTrustedDiscoveryCandidates(ctx context.Context, trustedBefore, untrustedBefore time.Time, limit int) (int64, error)
+	PurgeIdleAccountStates(ctx context.Context, trustedBefore, untrustedBefore time.Time, limit int) (int64, error)
+}
+
 type ProcessJobFn func(jobCtx context.Context, job jobs.Job) error
 
 type ClaimLoopFn func(
@@ -86,6 +117,11 @@ type Bootstrap struct {
 	EngagementStore    EngagementRetentionStore
 	ReplaceableStore   ReplaceableRetentionStore
 	DeletionStore      DeletionRetentionStore
+	UntrustedStore     UntrustedRetentionStore
+	AuthorRecentStore  AuthorRecentRetentionStore
+	SearchDocsStore    SearchDocsRetentionStore
+	EventRelaysStore   EventRelaysRetentionStore
+	TrustRetention     TrustRetentionStore
 	ProcessJob         ProcessJobFn
 	Handlers           *derivation.Handlers
 	WorkerID           string
@@ -180,6 +216,11 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		EngagementStore:    postgresStore,
 		ReplaceableStore:   postgresStore,
 		DeletionStore:      postgresStore,
+		UntrustedStore:     postgresStore,
+		AuthorRecentStore:  postgresStore,
+		SearchDocsStore:    postgresStore,
+		EventRelaysStore:   postgresStore,
+		TrustRetention:     postgresStore,
 		ProcessJob: func(jobCtx context.Context, job jobs.Job) error {
 			if job.JobType == jobs.JobTypeHydrateAccount {
 				return processHydrateAccountJob(jobCtx, hydrationService, job)
@@ -277,6 +318,48 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		DeadGrace:        cfg.DeletionRetention.DeadGrace,
 		RunInterval:      cfg.DeletionRetention.RunInterval,
 		DeleteBatchLimit: cfg.DeletionRetention.DeleteBatchLimit,
+	})
+	go jobs.RunUntrustedAuthorRetentionLoop(ctx, log, bootstrap.UntrustedStore, jobs.UntrustedAuthorRetentionConfig{
+		Enabled:          cfg.UntrustedAuthorRetention.Enabled,
+		MaxAge:           cfg.UntrustedAuthorRetention.MaxAge,
+		DeadGrace:        cfg.UntrustedAuthorRetention.DeadGrace,
+		RunInterval:      cfg.UntrustedAuthorRetention.RunInterval,
+		DeleteBatchLimit: cfg.UntrustedAuthorRetention.DeleteBatchLimit,
+	})
+	go jobs.RunAuthorRecentRetentionLoop(ctx, log, bootstrap.AuthorRecentStore, jobs.AuthorRecentRetentionConfig{
+		Enabled:          cfg.AuthorRecentRetention.Enabled,
+		MaxAge:           cfg.AuthorRecentRetention.MaxAge,
+		PerAuthorCap:     cfg.AuthorRecentRetention.PerAuthorCap,
+		AuthorBatchLimit: cfg.AuthorRecentRetention.AuthorBatchLimit,
+		RunInterval:      cfg.AuthorRecentRetention.RunInterval,
+		DeleteBatchLimit: cfg.AuthorRecentRetention.DeleteBatchLimit,
+	})
+	go jobs.RunSearchDocsRetentionLoop(ctx, log, bootstrap.SearchDocsStore, jobs.SearchDocsRetentionConfig{
+		Enabled:      cfg.SearchDocsRetention.Enabled,
+		BodyMaxAge:   cfg.SearchDocsRetention.BodyMaxAge,
+		BodyMaxChars: cfg.SearchDocsRetention.BodyMaxChars,
+		RunInterval:  cfg.SearchDocsRetention.RunInterval,
+		BatchLimit:   cfg.SearchDocsRetention.BatchLimit,
+	})
+	go jobs.RunEventRelaysRetentionLoop(ctx, log, bootstrap.EventRelaysStore, jobs.EventRelaysRetentionConfig{
+		Enabled:          cfg.EventRelaysRetention.Enabled,
+		MaxAge:           cfg.EventRelaysRetention.MaxAge,
+		RunInterval:      cfg.EventRelaysRetention.RunInterval,
+		DeleteBatchLimit: cfg.EventRelaysRetention.DeleteBatchLimit,
+	})
+	go jobs.RunTrustRetentionHooksLoop(ctx, log, bootstrap.TrustRetention, jobs.TrustRetentionHooksLoopConfig{
+		DiscoveryCandidates: jobs.TrustRetentionHookScope{
+			Enabled:          cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.Enabled,
+			TrustedHorizon:   cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.TrustedHorizon,
+			UntrustedHorizon: cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.UntrustedHorizon,
+		},
+		EnrichmentState: jobs.TrustRetentionHookScope{
+			Enabled:          cfg.TrustRetentionHooks.LowValueEnrichmentState.Enabled,
+			TrustedHorizon:   cfg.TrustRetentionHooks.LowValueEnrichmentState.TrustedHorizon,
+			UntrustedHorizon: cfg.TrustRetentionHooks.LowValueEnrichmentState.UntrustedHorizon,
+		},
+		RunInterval:      cfg.TrustRetentionLoop.RunInterval,
+		DeleteBatchLimit: cfg.TrustRetentionLoop.DeleteBatchLimit,
 	})
 	go jobs.RunRowCountMetricsReporter(ctx, log, bootstrap.Pool, 60*time.Second)
 	go RunStorageGovernorLoop(ctx, log, bootstrap.Store, bootstrap.Queue, cfg)

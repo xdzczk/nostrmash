@@ -8,24 +8,30 @@ import (
 )
 
 type WorkerConfig struct {
-	Shared                 SharedConfig
-	Concurrency            int
-	LiveConcurrency        int
-	BackfillConcurrency    int
-	ClaimBatchSize         int
-	JobRecovery            WorkerJobRecoveryConfig
-	JobRetention           WorkerJobRetentionConfig
-	InvalidEventRetention  WorkerInvalidEventRetentionConfig
-	EngagementRetention    WorkerEngagementRetentionConfig
-	ReplaceableRetention   WorkerReplaceableRetentionConfig
-	DeletionRetention      WorkerDeletionRetentionConfig
-	AuthorAnalyticsSweeper WorkerAuthorAnalyticsSweeperConfig
-	ProfileStatsSweeper    WorkerProfileStatsSweeperConfig
-	MeilisearchSweeper     WorkerMeilisearchSweeperConfig
-	AccountState           WorkerAccountStateConfig
-	Hydration              HydrationConfig
-	Meilisearch            MeilisearchConfig
-	RelayRegistry          RelayRegistryConfig
+	Shared                   SharedConfig
+	Concurrency              int
+	LiveConcurrency          int
+	BackfillConcurrency      int
+	ClaimBatchSize           int
+	JobRecovery              WorkerJobRecoveryConfig
+	JobRetention             WorkerJobRetentionConfig
+	InvalidEventRetention    WorkerInvalidEventRetentionConfig
+	EngagementRetention      WorkerEngagementRetentionConfig
+	ReplaceableRetention     WorkerReplaceableRetentionConfig
+	DeletionRetention        WorkerDeletionRetentionConfig
+	UntrustedAuthorRetention WorkerUntrustedAuthorRetentionConfig
+	AuthorRecentRetention    WorkerAuthorRecentRetentionConfig
+	SearchDocsRetention      WorkerSearchDocsRetentionConfig
+	EventRelaysRetention     WorkerEventRelaysRetentionConfig
+	TrustRetentionHooks      TrustRetentionHooksConfig
+	TrustRetentionLoop       WorkerTrustRetentionLoopConfig
+	AuthorAnalyticsSweeper   WorkerAuthorAnalyticsSweeperConfig
+	ProfileStatsSweeper      WorkerProfileStatsSweeperConfig
+	MeilisearchSweeper       WorkerMeilisearchSweeperConfig
+	AccountState             WorkerAccountStateConfig
+	Hydration                HydrationConfig
+	Meilisearch              MeilisearchConfig
+	RelayRegistry            RelayRegistryConfig
 }
 
 // WorkerAccountStateConfig configures the derived account-state recompute loop.
@@ -161,6 +167,81 @@ type WorkerReplaceableRetentionConfig struct {
 	DeleteBatchLimit int
 }
 
+// WorkerUntrustedAuthorRetentionConfig configures the purger that deletes raw
+// author-gated events (kinds 1/4/9802/10000/10003/30023) whose author is
+// absent from trust_graph_snapshot once they are older than MaxAge (enforced
+// on both created_at and first_seen_at). This is the months-scale complement
+// to the ingest trust gate: the gate bounds inflow, this reclaims untrusted
+// residue accepted while the gate was open (shadow mode, pre-gate history).
+//
+// The default MaxAge is deliberately short (14 d): with the default
+// INGESTOR_TRUST_GATE_MODE=open a firehose deployment ingests everything, so
+// the untrusted horizon is what actually bounds steady-state disk usage.
+//
+// Fail-safe: the store-side purge deletes nothing while trust_graph_snapshot
+// is empty, so an unbootstrapped trust pipeline never causes mass deletion.
+//
+// DeadGrace mirrors the other retention loops (derivation-safety window).
+type WorkerUntrustedAuthorRetentionConfig struct {
+	Enabled          bool
+	MaxAge           time.Duration
+	DeadGrace        time.Duration
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
+// WorkerAuthorRecentRetentionConfig configures the pruner that bounds the
+// author_recent_events projection: rows older than MaxAge are removed, and
+// each author keeps at most PerAuthorCap newest rows. The projection is
+// rebuildable from canonical events, so this retention is purely a disk/read
+// bound; PerAuthorCap must stay above the API's per-request max limit so
+// bounded reads are unaffected.
+//
+// AuthorBatchLimit caps how many over-cap authors a single cap pass trims,
+// keeping the per-run GROUP BY work bounded.
+type WorkerAuthorRecentRetentionConfig struct {
+	Enabled          bool
+	MaxAge           time.Duration
+	PerAuthorCap     int
+	AuthorBatchLimit int
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
+// WorkerSearchDocsRetentionConfig configures the search_documents groomer:
+// note bodies older than BodyMaxAge are trimmed to BodyMaxChars (the
+// generated search_tsv shrinks with the body), and rows whose source event no
+// longer exists are pruned. Both operations are rebuildable state changes;
+// stale trimmed rows regain their full body if the source is re-indexed.
+type WorkerSearchDocsRetentionConfig struct {
+	Enabled      bool
+	BodyMaxAge   time.Duration
+	BodyMaxChars int
+	RunInterval  time.Duration
+	BatchLimit   int
+}
+
+// WorkerTrustRetentionLoopConfig owns the loop cadence for the durable
+// trust-retention hooks (stale trusted discovery candidates, idle low-value
+// account_states rows). The per-scope enable flags and horizons live in
+// TrustRetentionHooksConfig (TRUST_RETENTION_* envs); this struct only adds
+// the worker-side execution knobs.
+type WorkerTrustRetentionLoopConfig struct {
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
+// WorkerEventRelaysRetentionConfig configures the provenance pruner that
+// deletes event_relays rows seen before MaxAge, always retaining the
+// earliest-seen row per event so first-provenance survives. Windowed relay
+// analytics read far inside the horizon and are unaffected.
+type WorkerEventRelaysRetentionConfig struct {
+	Enabled          bool
+	MaxAge           time.Duration
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
 // WorkerDeletionRetentionConfig configures the purger that deletes raw deletion
 // events (kind 5) older than MaxAge once their derivation has completed. The
 // distilled deletion_events ledger row survives (migration 000050 dropped the
@@ -275,6 +356,82 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	untrustedRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_MAX_AGE", 14*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	untrustedRetentionDeadGrace, err := getEnvPositiveDurationStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_DEAD_GRACE", 7*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	untrustedRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL", 1*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	untrustedRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_DELETE_BATCH_LIMIT", 2000)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	authorRecentRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_AUTHOR_RECENT_MAX_AGE", 90*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	authorRecentRetentionPerAuthorCap, err := getEnvPositiveIntStrict("WORKER_RETENTION_AUTHOR_RECENT_PER_AUTHOR_CAP", 200)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	authorRecentRetentionAuthorBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_AUTHOR_RECENT_AUTHOR_BATCH_LIMIT", 500)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	authorRecentRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_AUTHOR_RECENT_RUN_INTERVAL", 6*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	authorRecentRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_AUTHOR_RECENT_DELETE_BATCH_LIMIT", 5000)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	searchDocsRetentionBodyMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_SEARCH_DOCS_BODY_MAX_AGE", 30*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	searchDocsRetentionBodyMaxChars, err := getEnvPositiveIntStrict("WORKER_RETENTION_SEARCH_DOCS_BODY_MAX_CHARS", 280)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	searchDocsRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_SEARCH_DOCS_RUN_INTERVAL", 6*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	searchDocsRetentionBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_SEARCH_DOCS_BATCH_LIMIT", 2000)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	eventRelaysRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EVENT_RELAYS_MAX_AGE", 180*24*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	eventRelaysRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EVENT_RELAYS_RUN_INTERVAL", 6*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	eventRelaysRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_EVENT_RELAYS_DELETE_BATCH_LIMIT", 5000)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	trustRetentionHooks, err := loadTrustRetentionHooksConfig()
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	trustRetentionRunInterval, err := getEnvPositiveDurationStrict("TRUST_RETENTION_RUN_INTERVAL", 1*time.Hour)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	trustRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("TRUST_RETENTION_DELETE_BATCH_LIMIT", 2000)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	authorAnalyticsSweeperInterval, err := getEnvPositiveDurationStrict("WORKER_AUTHOR_ANALYTICS_SWEEPER_INTERVAL", 5*time.Second)
 	if err != nil {
 		return WorkerConfig{}, err
@@ -378,6 +535,39 @@ func LoadWorker() (WorkerConfig, error) {
 			DeadGrace:        deletionRetentionDeadGrace,
 			RunInterval:      deletionRetentionRunInterval,
 			DeleteBatchLimit: deletionRetentionDeleteBatchLimit,
+		},
+		UntrustedAuthorRetention: WorkerUntrustedAuthorRetentionConfig{
+			Enabled:          getEnvBool("WORKER_RETENTION_UNTRUSTED_AUTHOR_ENABLED", true),
+			MaxAge:           untrustedRetentionMaxAge,
+			DeadGrace:        untrustedRetentionDeadGrace,
+			RunInterval:      untrustedRetentionRunInterval,
+			DeleteBatchLimit: untrustedRetentionDeleteBatchLimit,
+		},
+		AuthorRecentRetention: WorkerAuthorRecentRetentionConfig{
+			Enabled:          getEnvBool("WORKER_RETENTION_AUTHOR_RECENT_ENABLED", true),
+			MaxAge:           authorRecentRetentionMaxAge,
+			PerAuthorCap:     authorRecentRetentionPerAuthorCap,
+			AuthorBatchLimit: authorRecentRetentionAuthorBatchLimit,
+			RunInterval:      authorRecentRetentionRunInterval,
+			DeleteBatchLimit: authorRecentRetentionDeleteBatchLimit,
+		},
+		SearchDocsRetention: WorkerSearchDocsRetentionConfig{
+			Enabled:      getEnvBool("WORKER_RETENTION_SEARCH_DOCS_ENABLED", true),
+			BodyMaxAge:   searchDocsRetentionBodyMaxAge,
+			BodyMaxChars: searchDocsRetentionBodyMaxChars,
+			RunInterval:  searchDocsRetentionRunInterval,
+			BatchLimit:   searchDocsRetentionBatchLimit,
+		},
+		EventRelaysRetention: WorkerEventRelaysRetentionConfig{
+			Enabled:          getEnvBool("WORKER_RETENTION_EVENT_RELAYS_ENABLED", true),
+			MaxAge:           eventRelaysRetentionMaxAge,
+			RunInterval:      eventRelaysRetentionRunInterval,
+			DeleteBatchLimit: eventRelaysRetentionDeleteBatchLimit,
+		},
+		TrustRetentionHooks: trustRetentionHooks,
+		TrustRetentionLoop: WorkerTrustRetentionLoopConfig{
+			RunInterval:      trustRetentionRunInterval,
+			DeleteBatchLimit: trustRetentionDeleteBatchLimit,
 		},
 		AuthorAnalyticsSweeper: WorkerAuthorAnalyticsSweeperConfig{
 			Enabled:        getEnvBool("WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED", true),
@@ -556,6 +746,65 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.DeletionRetention.DeleteBatchLimit <= 0 {
 			return fmt.Errorf("WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.UntrustedAuthorRetention.Enabled {
+		if cfg.UntrustedAuthorRetention.MaxAge <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_UNTRUSTED_AUTHOR_MAX_AGE must be > 0")
+		}
+		if cfg.UntrustedAuthorRetention.DeadGrace <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_UNTRUSTED_AUTHOR_DEAD_GRACE must be > 0")
+		}
+		if cfg.UntrustedAuthorRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL must be > 0")
+		}
+		if cfg.UntrustedAuthorRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_UNTRUSTED_AUTHOR_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.AuthorRecentRetention.Enabled {
+		if cfg.AuthorRecentRetention.MaxAge <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_AUTHOR_RECENT_MAX_AGE must be > 0")
+		}
+		if cfg.AuthorRecentRetention.PerAuthorCap <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_AUTHOR_RECENT_PER_AUTHOR_CAP must be > 0")
+		}
+		if cfg.AuthorRecentRetention.PerAuthorCap < 100 {
+			return fmt.Errorf("WORKER_RETENTION_AUTHOR_RECENT_PER_AUTHOR_CAP must be >= 100 (the API serves up to 100 recent events per request)")
+		}
+		if cfg.AuthorRecentRetention.AuthorBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_AUTHOR_RECENT_AUTHOR_BATCH_LIMIT must be > 0")
+		}
+		if cfg.AuthorRecentRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_AUTHOR_RECENT_RUN_INTERVAL must be > 0")
+		}
+		if cfg.AuthorRecentRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_AUTHOR_RECENT_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.SearchDocsRetention.Enabled {
+		if cfg.SearchDocsRetention.BodyMaxAge <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_SEARCH_DOCS_BODY_MAX_AGE must be > 0")
+		}
+		if cfg.SearchDocsRetention.BodyMaxChars <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_SEARCH_DOCS_BODY_MAX_CHARS must be > 0")
+		}
+		if cfg.SearchDocsRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_SEARCH_DOCS_RUN_INTERVAL must be > 0")
+		}
+		if cfg.SearchDocsRetention.BatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_SEARCH_DOCS_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.EventRelaysRetention.Enabled {
+		if cfg.EventRelaysRetention.MaxAge <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_EVENT_RELAYS_MAX_AGE must be > 0")
+		}
+		if cfg.EventRelaysRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_EVENT_RELAYS_RUN_INTERVAL must be > 0")
+		}
+		if cfg.EventRelaysRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_EVENT_RELAYS_DELETE_BATCH_LIMIT must be > 0")
 		}
 	}
 	if cfg.AuthorAnalyticsSweeper.Enabled {

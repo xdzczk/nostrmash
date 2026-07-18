@@ -81,6 +81,9 @@ func (f fakeAdminService) TriggerRebuild(ctx context.Context, p derivation.Trigg
 func (f fakeAdminService) GetStorage(ctx context.Context) (adminStorageResponse, error) {
 	return f.getStorageFn(ctx)
 }
+func (f fakeAdminService) GetStorageIndexes(context.Context) (adminStorageIndexesResponse, error) {
+	return adminStorageIndexesResponse{}, nil
+}
 func (f fakeAdminService) GetSystem(ctx context.Context) (adminSystemResponse, error) {
 	return f.getSystemFn(ctx)
 }

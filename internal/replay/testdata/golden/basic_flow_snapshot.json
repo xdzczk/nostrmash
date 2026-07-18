@@ -51,7 +51,6 @@
   },
   "layer2": {
     "event_references": [],
-    "pubkey_references": [],
     "replaceable_state": [],
     "thread_edges": [],
     "unresolved_thread_references": []

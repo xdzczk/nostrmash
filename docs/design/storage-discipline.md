@@ -12,6 +12,41 @@ NostrMash remains a durable local ingest/index/query system. Canonical event tru
 - Make every rebuildable projection either bounded, prunable, or explicitly justified as unbounded.
 - Treat operational exhaust (queue rows, transient state, helper materializations) as cost that must be controlled, not data that must be preserved.
 
+## Implementation status
+
+All phases below are implemented. The shipped state, in dependency order:
+
+- **Phase 1 (jobs lifetime)** — shipped earlier; see `## Phase 1` below.
+- **Phase 2 (index audit surface)** — `GET /admin/v1/storage/indexes` reports
+  `pg_stat_user_indexes` usage plus per-table live/dead tuple counts. Index
+  drops remain operator-gated on that evidence; none were dropped by inertia
+  (the `pubkey_references` indexes left with the table).
+- **Phase 3 (`pubkey_references`)** — option (a) shipped: the table is dropped
+  (migration `000053`), `GetEventsReferencingPubkey` reads canonical
+  `event_tags` via `idx_event_tags_p_lookup`, and the relationships derivation
+  no longer materializes p-tag references. This also gives that partial index
+  a live query owner, resolving the `idx_scan = 0` ambiguity below.
+- **Phase 4 (rebuildable retention)** — shipped as five worker loops, all
+  env-tunable and on by default:
+  - untrusted-author canonical retention (`WORKER_RETENTION_UNTRUSTED_AUTHOR_*`,
+    14 d default, fail-safe no-op while `trust_graph_snapshot` is empty);
+  - `author_recent_events` age + per-author cap
+    (`WORKER_RETENTION_AUTHOR_RECENT_*`, 90 d / 200 rows);
+  - `search_documents` body trim + orphan prune
+    (`WORKER_RETENTION_SEARCH_DOCS_*`, 30 d / 280 chars);
+  - `event_relays` duplicate-provenance prune retaining the earliest row per
+    event (`WORKER_RETENTION_EVENT_RELAYS_*`, 180 d);
+  - trust-retention hooks wired to durable deletes (`TRUST_RETENTION_*`):
+    stale `trusted_*_discovery_candidates` and idle low-value `account_states`
+    rows (the latter scope ships disabled, as before).
+- **Phase 5 (observability + backstop)** — `TrackedStorageTables()` covers the
+  full projection surface; the storage governor ships with a real capacity
+  budget in the compose files (50 GiB default), logs an error when unset, and
+  its aggressive drain now triggers the new loops too. Migration `000055` adds
+  LZ4 TOAST compression for `raw_json` and per-table autovacuum tuning;
+  [../operations.md](../operations.md#storage-reclamation) documents the
+  one-time `pg_repack` shrink.
+
 ## Top storage offenders (production snapshot)
 
 This is the snapshot that motivates the work. Use it to read the rest of the doc.
@@ -158,10 +193,13 @@ See [architecture/trust-bounded-ingest.md](../architecture/trust-bounded-ingest.
 - **Metrics**: `nostrmash_retention_purged_rows_total{target="deletion_events"}`.
 - **Rebuild caveat**: a full projection rebuild cannot recreate `deletion_events` rows whose raw kind-5 event was purged. This matches the engagement-retention tradeoff: retention trades rebuildability for the durable distilled form.
 
-### What remains unbounded (follow-ups)
+### What remains unbounded (by design)
 
-- Canonical kind-`1` notes from trusted authors (retention deferred by design).
-- `pubkey_references`, `author_recent_events`, `search_documents` (earlier phases).
+- Canonical events from trusted authors (retention deferred by design; the
+  trust graph bounds this to social-graph-sized growth, not firehose growth).
+- Untrusted-author events are now bounded by the Phase 4 retention loop;
+  `pubkey_references` is dropped; `author_recent_events` and
+  `search_documents` are bounded by their Phase 4 loops.
 
 ## Implementation order
 
@@ -196,7 +234,9 @@ Concrete changes shipped in this PR:
 
 ## Non-goals
 
-- Pruning `events` or `event_tags`. Those are canonical.
+- Pruning trusted-author `events` or their `event_tags`. Those are canonical.
+  (Untrusted-author events are pruned by the Phase 4 loop; that is a
+  trust-policy decision, not canonical-data cleanup.)
 - Building a job-history archive subsystem. Bounded retention is enough.
 - ClickHouse / external store / archival side-system to dodge local discipline.
 - Removing indexes by inertia without `pg_stat_user_indexes` evidence over a fresh window.

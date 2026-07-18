@@ -55,6 +55,9 @@ func (s *PostgresStore) GetRecentEventsByKindAndPubkey(
 }
 
 // GetEventsReferencingPubkey returns events that mention target pubkey in p-tags.
+// Served directly from canonical event_tags (idx_event_tags_p_lookup) since the
+// derived pubkey_references table was dropped in migration 000053. EXISTS keeps
+// events with multiple p-tags to the same target from appearing twice.
 func (s *PostgresStore) GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
@@ -71,9 +74,15 @@ func (s *PostgresStore) GetEventsReferencingPubkey(ctx context.Context, targetPu
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT e.raw_json::text
-		FROM pubkey_references pr
-		INNER JOIN events e ON e.id = pr.source_event_id
-		WHERE pr.referenced_pubkey = $1
+		FROM events e
+		WHERE EXISTS (
+			SELECT 1
+			FROM event_tags t
+			WHERE t.tag_name = 'p'
+			  AND t.value_index = 0
+			  AND t.value = $1
+			  AND t.event_id = e.id
+		)
 		ORDER BY e.created_at DESC, e.id DESC
 		LIMIT $2
 	`, targetPubkey, limit)

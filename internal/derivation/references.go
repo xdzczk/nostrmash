@@ -15,10 +15,6 @@ func deriveEventReferences(sourceEventID string, tags [][]string) []derivedRefer
 	return deriveReferencesByTagName(sourceEventID, tags, "e")
 }
 
-func derivePubkeyReferences(sourceEventID string, tags [][]string) []derivedReference {
-	return deriveReferencesByTagName(sourceEventID, tags, "p")
-}
-
 func deriveReferencesByTagName(sourceEventID string, tags [][]string, tagName string) []derivedReference {
 	refs := make([]derivedReference, 0)
 	unmarkedIdx := make([]int, 0)
