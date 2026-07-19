@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
 
 // PurgeProcessedDeletionEvents deletes a bounded batch of raw deletion events
@@ -45,35 +46,14 @@ func (s *Retention) PurgeProcessedDeletionEvents(
 	}
 
 	started := time.Now()
-	tag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT e.id
-			FROM events e
-			WHERE e.kind = 5
-			  AND e.created_at < $1
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM jobs j
-				WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
-				  AND (
-					j.status IN ('pending', 'running')
-					OR (j.status = 'dead' AND j.updated_at > $2)
-				  )
-			  )
-			ORDER BY e.created_at ASC, e.id ASC
-			LIMIT $3
-		)
-		DELETE FROM events e
-		USING candidates c
-		WHERE e.id = c.id
-	`,
-		createdBefore.UTC().Unix(),
-		deadGraceBefore.UTC(),
-		limit,
-	)
+	rows, err := s.queries().PurgeProcessedDeletionEvents(ctx, retentiondb.PurgeProcessedDeletionEventsParams{
+		CreatedBeforeUnix: createdBefore.UTC().Unix(),
+		DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
+		RowLimit:          int32(limit),
+	})
 	metrics.ObserveDBOperation("purge_processed_deletion_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge processed deletion events: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return rows, nil
 }

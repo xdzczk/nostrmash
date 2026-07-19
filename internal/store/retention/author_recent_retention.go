@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
 
 // PruneAuthorRecentEvents bounds the author_recent_events projection with two
@@ -41,54 +42,27 @@ func (s *Retention) PruneAuthorRecentEvents(
 		return 0, fmt.Errorf("perAuthorCap, authorBatchLimit and deleteBatchLimit must be > 0")
 	}
 
+	q := s.queries()
+
 	ageStarted := time.Now()
-	ageTag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT author_pubkey, event_id
-			FROM author_recent_events
-			WHERE created_at < $1
-			LIMIT $2
-		)
-		DELETE FROM author_recent_events a
-		USING candidates c
-		WHERE a.author_pubkey = c.author_pubkey
-		  AND a.event_id = c.event_id
-	`, olderThan.UTC().Unix(), deleteBatchLimit)
+	ageDeleted, err := q.PruneAuthorRecentEventsByAge(ctx, retentiondb.PruneAuthorRecentEventsByAgeParams{
+		CreatedBeforeUnix: olderThan.UTC().Unix(),
+		DeleteBatchLimit:  int32(deleteBatchLimit),
+	})
 	metrics.ObserveDBOperation("prune_author_recent_events_age", dbResultFromErr(err), time.Since(ageStarted))
 	if err != nil {
 		return 0, fmt.Errorf("prune author recent events by age: %w", err)
 	}
-	deleted := ageTag.RowsAffected()
 
 	capStarted := time.Now()
-	capTag, err := s.pool.Exec(ctx, `
-		WITH offenders AS (
-			SELECT author_pubkey
-			FROM author_recent_events
-			GROUP BY author_pubkey
-			HAVING count(*) > $1
-			LIMIT $2
-		),
-		victims AS (
-			SELECT r.author_pubkey, r.event_id
-			FROM offenders o
-			CROSS JOIN LATERAL (
-				SELECT a.author_pubkey, a.event_id
-				FROM author_recent_events a
-				WHERE a.author_pubkey = o.author_pubkey
-				ORDER BY a.created_at DESC, a.event_id DESC
-				OFFSET $1
-			) r
-			LIMIT $3
-		)
-		DELETE FROM author_recent_events a
-		USING victims v
-		WHERE a.author_pubkey = v.author_pubkey
-		  AND a.event_id = v.event_id
-	`, perAuthorCap, authorBatchLimit, deleteBatchLimit)
+	capDeleted, err := q.PruneAuthorRecentEventsByCap(ctx, retentiondb.PruneAuthorRecentEventsByCapParams{
+		PerAuthorCap:     int64(perAuthorCap),
+		AuthorBatchLimit: int32(authorBatchLimit),
+		DeleteBatchLimit: int32(deleteBatchLimit),
+	})
 	metrics.ObserveDBOperation("prune_author_recent_events_cap", dbResultFromErr(err), time.Since(capStarted))
 	if err != nil {
-		return deleted, fmt.Errorf("prune author recent events by cap: %w", err)
+		return ageDeleted, fmt.Errorf("prune author recent events by cap: %w", err)
 	}
-	return deleted + capTag.RowsAffected(), nil
+	return ageDeleted + capDeleted, nil
 }

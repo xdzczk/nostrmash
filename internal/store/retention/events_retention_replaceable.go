@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
 
 // supersededReplaceableKinds are the replaceable kinds whose older versions
@@ -70,56 +71,25 @@ func (s *Retention) PurgeSupersededReplaceableEvents(
 	}
 
 	started := time.Now()
-	tag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT e.id
-			FROM events e
-			JOIN LATERAL (
-				SELECT COALESCE((
-					SELECT et.value
-					FROM event_tags et
-					WHERE et.event_id = e.id
-					  AND et.tag_name = 'd'
-					  AND et.tag_index >= 0
-					  AND et.value_index = 0
-					ORDER BY et.tag_index ASC
-					LIMIT 1
-				), '') AS d_tag
-			) dd ON true
-			JOIN replaceable_state rs
-			  ON rs.pubkey = e.pubkey
-			 AND rs.kind = e.kind
-			 AND rs.d_tag = dd.d_tag
-			WHERE e.kind = ANY($1::int[])
-			  AND e.first_seen_at < $2
-			  AND (
-				rs.created_at > e.created_at
-				OR (rs.created_at = e.created_at AND rs.event_id > e.id)
-			  )
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM jobs j
-				WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
-				  AND (
-					j.status IN ('pending', 'running')
-					OR (j.status = 'dead' AND j.updated_at > $3)
-				  )
-			  )
-			ORDER BY e.created_at ASC, e.id ASC
-			LIMIT $4
-		)
-		DELETE FROM events e
-		USING candidates c
-		WHERE e.id = c.id
-	`,
-		supersededReplaceableKinds,
-		supersededBefore.UTC(),
-		deadGraceBefore.UTC(),
-		limit,
-	)
+	rows, err := s.queries().PurgeSupersededReplaceableEvents(ctx, retentiondb.PurgeSupersededReplaceableEventsParams{
+		Kinds:            int32Kinds(supersededReplaceableKinds),
+		SupersededBefore: tsz(supersededBefore.UTC()),
+		DeadGraceBefore:  tsz(deadGraceBefore.UTC()),
+		RowLimit:         int32(limit),
+	})
 	metrics.ObserveDBOperation("purge_superseded_replaceable_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge superseded replaceable events: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return rows, nil
+}
+
+// int32Kinds narrows the package-level int kind list to the []int32 the
+// generated ANY($1::int[]) parameter expects.
+func int32Kinds(kinds []int) []int32 {
+	out := make([]int32, len(kinds))
+	for i, k := range kinds {
+		out[i] = int32(k)
+	}
+	return out
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
 
 // PurgeStaleTrustedDiscoveryCandidates deletes trusted discovery candidate
@@ -31,44 +32,32 @@ func (s *Retention) PurgeStaleTrustedDiscoveryCandidates(
 		return 0, fmt.Errorf("limit must be > 0")
 	}
 
+	q := s.queries()
+
 	var total int64
 	noteStarted := time.Now()
-	noteTag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT event_id
-			FROM trusted_note_discovery_candidates
-			WHERE (min_hops IS NOT NULL AND projected_at < $1)
-			   OR (min_hops IS NULL AND projected_at < $2)
-			LIMIT $3
-		)
-		DELETE FROM trusted_note_discovery_candidates t
-		USING candidates c
-		WHERE t.event_id = c.event_id
-	`, trustedBefore.UTC(), untrustedBefore.UTC(), limit)
+	noteDeleted, err := q.PurgeStaleTrustedNoteDiscoveryCandidates(ctx, retentiondb.PurgeStaleTrustedNoteDiscoveryCandidatesParams{
+		TrustedBefore:   tsz(trustedBefore.UTC()),
+		UntrustedBefore: tsz(untrustedBefore.UTC()),
+		RowLimit:        int32(limit),
+	})
 	metrics.ObserveDBOperation("purge_stale_trusted_note_discovery_candidates", dbResultFromErr(err), time.Since(noteStarted))
 	if err != nil {
 		return 0, fmt.Errorf("purge stale trusted note discovery candidates: %w", err)
 	}
-	total += noteTag.RowsAffected()
+	total += noteDeleted
 
 	profileStarted := time.Now()
-	profileTag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT pubkey
-			FROM trusted_profile_discovery_candidates
-			WHERE (min_hops IS NOT NULL AND projected_at < $1)
-			   OR (min_hops IS NULL AND projected_at < $2)
-			LIMIT $3
-		)
-		DELETE FROM trusted_profile_discovery_candidates t
-		USING candidates c
-		WHERE t.pubkey = c.pubkey
-	`, trustedBefore.UTC(), untrustedBefore.UTC(), limit)
+	profileDeleted, err := q.PurgeStaleTrustedProfileDiscoveryCandidates(ctx, retentiondb.PurgeStaleTrustedProfileDiscoveryCandidatesParams{
+		TrustedBefore:   tsz(trustedBefore.UTC()),
+		UntrustedBefore: tsz(untrustedBefore.UTC()),
+		RowLimit:        int32(limit),
+	})
 	metrics.ObserveDBOperation("purge_stale_trusted_profile_discovery_candidates", dbResultFromErr(err), time.Since(profileStarted))
 	if err != nil {
 		return total, fmt.Errorf("purge stale trusted profile discovery candidates: %w", err)
 	}
-	return total + profileTag.RowsAffected(), nil
+	return total + profileDeleted, nil
 }
 
 // PurgeIdleAccountStates deletes low-value account_states rows: accounts still
@@ -96,27 +85,14 @@ func (s *Retention) PurgeIdleAccountStates(
 	}
 
 	started := time.Now()
-	tag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT a.pubkey
-			FROM account_states a
-			WHERE a.state IN ('unknown', 'observed')
-			  AND a.manual_override IS NULL
-			  AND a.last_observed_at < CASE
-				WHEN EXISTS (
-					SELECT 1 FROM trust_graph_snapshot s WHERE s.pubkey = a.pubkey
-				) THEN $1::timestamptz
-				ELSE $2::timestamptz
-			  END
-			LIMIT $3
-		)
-		DELETE FROM account_states a
-		USING candidates c
-		WHERE a.pubkey = c.pubkey
-	`, trustedBefore.UTC(), untrustedBefore.UTC(), limit)
+	rows, err := s.queries().PurgeIdleAccountStates(ctx, retentiondb.PurgeIdleAccountStatesParams{
+		TrustedBefore:   tsz(trustedBefore.UTC()),
+		UntrustedBefore: tsz(untrustedBefore.UTC()),
+		RowLimit:        int32(limit),
+	})
 	metrics.ObserveDBOperation("purge_idle_account_states", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge idle account states: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return rows, nil
 }

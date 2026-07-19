@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
 
 // PurgeUntrustedAuthorEvents deletes a bounded batch of raw author-gated
@@ -51,42 +52,15 @@ func (s *Retention) PurgeUntrustedAuthorEvents(
 	}
 
 	started := time.Now()
-	tag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT e.id
-			FROM events e
-			WHERE e.kind IN (1, 4, 9802, 10000, 10003, 30023)
-			  AND e.created_at < $1
-			  AND e.first_seen_at < $2
-			  AND EXISTS (SELECT 1 FROM trust_graph_snapshot)
-			  AND NOT EXISTS (
-				SELECT 1 FROM trust_graph_snapshot s
-				WHERE s.pubkey = e.pubkey
-			  )
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM jobs j
-				WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
-				  AND (
-					j.status IN ('pending', 'running')
-					OR (j.status = 'dead' AND j.updated_at > $3)
-				  )
-			  )
-			ORDER BY e.created_at ASC, e.id ASC
-			LIMIT $4
-		)
-		DELETE FROM events e
-		USING candidates c
-		WHERE e.id = c.id
-	`,
-		olderThan.UTC().Unix(),
-		olderThan.UTC(),
-		deadGraceBefore.UTC(),
-		limit,
-	)
+	rows, err := s.queries().PurgeUntrustedAuthorEvents(ctx, retentiondb.PurgeUntrustedAuthorEventsParams{
+		CreatedBeforeUnix: olderThan.UTC().Unix(),
+		FirstSeenBefore:   tsz(olderThan.UTC()),
+		DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
+		RowLimit:          int32(limit),
+	})
 	metrics.ObserveDBOperation("purge_untrusted_author_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge untrusted author events: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return rows, nil
 }

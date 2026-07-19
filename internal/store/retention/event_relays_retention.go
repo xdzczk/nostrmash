@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
 
 // PurgeStaleEventRelays deletes a bounded batch of event_relays provenance
@@ -33,30 +34,13 @@ func (s *Retention) PurgeStaleEventRelays(
 	}
 
 	started := time.Now()
-	tag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT er.event_id, er.relay_url
-			FROM event_relays er
-			WHERE er.seen_at < $1
-			  AND EXISTS (
-				SELECT 1
-				FROM event_relays first
-				WHERE first.event_id = er.event_id
-				  AND (
-					first.seen_at < er.seen_at
-					OR (first.seen_at = er.seen_at AND first.relay_url < er.relay_url)
-				  )
-			  )
-			LIMIT $2
-		)
-		DELETE FROM event_relays er
-		USING candidates c
-		WHERE er.event_id = c.event_id
-		  AND er.relay_url = c.relay_url
-	`, seenBefore.UTC(), limit)
+	rows, err := s.queries().PurgeStaleEventRelays(ctx, retentiondb.PurgeStaleEventRelaysParams{
+		SeenBefore: tsz(seenBefore.UTC()),
+		RowLimit:   int32(limit),
+	})
 	metrics.ObserveDBOperation("purge_stale_event_relays", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge stale event relays: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return rows, nil
 }

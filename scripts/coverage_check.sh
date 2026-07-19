@@ -10,11 +10,12 @@ POLICY=(
   "./internal/query:28"
   "./internal/store:22"
   "./internal/api_primal:60"
-  # Newly tracked high-risk packages. Baselines are intentionally conservative
-  # (near current reality) so they act as ratchets that can only be raised as
-  # real tests land, never as spurious CI failures.
-  "./internal/derivation:1"
-  "./internal/worker/runtime:0"
+  # High-risk packages ratcheted up as real tests landed. Floors sit a few
+  # points under the observed coverage so they can only be raised further as
+  # more tests land, never spuriously fail on run-to-run variance. Measured
+  # (Jul 2026): derivation 70.9% (DB-backed CI run), worker/runtime 32.5%.
+  "./internal/derivation:65"
+  "./internal/worker/runtime:30"
   "./internal/trust:15"
 )
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
 
 // GroomSearchDocuments bounds the body-heavy search_documents projection with
@@ -37,48 +38,24 @@ func (s *Retention) GroomSearchDocuments(
 		return 0, 0, fmt.Errorf("maxBodyChars and batchLimit must be > 0")
 	}
 
+	q := s.queries()
+
 	trimStarted := time.Now()
-	trimTag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT entity_type, entity_id
-			FROM search_documents
-			WHERE entity_type = 'note'
-			  AND freshness < $1
-			  AND length(body) > $2
-			LIMIT $3
-		)
-		UPDATE search_documents sd
-		SET body = left(sd.body, $2),
-		    updated_at = now()
-		FROM candidates c
-		WHERE sd.entity_type = c.entity_type
-		  AND sd.entity_id = c.entity_id
-	`, freshnessBefore.UTC(), maxBodyChars, batchLimit)
+	trimmed, err = q.GroomSearchDocumentsTrim(ctx, retentiondb.GroomSearchDocumentsTrimParams{
+		MaxBodyChars:    int32(maxBodyChars),
+		FreshnessBefore: tsz(freshnessBefore.UTC()),
+		RowLimit:        int32(batchLimit),
+	})
 	metrics.ObserveDBOperation("groom_search_documents_trim", dbResultFromErr(err), time.Since(trimStarted))
 	if err != nil {
 		return 0, 0, fmt.Errorf("trim stale search document bodies: %w", err)
 	}
-	trimmed = trimTag.RowsAffected()
 
 	pruneStarted := time.Now()
-	pruneTag, err := s.pool.Exec(ctx, `
-		WITH candidates AS (
-			SELECT entity_type, entity_id
-			FROM search_documents sd
-			WHERE sd.entity_type = 'note'
-			  AND NOT EXISTS (
-				SELECT 1 FROM events e WHERE e.id = sd.entity_id
-			  )
-			LIMIT $1
-		)
-		DELETE FROM search_documents sd
-		USING candidates c
-		WHERE sd.entity_type = c.entity_type
-		  AND sd.entity_id = c.entity_id
-	`, batchLimit)
+	pruned, err = q.GroomSearchDocumentsPrune(ctx, int32(batchLimit))
 	metrics.ObserveDBOperation("groom_search_documents_prune", dbResultFromErr(err), time.Since(pruneStarted))
 	if err != nil {
 		return trimmed, 0, fmt.Errorf("prune orphaned search documents: %w", err)
 	}
-	return trimmed, pruneTag.RowsAffected(), nil
+	return trimmed, pruned, nil
 }

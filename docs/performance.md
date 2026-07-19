@@ -227,11 +227,67 @@ How comparisons are intended to work:
 - Compare load-test scenario `summary.txt` files between snapshots for throughput/latency/retry trends.
 - Use the same bench count and similar environment settings to reduce noise before concluding regressions.
 
-Why this is not a hard gate yet:
+### Committed baselines, gating, and recalibration
 
-- Signal quality is environment-sensitive (host contention, local DB state, fixture shape).
-- Load-test scenarios are currently operator-driven and not yet normalized enough for strict pass/fail thresholds.
-- The current design is evidence-preserving first; gating can be added later once variance and baseline stability are proven.
+CI no longer relies solely on operator-supplied baseline artifacts. Two
+baselines are regenerated and committed on every push to `main`, so pull
+requests always compare against a fresh baseline captured on the same runner
+architecture:
+
+- **Protected benchmarks** → `benchmarks/history/protection/main-latest/`
+  (refreshed by the `baseline` job in `.github/workflows/perf.yml`).
+- **WS + API load harness** → `loadtest/baseline/main-latest/summary.json`
+  (refreshed by the `loadtest-baseline` job; the harness runs against a
+  replay-seeded Postgres so the numbers reflect a populated schema).
+
+What is gated on pull requests:
+
+- **Load harness — error rate only.** The `loadtest-compare` job seeds an
+  identical backend, replays the harness, and runs
+  [`scripts/loadtest_compare.sh`](../scripts/loadtest_compare.sh). A channel
+  fails the gate only when its error rate is both above the absolute floor
+  (default 1%) **and** more than doubles versus the baseline channel. Latency
+  (p95/p99) is reported but **advisory** — runner variance makes it too noisy
+  to gate on today.
+- **Protected benchmarks.** The `compare` job runs `release_candidate`
+  enforcement against the committed baseline at `PROTECTED_THRESHOLD_PCT`
+  (default 15%).
+
+Append-only history and recalibration:
+
+- Alongside each overwritten `main-latest` baseline, the baseline jobs append
+  one compact NDJSON line (via
+  [`scripts/perf_history_append.sh`](../scripts/perf_history_append.sh)) to
+  `loadtest/baseline/history.ndjson` and
+  `benchmarks/history/protection/history.ndjson`, each pruned to the last 90
+  entries. This keeps the run-to-run distribution without unbounded repo growth.
+- Once enough runs accrue, the manual `recalibrate` job (`workflow_dispatch`
+  with `recalibrate_gates=true`) runs
+  [`scripts/gate_recalibrate.sh`](../scripts/gate_recalibrate.sh), which reduces
+  those histories to suggested thresholds (error-rate floor, and a
+  per-benchmark regression percent at mean + 3σ of run-to-run deltas) versus the
+  configured gates, writing the recommendation to the job summary. It is
+  advisory: a human commits any tightened threshold.
+
+Why latency and load are still not hard-gated on absolute values:
+
+- Signal quality is environment-sensitive (host contention, DB state, fixture
+  shape); the error-rate gate is chosen because it is the most variance-robust
+  signal.
+- The recalibration workflow exists precisely to decide, from real accumulated
+  variance, when latency is stable enough to gate.
+
+### Nightly fuzz budget
+
+The WS/API fuzz targets' seed corpora run on every PR through the normal test
+suite, but a real `-fuzz` execution budget runs nightly via
+[`.github/workflows/fuzz.yml`](../.github/workflows/fuzz.yml) (and on demand
+through `workflow_dispatch`). It calls `make fuzz`
+([`scripts/fuzz_all.sh`](../scripts/fuzz_all.sh)) to give each target a bounded
+budget off the PR critical path. A crash is a real bug, so the job is gating and
+uploads the crasher input as an artifact for replay. Fuzz is deliberately out of
+recalibration scope: its gate is binary (crash = bug), so there is no threshold
+to tune.
 
 ## Regression protection
 
@@ -248,11 +304,16 @@ Mechanism:
   - `make benchmark-protected` for focused repeatable signal (`-count=5`).
   - `make perf-protect-collect` to snapshot protected benchmark outputs.
   - `make perf-protect-compare BASELINE_DIR=... CURRENT_DIR=...` for median `ns/op` comparison on protected benchmarks.
-- CI/manual workflow (`.github/workflows/perf.yml`):
-  - manual `workflow_dispatch` run
-  - optional baseline artifact comparison (`baseline_run_id` + `baseline_artifact_name`)
-  - emits a protected benchmark comparison artifact with benchmark deltas
-  - optional strict mode only when `enforcement_mode=release_candidate` and `fail_on_regression=true`
+- CI (`.github/workflows/perf.yml`):
+  - **Automatic on every PR** (`compare` job): compares the current protected
+    snapshot against the committed `benchmarks/history/protection/main-latest`
+    baseline in `release_candidate` mode at `PROTECTED_THRESHOLD_PCT`, failing on
+    regression. Advisory-only until the first `main` push creates the baseline.
+  - **Automatic on push to `main`** (`baseline` job): refreshes and commits the
+    protected baseline plus a pruned history line.
+  - Manual `workflow_dispatch` run still supports ad-hoc baseline-artifact
+    comparison (`baseline_run_id` + `baseline_artifact_name`) and the
+    `recalibrate_gates` recommendation job.
 
 Release vs investigation policy:
 

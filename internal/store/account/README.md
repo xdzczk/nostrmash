@@ -44,3 +44,37 @@ Evaluate the pilot against these before adopting sqlc more broadly:
 Extending the pilot to another context (`trust`, `read`, `retention`, …) is a
 deliberate, separate decision made only after this context's verdict is
 positive on the criteria above.
+
+## Verdict (Jul 2026): positive — extend to `retention`
+
+Assessed against the four criteria on the pilot's actual state (13 generated
+statements, two deliberate raw-pgx escapes, `sqlc-check` wired into `make ci`):
+
+1. **Drift safety net — pass.** `sqlc generate` is deterministic, so
+   `sqlc-check` fails CI the moment a query references a column/type the schema
+   no longer has, before the mismatch reaches a hand-written `Scan`. It has
+   produced zero false positives because generation has no nondeterministic
+   inputs.
+2. **Type mapping stays thin — pass.** `account.go` kept every piece of domain
+   logic (pubkey normalization, `nil`-store guards, transaction orchestration,
+   the exported row/param types); the generated layer only removed the raw SQL
+   string + `Scan` plumbing. The `pgtype`↔domain conversion helpers did not
+   balloon — they are a small, bounded set driven by the config `overrides`,
+   not per-query glue.
+3. **Analyzer coverage — pass (with named escapes).** 13 of 15 statements are
+   expressible; the two escapes (`BatchIncrementAccountObservations`'
+   multi-array `unnest`, `ListAccountSignalsForRecompute`' cross-context join)
+   are inherent limits, clearly commented, and stayed stable rather than
+   multiplying.
+4. **Build/CI cost — pass.** The `go run …/sqlc diff` step is pinned to
+   `v1.31.1` and module-cached, adding a couple of seconds to `make ci`.
+
+**Next context: `retention`.** It is the most sqlc-amenable remaining context —
+~771 LOC of static CTE `DELETE`/`UPDATE` sweeps with zero dynamic SQL, so every
+statement is a plain `:execrows`. `read` is explicitly *not* next: it is
+dominated by dynamic filter/cursor SQL (~23 sites) that sqlc's static analyzer
+cannot express, so it would be mostly hand-written escapes — exactly the case
+criterion 3 warns against.
+
+See [`internal/store/retention/README.md`](../retention/README.md) for the
+retention context's generated surface.

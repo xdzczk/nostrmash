@@ -35,6 +35,10 @@ on:
         description: "Run the WS+API load harness (non-gating, artifacts only)"
         required: false
         default: "false"
+      recalibrate_gates:
+        description: "Print advisory gate-threshold recommendations from committed history"
+        required: false
+        default: "false"
 
 # The protected baseline lives at a fixed path so pull requests always know
 # where to find it. It is regenerated and committed by the baseline job on every
@@ -42,6 +46,11 @@ on:
 env:
   PROTECTED_BASELINE_DIR: benchmarks/history/protection/main-latest
   PROTECTED_THRESHOLD_PCT: "15"
+  # Append-only compact history (pruned to the last 90 entries) accumulated
+  # alongside the overwritten main-latest baselines. gate_recalibrate.sh reads
+  # these to recommend tighter thresholds after enough main pushes accrue.
+  PROTECTED_HISTORY_FILE: benchmarks/history/protection/history.ndjson
+  LOADTEST_HISTORY_FILE: loadtest/baseline/history.ndjson
   # The committed WS+API load-harness baseline lives at a fixed path so PRs
   # always know where to compare. It is regenerated and committed by the
   # loadtest-baseline job on every push to main, keeping it on the same runner
@@ -82,15 +91,22 @@ jobs:
           PERF_RUN_ID="$(basename "${PROTECTED_BASELINE_DIR}")" \
           bash ./scripts/perf_collect.sh
 
+      - name: Append pruned benchmark history
+        run: |
+          HISTORY_SHA="${GITHUB_SHA}" \
+          bash ./scripts/perf_history_append.sh benchmarks \
+            "${PROTECTED_BASELINE_DIR}" \
+            "${PROTECTED_HISTORY_FILE}"
+
       - name: Commit updated baseline
         run: |
-          if git diff --quiet -- "${PROTECTED_BASELINE_DIR}"; then
+          if git diff --quiet -- "${PROTECTED_BASELINE_DIR}" "${PROTECTED_HISTORY_FILE}"; then
             echo "No baseline changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${PROTECTED_BASELINE_DIR}"
+          git add "${PROTECTED_BASELINE_DIR}" "${PROTECTED_HISTORY_FILE}"
           git commit -m "chore(perf): refresh protected benchmark baseline [skip ci]"
           git push
 
@@ -401,15 +417,22 @@ jobs:
         if: always()
         run: bash ./scripts/loadtest_ci_seed.sh stop-api
 
+      - name: Append pruned load-harness history
+        run: |
+          HISTORY_SHA="${GITHUB_SHA}" \
+          bash ./scripts/perf_history_append.sh loadtest \
+            "${LOADTEST_BASELINE_DIR}/summary.json" \
+            "${LOADTEST_HISTORY_FILE}"
+
       - name: Commit updated baseline
         run: |
-          if git diff --quiet -- "${LOADTEST_BASELINE_DIR}/summary.json"; then
+          if git diff --quiet -- "${LOADTEST_BASELINE_DIR}/summary.json" "${LOADTEST_HISTORY_FILE}"; then
             echo "No load-harness baseline changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${LOADTEST_BASELINE_DIR}/summary.json"
+          git add "${LOADTEST_BASELINE_DIR}/summary.json" "${LOADTEST_HISTORY_FILE}"
           git commit -m "chore(loadtest): refresh WS+API harness baseline [skip ci]"
           git push
 
@@ -508,3 +531,23 @@ jobs:
             api-server.log
           retention-days: 30
           if-no-files-found: warn
+
+  recalibrate:
+    name: Recommend gate thresholds (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.recalibrate_gates == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Recommend thresholds from committed history
+        env:
+          # Surface the currently-configured gates so the reducer can print a
+          # "vs configured" column. Keep these in sync with the gate defaults.
+          LOADTEST_ERROR_RATE_FLOOR: "0.01"
+          LOADTEST_ERROR_RATE_FACTOR: "2.0"
+          PROTECTED_THRESHOLD_PCT: ${{ env.PROTECTED_THRESHOLD_PCT }}
+        run: |
+          bash ./scripts/gate_recalibrate.sh \
+            "${LOADTEST_HISTORY_FILE}" \
+            "${PROTECTED_HISTORY_FILE}" >> "${GITHUB_STEP_SUMMARY}"

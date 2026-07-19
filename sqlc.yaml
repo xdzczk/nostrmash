@@ -31,3 +31,23 @@ sql:
             go_type:
               type: "int32"
               pointer: true
+
+  # Second context (verdict Jul 2026): retention's static CTE DELETE/UPDATE
+  # sweeps. Every statement is a plain :execrows returning RowsAffected, so the
+  # generated layer is pure plumbing and the hand-written wrappers in
+  # internal/store/retention keep the validation, metrics, and transaction
+  # shape. Retention touches many tables, so its schema entry point is the full
+  # migrations/ directory (sqlc applies them in lexical order). Timestamptz
+  # params stay as pgtype.Timestamptz (sqlc treats bind params as nullable);
+  # the thin wrappers convert domain time.Time via a small local helper.
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/store/retention/queries"
+    gen:
+      go:
+        package: "retentiondb"
+        out: "internal/store/retention/retentiondb"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_exact_table_names: false
+        emit_empty_slices: true
