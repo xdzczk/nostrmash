@@ -8,6 +8,8 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func TestGetNetworkStatsMapsLegacyStoreModel(t *testing.T) {
@@ -18,8 +20,8 @@ func TestGetNetworkStatsMapsLegacyStoreModel(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getNetworkStatsFn: func(context.Context) (store.NetworkStats, error) {
-			return store.NetworkStats{Events: 11, Profiles: 22, Relays: 33}, nil
+		getNetworkStatsFn: func(context.Context) (storeread.NetworkStats, error) {
+			return storeread.NetworkStats{Events: 11, Profiles: 22, Relays: 33}, nil
 		},
 	})
 	stats, err := svc.GetNetworkStats(context.Background())
@@ -66,8 +68,8 @@ func TestGetCuratedRecommendedReadsMapsLegacyStoreModel(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getCuratedRecommendedReadsFn: func(context.Context, int) ([]store.CuratedRecommendedRead, error) {
-			return []store.CuratedRecommendedRead{{
+		getCuratedRecommendedReadsFn: func(context.Context, int) ([]storeread.CuratedRecommendedRead, error) {
+			return []storeread.CuratedRecommendedRead{{
 				EventID: "evt-1",
 				Title:   "Read one",
 				URL:     "https://example.com",
@@ -92,8 +94,8 @@ func TestGetCuratedReadsTopicsMapsLegacyStoreModel(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getCuratedReadsTopicsFn: func(context.Context, int) ([]store.CuratedReadsTopic, error) {
-			return []store.CuratedReadsTopic{{Topic: "nostr", Rank: 2}}, nil
+		getCuratedReadsTopicsFn: func(context.Context, int) ([]storeread.CuratedReadsTopic, error) {
+			return []storeread.CuratedReadsTopic{{Topic: "nostr", Rank: 2}}, nil
 		},
 	})
 	out, err := svc.GetCuratedReadsTopics(context.Background(), 5)
@@ -113,8 +115,8 @@ func TestGetCuratedFeaturedAuthorsMapsLegacyStoreModel(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getCuratedFeaturedAuthorsFn: func(context.Context, int) ([]store.CuratedFeaturedAuthor, error) {
-			return []store.CuratedFeaturedAuthor{{Pubkey: "pk-1", Rank: 3}}, nil
+		getCuratedFeaturedAuthorsFn: func(context.Context, int) ([]storeread.CuratedFeaturedAuthor, error) {
+			return []storeread.CuratedFeaturedAuthor{{Pubkey: "pk-1", Rank: 3}}, nil
 		},
 	})
 	out, err := svc.GetCuratedFeaturedAuthors(context.Background(), 5)
@@ -134,8 +136,8 @@ func TestGetTrendingHashtagsMapsLegacyStoreModel(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getTrendingHashtagsFn: func(context.Context, time.Duration, int, int) ([]store.TrendingHashtag, error) {
-			return []store.TrendingHashtag{{Hashtag: "nostr", EventCount: 12, UniqueAuthors: 9}}, nil
+		getTrendingHashtagsFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingHashtag, error) {
+			return []storeread.TrendingHashtag{{Hashtag: "nostr", EventCount: 12, UniqueAuthors: 9}}, nil
 		},
 	})
 	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, 5, 0)
@@ -155,8 +157,8 @@ func TestGetTrendingNotesMapsLegacyStoreModel(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]store.TrendingNote, error) {
-			return []store.TrendingNote{{
+		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{{
 				EventID:       "note-1",
 				AuthorPubkey:  "pk-1",
 				CreatedAt:     1700000000,
@@ -221,8 +223,8 @@ func TestDiscoveryTrustPolicy_TrendingNotesPreferTrusted(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]store.TrendingNote, error) {
-			return []store.TrendingNote{
+		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
 				{EventID: "n1", AuthorPubkey: "u1", Score: 100},
 				{EventID: "n2", AuthorPubkey: "u2", Score: 99},
 				{EventID: "n3", AuthorPubkey: "u3", Score: 98},
@@ -255,8 +257,8 @@ func TestDiscoveryTrustPolicy_TrendingNotesTrustedOnly(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]store.TrendingNote, error) {
-			return []store.TrendingNote{
+		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
 				{EventID: "n1", AuthorPubkey: "u1"},
 				{EventID: "n2", AuthorPubkey: "u2"},
 				{EventID: "n3", AuthorPubkey: "u3"},
@@ -290,14 +292,14 @@ func TestDiscoveryTrustPolicy_UsesProjectedTrustQualifiedNotesWhenReady(t *testi
 				return nil, store.ErrNotFound
 			},
 		},
-		getTrustQualifiedTrendingNotesFn: func(context.Context, time.Duration, int, int, string, store.TrustQualificationPolicy, time.Duration) ([]store.TrustQualifiedTrendingNote, bool, error) {
-			return []store.TrustQualifiedTrendingNote{
+		getTrustQualifiedTrendingNotesFn: func(context.Context, time.Duration, int, int, string, storetrust.TrustQualificationPolicy, time.Duration) ([]storeread.TrustQualifiedTrendingNote, bool, error) {
+			return []storeread.TrustQualifiedTrendingNote{
 				{
-					Note:    store.TrendingNote{EventID: "projected_1", AuthorPubkey: "trusted_pk", Score: 10},
+					Note:    storeread.TrendingNote{EventID: "projected_1", AuthorPubkey: "trusted_pk", Score: 10},
 					Trusted: true,
 				},
 				{
-					Note:    store.TrendingNote{EventID: "projected_2", AuthorPubkey: "open_pk", Score: 9},
+					Note:    storeread.TrendingNote{EventID: "projected_2", AuthorPubkey: "open_pk", Score: 9},
 					Trusted: false,
 				},
 			}, true, nil
@@ -329,8 +331,8 @@ func TestDiscoveryTrustPolicy_ProfilesApplyConsistentQualification(t *testing.T)
 				return nil, store.ErrNotFound
 			},
 		},
-		getTrendingProfilesFn: func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error) {
-			return []store.TrendingProfile{
+		getTrendingProfilesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingProfile, error) {
+			return []storeread.TrendingProfile{
 				{Pubkey: "p1", Score: 100},
 				{Pubkey: "p2", Score: 99},
 				{Pubkey: "p3", Score: 98},
@@ -363,14 +365,14 @@ func TestDiscoveryTrustPolicy_HashtagsDerivedFromTrustedNotes(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]store.TrendingNote, error) {
-			return []store.TrendingNote{
+		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
 				{EventID: "n1", AuthorPubkey: "u1", Content: "#nostr #dev"},
 				{EventID: "n2", AuthorPubkey: "u2", Content: "#spam"},
 				{EventID: "n3", AuthorPubkey: "u3", Content: "#nostr #bitcoin"},
 			}, nil
 		},
-		getTrendingHashtagsFn: func(context.Context, time.Duration, int, int) ([]store.TrendingHashtag, error) {
+		getTrendingHashtagsFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingHashtag, error) {
 			t.Fatal("open hashtag query path should be bypassed under trust policy")
 			return nil, nil
 		},
@@ -403,16 +405,16 @@ func TestDiscoveryTrustPolicy_HashtagsDerivedFromTrustedNotes(t *testing.T) {
 
 type curatedLegacyReader struct {
 	fakeReader
-	getNetworkStatsFn                   func(context.Context) (store.NetworkStats, error)
-	getCuratedRecommendedReadsFn        func(context.Context, int) ([]store.CuratedRecommendedRead, error)
-	getCuratedReadsTopicsFn             func(context.Context, int) ([]store.CuratedReadsTopic, error)
-	getTrendingNotesFn                  func(context.Context, time.Duration, int, int) ([]store.TrendingNote, error)
+	getNetworkStatsFn                   func(context.Context) (storeread.NetworkStats, error)
+	getCuratedRecommendedReadsFn        func(context.Context, int) ([]storeread.CuratedRecommendedRead, error)
+	getCuratedReadsTopicsFn             func(context.Context, int) ([]storeread.CuratedReadsTopic, error)
+	getTrendingNotesFn                  func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error)
 	getHotConversationsFn               func(context.Context, time.Duration, int, int) ([]store.HotConversation, error)
-	getTrustQualifiedTrendingNotesFn    func(context.Context, time.Duration, int, int, string, store.TrustQualificationPolicy, time.Duration) ([]store.TrustQualifiedTrendingNote, bool, error)
-	getTrendingHashtagsFn               func(context.Context, time.Duration, int, int) ([]store.TrendingHashtag, error)
-	getTrendingProfilesFn               func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error)
-	getTrustQualifiedTrendingProfilesFn func(context.Context, time.Duration, int, int, bool, string, store.TrustQualificationPolicy, time.Duration) ([]store.TrustQualifiedTrendingProfile, bool, error)
-	getCuratedFeaturedAuthorsFn         func(context.Context, int) ([]store.CuratedFeaturedAuthor, error)
+	getTrustQualifiedTrendingNotesFn    func(context.Context, time.Duration, int, int, string, storetrust.TrustQualificationPolicy, time.Duration) ([]storeread.TrustQualifiedTrendingNote, bool, error)
+	getTrendingHashtagsFn               func(context.Context, time.Duration, int, int) ([]storeread.TrendingHashtag, error)
+	getTrendingProfilesFn               func(context.Context, time.Duration, int, int) ([]storeread.TrendingProfile, error)
+	getTrustQualifiedTrendingProfilesFn func(context.Context, time.Duration, int, int, bool, string, storetrust.TrustQualificationPolicy, time.Duration) ([]storeread.TrustQualifiedTrendingProfile, bool, error)
+	getCuratedFeaturedAuthorsFn         func(context.Context, int) ([]storeread.CuratedFeaturedAuthor, error)
 	getTrustQualificationsFn            func(context.Context, []string, TrustQualificationPolicy) (map[string]TrustQualification, error)
 	isTrustedAuthorFn                   func(context.Context, string, TrustQualificationPolicy) (bool, error)
 }
@@ -437,30 +439,30 @@ func (r curatedLegacyReader) GetEventSeenOn(context.Context, string) ([]model.Ev
 	return []model.EventRelay{}, nil
 }
 
-func (r curatedLegacyReader) GetNetworkStats(ctx context.Context) (store.NetworkStats, error) {
+func (r curatedLegacyReader) GetNetworkStats(ctx context.Context) (storeread.NetworkStats, error) {
 	if r.getNetworkStatsFn == nil {
-		return store.NetworkStats{}, nil
+		return storeread.NetworkStats{}, nil
 	}
 	return r.getNetworkStatsFn(ctx)
 }
 
-func (r curatedLegacyReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]store.CuratedRecommendedRead, error) {
+func (r curatedLegacyReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]storeread.CuratedRecommendedRead, error) {
 	if r.getCuratedRecommendedReadsFn == nil {
-		return []store.CuratedRecommendedRead{}, nil
+		return []storeread.CuratedRecommendedRead{}, nil
 	}
 	return r.getCuratedRecommendedReadsFn(ctx, limit)
 }
 
-func (r curatedLegacyReader) GetCuratedReadsTopics(ctx context.Context, limit int) ([]store.CuratedReadsTopic, error) {
+func (r curatedLegacyReader) GetCuratedReadsTopics(ctx context.Context, limit int) ([]storeread.CuratedReadsTopic, error) {
 	if r.getCuratedReadsTopicsFn == nil {
-		return []store.CuratedReadsTopic{}, nil
+		return []storeread.CuratedReadsTopic{}, nil
 	}
 	return r.getCuratedReadsTopicsFn(ctx, limit)
 }
 
-func (r curatedLegacyReader) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
+func (r curatedLegacyReader) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]storeread.CuratedFeaturedAuthor, error) {
 	if r.getCuratedFeaturedAuthorsFn == nil {
-		return []store.CuratedFeaturedAuthor{}, nil
+		return []storeread.CuratedFeaturedAuthor{}, nil
 	}
 	return r.getCuratedFeaturedAuthorsFn(ctx, limit)
 }
@@ -470,9 +472,9 @@ func (r curatedLegacyReader) GetTrendingHashtags(
 	window time.Duration,
 	limit int,
 	offset int,
-) ([]store.TrendingHashtag, error) {
+) ([]storeread.TrendingHashtag, error) {
 	if r.getTrendingHashtagsFn == nil {
-		return []store.TrendingHashtag{}, nil
+		return []storeread.TrendingHashtag{}, nil
 	}
 	return r.getTrendingHashtagsFn(ctx, window, limit, offset)
 }
@@ -482,9 +484,9 @@ func (r curatedLegacyReader) GetTrendingNotes(
 	window time.Duration,
 	limit int,
 	offset int,
-) ([]store.TrendingNote, error) {
+) ([]storeread.TrendingNote, error) {
 	if r.getTrendingNotesFn == nil {
-		return []store.TrendingNote{}, nil
+		return []storeread.TrendingNote{}, nil
 	}
 	return r.getTrendingNotesFn(ctx, window, limit, offset)
 }
@@ -507,9 +509,9 @@ func (r curatedLegacyReader) GetTrustQualifiedTrendingNotes(
 	limit int,
 	offset int,
 	mode string,
-	policy store.TrustQualificationPolicy,
+	policy storetrust.TrustQualificationPolicy,
 	maxStaleness time.Duration,
-) ([]store.TrustQualifiedTrendingNote, bool, error) {
+) ([]storeread.TrustQualifiedTrendingNote, bool, error) {
 	if r.getTrustQualifiedTrendingNotesFn == nil {
 		return nil, false, nil
 	}
@@ -521,9 +523,9 @@ func (r curatedLegacyReader) GetTrendingProfiles(
 	window time.Duration,
 	limit int,
 	offset int,
-) ([]store.TrendingProfile, error) {
+) ([]storeread.TrendingProfile, error) {
 	if r.getTrendingProfilesFn == nil {
-		return []store.TrendingProfile{}, nil
+		return []storeread.TrendingProfile{}, nil
 	}
 	return r.getTrendingProfilesFn(ctx, window, limit, offset)
 }
@@ -535,9 +537,9 @@ func (r curatedLegacyReader) GetTrustQualifiedTrendingProfiles(
 	offset int,
 	rising bool,
 	mode string,
-	policy store.TrustQualificationPolicy,
+	policy storetrust.TrustQualificationPolicy,
 	maxStaleness time.Duration,
-) ([]store.TrustQualifiedTrendingProfile, bool, error) {
+) ([]storeread.TrustQualifiedTrendingProfile, bool, error) {
 	if r.getTrustQualifiedTrendingProfilesFn == nil {
 		return nil, false, nil
 	}

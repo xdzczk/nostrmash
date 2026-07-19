@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestWSGateway_GetDirectMsgContactsContractOrdering(t *testing.T) {
@@ -122,8 +123,8 @@ func TestWSGateway_GetDirectMsgContactsRelationFiltering(t *testing.T) {
 				json.RawMessage(`{"peer_pubkey":"` + otherPeer + `","cnt":1,"latest_at":20,"latest_event_id":"dm_latest_2"}`),
 			}, nil
 		},
-		getContactListFn: func(_ context.Context, pubkey string) (store.ContactListProjection, error) {
-			return store.ContactListProjection{Pubkey: receiver, ContactsJSONRaw: json.RawMessage(`["` + followedPeer + `"]`)}, nil
+		getContactListFn: func(_ context.Context, pubkey string) (storeread.ContactListProjection, error) {
+			return storeread.ContactListProjection{Pubkey: receiver, ContactsJSONRaw: json.RawMessage(`["` + followedPeer + `"]`)}, nil
 		},
 	}, WSGatewayOptions{})
 	mux := http.NewServeMux()

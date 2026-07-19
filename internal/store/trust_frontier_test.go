@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/derivation"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func TestTrustFrontierRefreshClaimAndSuggestions(t *testing.T) {
@@ -66,7 +67,7 @@ func TestTrustFrontierRefreshClaimAndSuggestions(t *testing.T) {
 
 	now := time.Now().UTC()
 	runIDCopy := runID
-	relayRefresh, err := s.RefreshTrustRelaySuggestions(ctx, []TrustRelayCandidate{
+	relayRefresh, err := s.RefreshTrustRelaySuggestions(ctx, []storetrust.TrustRelayCandidate{
 		{
 			RelayURL:               "wss://relay.one",
 			WeightedScore:          7.5,
@@ -282,7 +283,7 @@ func TestTrustRelaySuggestions_DemotesStaleAndRetainsRecommendationsOnEmptyBatch
 	runID := insertTrustRunForFrontierTest(t, ctx, pool)
 	now := time.Now().UTC()
 
-	refresh, err := s.RefreshTrustRelaySuggestions(ctx, []TrustRelayCandidate{
+	refresh, err := s.RefreshTrustRelaySuggestions(ctx, []storetrust.TrustRelayCandidate{
 		{
 			RelayURL:               "wss://relay.one",
 			WeightedScore:          9.0,
@@ -323,7 +324,7 @@ func TestTrustRelaySuggestions_DemotesStaleAndRetainsRecommendationsOnEmptyBatch
 		t.Fatalf("expected highest-weight relay to be recommended first, got %+v", suggestions[0])
 	}
 
-	refresh, err = s.RefreshTrustRelaySuggestions(ctx, []TrustRelayCandidate{
+	refresh, err = s.RefreshTrustRelaySuggestions(ctx, []storetrust.TrustRelayCandidate{
 		{
 			RelayURL:               "wss://relay.two",
 			WeightedScore:          10.0,
@@ -399,7 +400,7 @@ func TestTrustPubkeyFrontier_ConcurrentClaimsDoNotDuplicatePubkeys(t *testing.T)
 
 	const workers = 8
 	start := make(chan struct{})
-	results := make(chan []TrustPubkeyFrontierEntry, workers)
+	results := make(chan []storetrust.TrustPubkeyFrontierEntry, workers)
 	errs := make(chan error, workers)
 
 	var wg sync.WaitGroup

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestWSGateway_LongFormContentFeedFollowsIncludesMetadataAndRange(t *testing.T) {
@@ -18,11 +19,11 @@ func TestWSGateway_LongFormContentFeedFollowsIncludesMetadataAndRange(t *testing
 	const followedA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const followedB = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	gateway := mustNewWSGateway(t, fakeEventReader{
-		getContactListFn: func(_ context.Context, pubkey string) (store.ContactListProjection, error) {
+		getContactListFn: func(_ context.Context, pubkey string) (storeread.ContactListProjection, error) {
 			if pubkey != viewer {
 				t.Fatalf("unexpected contact list pubkey: %s", pubkey)
 			}
-			return store.ContactListProjection{
+			return storeread.ContactListProjection{
 				Pubkey:          viewer,
 				ContactsJSONRaw: json.RawMessage(`["` + followedA + `","` + followedB + `"]`),
 			}, nil

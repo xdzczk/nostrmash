@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestGetNoteSummary_ComposesProductPayload(t *testing.T) {
@@ -30,8 +31,8 @@ func TestGetNoteSummary_ComposesProductPayload(t *testing.T) {
 				RepostCount:   3,
 			}, nil
 		},
-		getNoteStatsFn: func(context.Context, string) (store.NoteStats, error) {
-			return store.NoteStats{
+		getNoteStatsFn: func(context.Context, string) (storeread.NoteStats, error) {
+			return storeread.NoteStats{
 				EventID:         "evt_1",
 				ReplyCount:      2,
 				ReactionCount:   4,
@@ -68,8 +69,8 @@ func TestGetNoteSummary_ComposesProductPayload(t *testing.T) {
 				ReplyCount:     9,
 			}, nil
 		},
-		getNoteConversationVelocityFn: func(context.Context, string) (store.NoteConversationVelocity, error) {
-			return store.NoteConversationVelocity{
+		getNoteConversationVelocityFn: func(context.Context, string) (storeread.NoteConversationVelocity, error) {
+			return storeread.NoteConversationVelocity{
 				Replies24h: 5,
 				Replies7d:  12,
 			}, nil
@@ -143,8 +144,8 @@ func TestGetNoteSummary_ComposesProductPayload(t *testing.T) {
 
 func TestGetNoteRelated_UsesBoundedLimitAndReturnsPayload(t *testing.T) {
 	handlers := mustNewHandlers(t, fakeEventReader{
-		getRelatedNotesFn: func(context.Context, string, int) ([]store.RelatedNote, error) {
-			return []store.RelatedNote{
+		getRelatedNotesFn: func(context.Context, string, int) ([]storeread.RelatedNote, error) {
+			return []storeread.RelatedNote{
 				{
 					EventID:      "rel_1",
 					AuthorPubkey: "pk_rel_1",
@@ -180,7 +181,7 @@ func TestNoteEndpoints_MissingNoteReturnsNotFound(t *testing.T) {
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
 			return nil, store.ErrNotFound
 		},
-		getRelatedNotesFn: func(context.Context, string, int) ([]store.RelatedNote, error) {
+		getRelatedNotesFn: func(context.Context, string, int) ([]storeread.RelatedNote, error) {
 			return nil, store.ErrNotFound
 		},
 	}, 200)

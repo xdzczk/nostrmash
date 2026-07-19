@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
-	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestWSGateway_ModerationAndCuratedCacheCalls(t *testing.T) {
@@ -38,17 +38,17 @@ func TestWSGateway_ModerationAndCuratedCacheCalls(t *testing.T) {
 		getParamEventsFn: func(_ context.Context, kind int, dTag string, limit int) ([]json.RawMessage, error) {
 			return []json.RawMessage{json.RawMessage(`{"id":"replaceable_evt_2"}`)}, nil
 		},
-		getNetworkStatsFn: func(_ context.Context) (store.NetworkStats, error) {
-			return store.NetworkStats{Events: 10, Profiles: 2, Relays: 3}, nil
+		getNetworkStatsFn: func(_ context.Context) (storeread.NetworkStats, error) {
+			return storeread.NetworkStats{Events: 10, Profiles: 2, Relays: 3}, nil
 		},
-		getCuratedRecommendedReadsFn: func(_ context.Context, limit int) ([]store.CuratedRecommendedRead, error) {
-			return []store.CuratedRecommendedRead{{EventID: "evt_read_1", Title: "Read 1", URL: "https://example.com/r1", Rank: 10}}, nil
+		getCuratedRecommendedReadsFn: func(_ context.Context, limit int) ([]storeread.CuratedRecommendedRead, error) {
+			return []storeread.CuratedRecommendedRead{{EventID: "evt_read_1", Title: "Read 1", URL: "https://example.com/r1", Rank: 10}}, nil
 		},
-		getCuratedReadsTopicsFn: func(_ context.Context, limit int) ([]store.CuratedReadsTopic, error) {
-			return []store.CuratedReadsTopic{{Topic: "nostr", Rank: 5}}, nil
+		getCuratedReadsTopicsFn: func(_ context.Context, limit int) ([]storeread.CuratedReadsTopic, error) {
+			return []storeread.CuratedReadsTopic{{Topic: "nostr", Rank: 5}}, nil
 		},
-		getCuratedFeaturedAuthorsFn: func(_ context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
-			return []store.CuratedFeaturedAuthor{{Pubkey: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Rank: 8}}, nil
+		getCuratedFeaturedAuthorsFn: func(_ context.Context, limit int) ([]storeread.CuratedFeaturedAuthor, error) {
+			return []storeread.CuratedFeaturedAuthor{{Pubkey: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Rank: 8}}, nil
 		},
 		getCreatorPaidTiersFn: func(_ context.Context, pubkey string) ([]json.RawMessage, error) {
 			return []json.RawMessage{json.RawMessage(`{"tier_id":"gold","title":"Gold","price_sats":1000}`)}, nil

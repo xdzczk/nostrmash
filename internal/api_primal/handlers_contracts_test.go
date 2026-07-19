@@ -13,6 +13,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestPrimalContracts(t *testing.T) {
@@ -240,10 +241,10 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 				json.RawMessage(`{"id":"root_evt","kind":1,"pubkey":"pubkey_root","created_at":1699999990}`),
 			}, []string{"missing_ancestor_1"}, nil
 		},
-		getContactListFn: func(_ context.Context, pubkey string) (store.ContactListProjection, error) {
+		getContactListFn: func(_ context.Context, pubkey string) (storeread.ContactListProjection, error) {
 			switch pubkey {
 			case "pubkey_abc":
-				return store.ContactListProjection{
+				return storeread.ContactListProjection{
 					Pubkey:          "pubkey_abc",
 					EventID:         "contact_evt_1",
 					CreatedAt:       1700000100,
@@ -251,15 +252,15 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 					ContactsJSONRaw: json.RawMessage(`["pubkey_x","pubkey_y"]`),
 				}, nil
 			case "pubkey_store_err":
-				return store.ContactListProjection{}, errors.New("storage down")
+				return storeread.ContactListProjection{}, errors.New("storage down")
 			default:
-				return store.ContactListProjection{}, store.ErrNotFound
+				return storeread.ContactListProjection{}, store.ErrNotFound
 			}
 		},
-		getRelayListFn: func(_ context.Context, pubkey string) (store.RelayListProjection, error) {
+		getRelayListFn: func(_ context.Context, pubkey string) (storeread.RelayListProjection, error) {
 			switch pubkey {
 			case "pubkey_abc":
-				return store.RelayListProjection{
+				return storeread.RelayListProjection{
 					Pubkey:        "pubkey_abc",
 					EventID:       "relay_evt_1",
 					CreatedAt:     1700000200,
@@ -267,9 +268,9 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 					RelaysJSONRaw: json.RawMessage(`["wss://relay.primal.net","wss://nos.lol"]`),
 				}, nil
 			case "pubkey_store_err":
-				return store.RelayListProjection{}, errors.New("storage down")
+				return storeread.RelayListProjection{}, errors.New("storage down")
 			default:
-				return store.RelayListProjection{}, store.ErrNotFound
+				return storeread.RelayListProjection{}, store.ErrNotFound
 			}
 		},
 		getDirectMsgsRangeFn: func(_ context.Context, pubkey string, peer string, since int64, until int64, limit int, offset int) ([]json.RawMessage, error) {

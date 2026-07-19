@@ -151,14 +151,14 @@ func TestServiceCapabilities_MissingCapabilityReader(t *testing.T) {
 	}
 }
 
-func TestNewServiceWithOptions_ReturnsErrorWithoutRequiredReaderCapabilities(t *testing.T) {
+func TestNewServiceWithOptions_ReturnsErrorForNilReader(t *testing.T) {
 	t.Parallel()
-	_, err := NewServiceWithOptions(struct{}{}, ServiceOptions{})
+	// The core read surface is now a compile-time contract (the reader must
+	// satisfy Reader), so a structurally incomplete reader can no longer be
+	// passed at all. A nil reader remains a runtime error.
+	_, err := NewServiceWithOptions(nil, ServiceOptions{})
 	if err == nil {
-		t.Fatalf("expected constructor error when required reader capability is missing")
-	}
-	if got, want := err.Error(), "query: unsupported reader type struct {}"; got != want {
-		t.Fatalf("unexpected constructor error: got %q want %q", got, want)
+		t.Fatalf("expected constructor error for a nil reader")
 	}
 }
 

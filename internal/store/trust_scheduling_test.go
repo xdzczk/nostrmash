@@ -1,9 +1,13 @@
 package store
 
-import "testing"
+import (
+	"testing"
+
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
+)
 
 func TestNormalizeRelayURLs_DeduplicatesAndNormalizes(t *testing.T) {
-	normalized, order := NormalizeRelayURLs([]string{
+	normalized, order := storetrust.NormalizeRelayURLs([]string{
 		" wss://A ",
 		"wss://b",
 		"wss://a",
@@ -23,7 +27,7 @@ func TestNormalizeRelayURLs_DeduplicatesAndNormalizes(t *testing.T) {
 }
 
 func TestSortRelaysByWeights_PrefersHigherWeightThenBaseOrder(t *testing.T) {
-	sorted := SortRelaysByWeights(
+	sorted := storetrust.SortRelaysByWeights(
 		[]string{"wss://a", "wss://b", "wss://c"},
 		map[string]int{"wss://a": 0, "wss://b": 1, "wss://c": 2},
 		map[string]float64{"wss://c": 10, "wss://a": 5},

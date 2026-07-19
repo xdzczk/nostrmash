@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 
 	"github.com/jackc/pgx/v5"
 )

@@ -10,6 +10,8 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func mustNewHandlers(tb testing.TB, reader EventReader, maxBatchSize int) Handlers {
@@ -58,48 +60,48 @@ type fakeEventReader struct {
 	getEventAncestors                func(context.Context, string, int) ([]json.RawMessage, []string, error)
 	getThreadSummaryFn               func(context.Context, string) (store.ThreadSummaryProjection, error)
 	listRelayHealthFn                func(context.Context) ([]model.IngestCheckpoint, error)
-	getContactListFn                 func(context.Context, string) (store.ContactListProjection, error)
-	getRelayListFn                   func(context.Context, string) (store.RelayListProjection, error)
+	getContactListFn                 func(context.Context, string) (storeread.ContactListProjection, error)
+	getRelayListFn                   func(context.Context, string) (storeread.RelayListProjection, error)
 	searchEventsFn                   func(context.Context, string, int) ([]json.RawMessage, error)
 	searchProfilesFn                 func(context.Context, string, int) ([]store.ProfileProjection, error)
 	searchNotesFn                    func(context.Context, string, string, *time.Duration, string, int, int) ([]json.RawMessage, error)
 	searchProfilesWithOptionsFn      func(context.Context, string, string, int, int) ([]store.ProfileProjection, error)
 	suggestProfilesFn                func(context.Context, string, int) ([]store.ProfileProjection, error)
-	suggestHashtagsFn                func(context.Context, string, int) ([]store.TrendingHashtag, error)
+	suggestHashtagsFn                func(context.Context, string, int) ([]storeread.TrendingHashtag, error)
 	getByKindPubkeyFn                func(context.Context, int, string, int) ([]json.RawMessage, error)
 	getRefsPubkeyFn                  func(context.Context, string, int) ([]json.RawMessage, error)
 	getFollowersFn                   func(context.Context, string, int) ([]json.RawMessage, error)
-	getTrustScoreFn                  func(context.Context, string) (store.TrustGlobalScore, error)
-	listTopTrustFn                   func(context.Context, int) ([]store.TrustGlobalScore, error)
-	getTrustRunFn                    func(context.Context, int64) (store.TrustRun, error)
-	listTrustRunsFn                  func(context.Context, int) ([]store.TrustRun, error)
-	getNetworkStatsFn                func(context.Context) (store.NetworkStats, error)
-	getPublicNetworkStatsFn          func(context.Context, int) (store.PublicDiscoveryNetworkStats, error)
-	getCuratedReadsFn                func(context.Context, int) ([]store.CuratedRecommendedRead, error)
-	getCuratedTopicsFn               func(context.Context, int) ([]store.CuratedReadsTopic, error)
-	getTrendingNotesFn               func(context.Context, time.Duration, int, int) ([]store.TrendingNote, error)
+	getTrustScoreFn                  func(context.Context, string) (storetrust.TrustGlobalScore, error)
+	listTopTrustFn                   func(context.Context, int) ([]storetrust.TrustGlobalScore, error)
+	getTrustRunFn                    func(context.Context, int64) (storetrust.TrustRun, error)
+	listTrustRunsFn                  func(context.Context, int) ([]storetrust.TrustRun, error)
+	getNetworkStatsFn                func(context.Context) (storeread.NetworkStats, error)
+	getPublicNetworkStatsFn          func(context.Context, int) (storeread.PublicDiscoveryNetworkStats, error)
+	getCuratedReadsFn                func(context.Context, int) ([]storeread.CuratedRecommendedRead, error)
+	getCuratedTopicsFn               func(context.Context, int) ([]storeread.CuratedReadsTopic, error)
+	getTrendingNotesFn               func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error)
 	getHotConversationsFn            func(context.Context, time.Duration, int, int) ([]store.HotConversation, error)
-	getTrendingTagsFn                func(context.Context, time.Duration, int, int) ([]store.TrendingHashtag, error)
-	getHashtagSummaryFn              func(context.Context, string) (store.HashtagSummary, error)
-	getHashtagNotesFn                func(context.Context, string, string, string, int, int) ([]store.TrendingNote, error)
-	getRelatedHashtagsFn             func(context.Context, string, int) ([]store.RelatedHashtag, error)
+	getTrendingTagsFn                func(context.Context, time.Duration, int, int) ([]storeread.TrendingHashtag, error)
+	getHashtagSummaryFn              func(context.Context, string) (storeread.HashtagSummary, error)
+	getHashtagNotesFn                func(context.Context, string, string, string, int, int) ([]storeread.TrendingNote, error)
+	getRelatedHashtagsFn             func(context.Context, string, int) ([]storeread.RelatedHashtag, error)
 	getTrendingDomainsFn             func(context.Context, time.Duration, int, int) ([]store.DomainSummaryProjection, error)
 	getDomainSummaryFn               func(context.Context, string, int, int) (store.DomainSummaryProjection, error)
-	getDomainNotesFn                 func(context.Context, string, string, string, int, int) ([]store.TrendingNote, error)
-	getTrendingProfilesFn            func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error)
-	getRisingProfilesFn              func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error)
-	getRelatedProfilesFn             func(context.Context, string, int) ([]store.RelatedProfile, error)
-	getCuratedPubsFn                 func(context.Context, int) ([]store.CuratedFeaturedAuthor, error)
-	getNoteStatsFn                   func(context.Context, string) (store.NoteStats, error)
-	getNoteConversationVelocityFn    func(context.Context, string) (store.NoteConversationVelocity, error)
+	getDomainNotesFn                 func(context.Context, string, string, string, int, int) ([]storeread.TrendingNote, error)
+	getTrendingProfilesFn            func(context.Context, time.Duration, int, int) ([]storeread.TrendingProfile, error)
+	getRisingProfilesFn              func(context.Context, time.Duration, int, int) ([]storeread.TrendingProfile, error)
+	getRelatedProfilesFn             func(context.Context, string, int) ([]storeread.RelatedProfile, error)
+	getCuratedPubsFn                 func(context.Context, int) ([]storeread.CuratedFeaturedAuthor, error)
+	getNoteStatsFn                   func(context.Context, string) (storeread.NoteStats, error)
+	getNoteConversationVelocityFn    func(context.Context, string) (storeread.NoteConversationVelocity, error)
 	getNoteQuoteRepostLinkageFn      func(context.Context, string, int) (store.NoteQuoteRepostLinkageProjection, error)
-	getRelatedNotesFn                func(context.Context, string, int) ([]store.RelatedNote, error)
+	getRelatedNotesFn                func(context.Context, string, int) ([]storeread.RelatedNote, error)
 }
 
 type trustQualifiedFakeReader struct {
 	fakeEventReader
-	getTrustQualificationsFn func(context.Context, []string, store.TrustQualificationPolicy) (map[string]store.TrustQualification, error)
-	isTrustedAuthorFn        func(context.Context, string, store.TrustQualificationPolicy) (bool, error)
+	getTrustQualificationsFn func(context.Context, []string, storetrust.TrustQualificationPolicy) (map[string]storetrust.TrustQualification, error)
+	isTrustedAuthorFn        func(context.Context, string, storetrust.TrustQualificationPolicy) (bool, error)
 }
 
 func (f fakeEventReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -362,16 +364,16 @@ func (f fakeEventReader) ListRelayHealth(ctx context.Context) ([]model.IngestChe
 	return f.listRelayHealthFn(ctx)
 }
 
-func (f fakeEventReader) GetContactListByPubkey(ctx context.Context, pubkey string) (store.ContactListProjection, error) {
+func (f fakeEventReader) GetContactListByPubkey(ctx context.Context, pubkey string) (storeread.ContactListProjection, error) {
 	if f.getContactListFn == nil {
-		return store.ContactListProjection{}, errors.New("not implemented")
+		return storeread.ContactListProjection{}, errors.New("not implemented")
 	}
 	return f.getContactListFn(ctx, pubkey)
 }
 
-func (f fakeEventReader) GetRelayListByPubkey(ctx context.Context, pubkey string) (store.RelayListProjection, error) {
+func (f fakeEventReader) GetRelayListByPubkey(ctx context.Context, pubkey string) (storeread.RelayListProjection, error) {
 	if f.getRelayListFn == nil {
-		return store.RelayListProjection{}, errors.New("not implemented")
+		return storeread.RelayListProjection{}, errors.New("not implemented")
 	}
 	return f.getRelayListFn(ctx, pubkey)
 }
@@ -431,7 +433,7 @@ func (f fakeEventReader) SuggestProfiles(ctx context.Context, query string, limi
 	return f.suggestProfilesFn(ctx, query, limit)
 }
 
-func (f fakeEventReader) SuggestHashtags(ctx context.Context, query string, limit int) ([]store.TrendingHashtag, error) {
+func (f fakeEventReader) SuggestHashtags(ctx context.Context, query string, limit int) ([]storeread.TrendingHashtag, error) {
 	if f.suggestHashtagsFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -459,64 +461,64 @@ func (f fakeEventReader) GetFollowersByPubkey(ctx context.Context, targetPubkey 
 	return f.getFollowersFn(ctx, targetPubkey, limit)
 }
 
-func (f fakeEventReader) GetTrustScore(ctx context.Context, pubkey string) (store.TrustGlobalScore, error) {
+func (f fakeEventReader) GetTrustScore(ctx context.Context, pubkey string) (storetrust.TrustGlobalScore, error) {
 	if f.getTrustScoreFn == nil {
-		return store.TrustGlobalScore{}, errors.New("not implemented")
+		return storetrust.TrustGlobalScore{}, errors.New("not implemented")
 	}
 	return f.getTrustScoreFn(ctx, pubkey)
 }
 
-func (f fakeEventReader) GetTrustState(ctx context.Context, pubkey string) (store.TrustState, error) {
-	return store.TrustState{}, errors.New("not implemented")
+func (f fakeEventReader) GetTrustState(ctx context.Context, pubkey string) (storetrust.TrustState, error) {
+	return storetrust.TrustState{}, errors.New("not implemented")
 }
 
-func (f fakeEventReader) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]store.TrustState, error) {
+func (f fakeEventReader) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]storetrust.TrustState, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (f fakeEventReader) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]store.TrustGlobalScore, error) {
+func (f fakeEventReader) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]storetrust.TrustGlobalScore, error) {
 	if f.listTopTrustFn == nil {
 		return nil, errors.New("not implemented")
 	}
 	return f.listTopTrustFn(ctx, limit)
 }
 
-func (f fakeEventReader) GetTrustRun(ctx context.Context, runID int64) (store.TrustRun, error) {
+func (f fakeEventReader) GetTrustRun(ctx context.Context, runID int64) (storetrust.TrustRun, error) {
 	if f.getTrustRunFn == nil {
-		return store.TrustRun{}, errors.New("not implemented")
+		return storetrust.TrustRun{}, errors.New("not implemented")
 	}
 	return f.getTrustRunFn(ctx, runID)
 }
 
-func (f fakeEventReader) ListTrustRuns(ctx context.Context, limit int) ([]store.TrustRun, error) {
+func (f fakeEventReader) ListTrustRuns(ctx context.Context, limit int) ([]storetrust.TrustRun, error) {
 	if f.listTrustRunsFn == nil {
 		return nil, errors.New("not implemented")
 	}
 	return f.listTrustRunsFn(ctx, limit)
 }
 
-func (f fakeEventReader) GetNetworkStats(ctx context.Context) (store.NetworkStats, error) {
+func (f fakeEventReader) GetNetworkStats(ctx context.Context) (storeread.NetworkStats, error) {
 	if f.getNetworkStatsFn == nil {
-		return store.NetworkStats{}, errors.New("not implemented")
+		return storeread.NetworkStats{}, errors.New("not implemented")
 	}
 	return f.getNetworkStatsFn(ctx)
 }
 
-func (f fakeEventReader) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (store.PublicDiscoveryNetworkStats, error) {
+func (f fakeEventReader) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
 	if f.getPublicNetworkStatsFn == nil {
-		return store.PublicDiscoveryNetworkStats{}, errors.New("not implemented")
+		return storeread.PublicDiscoveryNetworkStats{}, errors.New("not implemented")
 	}
 	return f.getPublicNetworkStatsFn(ctx, hashtagLimit)
 }
 
-func (f fakeEventReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]store.CuratedRecommendedRead, error) {
+func (f fakeEventReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]storeread.CuratedRecommendedRead, error) {
 	if f.getCuratedReadsFn == nil {
 		return nil, errors.New("not implemented")
 	}
 	return f.getCuratedReadsFn(ctx, limit)
 }
 
-func (f fakeEventReader) GetCuratedReadsTopics(ctx context.Context, limit int) ([]store.CuratedReadsTopic, error) {
+func (f fakeEventReader) GetCuratedReadsTopics(ctx context.Context, limit int) ([]storeread.CuratedReadsTopic, error) {
 	if f.getCuratedTopicsFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -528,7 +530,7 @@ func (f fakeEventReader) GetTrendingHashtags(
 	window time.Duration,
 	limit int,
 	offset int,
-) ([]store.TrendingHashtag, error) {
+) ([]storeread.TrendingHashtag, error) {
 	if f.getTrendingTagsFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -540,7 +542,7 @@ func (f fakeEventReader) GetTrendingNotes(
 	window time.Duration,
 	limit int,
 	offset int,
-) ([]store.TrendingNote, error) {
+) ([]storeread.TrendingNote, error) {
 	if f.getTrendingNotesFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -559,9 +561,9 @@ func (f fakeEventReader) GetHotConversations(
 	return f.getHotConversationsFn(ctx, window, limit, offset)
 }
 
-func (f fakeEventReader) GetHashtagSummary(ctx context.Context, hashtag string) (store.HashtagSummary, error) {
+func (f fakeEventReader) GetHashtagSummary(ctx context.Context, hashtag string) (storeread.HashtagSummary, error) {
 	if f.getHashtagSummaryFn == nil {
-		return store.HashtagSummary{}, errors.New("not implemented")
+		return storeread.HashtagSummary{}, errors.New("not implemented")
 	}
 	return f.getHashtagSummaryFn(ctx, hashtag)
 }
@@ -573,14 +575,14 @@ func (f fakeEventReader) GetHashtagNotes(
 	window string,
 	limit int,
 	offset int,
-) ([]store.TrendingNote, error) {
+) ([]storeread.TrendingNote, error) {
 	if f.getHashtagNotesFn == nil {
 		return nil, errors.New("not implemented")
 	}
 	return f.getHashtagNotesFn(ctx, hashtag, sort, window, limit, offset)
 }
 
-func (f fakeEventReader) GetRelatedHashtags(ctx context.Context, hashtag string, limit int) ([]store.RelatedHashtag, error) {
+func (f fakeEventReader) GetRelatedHashtags(ctx context.Context, hashtag string, limit int) ([]storeread.RelatedHashtag, error) {
 	if f.getRelatedHashtagsFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -618,14 +620,14 @@ func (f fakeEventReader) GetDomainNotes(
 	window string,
 	limit int,
 	offset int,
-) ([]store.TrendingNote, error) {
+) ([]storeread.TrendingNote, error) {
 	if f.getDomainNotesFn == nil {
 		return nil, errors.New("not implemented")
 	}
 	return f.getDomainNotesFn(ctx, domain, sort, window, limit, offset)
 }
 
-func (f fakeEventReader) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
+func (f fakeEventReader) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]storeread.CuratedFeaturedAuthor, error) {
 	if f.getCuratedPubsFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -637,7 +639,7 @@ func (f fakeEventReader) GetTrendingProfiles(
 	window time.Duration,
 	limit int,
 	offset int,
-) ([]store.TrendingProfile, error) {
+) ([]storeread.TrendingProfile, error) {
 	if f.getTrendingProfilesFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -649,7 +651,7 @@ func (f fakeEventReader) GetRisingProfiles(
 	window time.Duration,
 	limit int,
 	offset int,
-) ([]store.TrendingProfile, error) {
+) ([]storeread.TrendingProfile, error) {
 	if f.getRisingProfilesFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -660,23 +662,23 @@ func (f fakeEventReader) GetRelatedProfiles(
 	ctx context.Context,
 	pubkey string,
 	limit int,
-) ([]store.RelatedProfile, error) {
+) ([]storeread.RelatedProfile, error) {
 	if f.getRelatedProfilesFn == nil {
 		return nil, errors.New("not implemented")
 	}
 	return f.getRelatedProfilesFn(ctx, pubkey, limit)
 }
 
-func (f fakeEventReader) GetNoteStats(ctx context.Context, eventID string) (store.NoteStats, error) {
+func (f fakeEventReader) GetNoteStats(ctx context.Context, eventID string) (storeread.NoteStats, error) {
 	if f.getNoteStatsFn == nil {
-		return store.NoteStats{}, errors.New("not implemented")
+		return storeread.NoteStats{}, errors.New("not implemented")
 	}
 	return f.getNoteStatsFn(ctx, eventID)
 }
 
-func (f fakeEventReader) GetNoteConversationVelocity(ctx context.Context, eventID string) (store.NoteConversationVelocity, error) {
+func (f fakeEventReader) GetNoteConversationVelocity(ctx context.Context, eventID string) (storeread.NoteConversationVelocity, error) {
 	if f.getNoteConversationVelocityFn == nil {
-		return store.NoteConversationVelocity{}, errors.New("not implemented")
+		return storeread.NoteConversationVelocity{}, errors.New("not implemented")
 	}
 	return f.getNoteConversationVelocityFn(ctx, eventID)
 }
@@ -692,7 +694,7 @@ func (f fakeEventReader) GetNoteQuoteRepostLinkage(
 	return f.getNoteQuoteRepostLinkageFn(ctx, eventID, recentLimit)
 }
 
-func (f fakeEventReader) GetRelatedNotes(ctx context.Context, eventID string, limit int) ([]store.RelatedNote, error) {
+func (f fakeEventReader) GetRelatedNotes(ctx context.Context, eventID string, limit int) ([]storeread.RelatedNote, error) {
 	if f.getRelatedNotesFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -702,8 +704,8 @@ func (f fakeEventReader) GetRelatedNotes(ctx context.Context, eventID string, li
 func (f trustQualifiedFakeReader) GetTrustQualifications(
 	ctx context.Context,
 	pubkeys []string,
-	policy store.TrustQualificationPolicy,
-) (map[string]store.TrustQualification, error) {
+	policy storetrust.TrustQualificationPolicy,
+) (map[string]storetrust.TrustQualification, error) {
 	if f.getTrustQualificationsFn == nil {
 		return nil, errors.New("not implemented")
 	}
@@ -713,7 +715,7 @@ func (f trustQualifiedFakeReader) GetTrustQualifications(
 func (f trustQualifiedFakeReader) IsTrustedAuthor(
 	ctx context.Context,
 	pubkey string,
-	policy store.TrustQualificationPolicy,
+	policy storetrust.TrustQualificationPolicy,
 ) (bool, error) {
 	if f.isTrustedAuthorFn == nil {
 		return false, errors.New("not implemented")

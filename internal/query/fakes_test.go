@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func mustNewService(tb testing.TB, reader any) Service {
+func mustNewService(tb testing.TB, reader Reader) Service {
 	tb.Helper()
 	svc, err := NewService(reader)
 	if err != nil {
@@ -16,7 +16,7 @@ func mustNewService(tb testing.TB, reader any) Service {
 	return svc
 }
 
-func mustNewServiceWithOptions(tb testing.TB, reader any, options ServiceOptions) Service {
+func mustNewServiceWithOptions(tb testing.TB, reader Reader, options ServiceOptions) Service {
 	tb.Helper()
 	svc, err := NewServiceWithOptions(reader, options)
 	if err != nil {

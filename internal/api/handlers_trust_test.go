@@ -9,15 +9,16 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func TestGetTrustScore_SuccessAndNotFound(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getTrustScoreFn: func(_ context.Context, pubkey string) (store.TrustGlobalScore, error) {
+		getTrustScoreFn: func(_ context.Context, pubkey string) (storetrust.TrustGlobalScore, error) {
 			if pubkey == "missing" {
-				return store.TrustGlobalScore{}, store.ErrNotFound
+				return storetrust.TrustGlobalScore{}, store.ErrNotFound
 			}
-			return store.TrustGlobalScore{Pubkey: pubkey, Score: 12.0, Rank: 3}, nil
+			return storetrust.TrustGlobalScore{Pubkey: pubkey, Score: 12.0, Rank: 3}, nil
 		},
 	}, 200)
 
@@ -41,11 +42,11 @@ func TestGetTrustScore_SuccessAndNotFound(t *testing.T) {
 
 func TestListTopTrustScores_SuccessAndBadLimit(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		listTopTrustFn: func(_ context.Context, limit int) ([]store.TrustGlobalScore, error) {
+		listTopTrustFn: func(_ context.Context, limit int) ([]storetrust.TrustGlobalScore, error) {
 			if limit != 2 {
 				return nil, errors.New("unexpected limit")
 			}
-			return []store.TrustGlobalScore{
+			return []storetrust.TrustGlobalScore{
 				{Pubkey: "a", Score: 10, Rank: 1},
 				{Pubkey: "b", Score: 9, Rank: 2},
 			}, nil
@@ -72,11 +73,11 @@ func TestListTopTrustScores_SuccessAndBadLimit(t *testing.T) {
 
 func TestGetTrustScore_BadRequestAndInternalError(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getTrustScoreFn: func(_ context.Context, pubkey string) (store.TrustGlobalScore, error) {
+		getTrustScoreFn: func(_ context.Context, pubkey string) (storetrust.TrustGlobalScore, error) {
 			if pubkey != "boom" {
 				t.Fatalf("unexpected pubkey: %q", pubkey)
 			}
-			return store.TrustGlobalScore{}, errors.New("store unavailable")
+			return storetrust.TrustGlobalScore{}, errors.New("store unavailable")
 		},
 	}, 200)
 
@@ -102,14 +103,14 @@ func TestGetTrustScore_BadRequestAndInternalError(t *testing.T) {
 func TestListTopTrustScores_DefaultLimitAndInternalError(t *testing.T) {
 	callCount := 0
 	h := mustNewHandlers(t, fakeEventReader{
-		listTopTrustFn: func(_ context.Context, limit int) ([]store.TrustGlobalScore, error) {
+		listTopTrustFn: func(_ context.Context, limit int) ([]storetrust.TrustGlobalScore, error) {
 			callCount++
 			switch callCount {
 			case 1:
 				if limit != 50 {
 					t.Fatalf("expected default limit 50, got %d", limit)
 				}
-				return []store.TrustGlobalScore{{Pubkey: "a", Score: 10, Rank: 1}}, nil
+				return []storetrust.TrustGlobalScore{{Pubkey: "a", Score: 10, Rank: 1}}, nil
 			case 2:
 				if limit != 1 {
 					t.Fatalf("expected explicit limit 1, got %d", limit)
@@ -142,10 +143,10 @@ func TestListTopTrustScores_DefaultLimitAndInternalError(t *testing.T) {
 
 func TestTrustHandlers_ReturnNotImplementedForUnsupportedCapability(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getTrustScoreFn: func(_ context.Context, pubkey string) (store.TrustGlobalScore, error) {
-			return store.TrustGlobalScore{}, errors.Join(query.ErrUnsupportedCapability, errors.New("query: trust score unsupported"))
+		getTrustScoreFn: func(_ context.Context, pubkey string) (storetrust.TrustGlobalScore, error) {
+			return storetrust.TrustGlobalScore{}, errors.Join(query.ErrUnsupportedCapability, errors.New("query: trust score unsupported"))
 		},
-		listTopTrustFn: func(_ context.Context, limit int) ([]store.TrustGlobalScore, error) {
+		listTopTrustFn: func(_ context.Context, limit int) ([]storetrust.TrustGlobalScore, error) {
 			return nil, errors.Join(query.ErrUnsupportedCapability, errors.New("query: top trusted pubkeys unsupported"))
 		},
 	}, 200)

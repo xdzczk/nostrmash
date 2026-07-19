@@ -10,6 +10,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 	"github.com/xdzczk/nostrmash/internal/testutil/derivationbootstrap"
 )
 
@@ -387,7 +388,7 @@ type discoveryReadSnapshot struct {
 	TrendingNotes    []trendingNoteReadRow
 	TrendingProfiles []trendingProfileReadRow
 	RisingProfiles   []trendingProfileReadRow
-	Hashtags         []store.TrendingHashtag
+	Hashtags         []storeread.TrendingHashtag
 	Network          publicNetworkReadRow
 }
 
@@ -453,7 +454,7 @@ func captureDiscoveryReadSnapshot(t *testing.T, ctx context.Context, pgStore *st
 	}
 }
 
-func normalizeTrendingNotes(rows []store.TrendingNote) []trendingNoteReadRow {
+func normalizeTrendingNotes(rows []storeread.TrendingNote) []trendingNoteReadRow {
 	out := make([]trendingNoteReadRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, trendingNoteReadRow{
@@ -467,7 +468,7 @@ func normalizeTrendingNotes(rows []store.TrendingNote) []trendingNoteReadRow {
 	return out
 }
 
-func normalizeTrendingProfiles(rows []store.TrendingProfile) []trendingProfileReadRow {
+func normalizeTrendingProfiles(rows []storeread.TrendingProfile) []trendingProfileReadRow {
 	out := make([]trendingProfileReadRow, 0, len(rows))
 	for _, row := range rows {
 		recentActivityAt := int64(0)
@@ -487,7 +488,7 @@ func normalizeTrendingProfiles(rows []store.TrendingProfile) []trendingProfileRe
 	return out
 }
 
-func normalizeNetworkStats(stats store.PublicDiscoveryNetworkStats) publicNetworkReadRow {
+func normalizeNetworkStats(stats storeread.PublicDiscoveryNetworkStats) publicNetworkReadRow {
 	out := publicNetworkReadRow{
 		EventsIngested:    stats.EventsIngested,
 		ProjectedProfiles: stats.ProjectedProfiles,

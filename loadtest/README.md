@@ -6,8 +6,9 @@ This directory contains a small, repeatable load-test suite for the core NostrMa
 - worker/job throughput pressure
 - ingest throughput pressure
 - replay + rebuild pressure
+- WS + API latency pressure (Primal cache protocol + native reads, p50/p95/p99)
 
-The suite is intentionally boring: Bash wrappers around existing binaries/endpoints, `curl`, and small `python3` reducers for summary stats.
+The Bash scenarios are intentionally boring: wrappers around existing binaries/endpoints, `curl`, and small `python3` reducers for summary stats. The WS+API latency scenario is a small Go harness (`loadtest/harness/`) that drives concurrent WebSocket and HTTP clients and reports latency percentiles.
 
 ## Prerequisites
 
@@ -35,6 +36,7 @@ make loadtest-api
 make loadtest-worker
 make loadtest-ingest
 make loadtest-replay-rebuild
+make loadtest-ws-api
 ```
 
 All scenarios write timestamped output under `loadtest/results/`.
@@ -178,6 +180,72 @@ Outputs to capture:
 Interpretation:
 - Use this scenario to observe recovery behavior when replay ingestion and rebuild activity overlap.
 - Rising worker retries/dead outcomes under overlap load is an early signal to investigate queue/store/handler bottlenecks before tuning.
+
+## Scenario 5: WS + API Latency Pressure
+
+Harness: `loadtest/harness/` (Go); wrapper: `loadtest/scenarios/ws_api_pressure.sh`.
+
+What it does:
+- Opens `WS_CLIENTS` concurrent WebSocket connections that speak the Primal
+  cache protocol (`["REQ", subID, {"cache": [verb, params]}]`) against
+  `/primal/ws`, measuring time-to-`EOSE` per request.
+- Opens `API_CLIENTS` concurrent HTTP clients hitting native `/api/v1` read
+  endpoints.
+- Reports p50/p95/p99 latency, throughput, and error rates per channel; writes
+  a machine-readable `summary.json`.
+
+Request shapes mirror the golden contract fixtures in
+`internal/api_primal/testdata/primal_contracts` and the WS dispatch registry in
+`internal/api_primal/primal_cache_dispatch.go`. Only 5xx and transport/timeout
+failures count as errors; 2xx and 404 are both healthy read outcomes against
+sparse datasets.
+
+Run:
+
+```bash
+WS_CLIENTS=32 API_CLIENTS=32 DURATION=30s make loadtest-ws-api
+```
+
+Run the harness directly (bypassing the wrapper):
+
+```bash
+go run ./loadtest/harness -base-url http://localhost:8080 \
+  -ws-clients 32 -api-clients 32 -duration 30s \
+  -out loadtest/results/ws-api.json
+```
+
+Useful env vars (wrapper) / flags (harness):
+- `BASE_URL` / `-base-url` (default `http://localhost:8080`)
+- `WS_URL` / `-ws-url` (default derived: `ws://<host>/primal/ws`)
+- `WS_CLIENTS` / `-ws-clients` (default `16`; `0` disables the WS channel)
+- `API_CLIENTS` / `-api-clients` (default `16`; `0` disables the API channel)
+- `DURATION` / `-duration` (default `30s`)
+- `WARMUP` / `-warmup` (default `2s`, excluded from stats)
+- `REQUEST_TIMEOUT` / `-timeout` (default `10s`)
+- `PUBKEY`, `EVENT_ID`, `QUERY`, `HASHTAG` fixtures substituted into shapes
+- `SCENARIO_FILE` / `-scenario` optional JSON file overriding request shapes
+
+Outputs to capture:
+- `summary.txt` (harness stdout)
+- `summary.json` (per-channel percentiles, throughput, error rates)
+
+Interpretation:
+- Rising `p99` with flat `p50` indicates tail-path contention (single API
+  instance, DB pool saturation, or Meili lag).
+- Non-trivial `5xx` counts under moderate load are regression candidates;
+  `timeout` counts point at a saturated request path.
+- `notice` outcomes are protocol-level rejections (rate limits, unsupported /
+  at-capacity cache verbs, or fixture mismatches). They are counted separately
+  from transport errors; latency is still measured for them.
+- `4xx` (including `404`) is treated as a healthy read outcome against sparse
+  datasets, not an error.
+
+Server tuning for meaningful numbers: the pgx pool defaults to **4
+connections**, which deadlocks under mixed WS+API load. Start the API under
+test with `DATABASE_MAX_CONNS` comfortably above the total client count (the CI
+job uses `64`) and raise `PRIMAL_WS_MAX_REQ_PER_MINUTE` / `HTTP_RATE_LIMIT_RPM`
+so results reflect backend latency rather than pool-acquire queueing or rate
+limiting.
 
 ## Result Recording Guidance
 

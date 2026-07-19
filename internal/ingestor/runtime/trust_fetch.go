@@ -10,6 +10,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/ingestor/backfill"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func runTrustTargetedFetchLoop(
@@ -46,7 +47,7 @@ func runTrustTargetedFetchLoop(
 		}
 		metrics.SetTrustFetchFrontierCount("active", float64(refresh.ActiveCount))
 
-		relayCandidates, err := eventStore.ListTrustRelayCandidates(ctx, store.TrustRelayCandidateQuery{
+		relayCandidates, err := eventStore.ListTrustRelayCandidates(ctx, storetrust.TrustRelayCandidateQuery{
 			TopPubkeys: trustPrioritization.TopPubkeys,
 			Limit:      200,
 		})

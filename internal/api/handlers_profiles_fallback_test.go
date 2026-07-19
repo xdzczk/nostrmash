@@ -19,7 +19,7 @@ func TestGetProfileByPubkey_LocalMissRelayFallbackSuccess(t *testing.T) {
 	}, HandlersOptions{
 		MaxBatchSize: 10,
 		QueryOptions: query.ServiceOptions{
-			FallbackReader: apiFakeFallbackReader{
+			FallbackReader: query.AdaptFallbackReader(apiFakeFallbackReader{
 				fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]store.ProfileProjection, error) {
 					return map[string]store.ProfileProjection{
 						"pk_1": {
@@ -30,7 +30,7 @@ func TestGetProfileByPubkey_LocalMissRelayFallbackSuccess(t *testing.T) {
 						},
 					}, nil
 				},
-			},
+			}),
 		},
 	})
 	mux := http.NewServeMux()

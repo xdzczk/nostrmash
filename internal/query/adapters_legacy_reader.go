@@ -3,7 +3,6 @@ package query
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
@@ -311,27 +310,18 @@ type legacyFallbackReaderAdapter struct {
 	legacy legacyFallbackReader
 }
 
-func adaptReader(reader any) (Reader, error) {
-	if adapted, ok := reader.(Reader); ok {
-		return adapted, nil
-	}
-	if legacy, ok := reader.(legacyReader); ok {
-		return legacyReaderAdapter{legacy: legacy}, nil
-	}
-	return nil, fmt.Errorf("query: unsupported reader type %T", reader)
-}
+// FallbackStoreReader is the readmodel-shaped relay-fallback surface (satisfied
+// by the relaylookup client). AdaptFallbackReader wraps it into the query-shaped
+// FallbackReader consumed by the Service.
+type FallbackStoreReader = legacyFallbackReader
 
-func adaptFallbackReader(reader any) (FallbackReader, error) {
-	if reader == nil {
-		return nil, nil
+// AdaptFallbackReader wraps a readmodel-shaped relay fallback reader into the
+// query-shaped FallbackReader. Returns nil when no fallback is configured.
+func AdaptFallbackReader(r FallbackStoreReader) FallbackReader {
+	if r == nil {
+		return nil
 	}
-	if adapted, ok := reader.(FallbackReader); ok {
-		return adapted, nil
-	}
-	if legacy, ok := reader.(legacyFallbackReader); ok {
-		return legacyFallbackReaderAdapter{legacy: legacy}, nil
-	}
-	return nil, fmt.Errorf("query: unsupported fallback reader type %T", reader)
+	return legacyFallbackReaderAdapter{legacy: r}
 }
 
 func (a legacyFallbackReaderAdapter) FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {

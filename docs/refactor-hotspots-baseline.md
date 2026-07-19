@@ -49,10 +49,10 @@ Generated: 2026-07-19
 - `internal/config/config.go` (`5`)
 
 ## Top priority candidates (current)
-1. `internal/worker/runtime/runtime.go` (`1140` LOC — largest production file; loop/lifecycle wiring)
-2. `internal/query/event_service.go` (`904` LOC)
-3. `internal/store` package (176-method `PostgresStore`; bounded-context sub-package split pending — see Phase 4c)
-4. `internal/meili/sync.go` (`648` LOC)
+1. ~~`internal/worker/runtime/runtime.go` (`1140` LOC)~~ — **resolved** (Typed Query & Polish Plan, Phase 3): split into `bootstrap.go`, `lifecycle.go`, `retention.go`, `sweepers.go`, `background_loops.go`.
+2. ~~`internal/query/event_service.go` (`904` LOC)~~ — **resolved** (Phase 3): split into `event_fetch.go`, `search_service.go`, `author_events_service.go`, `event_thread_provenance.go`, `event_engagement_service.go`.
+3. `internal/store` package (176-method `PostgresStore`; bounded-context sub-package split pending — see Phase 4c). Alias shims re-exporting sub-context types have been removed; independence is now guarded by `archtest`.
+4. ~~`internal/meili/sync.go` (`648` LOC)~~ — **resolved** (Phase 3): split into `sync_api.go`, `sync_stream.go`, `sync_load.go`.
 5. `cmd/api/main.go` / `cmd/worker/main.go` / `cmd/trust_worker/main.go` (binary composition; align on `internal/runtimebootstrap`)
 6. `internal/api_primal/primal_cache_dispatch.go`
 7. `internal/metrics/registry.go`

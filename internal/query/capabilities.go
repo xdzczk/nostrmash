@@ -103,16 +103,57 @@ type notePageCapabilities struct {
 	quoteRepostLinkage   noteQuoteRepostLinkageCapability
 }
 
-func adaptServiceCapabilities(reader any) serviceCapabilities {
+// adaptServiceCapabilities builds the internal capability slots. Each group is
+// populated either from an explicit typed group on ServiceOptions (the typed
+// production path, wired whole) or, when no group is supplied, by asserting the
+// native/legacy capability interfaces on the reader (the partial-fake path used
+// by tests). Neither path uses an untyped `any` value.
+func adaptServiceCapabilities(reader any, options ServiceOptions) serviceCapabilities {
 	caps := serviceCapabilities{}
-	adaptDMCapabilities(reader, &caps)
-	adaptModerationCapabilities(reader, &caps)
-	adaptCuratedCapabilities(reader, &caps)
-	adaptTrustCapabilities(reader, &caps)
-	adaptReplaceableCapabilities(reader, &caps)
-	adaptSocialCapabilities(reader, &caps)
-	adaptEventCapabilities(reader, &caps)
-	adaptThreadCapabilities(reader, &caps)
-	adaptNotePageCapabilities(reader, &caps)
+	if options.DM != nil {
+		wireDMGroup(options.DM, &caps)
+	} else {
+		adaptDMCapabilities(reader, &caps)
+	}
+	if options.Moderation != nil {
+		wireModerationGroup(options.Moderation, &caps)
+	} else {
+		adaptModerationCapabilities(reader, &caps)
+	}
+	if options.Curated != nil {
+		wireCuratedGroup(options.Curated, &caps)
+	} else {
+		adaptCuratedCapabilities(reader, &caps)
+	}
+	if options.Trust != nil {
+		wireTrustGroup(options.Trust, &caps)
+	} else {
+		adaptTrustCapabilities(reader, &caps)
+	}
+	if options.Replaceable != nil {
+		wireReplaceableGroup(options.Replaceable, &caps)
+	} else {
+		adaptReplaceableCapabilities(reader, &caps)
+	}
+	if options.Social != nil {
+		wireSocialGroup(options.Social, &caps)
+	} else {
+		adaptSocialCapabilities(reader, &caps)
+	}
+	if options.Event != nil {
+		wireEventGroup(options.Event, &caps)
+	} else {
+		adaptEventCapabilities(reader, &caps)
+	}
+	if options.Thread != nil {
+		wireThreadGroup(options.Thread, &caps)
+	} else {
+		adaptThreadCapabilities(reader, &caps)
+	}
+	if options.NotePage != nil {
+		wireNotePageGroup(options.NotePage, &caps)
+	} else {
+		adaptNotePageCapabilities(reader, &caps)
+	}
 	return caps
 }

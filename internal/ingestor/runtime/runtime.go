@@ -20,6 +20,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/replay"
 	"github.com/xdzczk/nostrmash/internal/runtimebootstrap"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 type BuildInfo struct {
@@ -243,7 +244,9 @@ func runLifecycle(
 		"bootstrap_lookback_seconds", cfg.Relay.LiveBootstrapLookbackSeconds,
 		"resume_overlap_seconds", cfg.Relay.LiveResumeOverlapSeconds,
 	)
-	spawn(func(c context.Context) { runCheckpointFreshnessReporter(c, log, pool, cfg.Relay.ActiveFilterGroup, 30*time.Second) })
+	spawn(func(c context.Context) {
+		runCheckpointFreshnessReporter(c, log, pool, cfg.Relay.ActiveFilterGroup, 30*time.Second)
+	})
 
 	prioritizedRelays := append([]string(nil), cfg.Relay.URLs...)
 	if cfg.TrustPrioritization.Enabled {
@@ -432,7 +435,7 @@ func prioritizeRelaysByTrust(ctx context.Context, pool *pgxpool.Pool, relays []s
 }
 
 func SortRelaysByWeights(normalized []string, baseOrder map[string]int, weights map[string]float64) []string {
-	return store.SortRelaysByWeights(normalized, baseOrder, weights)
+	return storetrust.SortRelaysByWeights(normalized, baseOrder, weights)
 }
 
 func ResolveLiveKinds(cfg config.RelayConfig) ([]int, error) {

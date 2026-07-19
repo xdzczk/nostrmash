@@ -42,7 +42,8 @@ func Ready(pool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-type EventReader = any
+// EventReader is the typed store-backed read surface wired into the query Service.
+type EventReader = query.StoreReader
 
 type Handlers struct {
 	service             query.Service
@@ -79,7 +80,7 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 	if options.DiscoveryCache != nil {
 		cacheConfig = cacheConfig.withOverrides(*options.DiscoveryCache)
 	}
-	service, err := query.NewServiceWithOptions(reader, options.QueryOptions)
+	service, err := query.NewServiceFromStoreReader(reader, options.QueryOptions)
 	if err != nil {
 		return Handlers{}, err
 	}

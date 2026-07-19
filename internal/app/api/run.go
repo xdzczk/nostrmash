@@ -77,6 +77,11 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 	}
 
 	queryStore := store.NewPostgresStore(pool)
+	// Compile-time proof that the production store implements the entire typed
+	// read surface the query Service depends on. If a capability method is ever
+	// removed from the store this fails to build instead of silently disabling
+	// the feature at runtime.
+	var _ query.FullStoreReader = queryStore
 	meiliClient, err := meili.NewClient(meili.Config{
 		Enabled:      cfg.Meilisearch.Enabled,
 		URL:          cfg.Meilisearch.URL,
@@ -118,7 +123,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		}
 	}
 	meiliSearcher := meili.NewSearcher(meiliClient, queryStore)
-	var fallbackReader any
+	var fallbackReader query.FallbackStoreReader
 	if cfg.RelayFallback.Enabled {
 		maxFanout := cfg.RelayFallback.MaxFanout
 		if policyMax := cfg.Shared.TrustPolicy.FallbackFetchMaxRelaysPerAttempt; policyMax > 0 && policyMax < maxFanout {
@@ -143,7 +148,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		pool,
 	)
 	queryOptions := query.ServiceOptions{
-		FallbackReader:                  fallbackReader,
+		FallbackReader:                  query.AdaptFallbackReader(fallbackReader),
 		FallbackProfilePersister:        profilePersister,
 		FallbackEventPersister:          eventPersister,
 		FallbackFetchTrustMode:          cfg.Shared.TrustPolicy.FallbackFetchMode,

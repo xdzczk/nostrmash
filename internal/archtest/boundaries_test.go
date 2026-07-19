@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -81,6 +82,8 @@ func TestImportBoundaries(t *testing.T) {
 			// trust, read) are independent contexts composed by the root
 			// PostgresStore. They must not depend on the parent store package
 			// or on each other; shared read models live in internal/readmodel.
+			// Same-context generated subpackages (e.g. account/accountdb from
+			// sqlc) are allowed — see allowSameStoreContextImport.
 			name: "store bounded contexts stay independent",
 			appliesTo: func(path string) bool {
 				p := filepath.ToSlash(path)
@@ -212,6 +215,10 @@ func TestImportBoundaries(t *testing.T) {
 						continue
 					}
 					if isException(rel, rule.exceptions) {
+						continue
+					}
+					if rule.name == "store bounded contexts stay independent" &&
+						allowSameStoreContextImport(rel, importPath) {
 						continue
 					}
 					violations = append(violations, rel+" imports "+importPath+" (rule: "+rule.name+")")
@@ -457,6 +464,186 @@ func TestProductHandlerFilesDoNotUseDirectStoreReads(t *testing.T) {
 	}
 }
 
+// TestConstructorsAreTyped enforces the Phase 1 typed-wiring outcome: no
+// exported constructor (New*) in the query orchestration layer or the HTTP
+// transports may accept an untyped `any`/`interface{}` parameter. The historic
+// `NewService(reader any)` capability-probing machine is replaced by typed
+// StoreReader/FullStoreReader constructors, and this guard prevents it from
+// silently returning.
+func TestConstructorsAreTyped(t *testing.T) {
+	root := repoRoot(t)
+	fset := token.NewFileSet()
+
+	dirs := []string{
+		filepath.ToSlash("internal/query"),
+		filepath.ToSlash("internal/api"),
+		filepath.ToSlash("internal/api_primal"),
+	}
+
+	var violations []string
+	for _, relDir := range dirs {
+		dir := filepath.Join(root, filepath.FromSlash(relDir))
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			file := parseFile(t, fset, path)
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			rel = filepath.ToSlash(rel)
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Name == nil || fn.Type == nil || fn.Type.Params == nil {
+					continue
+				}
+				name := fn.Name.Name
+				if !ast.IsExported(name) || !strings.HasPrefix(name, "New") {
+					continue
+				}
+				for _, param := range fn.Type.Params.List {
+					if isUntypedAny(param.Type) {
+						violations = append(violations,
+							fmt.Sprintf("%s: constructor %s accepts an untyped any/interface{} parameter; use a typed reader interface", rel, name))
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", relDir, err)
+		}
+	}
+
+	if len(violations) > 0 {
+		sort.Strings(violations)
+		t.Fatalf("untyped constructor violations:\n- %s", strings.Join(violations, "\n- "))
+	}
+}
+
+func isUntypedAny(expr ast.Expr) bool {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name == "any"
+	case *ast.InterfaceType:
+		return t.Methods == nil || len(t.Methods.List) == 0
+	}
+	return false
+}
+
+// TestStoreDoesNotReExportBoundedContextTypes prevents the deleted alias shims
+// (read_aliases.go, account_states.go, trust_aliases.go) from silently
+// returning. The root internal/store package composes the account/read/trust
+// bounded contexts by embedding their stores, but it must not re-export their
+// types or package-level helpers through `type X = subpkg.Y` aliases or
+// `var X = subpkg.Y` bindings — callers must import the owning context package
+// directly.
+func TestStoreDoesNotReExportBoundedContextTypes(t *testing.T) {
+	root := repoRoot(t)
+	storeDir := filepath.Join(root, filepath.FromSlash("internal/store"))
+
+	fset := token.NewFileSet()
+	entries, readErr := os.ReadDir(storeDir)
+	if readErr != nil {
+		t.Fatalf("read internal/store: %v", readErr)
+	}
+
+	contextImportPaths := map[string]bool{
+		"github.com/xdzczk/nostrmash/internal/store/account": true,
+		"github.com/xdzczk/nostrmash/internal/store/read":    true,
+		"github.com/xdzczk/nostrmash/internal/store/trust":   true,
+	}
+
+	var violations []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(storeDir, name)
+		file := parseFile(t, fset, path)
+
+		// Map local import identifiers that resolve to a bounded-context package.
+		contextAliases := map[string]bool{}
+		for _, imp := range file.Imports {
+			importPath := strings.Trim(imp.Path.Value, "\"")
+			if !contextImportPaths[importPath] {
+				continue
+			}
+			local := importPath[strings.LastIndex(importPath, "/")+1:]
+			if imp.Name != nil {
+				local = imp.Name.Name
+			}
+			contextAliases[local] = true
+		}
+		if len(contextAliases) == 0 {
+			continue
+		}
+
+		refersToContext := func(expr ast.Expr) bool {
+			found := false
+			ast.Inspect(expr, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				if ident, ok := sel.X.(*ast.Ident); ok && contextAliases[ident.Name] {
+					found = true
+					return false
+				}
+				return true
+			})
+			return found
+		}
+
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				switch s := spec.(type) {
+				case *ast.TypeSpec:
+					if s.Assign == token.NoPos {
+						continue // real type definition, not an alias
+					}
+					if refersToContext(s.Type) {
+						violations = append(violations,
+							fmt.Sprintf("internal/store/%s: type alias %s re-exports a bounded-context type; import the owning package directly", name, s.Name.Name))
+					}
+				case *ast.ValueSpec:
+					if gen.Tok != token.VAR {
+						continue
+					}
+					for _, val := range s.Values {
+						if refersToContext(val) {
+							names := make([]string, 0, len(s.Names))
+							for _, id := range s.Names {
+								names = append(names, id.Name)
+							}
+							violations = append(violations,
+								fmt.Sprintf("internal/store/%s: var %s re-exports a bounded-context symbol; import the owning package directly", name, strings.Join(names, ",")))
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(violations) > 0 {
+		sort.Strings(violations)
+		t.Fatalf("store re-export (shim) violations:\n- %s", strings.Join(violations, "\n- "))
+	}
+}
+
 func isException(path string, exceptions []string) bool {
 	for _, exception := range exceptions {
 		if strings.HasPrefix(path, exception) {
@@ -477,6 +664,25 @@ func repoRoot(t *testing.T) string {
 
 func matchesImportPath(importPath, forbiddenRoot string) bool {
 	return importPath == forbiddenRoot || strings.HasPrefix(importPath, forbiddenRoot+"/")
+}
+
+// allowSameStoreContextImport reports whether importPath is under the same
+// store bounded context as fileRel (e.g. account.go → account/accountdb).
+func allowSameStoreContextImport(fileRel, importPath string) bool {
+	const storePrefix = "github.com/xdzczk/nostrmash/internal/store/"
+	if !strings.HasPrefix(importPath, storePrefix) {
+		return false
+	}
+	fileRel = filepath.ToSlash(fileRel)
+	const filePrefix = "internal/store/"
+	if !strings.HasPrefix(fileRel, filePrefix) {
+		return false
+	}
+	fileRest := strings.TrimPrefix(fileRel, filePrefix)
+	importRest := strings.TrimPrefix(importPath, storePrefix)
+	fileCtx, _, _ := strings.Cut(fileRest, "/")
+	importCtx, _, _ := strings.Cut(importRest, "/")
+	return fileCtx != "" && fileCtx == importCtx
 }
 
 func parseFile(t *testing.T, fset *token.FileSet, filePath string) *ast.File {

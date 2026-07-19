@@ -43,16 +43,12 @@ func TestGetEventByID_LocalMissRelaySuccess(t *testing.T) {
 	}
 }
 
-func TestNewServiceWithOptions_ReturnsErrorForUnsupportedFallbackReader(t *testing.T) {
+func TestNewServiceWithOptions_AcceptsNilFallbackReader(t *testing.T) {
 	t.Parallel()
-	_, err := NewServiceWithOptions(fakeReader{}, ServiceOptions{
-		FallbackReader: struct{}{},
-	})
-	if err == nil {
-		t.Fatalf("expected constructor error for unsupported fallback reader")
-	}
-	if got, want := err.Error(), "query: unsupported fallback reader type struct {}"; got != want {
-		t.Fatalf("unexpected constructor error: got %q want %q", got, want)
+	// The fallback reader is now a typed optional; an unsupported value can no
+	// longer be supplied. A nil fallback must construct cleanly.
+	if _, err := NewServiceWithOptions(fakeReader{}, ServiceOptions{}); err != nil {
+		t.Fatalf("expected construction to succeed without a fallback reader: %v", err)
 	}
 }
 

@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type NoteStats = readmodel.NoteStats

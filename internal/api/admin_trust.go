@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 type adminTrustRunResponse struct {
@@ -59,7 +59,7 @@ func (s *adminService) GetTrustRuns(ctx context.Context, limit int) ([]adminTrus
 	defer rows.Close()
 	out := make([]adminTrustRunResponse, 0, limit)
 	for rows.Next() {
-		var row store.TrustRun
+		var row storetrust.TrustRun
 		if err := rows.Scan(
 			&row.ID,
 			&row.DerivationName,
@@ -103,7 +103,7 @@ func (s *adminService) GetTrustRun(ctx context.Context, runID int64) (adminTrust
 		FROM trust_runs
 		WHERE id = $1
 	`, runID)
-	var out store.TrustRun
+	var out storetrust.TrustRun
 	if err := row.Scan(
 		&out.ID,
 		&out.DerivationName,
@@ -188,7 +188,7 @@ func (s *adminService) GetTopTrustScores(ctx context.Context, limit int) ([]admi
 	return out, nil
 }
 
-func asAdminTrustRun(in store.TrustRun) adminTrustRunResponse {
+func asAdminTrustRun(in storetrust.TrustRun) adminTrustRunResponse {
 	var startedAt *time.Time
 	if in.StartedAt != nil {
 		ts := in.StartedAt.UTC()

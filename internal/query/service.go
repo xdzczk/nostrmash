@@ -137,7 +137,7 @@ type FallbackEventPersister interface {
 }
 
 type ServiceOptions struct {
-	FallbackReader                  any
+	FallbackReader                  FallbackReader
 	FallbackProfilePersister        FallbackProfilePersister
 	FallbackEventPersister          FallbackEventPersister
 	FallbackFetchTrustMode          string
@@ -153,21 +153,78 @@ type ServiceOptions struct {
 	DiscoveryProjectionMaxStaleness time.Duration
 	TrustRetentionHooks             TrustRetentionHooks
 	MeilisearchSearcher             MeilisearchSearcher
+
+	// Optional typed capability groups. When a group is non-nil it is wired
+	// whole (the typed production path). When nil, the corresponding
+	// capabilities are discovered by asserting the capability interfaces on the
+	// reader (the partial-fake path used by tests). NewServiceFromStore fills
+	// every group from the single store value.
+	Curated     CuratedReads
+	Trust       TrustReads
+	DM          DMReads
+	Moderation  ModerationReads
+	Replaceable ReplaceableReads
+	Social      SocialReads
+	Event       EventReads
+	Thread      ThreadReads
+	NotePage    NotePageReads
 }
 
-func NewService(reader any) (Service, error) {
+// NewServiceFromStore builds a Service from a single complete typed store
+// value. Every capability group is wired whole from the store (no runtime
+// capability probing), and the composition root proves completeness at compile
+// time (var _ query.FullStoreReader = (*store.PostgresStore)(nil)). This is the
+// production entry point.
+func NewServiceFromStore(store FullStoreReader, options ServiceOptions) (Service, error) {
+	if store == nil {
+		return Service{}, fmt.Errorf("query: store reader is required")
+	}
+	options.Curated = store
+	options.Trust = store
+	options.DM = store
+	options.Moderation = store
+	options.Replaceable = store
+	options.Social = store
+	options.Event = store
+	options.Thread = store
+	options.NotePage = store
+	// probeSource is unused because every group is explicit, but pass the store
+	// anyway so the secondary author-analytics/advanced-search adapters resolve.
+	return buildService(legacyReaderAdapter{legacy: store}, store, options)
+}
+
+// NewServiceFromStoreReader builds a Service from a readmodel-shaped core store
+// reader. When the reader also satisfies the complete FullStoreReader surface it
+// is wired whole (the production path); otherwise optional capabilities are
+// discovered by asserting the capability interfaces on the reader (the
+// partial-reader path used by tests and reduced deployments).
+func NewServiceFromStoreReader(reader StoreReader, options ServiceOptions) (Service, error) {
+	if reader == nil {
+		return Service{}, fmt.Errorf("query: store reader is required")
+	}
+	if full, ok := reader.(FullStoreReader); ok {
+		return NewServiceFromStore(full, options)
+	}
+	return buildService(legacyReaderAdapter{legacy: reader}, reader, options)
+}
+
+func NewService(reader Reader) (Service, error) {
 	return NewServiceWithOptions(reader, ServiceOptions{})
 }
 
-func NewServiceWithOptions(reader any, options ServiceOptions) (Service, error) {
-	adaptedReader, err := adaptReader(reader)
-	if err != nil {
-		return Service{}, err
+func NewServiceWithOptions(reader Reader, options ServiceOptions) (Service, error) {
+	if reader == nil {
+		return Service{}, fmt.Errorf("query: reader is required")
 	}
-	adaptedFallback, err := adaptFallbackReader(options.FallbackReader)
-	if err != nil {
-		return Service{}, err
-	}
+	return buildService(reader, reader, options)
+}
+
+// buildService is the shared constructor body. nativeReader is the query-shaped
+// core reader the Service consumes; probeSource is the value whose capability
+// interfaces are asserted when a capability group is not supplied explicitly.
+func buildService(nativeReader Reader, probeSource any, options ServiceOptions) (Service, error) {
+	adaptedReader := nativeReader
+	adaptedFallback := options.FallbackReader
 	discoveryMode, err := ParseTrustMode(options.DiscoveryCandidateTrustMode, TrustModeOpen)
 	if err != nil {
 		return Service{}, fmt.Errorf("discovery trust mode: %w", err)
@@ -227,7 +284,7 @@ func NewServiceWithOptions(reader any, options ServiceOptions) (Service, error) 
 	}
 	return Service{
 		reader:                 adaptedReader,
-		capabilities:           adaptServiceCapabilities(reader),
+		capabilities:           adaptServiceCapabilities(probeSource, options),
 		fallback:               adaptedFallback,
 		fallbackPersister:      options.FallbackProfilePersister,
 		fallbackEventPersister: options.FallbackEventPersister,

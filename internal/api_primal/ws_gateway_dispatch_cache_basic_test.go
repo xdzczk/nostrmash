@@ -76,13 +76,13 @@ func TestWSGateway_REQIDsUsesRelayFallbackOnLocalMiss(t *testing.T) {
 		},
 	}, WSGatewayOptions{
 		QueryOptions: query.ServiceOptions{
-			FallbackReader: primalFakeFallbackReader{
+			FallbackReader: query.AdaptFallbackReader(primalFakeFallbackReader{
 				fetchEventsByIDsFn: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
 					return map[string]json.RawMessage{
 						"evt_fallback": json.RawMessage(`{"id":"evt_fallback","kind":1}`),
 					}, nil
 				},
-			},
+			}),
 		},
 	})
 	mux := http.NewServeMux()
@@ -207,7 +207,7 @@ func TestWSGateway_CacheUserProfileUsesRelayFallbackOnLocalMiss(t *testing.T) {
 		},
 	}, WSGatewayOptions{
 		QueryOptions: query.ServiceOptions{
-			FallbackReader: primalFakeFallbackReader{
+			FallbackReader: query.AdaptFallbackReader(primalFakeFallbackReader{
 				fetchProfilesByPubkeysFn: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
 					return map[string]store.ProfileProjection{
 						"pk1": {
@@ -218,7 +218,7 @@ func TestWSGateway_CacheUserProfileUsesRelayFallbackOnLocalMiss(t *testing.T) {
 						},
 					}, nil
 				},
-			},
+			}),
 		},
 	})
 	mux := http.NewServeMux()
@@ -268,7 +268,7 @@ func TestWSGateway_CacheUserInfosUsesRelayFallbackOnLocalMiss(t *testing.T) {
 		},
 	}, WSGatewayOptions{
 		QueryOptions: query.ServiceOptions{
-			FallbackReader: primalFakeFallbackReader{
+			FallbackReader: query.AdaptFallbackReader(primalFakeFallbackReader{
 				fetchProfilesByPubkeysFn: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
 					return map[string]store.ProfileProjection{
 						"pk1": {
@@ -279,7 +279,7 @@ func TestWSGateway_CacheUserInfosUsesRelayFallbackOnLocalMiss(t *testing.T) {
 						},
 					}, nil
 				},
-			},
+			}),
 		},
 	})
 	mux := http.NewServeMux()

@@ -10,6 +10,8 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func TestSearchDedicatedRoutes_Success(t *testing.T) {
@@ -70,14 +72,14 @@ func TestSearchDedicatedRoutes_Success(t *testing.T) {
 				},
 			}, nil
 		},
-		suggestHashtagsFn: func(_ context.Context, q string, limit int) ([]store.TrendingHashtag, error) {
+		suggestHashtagsFn: func(_ context.Context, q string, limit int) ([]storeread.TrendingHashtag, error) {
 			if q != "nost" {
 				t.Fatalf("unexpected suggest hashtag query: %q", q)
 			}
 			if limit != 2 {
 				t.Fatalf("unexpected suggest hashtag limit: %d", limit)
 			}
-			return []store.TrendingHashtag{
+			return []storeread.TrendingHashtag{
 				{Hashtag: "nostr", EventCount: 12, UniqueAuthors: 9},
 			}, nil
 		},
@@ -303,14 +305,14 @@ func TestSearchProfiles_TrustMetadataByMode(t *testing.T) {
 						}, nil
 					},
 				},
-				getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ store.TrustQualificationPolicy) (map[string]store.TrustQualification, error) {
-					out := make(map[string]store.TrustQualification, len(pubkeys))
+				getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ storetrust.TrustQualificationPolicy) (map[string]storetrust.TrustQualification, error) {
+					out := make(map[string]storetrust.TrustQualification, len(pubkeys))
 					for _, pubkey := range pubkeys {
-						out[pubkey] = store.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "pk_trusted"}
+						out[pubkey] = storetrust.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "pk_trusted"}
 					}
 					return out, nil
 				},
-				isTrustedAuthorFn: func(_ context.Context, pubkey string, _ store.TrustQualificationPolicy) (bool, error) {
+				isTrustedAuthorFn: func(_ context.Context, pubkey string, _ storetrust.TrustQualificationPolicy) (bool, error) {
 					return pubkey == "pk_trusted", nil
 				},
 			}, HandlersOptions{

@@ -1,0 +1,33 @@
+version: "2"
+sql:
+  # Pilot: the account-state bounded context. Only single-table
+  # account_states / account_state_transitions statements are generated; the
+  # cross-context signals join stays hand-written in internal/store/account.
+  - engine: "postgresql"
+    schema: "migrations/000052_account_states.sql"
+    queries: "internal/store/account/queries"
+    gen:
+      go:
+        package: "accountdb"
+        out: "internal/store/account/accountdb"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_exact_table_names: false
+        emit_empty_slices: true
+        overrides:
+          - db_type: "pg_catalog.timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          - db_type: "text"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true
+          - db_type: "pg_catalog.int4"
+            nullable: true
+            go_type:
+              type: "int32"
+              pointer: true

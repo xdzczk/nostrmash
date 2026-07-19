@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestGetProfileByPubkey_AcceptsNpub(t *testing.T) {
@@ -56,12 +57,12 @@ func TestGetRelatedProfiles_AcceptsNpub(t *testing.T) {
 
 	var seenPubkey string
 	handlers := mustNewHandlers(t, fakeEventReader{
-		getRelatedProfilesFn: func(_ context.Context, pubkey string, _ int) ([]store.RelatedProfile, error) {
+		getRelatedProfilesFn: func(_ context.Context, pubkey string, _ int) ([]storeread.RelatedProfile, error) {
 			seenPubkey = pubkey
 			if pubkey != hexPubkey {
 				return nil, store.ErrNotFound
 			}
-			return []store.RelatedProfile{{Pubkey: "pk_related", Score: 1}}, nil
+			return []storeread.RelatedProfile{{Pubkey: "pk_related", Score: 1}}, nil
 		},
 		getProfilesByBatch: func(context.Context, []string) (map[string]store.ProfileProjection, error) {
 			return map[string]store.ProfileProjection{}, nil
@@ -98,11 +99,11 @@ func TestGetProfilePublicSummary_RelatedTimeoutDoesNotFailSummary(t *testing.T) 
 				NoteCount:     40,
 			}, nil
 		},
-		getRelatedProfilesFn: func(ctx context.Context, _ string, _ int) ([]store.RelatedProfile, error) {
+		getRelatedProfilesFn: func(ctx context.Context, _ string, _ int) ([]storeread.RelatedProfile, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
-		getRisingProfilesFn: func(ctx context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
+		getRisingProfilesFn: func(ctx context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},

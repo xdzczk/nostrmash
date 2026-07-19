@@ -31,6 +31,10 @@ on:
         description: "Fail this run when regressions exceed threshold"
         required: false
         default: "false"
+      include_loadtest:
+        description: "Run the WS+API load harness (non-gating, artifacts only)"
+        required: false
+        default: "false"
 
 # The protected baseline lives at a fixed path so pull requests always know
 # where to find it. It is regenerated and committed by the baseline job on every
@@ -224,3 +228,98 @@ jobs:
           echo "Protected benchmark regressions exceeded threshold."
           echo "See perf-compare artifact for details."
           exit 1
+
+  loadtest:
+    name: WS + API load harness (manual, non-gating)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_loadtest == 'true' }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: nostrmash
+          POSTGRES_PASSWORD: nostrmash
+          POSTGRES_DB: nostrmash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nostrmash -d nostrmash"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+      HTTP_ADDR: ":8080"
+      # The pgx default pool of 4 connections deadlocks under mixed WS+API
+      # concurrency; size it to comfortably exceed total client count so the
+      # harness measures backend latency rather than pool-acquire queueing.
+      DATABASE_MAX_CONNS: "64"
+      # Raise per-connection/per-client limits so the harness measures backend
+      # latency rather than rate-limit rejections.
+      PRIMAL_WS_MAX_REQ_PER_MINUTE: "1000000"
+      HTTP_RATE_LIMIT_RPM: "1000000"
+      HTTP_RATE_LIMIT_BURST: "100000"
+      HTTP_DISCOVERY_RATE_LIMIT_RPM: "1000000"
+      HTTP_SEARCH_RATE_LIMIT_RPM: "1000000"
+      HTTP_BATCH_RATE_LIMIT_RPM: "1000000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.5"
+          cache: true
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -U nostrmash -d nostrmash && exit 0
+            sleep 1
+          done
+          echo "Postgres did not become healthy in time"
+          exit 1
+
+      - name: Start API server
+        run: |
+          go run ./cmd/api > api-server.log 2>&1 &
+          echo "API_PID=$!" >> "${GITHUB_ENV}"
+          for i in {1..60}; do
+            if curl -sf http://localhost:8080/health >/dev/null; then
+              echo "API is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become healthy in time"
+          cat api-server.log || true
+          exit 1
+
+      - name: Run WS + API load harness
+        continue-on-error: true
+        run: |
+          mkdir -p loadtest/results
+          go run ./loadtest/harness \
+            -base-url http://localhost:8080 \
+            -ws-clients 32 -api-clients 32 \
+            -warmup 3s -duration 30s \
+            -out loadtest/results/ws-api-summary.json
+
+      - name: Stop API server
+        if: always()
+        run: |
+          if [ -n "${API_PID:-}" ]; then
+            kill "${API_PID}" || true
+          fi
+
+      - name: Upload load-test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-ws-api-${{ github.run_number }}
+          path: |
+            loadtest/results/
+            api-server.log
+          retention-days: 30
+          if-no-files-found: warn

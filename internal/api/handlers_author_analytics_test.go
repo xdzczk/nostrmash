@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestGetAuthorAnalyticsSummary_ReturnsWindows(t *testing.T) {
@@ -42,7 +43,7 @@ func TestGetAuthorAnalyticsSummary_ReturnsWindows(t *testing.T) {
 				Pubkey:           pubkey,
 				RelayCount:       3,
 				SeenOnEventCount: 6,
-				TopRelays: []store.RelayUsageSummary{
+				TopRelays: []storeread.RelayUsageSummary{
 					{RelayURL: "wss://relay.a", EventCount: 4, UniqueAuthors: 1},
 					{RelayURL: "wss://relay.b", EventCount: 2, UniqueAuthors: 1},
 				},

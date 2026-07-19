@@ -15,6 +15,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/runtimebootstrap"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 	"github.com/xdzczk/nostrmash/internal/trust"
 )
 
@@ -252,7 +253,7 @@ func runTrustMetricsReporter(ctx context.Context, log interface {
 // trustGraphSnapshotRefresher is the slice of *store.PostgresStore the snapshot
 // refresh loop needs, declared as an interface for unit testing.
 type trustGraphSnapshotRefresher interface {
-	RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (store.TrustGraphSnapshotRefreshResult, error)
+	RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (storetrust.TrustGraphSnapshotRefreshResult, error)
 }
 
 // globalTrustRunner triggers a global trust run; satisfied by *trust.Runtime.

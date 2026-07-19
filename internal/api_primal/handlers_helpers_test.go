@@ -13,6 +13,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 var update = flag.Bool("update", false, "update golden contract fixtures")
@@ -28,8 +29,8 @@ type fakeEventReader struct {
 	getEventCountsFn              func(context.Context, string) (store.EventCounts, error)
 	getEventRepliesFn             func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
 	getEventAncestors             func(context.Context, string, int) ([]json.RawMessage, []string, error)
-	getContactListFn              func(context.Context, string) (store.ContactListProjection, error)
-	getRelayListFn                func(context.Context, string) (store.RelayListProjection, error)
+	getContactListFn              func(context.Context, string) (storeread.ContactListProjection, error)
+	getRelayListFn                func(context.Context, string) (storeread.RelayListProjection, error)
 	searchEventsFn                func(context.Context, string, int) ([]json.RawMessage, error)
 	searchProfilesFn              func(context.Context, string, int) ([]store.ProfileProjection, error)
 	getByKindPubkeyFn             func(context.Context, int, string, int) ([]json.RawMessage, error)
@@ -58,11 +59,11 @@ type fakeEventReader struct {
 	getHighlightsByEventFn        func(context.Context, string, int) ([]json.RawMessage, error)
 	getHighlightsByATargetFn      func(context.Context, int, string, string, int) ([]json.RawMessage, error)
 	getEventsByATagAndKindFn      func(context.Context, int, string, int) ([]json.RawMessage, error)
-	getNetworkStatsFn             func(context.Context) (store.NetworkStats, error)
+	getNetworkStatsFn             func(context.Context) (storeread.NetworkStats, error)
 	getCuratedValuesFn            func(context.Context, string, string, int) ([]string, error)
-	getCuratedRecommendedReadsFn  func(context.Context, int) ([]store.CuratedRecommendedRead, error)
-	getCuratedReadsTopicsFn       func(context.Context, int) ([]store.CuratedReadsTopic, error)
-	getCuratedFeaturedAuthorsFn   func(context.Context, int) ([]store.CuratedFeaturedAuthor, error)
+	getCuratedRecommendedReadsFn  func(context.Context, int) ([]storeread.CuratedRecommendedRead, error)
+	getCuratedReadsTopicsFn       func(context.Context, int) ([]storeread.CuratedReadsTopic, error)
+	getCuratedFeaturedAuthorsFn   func(context.Context, int) ([]storeread.CuratedFeaturedAuthor, error)
 	getCreatorPaidTiersFn         func(context.Context, string) ([]json.RawMessage, error)
 	getPubkeyByLNAddressFn        func(context.Context, string) (string, error)
 }
@@ -154,16 +155,16 @@ func (f fakeEventReader) ListRelayHealth(context.Context) ([]model.IngestCheckpo
 	return nil, errors.New("not implemented")
 }
 
-func (f fakeEventReader) GetContactListByPubkey(ctx context.Context, pubkey string) (store.ContactListProjection, error) {
+func (f fakeEventReader) GetContactListByPubkey(ctx context.Context, pubkey string) (storeread.ContactListProjection, error) {
 	if f.getContactListFn == nil {
-		return store.ContactListProjection{}, errors.New("not implemented")
+		return storeread.ContactListProjection{}, errors.New("not implemented")
 	}
 	return f.getContactListFn(ctx, pubkey)
 }
 
-func (f fakeEventReader) GetRelayListByPubkey(ctx context.Context, pubkey string) (store.RelayListProjection, error) {
+func (f fakeEventReader) GetRelayListByPubkey(ctx context.Context, pubkey string) (storeread.RelayListProjection, error) {
 	if f.getRelayListFn == nil {
-		return store.RelayListProjection{}, errors.New("not implemented")
+		return storeread.RelayListProjection{}, errors.New("not implemented")
 	}
 	return f.getRelayListFn(ctx, pubkey)
 }
@@ -364,9 +365,9 @@ func (f fakeEventReader) GetEventsByATagAndKind(ctx context.Context, kind int, a
 	return f.getEventsByATagAndKindFn(ctx, kind, aTagValue, limit)
 }
 
-func (f fakeEventReader) GetNetworkStats(ctx context.Context) (store.NetworkStats, error) {
+func (f fakeEventReader) GetNetworkStats(ctx context.Context) (storeread.NetworkStats, error) {
 	if f.getNetworkStatsFn == nil {
-		return store.NetworkStats{}, errors.New("not implemented")
+		return storeread.NetworkStats{}, errors.New("not implemented")
 	}
 	return f.getNetworkStatsFn(ctx)
 }
@@ -385,21 +386,21 @@ func (f fakeEventReader) GetCreatorPaidTiers(ctx context.Context, pubkey string)
 	return f.getCreatorPaidTiersFn(ctx, pubkey)
 }
 
-func (f fakeEventReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]store.CuratedRecommendedRead, error) {
+func (f fakeEventReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]storeread.CuratedRecommendedRead, error) {
 	if f.getCuratedRecommendedReadsFn == nil {
 		return nil, errors.New("not implemented")
 	}
 	return f.getCuratedRecommendedReadsFn(ctx, limit)
 }
 
-func (f fakeEventReader) GetCuratedReadsTopics(ctx context.Context, limit int) ([]store.CuratedReadsTopic, error) {
+func (f fakeEventReader) GetCuratedReadsTopics(ctx context.Context, limit int) ([]storeread.CuratedReadsTopic, error) {
 	if f.getCuratedReadsTopicsFn == nil {
 		return nil, errors.New("not implemented")
 	}
 	return f.getCuratedReadsTopicsFn(ctx, limit)
 }
 
-func (f fakeEventReader) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
+func (f fakeEventReader) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]storeread.CuratedFeaturedAuthor, error) {
 	if f.getCuratedFeaturedAuthorsFn == nil {
 		return nil, errors.New("not implemented")
 	}

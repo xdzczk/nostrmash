@@ -109,6 +109,9 @@ jobs:
       - name: Verify configuration docs are up to date
         run: make configdoc-check
 
+      - name: Verify sqlc generated code is up to date
+        run: make sqlc-check
+
       - name: Build binaries
         run: make build
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/model"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func TestTrustReads_GetAndList(t *testing.T) {
@@ -147,7 +148,7 @@ func TestTrustQualification_TrustedUntrustedAndMissing(t *testing.T) {
 		t.Fatalf("unexpected snapshot rows upserted: got=%d want=3", refresh.RowsUpserted)
 	}
 
-	rows, err := s.GetTrustQualifications(ctx, []string{"seed", "alice", "bob", "unknown"}, TrustQualificationPolicy{
+	rows, err := s.GetTrustQualifications(ctx, []string{"seed", "alice", "bob", "unknown"}, storetrust.TrustQualificationPolicy{
 		MaxHops:      3,
 		MinimumScore: 0.5,
 	})
@@ -207,7 +208,7 @@ func TestTrustQualification_RespectsHopLimitAndBatchLookups(t *testing.T) {
 		t.Fatalf("RefreshTrustGraphSnapshot: %v", err)
 	}
 
-	batch, err := s.GetTrustQualifications(ctx, []string{"a", "b", "c", "missing", "a"}, TrustQualificationPolicy{
+	batch, err := s.GetTrustQualifications(ctx, []string{"a", "b", "c", "missing", "a"}, storetrust.TrustQualificationPolicy{
 		MaxHops: 1,
 	})
 	if err != nil {
@@ -229,7 +230,7 @@ func TestTrustQualification_RespectsHopLimitAndBatchLookups(t *testing.T) {
 		t.Fatalf("expected missing to be untrusted")
 	}
 
-	isTrusted, err := s.IsTrustedAuthor(ctx, "b", TrustQualificationPolicy{MaxHops: 2})
+	isTrusted, err := s.IsTrustedAuthor(ctx, "b", storetrust.TrustQualificationPolicy{MaxHops: 2})
 	if err != nil {
 		t.Fatalf("IsTrustedAuthor: %v", err)
 	}
@@ -380,7 +381,7 @@ func TestTrustQualifiedDiscoveryProjection_RefreshAndQueryModes(t *testing.T) {
 		t.Fatalf("RefreshTrustGraphSnapshot: %v", err)
 	}
 
-	trustedOnly, ready, err := s.GetTrustQualifiedTrendingNotes(ctx, 24*time.Hour, 10, 0, "trusted_only", TrustQualificationPolicy{
+	trustedOnly, ready, err := s.GetTrustQualifiedTrendingNotes(ctx, 24*time.Hour, 10, 0, "trusted_only", storetrust.TrustQualificationPolicy{
 		MaxHops:      3,
 		MinimumScore: 0.5,
 	}, time.Hour)
@@ -394,7 +395,7 @@ func TestTrustQualifiedDiscoveryProjection_RefreshAndQueryModes(t *testing.T) {
 		t.Fatalf("unexpected trusted-only results: %#v", trustedOnly)
 	}
 
-	preferTrusted, ready, err := s.GetTrustQualifiedTrendingNotes(ctx, 24*time.Hour, 10, 0, "prefer_trusted", TrustQualificationPolicy{
+	preferTrusted, ready, err := s.GetTrustQualifiedTrendingNotes(ctx, 24*time.Hour, 10, 0, "prefer_trusted", storetrust.TrustQualificationPolicy{
 		MaxHops:      3,
 		MinimumScore: 0.5,
 	}, time.Hour)
@@ -419,7 +420,7 @@ func TestTrustQualifiedDiscoveryProjection_RefreshAndQueryModes(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("mutate trust graph snapshot: %v", err)
 	}
-	resultsAfterSnapshotDrift, ready, err := s.GetTrustQualifiedTrendingNotes(ctx, 24*time.Hour, 10, 0, "trusted_only", TrustQualificationPolicy{
+	resultsAfterSnapshotDrift, ready, err := s.GetTrustQualifiedTrendingNotes(ctx, 24*time.Hour, 10, 0, "trusted_only", storetrust.TrustQualificationPolicy{
 		MaxHops:      3,
 		MinimumScore: 0.5,
 	}, time.Hour)

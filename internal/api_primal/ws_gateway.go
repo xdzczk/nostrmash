@@ -92,7 +92,7 @@ func NewWSGateway(reader EventReader, opts WSGatewayOptions) (WSGateway, error) 
 	if wsLog == nil {
 		wsLog = logging.New("api_primal_ws")
 	}
-	service, err := query.NewServiceWithOptions(reader, opts.QueryOptions)
+	service, err := query.NewServiceFromStoreReader(reader, opts.QueryOptions)
 	if err != nil {
 		return WSGateway{}, err
 	}

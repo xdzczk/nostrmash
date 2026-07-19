@@ -240,12 +240,14 @@ func (s Service) collectTrustedTrending(
 			s.discoveryTrustPolicy,
 			s.discoveryProjectionMaxStaleness,
 		)
-		if err != nil {
+		switch {
+		case err != nil && !IsUnsupportedCapability(err):
 			return nil, err
-		}
-		if ready {
+		case err == nil && ready:
 			return rows, nil
 		}
+		// A missing or unsupported trust-qualified projection degrades to
+		// on-the-fly qualification below.
 	}
 	out := make([]trustedNoteCandidate, 0, targetRows)
 	for fetched := 0; fetched < scanBudget; {
@@ -318,12 +320,14 @@ func (s Service) collectTrustedTrendingProfiles(
 			s.discoveryTrustPolicy,
 			s.discoveryProjectionMaxStaleness,
 		)
-		if err != nil {
+		switch {
+		case err != nil && !IsUnsupportedCapability(err):
 			return nil, err
-		}
-		if ready {
+		case err == nil && ready:
 			return rows, nil
 		}
+		// A missing or unsupported trust-qualified projection degrades to
+		// on-the-fly qualification below.
 	}
 	out := make([]trustedProfileCandidate, 0, targetRows)
 	for fetched := 0; fetched < scanBudget; {

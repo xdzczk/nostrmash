@@ -12,6 +12,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/store/account"
 )
 
 func discardLogger() *slog.Logger {
@@ -126,7 +127,7 @@ func TestParseEnvelope(t *testing.T) {
 type fakeAccountStore struct {
 	mu sync.Mutex
 
-	row      store.AccountStateRow
+	row      account.AccountStateRow
 	pressure store.StoragePressureState
 
 	promoteCalls  int
@@ -150,7 +151,7 @@ func (f *fakeAccountStore) PromoteAccountToTracked(_ context.Context, pubkey, re
 	return "tracked", nil
 }
 
-func (f *fakeAccountStore) GetAccountState(_ context.Context, _ string) (store.AccountStateRow, error) {
+func (f *fakeAccountStore) GetAccountState(_ context.Context, _ string) (account.AccountStateRow, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.row, nil
@@ -397,7 +398,7 @@ func TestHydrate_SkippedDuringCooldown(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	st := &fakeAccountStore{
-		row: store.AccountStateRow{Exists: true, LastHydratedAt: &now},
+		row: account.AccountStateRow{Exists: true, LastHydratedAt: &now},
 	}
 	svc := NewService(discardLogger(), successConfig(), st, &fakePersister{}, fakeFetcher{}, fakeRelays{})
 	res, err := svc.Hydrate(context.Background(), testPubkey, "r")

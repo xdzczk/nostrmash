@@ -4,8 +4,9 @@ import (
 	"github.com/xdzczk/nostrmash/internal/query"
 )
 
-// EventReader accepts query-native or legacy store-backed readers.
-type EventReader = any
+// EventReader is the typed store-backed read surface the Primal adapter wires
+// into the query Service.
+type EventReader = query.StoreReader
 
 // Handlers translates Primal-compatible requests/responses at the boundary only.
 type Handlers struct {
@@ -27,7 +28,7 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 	if maxBatchSize <= 0 {
 		maxBatchSize = 200
 	}
-	service, err := query.NewServiceWithOptions(reader, options.QueryOptions)
+	service, err := query.NewServiceFromStoreReader(reader, options.QueryOptions)
 	if err != nil {
 		return Handlers{}, err
 	}

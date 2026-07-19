@@ -7,13 +7,13 @@ import (
 	"github.com/xdzczk/nostrmash/internal/account"
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/metrics"
-	"github.com/xdzczk/nostrmash/internal/store"
+	storeaccount "github.com/xdzczk/nostrmash/internal/store/account"
 )
 
 // AccountStateStore is the slice of *store.PostgresStore the recompute loop
 // needs.
 type AccountStateStore interface {
-	ListAccountSignalsForRecompute(ctx context.Context, limit int, staleBefore time.Time) ([]store.AccountSignalRow, error)
+	ListAccountSignalsForRecompute(ctx context.Context, limit int, staleBefore time.Time) ([]storeaccount.AccountSignalRow, error)
 	ApplyAccountState(ctx context.Context, pubkey, fromState, derived, effective, source, reason string) error
 	CountAccountStates(ctx context.Context) (map[string]int64, error)
 	PurgeAccountStateTransitionsOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)

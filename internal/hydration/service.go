@@ -16,6 +16,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/store/account"
 )
 
 // EventPersister persists a raw relay event payload through validate / dedupe /
@@ -28,7 +29,7 @@ type EventPersister interface {
 // AccountStore is the account-state surface hydration needs.
 type AccountStore interface {
 	PromoteAccountToTracked(ctx context.Context, pubkey string, reason string) (string, error)
-	GetAccountState(ctx context.Context, pubkey string) (store.AccountStateRow, error)
+	GetAccountState(ctx context.Context, pubkey string) (account.AccountStateRow, error)
 	GetStoragePressureState(ctx context.Context) (store.StoragePressureState, error)
 	UpdateAccountCoverage(
 		ctx context.Context,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 type adminRelayState struct {
@@ -173,7 +174,7 @@ func (s *adminService) GetRelaySuggestions(
 		limit = 50
 	}
 	storeReader := store.NewPostgresStore(s.pool)
-	candidates, err := storeReader.ListTrustRelayCandidates(ctx, store.TrustRelayCandidateQuery{
+	candidates, err := storeReader.ListTrustRelayCandidates(ctx, storetrust.TrustRelayCandidateQuery{
 		TopPubkeys: 2000,
 		Limit:      max(limit*2, 200),
 	})

@@ -10,15 +10,16 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestWSGateway_GetRecommendedReadsEmitsCuratedKindPayload(t *testing.T) {
 	gateway := mustNewWSGateway(t, fakeEventReader{
-		getCuratedRecommendedReadsFn: func(_ context.Context, limit int) ([]store.CuratedRecommendedRead, error) {
+		getCuratedRecommendedReadsFn: func(_ context.Context, limit int) ([]storeread.CuratedRecommendedRead, error) {
 			if limit != 2 {
 				t.Fatalf("unexpected recommended reads limit: %d", limit)
 			}
-			return []store.CuratedRecommendedRead{
+			return []storeread.CuratedRecommendedRead{
 				{EventID: "evt_read_1", Title: "Read 1", URL: "https://example.com/1", Rank: 20},
 				{EventID: "evt_read_2", Title: "Read 2", URL: "https://example.com/2", Rank: 10},
 			}, nil
@@ -53,7 +54,7 @@ func TestWSGateway_GetRecommendedReadsEmitsCuratedKindPayload(t *testing.T) {
 	}
 	contentRaw, _ := event["content"].(string)
 	var content struct {
-		Reads []store.CuratedRecommendedRead `json:"reads"`
+		Reads []storeread.CuratedRecommendedRead `json:"reads"`
 	}
 	if err := json.Unmarshal([]byte(contentRaw), &content); err != nil {
 		t.Fatalf("decode recommended reads content: %v", err)
@@ -65,11 +66,11 @@ func TestWSGateway_GetRecommendedReadsEmitsCuratedKindPayload(t *testing.T) {
 
 func TestWSGateway_GetReadsTopicsEmitsCuratedKindPayload(t *testing.T) {
 	gateway := mustNewWSGateway(t, fakeEventReader{
-		getCuratedReadsTopicsFn: func(_ context.Context, limit int) ([]store.CuratedReadsTopic, error) {
+		getCuratedReadsTopicsFn: func(_ context.Context, limit int) ([]storeread.CuratedReadsTopic, error) {
 			if limit != 2 {
 				t.Fatalf("unexpected reads topics limit: %d", limit)
 			}
-			return []store.CuratedReadsTopic{
+			return []storeread.CuratedReadsTopic{
 				{Topic: "nostr", Rank: 10},
 				{Topic: "bitcoin", Rank: 9},
 			}, nil
@@ -104,7 +105,7 @@ func TestWSGateway_GetReadsTopicsEmitsCuratedKindPayload(t *testing.T) {
 	}
 	contentRaw, _ := event["content"].(string)
 	var content struct {
-		Topics []store.CuratedReadsTopic `json:"topics"`
+		Topics []storeread.CuratedReadsTopic `json:"topics"`
 	}
 	if err := json.Unmarshal([]byte(contentRaw), &content); err != nil {
 		t.Fatalf("decode reads topics content: %v", err)
@@ -118,11 +119,11 @@ func TestWSGateway_GetFeaturedAuthorsIncludesMetadata(t *testing.T) {
 	const authorA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const authorB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	gateway := mustNewWSGateway(t, fakeEventReader{
-		getCuratedFeaturedAuthorsFn: func(_ context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
+		getCuratedFeaturedAuthorsFn: func(_ context.Context, limit int) ([]storeread.CuratedFeaturedAuthor, error) {
 			if limit != 2 {
 				t.Fatalf("unexpected featured authors limit: %d", limit)
 			}
-			return []store.CuratedFeaturedAuthor{
+			return []storeread.CuratedFeaturedAuthor{
 				{Pubkey: authorA, Rank: 12},
 				{Pubkey: authorB, Rank: 11},
 			}, nil
@@ -169,7 +170,7 @@ func TestWSGateway_GetFeaturedAuthorsIncludesMetadata(t *testing.T) {
 	}
 	contentRaw, _ := first["content"].(string)
 	var content struct {
-		Authors []store.CuratedFeaturedAuthor `json:"authors"`
+		Authors []storeread.CuratedFeaturedAuthor `json:"authors"`
 	}
 	if err := json.Unmarshal([]byte(contentRaw), &content); err != nil {
 		t.Fatalf("decode featured authors content: %v", err)

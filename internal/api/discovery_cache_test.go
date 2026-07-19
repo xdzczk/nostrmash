@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestBuildPublicCacheKey_NormalizesAndSortsParams(t *testing.T) {
@@ -31,12 +31,12 @@ func TestDiscoveryCache_KeyNormalizationForHashtagSummary(t *testing.T) {
 	calls := 0
 	cacheEnabled := true
 	h := mustNewHandlersWithOptions(t, fakeEventReader{
-		getHashtagSummaryFn: func(_ context.Context, _ string) (store.HashtagSummary, error) {
+		getHashtagSummaryFn: func(_ context.Context, _ string) (storeread.HashtagSummary, error) {
 			calls++
-			return store.HashtagSummary{
+			return storeread.HashtagSummary{
 				Hashtag: "nostr",
-				Activity: store.HashtagActivityStats{
-					All: store.HashtagActivity{EventCount: 1, UniqueAuthors: 1},
+				Activity: storeread.HashtagActivityStats{
+					All: storeread.HashtagActivity{EventCount: 1, UniqueAuthors: 1},
 				},
 			}, nil
 		},
@@ -73,8 +73,8 @@ func TestDiscoveryCache_HitMissObserver(t *testing.T) {
 	cacheEnabled := true
 	var lookups []string
 	h := mustNewHandlersWithOptions(t, fakeEventReader{
-		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingNote, error) {
-			return []store.TrendingNote{
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
 				{EventID: "evt_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "ok"},
 			}, nil
 		},

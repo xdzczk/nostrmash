@@ -11,11 +11,13 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getTrendingNotesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.TrendingNote, error) {
+		getTrendingNotesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingNote, error) {
 			if window != 24*time.Hour {
 				t.Fatalf("unexpected notes window: %s", window)
 			}
@@ -25,7 +27,7 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 			if offset != 0 {
 				t.Fatalf("unexpected notes offset: %d", offset)
 			}
-			return []store.TrendingNote{
+			return []storeread.TrendingNote{
 				{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hello", ReplyCount: 4, RepostCount: 2, ReactionCount: 3, ZapCount: 1, ZapMSats: 20000, Score: 12.5},
 				{EventID: "note_2", AuthorPubkey: "pk_2", CreatedAt: 1700000010, Content: "world", ReplyCount: 1, RepostCount: 0, ReactionCount: 2, ZapCount: 0, ZapMSats: 0, Score: 4.25},
 			}, nil
@@ -44,7 +46,7 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 				{RootEventID: "root_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hot one", ReplyCount: 4, ParticipantCount: 3, LastActivityAt: 1700000100, Replies24h: 4, Replies7d: 5, VelocityScore: 4.3, Consistency: "eventual"},
 			}, nil
 		},
-		getTrendingTagsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.TrendingHashtag, error) {
+		getTrendingTagsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingHashtag, error) {
 			if window != 7*24*time.Hour {
 				t.Fatalf("unexpected hashtag window: %s", window)
 			}
@@ -54,9 +56,9 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 			if offset != 1 {
 				t.Fatalf("unexpected hashtag offset: %d", offset)
 			}
-			return []store.TrendingHashtag{{Hashtag: "nostr", EventCount: 11, UniqueAuthors: 6}, {Hashtag: "bitcoin", EventCount: 8, UniqueAuthors: 5}}, nil
+			return []storeread.TrendingHashtag{{Hashtag: "nostr", EventCount: 11, UniqueAuthors: 6}, {Hashtag: "bitcoin", EventCount: 8, UniqueAuthors: 5}}, nil
 		},
-		getTrendingProfilesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.TrendingProfile, error) {
+		getTrendingProfilesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingProfile, error) {
 			if window != 24*time.Hour {
 				t.Fatalf("unexpected trending profiles window: %s", window)
 			}
@@ -66,9 +68,9 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 			if offset != 2 {
 				t.Fatalf("unexpected trending profiles offset: %d", offset)
 			}
-			return []store.TrendingProfile{{Pubkey: "pk_a", Score: 9.5}, {Pubkey: "pk_b", Score: 6.25}}, nil
+			return []storeread.TrendingProfile{{Pubkey: "pk_a", Score: 9.5}, {Pubkey: "pk_b", Score: 6.25}}, nil
 		},
-		getRisingProfilesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.TrendingProfile, error) {
+		getRisingProfilesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingProfile, error) {
 			if window != 7*24*time.Hour {
 				t.Fatalf("unexpected rising profiles window: %s", window)
 			}
@@ -78,16 +80,16 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 			if offset != 1 {
 				t.Fatalf("unexpected rising profiles offset: %d", offset)
 			}
-			return []store.TrendingProfile{{Pubkey: "pk_c", Score: 5.75}}, nil
+			return []storeread.TrendingProfile{{Pubkey: "pk_c", Score: 5.75}}, nil
 		},
-		getRelatedProfilesFn: func(_ context.Context, pubkey string, limit int) ([]store.RelatedProfile, error) {
+		getRelatedProfilesFn: func(_ context.Context, pubkey string, limit int) ([]storeread.RelatedProfile, error) {
 			if pubkey != "pk_a" {
 				t.Fatalf("unexpected related profiles pubkey: %s", pubkey)
 			}
 			if limit != 2 {
 				t.Fatalf("unexpected related profiles limit: %d", limit)
 			}
-			return []store.RelatedProfile{
+			return []storeread.RelatedProfile{
 				{
 					Pubkey:               "pk_related_1",
 					TopicOverlap:         3,
@@ -133,26 +135,26 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 		pubkeyB = "1111111111111111111111111111111111111111111111111111111111111111"
 	)
 	h := mustNewHandlers(t, fakeEventReader{
-		getTrendingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
-			return []store.TrendingProfile{{Pubkey: pubkeyA, Score: 9.5, RecentNewFollowers: 3}}, nil
+		getTrendingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {
+			return []storeread.TrendingProfile{{Pubkey: pubkeyA, Score: 9.5, RecentNewFollowers: 3}}, nil
 		},
-		getRisingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
-			return []store.TrendingProfile{{Pubkey: pubkeyB, Score: 7.25, RecentNewFollowers: 12}}, nil
+		getRisingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {
+			return []storeread.TrendingProfile{{Pubkey: pubkeyB, Score: 7.25, RecentNewFollowers: 12}}, nil
 		},
-		getRelatedProfilesFn: func(_ context.Context, pubkey string, _ int) ([]store.RelatedProfile, error) {
+		getRelatedProfilesFn: func(_ context.Context, pubkey string, _ int) ([]storeread.RelatedProfile, error) {
 			if pubkey != pubkeyA {
 				t.Fatalf("unexpected related pubkey: %s", pubkey)
 			}
-			return []store.RelatedProfile{{Pubkey: pubkeyB, Score: 42}}, nil
+			return []storeread.RelatedProfile{{Pubkey: pubkeyB, Score: 42}}, nil
 		},
-		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingNote, error) {
-			return []store.TrendingNote{{EventID: "note_a", AuthorPubkey: pubkeyA, CreatedAt: 123, Content: "hello", Score: 5.5}}, nil
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{{EventID: "note_a", AuthorPubkey: pubkeyA, CreatedAt: 123, Content: "hello", Score: 5.5}}, nil
 		},
-		getTrendingTagsFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingHashtag, error) {
-			return []store.TrendingHashtag{}, nil
+		getTrendingTagsFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingHashtag, error) {
+			return []storeread.TrendingHashtag{}, nil
 		},
-		getPublicNetworkStatsFn: func(_ context.Context, _ int) (store.PublicDiscoveryNetworkStats, error) {
-			return store.PublicDiscoveryNetworkStats{}, nil
+		getPublicNetworkStatsFn: func(_ context.Context, _ int) (storeread.PublicDiscoveryNetworkStats, error) {
+			return storeread.PublicDiscoveryNetworkStats{}, nil
 		},
 		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
 			out := make(map[string]store.ProfileProjection, len(pubkeys))
@@ -343,44 +345,44 @@ func TestDiscoveryProfileRoutes_InlineIdentityHydration(t *testing.T) {
 
 func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getTrendingNotesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.TrendingNote, error) {
+		getTrendingNotesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingNote, error) {
 			if window != 24*time.Hour || limit != 3 || offset != 0 {
 				t.Fatalf("unexpected notes args: window=%s limit=%d offset=%d", window, limit, offset)
 			}
-			return []store.TrendingNote{
+			return []storeread.TrendingNote{
 				{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hello", Score: 2.5},
 			}, nil
 		},
-		getTrendingTagsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.TrendingHashtag, error) {
+		getTrendingTagsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingHashtag, error) {
 			if window != 24*time.Hour || limit != 2 || offset != 0 {
 				t.Fatalf("unexpected hashtags args: window=%s limit=%d offset=%d", window, limit, offset)
 			}
-			return []store.TrendingHashtag{
+			return []storeread.TrendingHashtag{
 				{Hashtag: "nostr", EventCount: 5, UniqueAuthors: 4},
 			}, nil
 		},
-		getTrendingProfilesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.TrendingProfile, error) {
+		getTrendingProfilesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingProfile, error) {
 			if window != 24*time.Hour || limit != 2 || offset != 0 {
 				t.Fatalf("unexpected trending profiles args: window=%s limit=%d offset=%d", window, limit, offset)
 			}
-			return []store.TrendingProfile{{Pubkey: "pk_a", Score: 9.1}}, nil
+			return []storeread.TrendingProfile{{Pubkey: "pk_a", Score: 9.1}}, nil
 		},
-		getRisingProfilesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.TrendingProfile, error) {
+		getRisingProfilesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingProfile, error) {
 			if window != 24*time.Hour || limit != 2 || offset != 0 {
 				t.Fatalf("unexpected rising profiles args: window=%s limit=%d offset=%d", window, limit, offset)
 			}
-			return []store.TrendingProfile{{Pubkey: "pk_b", Score: 7.4}}, nil
+			return []storeread.TrendingProfile{{Pubkey: "pk_b", Score: 7.4}}, nil
 		},
-		getPublicNetworkStatsFn: func(_ context.Context, hashtagLimit int) (store.PublicDiscoveryNetworkStats, error) {
+		getPublicNetworkStatsFn: func(_ context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
 			if hashtagLimit != 7 {
 				t.Fatalf("unexpected hashtag stat limit: %d", hashtagLimit)
 			}
-			return store.PublicDiscoveryNetworkStats{
+			return storeread.PublicDiscoveryNetworkStats{
 				EventsIngested:    11,
 				ProjectedProfiles: 6,
 				Relays:            3,
-				ActiveAuthors:     store.WindowedCount{Last24h: 4, Last7d: 8},
-				NoteVolume:        store.WindowedCount{Last24h: 12, Last7d: 40},
+				ActiveAuthors:     storeread.WindowedCount{Last24h: 4, Last7d: 8},
+				NoteVolume:        storeread.WindowedCount{Last24h: 12, Last7d: 40},
 			}, nil
 		},
 	}, 200)
@@ -428,27 +430,27 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 
 func TestDiscoveryHomeRoute_RendersSparseSectionWithoutDroppingBundle(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingNote, error) {
-			return []store.TrendingNote{
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
 				{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hello"},
 			}, nil
 		},
-		getTrendingTagsFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingHashtag, error) {
-			return []store.TrendingHashtag{}, nil
+		getTrendingTagsFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingHashtag, error) {
+			return []storeread.TrendingHashtag{}, nil
 		},
-		getTrendingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
-			return []store.TrendingProfile{{Pubkey: "pk_a", Score: 9}}, nil
+		getTrendingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {
+			return []storeread.TrendingProfile{{Pubkey: "pk_a", Score: 9}}, nil
 		},
-		getRisingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
-			return []store.TrendingProfile{}, nil
+		getRisingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {
+			return []storeread.TrendingProfile{}, nil
 		},
-		getPublicNetworkStatsFn: func(_ context.Context, _ int) (store.PublicDiscoveryNetworkStats, error) {
-			return store.PublicDiscoveryNetworkStats{
+		getPublicNetworkStatsFn: func(_ context.Context, _ int) (storeread.PublicDiscoveryNetworkStats, error) {
+			return storeread.PublicDiscoveryNetworkStats{
 				EventsIngested:    1,
 				ProjectedProfiles: 1,
 				Relays:            1,
-				ActiveAuthors:     store.WindowedCount{},
-				NoteVolume:        store.WindowedCount{},
+				ActiveAuthors:     storeread.WindowedCount{},
+				NoteVolume:        storeread.WindowedCount{},
 			}, nil
 		},
 	}, 200)
@@ -481,33 +483,33 @@ func TestDiscoveryHomeRoute_RendersSparseSectionWithoutDroppingBundle(t *testing
 
 func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getPublicNetworkStatsFn: func(_ context.Context, hashtagLimit int) (store.PublicDiscoveryNetworkStats, error) {
+		getPublicNetworkStatsFn: func(_ context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
 			if hashtagLimit != 10 && hashtagLimit != 1 {
 				t.Fatalf("unexpected hashtag limit: got=%d want one of [10,1]", hashtagLimit)
 			}
-			return store.PublicDiscoveryNetworkStats{
+			return storeread.PublicDiscoveryNetworkStats{
 				EventsIngested:    11,
 				ProjectedProfiles: 7,
 				Relays:            3,
-				RelaySummary: store.RelaySummaryStats{
+				RelaySummary: storeread.RelaySummaryStats{
 					Total:         3,
 					Active24h:     2,
 					Active7d:      3,
-					EventVolume:   store.WindowedCount{Last24h: 7, Last7d: 18},
-					UniqueAuthors: store.WindowedCount{Last24h: 5, Last7d: 9},
+					EventVolume:   storeread.WindowedCount{Last24h: 7, Last7d: 18},
+					UniqueAuthors: storeread.WindowedCount{Last24h: 5, Last7d: 9},
 				},
-				TopRelays: []store.RelayUsageSummary{
+				TopRelays: []storeread.RelayUsageSummary{
 					{RelayURL: "wss://relay.one", EventCount: 11, UniqueAuthors: 7},
 					{RelayURL: "wss://relay.two", EventCount: 6, UniqueAuthors: 4},
 				},
-				ActiveAuthors: store.WindowedCount{Last24h: 5, Last7d: 9},
-				NoteVolume:    store.WindowedCount{Last24h: 12, Last7d: 44},
-				TopHashtags: &store.TrendingHashtagWindows{
-					Last24h: []store.TrendingHashtag{{Hashtag: "nostr", EventCount: 6, UniqueAuthors: 4}},
-					Last7d:  []store.TrendingHashtag{{Hashtag: "nostr", EventCount: 10, UniqueAuthors: 8}},
+				ActiveAuthors: storeread.WindowedCount{Last24h: 5, Last7d: 9},
+				NoteVolume:    storeread.WindowedCount{Last24h: 12, Last7d: 44},
+				TopHashtags: &storeread.TrendingHashtagWindows{
+					Last24h: []storeread.TrendingHashtag{{Hashtag: "nostr", EventCount: 6, UniqueAuthors: 4}},
+					Last7d:  []storeread.TrendingHashtag{{Hashtag: "nostr", EventCount: 10, UniqueAuthors: 8}},
 				},
-				TopLanguages24h: []store.LanguageSummary{{Language: "en", Count: 5}},
-				TopLanguages7d:  []store.LanguageSummary{{Language: "en", Count: 9}},
+				TopLanguages24h: []storeread.LanguageSummary{{Language: "en", Count: 5}},
+				TopLanguages7d:  []storeread.LanguageSummary{{Language: "en", Count: 9}},
 			}, nil
 		},
 	}, 200)
@@ -530,8 +532,8 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 				ProjectedProfiles int64 `json:"projected_profiles"`
 			} `json:"totals"`
 			Activity struct {
-				ActiveAuthors store.WindowedCount `json:"active_authors"`
-				NoteVolume    store.WindowedCount `json:"note_volume"`
+				ActiveAuthors storeread.WindowedCount `json:"active_authors"`
+				NoteVolume    storeread.WindowedCount `json:"note_volume"`
 			} `json:"activity"`
 			Relays struct {
 				Total       int64 `json:"total"`
@@ -546,7 +548,7 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 					EventCount int64  `json:"event_count"`
 				} `json:"top"`
 			} `json:"relays"`
-			TopLanguages map[string][]store.LanguageSummary `json:"top_languages"`
+			TopLanguages map[string][]storeread.LanguageSummary `json:"top_languages"`
 		} `json:"network"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &networkResp); err != nil {
@@ -603,19 +605,19 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 
 func TestDiscoveryRoutes_BadLimitAndUnsupportedCapability(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingNote, error) {
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
 			return nil, errors.Join(query.ErrUnsupportedCapability, errors.New("query: curated recommended reads unsupported"))
 		},
 		getHotConversationsFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.HotConversation, error) {
 			return nil, errors.Join(query.ErrUnsupportedCapability, errors.New("query: hot conversations unsupported"))
 		},
-		getTrendingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingProfile, error) {
+		getTrendingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {
 			return nil, errors.Join(query.ErrUnsupportedCapability, errors.New("query: trending profiles unsupported"))
 		},
-		getPublicNetworkStatsFn: func(_ context.Context, _ int) (store.PublicDiscoveryNetworkStats, error) {
-			return store.PublicDiscoveryNetworkStats{}, errors.Join(query.ErrUnsupportedCapability, errors.New("query: network stats unsupported"))
+		getPublicNetworkStatsFn: func(_ context.Context, _ int) (storeread.PublicDiscoveryNetworkStats, error) {
+			return storeread.PublicDiscoveryNetworkStats{}, errors.Join(query.ErrUnsupportedCapability, errors.New("query: network stats unsupported"))
 		},
-		getRelatedProfilesFn: func(_ context.Context, _ string, _ int) ([]store.RelatedProfile, error) {
+		getRelatedProfilesFn: func(_ context.Context, _ string, _ int) ([]storeread.RelatedProfile, error) {
 			return nil, errors.Join(query.ErrUnsupportedCapability, errors.New("query: related profiles unsupported"))
 		},
 	}, 200)
@@ -701,13 +703,13 @@ func TestDiscoveryRoutes_BadLimitAndUnsupportedCapability(t *testing.T) {
 
 func TestDiscoveryRelatedProfilesRoute_RankingBoundedAndSparse(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getRelatedProfilesFn: func(_ context.Context, pubkey string, limit int) ([]store.RelatedProfile, error) {
+		getRelatedProfilesFn: func(_ context.Context, pubkey string, limit int) ([]storeread.RelatedProfile, error) {
 			switch pubkey {
 			case "target_pk":
 				if limit != 2 {
 					t.Fatalf("unexpected limit: got %d want %d", limit, 2)
 				}
-				return []store.RelatedProfile{
+				return []storeread.RelatedProfile{
 					{
 						Pubkey:               "rank_1",
 						TopicOverlap:         4,
@@ -728,7 +730,7 @@ func TestDiscoveryRelatedProfilesRoute_RankingBoundedAndSparse(t *testing.T) {
 					},
 				}, nil
 			case "sparse_pk":
-				return []store.RelatedProfile{}, nil
+				return []storeread.RelatedProfile{}, nil
 			case "missing_pk":
 				return nil, store.ErrNotFound
 			default:
@@ -790,13 +792,13 @@ func TestDiscoveryRelatedProfilesRoute_RankingBoundedAndSparse(t *testing.T) {
 
 func TestDiscoveryStatsRoutes_MissingDataEdgeCases(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getPublicNetworkStatsFn: func(_ context.Context, _ int) (store.PublicDiscoveryNetworkStats, error) {
-			return store.PublicDiscoveryNetworkStats{
+		getPublicNetworkStatsFn: func(_ context.Context, _ int) (storeread.PublicDiscoveryNetworkStats, error) {
+			return storeread.PublicDiscoveryNetworkStats{
 				EventsIngested:    0,
 				ProjectedProfiles: 0,
 				Relays:            0,
-				ActiveAuthors:     store.WindowedCount{Last24h: 0, Last7d: 0},
-				NoteVolume:        store.WindowedCount{Last24h: 0, Last7d: 0},
+				ActiveAuthors:     storeread.WindowedCount{Last24h: 0, Last7d: 0},
+				NoteVolume:        storeread.WindowedCount{Last24h: 0, Last7d: 0},
 				TopHashtags:       nil,
 			}, nil
 		},
@@ -827,9 +829,9 @@ func TestDiscoveryCache_HitAndMissForTrendingNotes(t *testing.T) {
 	calls := 0
 	cacheEnabled := true
 	h := mustNewHandlersWithOptions(t, fakeEventReader{
-		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingNote, error) {
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
 			calls++
-			return []store.TrendingNote{
+			return []storeread.TrendingNote{
 				{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "cached", Score: 1.0},
 			}, nil
 		},
@@ -861,9 +863,9 @@ func TestDiscoveryCache_SeparatesKeysByParams(t *testing.T) {
 	calls := 0
 	cacheEnabled := true
 	h := mustNewHandlersWithOptions(t, fakeEventReader{
-		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingNote, error) {
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
 			calls++
-			return []store.TrendingNote{{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "ok", Score: 1.0}}, nil
+			return []storeread.TrendingNote{{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "ok", Score: 1.0}}, nil
 		},
 	}, HandlersOptions{
 		MaxBatchSize: 200,
@@ -899,9 +901,9 @@ func TestDiscoveryCache_TTLExpiry(t *testing.T) {
 	calls := 0
 	cacheEnabled := true
 	h := mustNewHandlersWithOptions(t, fakeEventReader{
-		getPublicNetworkStatsFn: func(_ context.Context, _ int) (store.PublicDiscoveryNetworkStats, error) {
+		getPublicNetworkStatsFn: func(_ context.Context, _ int) (storeread.PublicDiscoveryNetworkStats, error) {
 			calls++
-			return store.PublicDiscoveryNetworkStats{
+			return storeread.PublicDiscoveryNetworkStats{
 				EventsIngested: 12,
 				Relays:         4,
 			}, nil
@@ -941,9 +943,9 @@ func TestDiscoveryCache_DisabledFallsBackToQueryPath(t *testing.T) {
 	calls := 0
 	cacheEnabled := false
 	h := mustNewHandlersWithOptions(t, fakeEventReader{
-		getPublicNetworkStatsFn: func(_ context.Context, _ int) (store.PublicDiscoveryNetworkStats, error) {
+		getPublicNetworkStatsFn: func(_ context.Context, _ int) (storeread.PublicDiscoveryNetworkStats, error) {
 			calls++
-			return store.PublicDiscoveryNetworkStats{Relays: 2}, nil
+			return storeread.PublicDiscoveryNetworkStats{Relays: 2}, nil
 		},
 	}, HandlersOptions{
 		MaxBatchSize: 200,
@@ -989,21 +991,21 @@ func TestDiscoveryTrendingRoutes_TrustMetadataByMode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := mustNewHandlersWithOptions(t, trustQualifiedFakeReader{
 				fakeEventReader: fakeEventReader{
-					getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.TrendingNote, error) {
-						return []store.TrendingNote{
+					getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
+						return []storeread.TrendingNote{
 							{EventID: "note_1", AuthorPubkey: "pk_trusted", CreatedAt: 1700000000, Content: "hello"},
 							{EventID: "note_2", AuthorPubkey: "pk_open", CreatedAt: 1700000001, Content: "world"},
 						}, nil
 					},
 				},
-				getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ store.TrustQualificationPolicy) (map[string]store.TrustQualification, error) {
-					out := make(map[string]store.TrustQualification, len(pubkeys))
+				getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ storetrust.TrustQualificationPolicy) (map[string]storetrust.TrustQualification, error) {
+					out := make(map[string]storetrust.TrustQualification, len(pubkeys))
 					for _, pubkey := range pubkeys {
-						out[pubkey] = store.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "pk_trusted"}
+						out[pubkey] = storetrust.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "pk_trusted"}
 					}
 					return out, nil
 				},
-				isTrustedAuthorFn: func(_ context.Context, pubkey string, _ store.TrustQualificationPolicy) (bool, error) {
+				isTrustedAuthorFn: func(_ context.Context, pubkey string, _ storetrust.TrustQualificationPolicy) (bool, error) {
 					return pubkey == "pk_trusted", nil
 				},
 			}, HandlersOptions{
@@ -1043,35 +1045,35 @@ func TestDiscoveryTrendingRoutes_TrustMetadataByMode(t *testing.T) {
 
 func TestHashtagPageRoutes_SummaryNotesAndRelated(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getHashtagSummaryFn: func(_ context.Context, hashtag string) (store.HashtagSummary, error) {
+		getHashtagSummaryFn: func(_ context.Context, hashtag string) (storeread.HashtagSummary, error) {
 			if hashtag != "nostr" {
 				t.Fatalf("unexpected hashtag summary key: %s", hashtag)
 			}
 			latest := int64(1700000010)
-			return store.HashtagSummary{
+			return storeread.HashtagSummary{
 				Hashtag:       "nostr",
 				LatestEventAt: &latest,
-				Activity: store.HashtagActivityStats{
-					Last24h: store.HashtagActivity{EventCount: 3, UniqueAuthors: 2},
-					Last7d:  store.HashtagActivity{EventCount: 7, UniqueAuthors: 4},
-					Last30d: store.HashtagActivity{EventCount: 9, UniqueAuthors: 5},
-					All:     store.HashtagActivity{EventCount: 11, UniqueAuthors: 6},
+				Activity: storeread.HashtagActivityStats{
+					Last24h: storeread.HashtagActivity{EventCount: 3, UniqueAuthors: 2},
+					Last7d:  storeread.HashtagActivity{EventCount: 7, UniqueAuthors: 4},
+					Last30d: storeread.HashtagActivity{EventCount: 9, UniqueAuthors: 5},
+					All:     storeread.HashtagActivity{EventCount: 11, UniqueAuthors: 6},
 				},
 			}, nil
 		},
-		getHashtagNotesFn: func(_ context.Context, hashtag string, sort string, window string, limit int, offset int) ([]store.TrendingNote, error) {
+		getHashtagNotesFn: func(_ context.Context, hashtag string, sort string, window string, limit int, offset int) ([]storeread.TrendingNote, error) {
 			if hashtag != "nostr" || sort != "top" || window != "7d" || limit != 2 || offset != 1 {
 				t.Fatalf("unexpected hashtag notes args: %s %s %s %d %d", hashtag, sort, window, limit, offset)
 			}
-			return []store.TrendingNote{
+			return []storeread.TrendingNote{
 				{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hello", ReplyCount: 1, RepostCount: 2, ReactionCount: 3, ZapCount: 1, ZapMSats: 2000, Score: 9.2},
 			}, nil
 		},
-		getRelatedHashtagsFn: func(_ context.Context, hashtag string, limit int) ([]store.RelatedHashtag, error) {
+		getRelatedHashtagsFn: func(_ context.Context, hashtag string, limit int) ([]storeread.RelatedHashtag, error) {
 			if hashtag != "nostr" || limit != 3 {
 				t.Fatalf("unexpected related hashtag args: %s %d", hashtag, limit)
 			}
-			return []store.RelatedHashtag{
+			return []storeread.RelatedHashtag{
 				{Hashtag: "bitcoin", CoOccurrenceCount: 4, CoOccurrenceAuthors: 3},
 			}, nil
 		},
@@ -1097,23 +1099,23 @@ func TestHashtagPageRoutes_SummaryNotesAndRelated(t *testing.T) {
 
 func TestHashtagPageRoutes_NormalizationMissingAndValidation(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getHashtagSummaryFn: func(_ context.Context, hashtag string) (store.HashtagSummary, error) {
+		getHashtagSummaryFn: func(_ context.Context, hashtag string) (storeread.HashtagSummary, error) {
 			if hashtag == "nostr" {
-				return store.HashtagSummary{Hashtag: "nostr", Activity: store.HashtagActivityStats{All: store.HashtagActivity{EventCount: 1, UniqueAuthors: 1}}}, nil
+				return storeread.HashtagSummary{Hashtag: "nostr", Activity: storeread.HashtagActivityStats{All: storeread.HashtagActivity{EventCount: 1, UniqueAuthors: 1}}}, nil
 			}
-			return store.HashtagSummary{}, store.ErrNotFound
+			return storeread.HashtagSummary{}, store.ErrNotFound
 		},
-		getHashtagNotesFn: func(_ context.Context, hashtag string, _, _ string, _, _ int) ([]store.TrendingNote, error) {
+		getHashtagNotesFn: func(_ context.Context, hashtag string, _, _ string, _, _ int) ([]storeread.TrendingNote, error) {
 			if hashtag == "missing" {
 				return nil, store.ErrNotFound
 			}
-			return []store.TrendingNote{}, nil
+			return []storeread.TrendingNote{}, nil
 		},
-		getRelatedHashtagsFn: func(_ context.Context, hashtag string, _ int) ([]store.RelatedHashtag, error) {
+		getRelatedHashtagsFn: func(_ context.Context, hashtag string, _ int) ([]storeread.RelatedHashtag, error) {
 			if hashtag == "missing" {
 				return nil, store.ErrNotFound
 			}
-			return []store.RelatedHashtag{}, nil
+			return []storeread.RelatedHashtag{}, nil
 		},
 	}, 200)
 	mux := http.NewServeMux()
@@ -1173,19 +1175,19 @@ func TestDomainPageRoutes_TrendingSummaryAndNotes(t *testing.T) {
 					Last30d: store.DomainActivityProjection{LinkCount: 11, NoteCount: 8, UniqueAuthors: 6},
 					All:     store.DomainActivityProjection{LinkCount: 13, NoteCount: 10, UniqueAuthors: 7},
 				},
-				RecentNotes: []store.TrendingNote{
+				RecentNotes: []storeread.TrendingNote{
 					{EventID: "note_recent", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "recent"},
 				},
-				TopNotes: []store.TrendingNote{
+				TopNotes: []storeread.TrendingNote{
 					{EventID: "note_top", AuthorPubkey: "pk_2", CreatedAt: 1699999999, Content: "top", Score: 12.2},
 				},
 			}, nil
 		},
-		getDomainNotesFn: func(_ context.Context, domain string, sort string, window string, limit int, offset int) ([]store.TrendingNote, error) {
+		getDomainNotesFn: func(_ context.Context, domain string, sort string, window string, limit int, offset int) ([]storeread.TrendingNote, error) {
 			if domain != "example.com" || sort != "top" || window != "30d" || limit != 2 || offset != 1 {
 				t.Fatalf("unexpected domain notes args: %s %s %s %d %d", domain, sort, window, limit, offset)
 			}
-			return []store.TrendingNote{
+			return []storeread.TrendingNote{
 				{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hello", Score: 9.2},
 			}, nil
 		},
@@ -1220,11 +1222,11 @@ func TestDomainPageRoutes_NormalizationMissingAndValidation(t *testing.T) {
 			}
 			return store.DomainSummaryProjection{}, store.ErrNotFound
 		},
-		getDomainNotesFn: func(_ context.Context, domain string, _, _ string, _, _ int) ([]store.TrendingNote, error) {
+		getDomainNotesFn: func(_ context.Context, domain string, _, _ string, _, _ int) ([]storeread.TrendingNote, error) {
 			if domain == "missing.example" {
 				return nil, store.ErrNotFound
 			}
-			return []store.TrendingNote{}, nil
+			return []storeread.TrendingNote{}, nil
 		},
 	}, 200)
 	mux := http.NewServeMux()

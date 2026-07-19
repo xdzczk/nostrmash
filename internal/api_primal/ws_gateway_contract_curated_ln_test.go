@@ -11,12 +11,13 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestWSGateway_GetRecommendedReadsContract(t *testing.T) {
 	gateway := mustNewWSGateway(t, fakeEventReader{
-		getCuratedRecommendedReadsFn: func(_ context.Context, limit int) ([]store.CuratedRecommendedRead, error) {
-			return []store.CuratedRecommendedRead{
+		getCuratedRecommendedReadsFn: func(_ context.Context, limit int) ([]storeread.CuratedRecommendedRead, error) {
+			return []storeread.CuratedRecommendedRead{
 				{EventID: "evt_read_1", Title: "Read 1", URL: "https://example.com/1", Rank: 20},
 				{EventID: "evt_read_2", Title: "Read 2", URL: "https://example.com/2", Rank: 10},
 			}, nil
@@ -67,8 +68,8 @@ func TestWSGateway_GetRecommendedReadsContract(t *testing.T) {
 
 func TestWSGateway_GetReadsTopicsContract(t *testing.T) {
 	gateway := mustNewWSGateway(t, fakeEventReader{
-		getCuratedReadsTopicsFn: func(_ context.Context, limit int) ([]store.CuratedReadsTopic, error) {
-			return []store.CuratedReadsTopic{
+		getCuratedReadsTopicsFn: func(_ context.Context, limit int) ([]storeread.CuratedReadsTopic, error) {
+			return []storeread.CuratedReadsTopic{
 				{Topic: "nostr", Rank: 10},
 				{Topic: "bitcoin", Rank: 9},
 			}, nil
@@ -121,8 +122,8 @@ func TestWSGateway_GetFeaturedAuthorsContract(t *testing.T) {
 	const authorA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const authorB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	gateway := mustNewWSGateway(t, fakeEventReader{
-		getCuratedFeaturedAuthorsFn: func(_ context.Context, limit int) ([]store.CuratedFeaturedAuthor, error) {
-			return []store.CuratedFeaturedAuthor{
+		getCuratedFeaturedAuthorsFn: func(_ context.Context, limit int) ([]storeread.CuratedFeaturedAuthor, error) {
+			return []storeread.CuratedFeaturedAuthor{
 				{Pubkey: authorA, Rank: 12},
 				{Pubkey: authorB, Rank: 11},
 			}, nil

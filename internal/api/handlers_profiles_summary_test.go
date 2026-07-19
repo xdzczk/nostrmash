@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestGetProfilePublicSummary_ReturnsProductShapedPayload(t *testing.T) {
@@ -122,13 +123,13 @@ func TestGetProfilePublicSummary_IncludesRecentAndDiscoverySections(t *testing.T
 				json.RawMessage(`{"id":"note_1","pubkey":"pk_target","content":"hello world"}`),
 			}, nil
 		},
-		getRelatedProfilesFn: func(context.Context, string, int) ([]store.RelatedProfile, error) {
-			return []store.RelatedProfile{
+		getRelatedProfilesFn: func(context.Context, string, int) ([]storeread.RelatedProfile, error) {
+			return []storeread.RelatedProfile{
 				{Pubkey: "pk_related", Score: 99, Reasons: []string{"topic_overlap"}},
 			}, nil
 		},
-		getRisingProfilesFn: func(context.Context, time.Duration, int, int) ([]store.TrendingProfile, error) {
-			return []store.TrendingProfile{
+		getRisingProfilesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingProfile, error) {
+			return []storeread.TrendingProfile{
 				{Pubkey: "pk_rising", Score: 88},
 			}, nil
 		},

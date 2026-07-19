@@ -22,13 +22,13 @@ func TestGetEventByID_LocalMissRelayFallbackSuccess(t *testing.T) {
 	}, HandlersOptions{
 		MaxBatchSize: 10,
 		QueryOptions: query.ServiceOptions{
-			FallbackReader: apiFakeFallbackReader{
+			FallbackReader: query.AdaptFallbackReader(apiFakeFallbackReader{
 				fetchEventsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
 					return map[string]json.RawMessage{
 						"evt_1": json.RawMessage(`{"id":"evt_1","kind":1}`),
 					}, nil
 				},
-			},
+			}),
 		},
 	})
 	mux := http.NewServeMux()

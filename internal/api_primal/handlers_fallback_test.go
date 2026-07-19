@@ -19,13 +19,13 @@ func TestPrimalGetEventByID_LocalMissRelayFallbackSuccess(t *testing.T) {
 	}, HandlersOptions{
 		MaxBatchSize: 10,
 		QueryOptions: query.ServiceOptions{
-			FallbackReader: primalFakeFallbackReader{
+			FallbackReader: query.AdaptFallbackReader(primalFakeFallbackReader{
 				fetchEventsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
 					return map[string]json.RawMessage{
 						"evt_1": json.RawMessage(`{"id":"evt_1","kind":1}`),
 					}, nil
 				},
-			},
+			}),
 		},
 	})
 
@@ -56,11 +56,11 @@ func TestPrimalGetEventByID_LocalMissRelayMissPreservesNotFound(t *testing.T) {
 	}, HandlersOptions{
 		MaxBatchSize: 10,
 		QueryOptions: query.ServiceOptions{
-			FallbackReader: primalFakeFallbackReader{
+			FallbackReader: query.AdaptFallbackReader(primalFakeFallbackReader{
 				fetchEventsByIDsFn: func(context.Context, []string) (map[string]json.RawMessage, error) {
 					return map[string]json.RawMessage{}, nil
 				},
-			},
+			}),
 		},
 	})
 
@@ -81,7 +81,7 @@ func TestPrimalGetProfileByPubkey_LocalMissRelayFallbackSuccess(t *testing.T) {
 	}, HandlersOptions{
 		MaxBatchSize: 10,
 		QueryOptions: query.ServiceOptions{
-			FallbackReader: primalFakeFallbackReader{
+			FallbackReader: query.AdaptFallbackReader(primalFakeFallbackReader{
 				fetchProfilesByPubkeysFn: func(context.Context, []string) (map[string]store.ProfileProjection, error) {
 					return map[string]store.ProfileProjection{
 						"pk_1": {
@@ -92,7 +92,7 @@ func TestPrimalGetProfileByPubkey_LocalMissRelayFallbackSuccess(t *testing.T) {
 						},
 					}, nil
 				},
-			},
+			}),
 		},
 	})
 
