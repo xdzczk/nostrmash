@@ -1,9 +1,11 @@
-package store
+package retention
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // supersededReplaceableKinds are the replaceable kinds whose older versions
@@ -48,7 +50,7 @@ var supersededReplaceableKinds = []int{0, 3, 10000, 10002, 10003, 30023}
 // (event_id, tag_name) (matching the replaceable derivation's own d_tag rule);
 // the replaceable_state lookup is a primary-key probe on (pubkey, kind, d_tag);
 // the jobs lookup is served by the unique index on jobs.idempotency_key.
-func (s *PostgresStore) PurgeSupersededReplaceableEvents(
+func (s *Retention) PurgeSupersededReplaceableEvents(
 	ctx context.Context,
 	supersededBefore time.Time,
 	deadGraceBefore time.Time,
@@ -67,6 +69,7 @@ func (s *PostgresStore) PurgeSupersededReplaceableEvents(
 		return 0, fmt.Errorf("deadGraceBefore is required")
 	}
 
+	started := time.Now()
 	tag, err := s.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT e.id
@@ -114,6 +117,7 @@ func (s *PostgresStore) PurgeSupersededReplaceableEvents(
 		deadGraceBefore.UTC(),
 		limit,
 	)
+	metrics.ObserveDBOperation("purge_superseded_replaceable_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge superseded replaceable events: %w", err)
 	}

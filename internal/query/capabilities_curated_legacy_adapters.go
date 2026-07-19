@@ -4,15 +4,15 @@ import (
 	"context"
 	"time"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type legacyNetworkStatsCapability interface {
-	GetNetworkStats(ctx context.Context) (store.NetworkStats, error)
+	GetNetworkStats(ctx context.Context) (readmodel.NetworkStats, error)
 }
 
 type legacyPublicDiscoveryNetworkStatsCapability interface {
-	GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (store.PublicDiscoveryNetworkStats, error)
+	GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (readmodel.PublicDiscoveryNetworkStats, error)
 }
 
 type legacyNetworkStatsAdapter struct {
@@ -43,7 +43,7 @@ func (a legacyPublicDiscoveryNetworkStatsAdapter) GetPublicDiscoveryNetworkStats
 }
 
 type legacyCuratedRecommendedReadsCapability interface {
-	GetCuratedRecommendedReads(ctx context.Context, limit int) ([]store.CuratedRecommendedRead, error)
+	GetCuratedRecommendedReads(ctx context.Context, limit int) ([]readmodel.CuratedRecommendedRead, error)
 }
 
 type legacyCuratedRecommendedReadsAdapter struct {
@@ -63,7 +63,7 @@ func (a legacyCuratedRecommendedReadsAdapter) GetCuratedRecommendedReads(ctx con
 }
 
 type legacyCuratedReadsTopicsCapability interface {
-	GetCuratedReadsTopics(ctx context.Context, limit int) ([]store.CuratedReadsTopic, error)
+	GetCuratedReadsTopics(ctx context.Context, limit int) ([]readmodel.CuratedReadsTopic, error)
 }
 
 type legacyCuratedReadsTopicsAdapter struct {
@@ -83,7 +83,7 @@ func (a legacyCuratedReadsTopicsAdapter) GetCuratedReadsTopics(ctx context.Conte
 }
 
 type legacyCuratedFeaturedAuthorsCapability interface {
-	GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]store.CuratedFeaturedAuthor, error)
+	GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]readmodel.CuratedFeaturedAuthor, error)
 }
 
 type legacyCuratedFeaturedAuthorsAdapter struct {
@@ -103,7 +103,7 @@ func (a legacyCuratedFeaturedAuthorsAdapter) GetCuratedFeaturedAuthors(ctx conte
 }
 
 type legacyTrendingHashtagsCapability interface {
-	GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingHashtag, error)
+	GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingHashtag, error)
 }
 
 type legacyTrendingHashtagsAdapter struct {
@@ -128,7 +128,7 @@ func (a legacyTrendingHashtagsAdapter) GetTrendingHashtags(
 }
 
 type legacyHashtagSummaryCapability interface {
-	GetHashtagSummary(ctx context.Context, hashtag string) (store.HashtagSummary, error)
+	GetHashtagSummary(ctx context.Context, hashtag string) (readmodel.HashtagSummary, error)
 }
 
 type legacyHashtagSummaryAdapter struct {
@@ -144,7 +144,7 @@ func (a legacyHashtagSummaryAdapter) GetHashtagSummary(ctx context.Context, hash
 }
 
 type legacyHashtagNotesCapability interface {
-	GetHashtagNotes(ctx context.Context, hashtag string, sort string, window string, limit int, offset int) ([]store.TrendingNote, error)
+	GetHashtagNotes(ctx context.Context, hashtag string, sort string, window string, limit int, offset int) ([]readmodel.TrendingNote, error)
 }
 
 type legacyHashtagNotesAdapter struct {
@@ -171,31 +171,31 @@ func (a legacyHashtagNotesAdapter) GetHashtagNotes(
 }
 
 type legacyRelatedHashtagsCapability interface {
-	GetRelatedHashtags(ctx context.Context, hashtag string, limit int) ([]store.RelatedHashtag, error)
+	GetRelatedHashtags(ctx context.Context, hashtag string, limit int) ([]readmodel.RelatedHashtag, error)
 }
 
 type legacyEventLinkedDomainsCapability interface {
-	GetEventLinkedDomains(ctx context.Context, eventID string, limit int) ([]store.EventDomainLinkProjection, error)
+	GetEventLinkedDomains(ctx context.Context, eventID string, limit int) ([]readmodel.EventDomainLinkProjection, error)
 }
 
 type legacyTopDomainsCapability interface {
-	GetTopDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]store.DomainStatProjection, error)
+	GetTopDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.DomainStatProjection, error)
 }
 
 type legacyTopDomainsByAuthorCapability interface {
-	GetTopDomainsByAuthor(ctx context.Context, pubkey string, window time.Duration, limit int, offset int) ([]store.DomainStatProjection, error)
+	GetTopDomainsByAuthor(ctx context.Context, pubkey string, window time.Duration, limit int, offset int) ([]readmodel.DomainStatProjection, error)
 }
 
 type legacyTrendingDomainsCapability interface {
-	GetTrendingDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]store.DomainSummaryProjection, error)
+	GetTrendingDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.DomainSummaryProjection, error)
 }
 
 type legacyDomainSummaryCapability interface {
-	GetDomainSummary(ctx context.Context, domain string, recentLimit int, topLimit int) (store.DomainSummaryProjection, error)
+	GetDomainSummary(ctx context.Context, domain string, recentLimit int, topLimit int) (readmodel.DomainSummaryProjection, error)
 }
 
 type legacyDomainNotesCapability interface {
-	GetDomainNotes(ctx context.Context, domain string, sort string, window string, limit int, offset int) ([]store.TrendingNote, error)
+	GetDomainNotes(ctx context.Context, domain string, sort string, window string, limit int, offset int) ([]readmodel.TrendingNote, error)
 }
 
 type legacyRelatedHashtagsAdapter struct {
@@ -339,11 +339,11 @@ func (a legacyDomainNotesAdapter) GetDomainNotes(
 }
 
 type legacyTrendingNotesCapability interface {
-	GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingNote, error)
+	GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingNote, error)
 }
 
 type legacyTrendingLongFormCapability interface {
-	GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingNote, error)
+	GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingNote, error)
 }
 
 type legacyTrendingLongFormAdapter struct {
@@ -368,7 +368,7 @@ func (a legacyTrendingLongFormAdapter) GetTrendingLongForm(
 }
 
 type legacyHotConversationsCapability interface {
-	GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]store.HotConversation, error)
+	GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.HotConversation, error)
 }
 
 type legacyTrustQualifiedTrendingNotesCapability interface {
@@ -378,9 +378,9 @@ type legacyTrustQualifiedTrendingNotesCapability interface {
 		limit int,
 		offset int,
 		mode string,
-		policy store.TrustQualificationPolicy,
+		policy readmodel.TrustQualificationPolicy,
 		maxStaleness time.Duration,
-	) ([]store.TrustQualifiedTrendingNote, bool, error)
+	) ([]readmodel.TrustQualifiedTrendingNote, bool, error)
 }
 
 type legacyTrendingNotesAdapter struct {
@@ -438,7 +438,7 @@ func (a legacyTrustQualifiedTrendingNotesAdapter) GetTrustQualifiedTrendingNotes
 	policy TrustQualificationPolicy,
 	maxStaleness time.Duration,
 ) ([]trustedNoteCandidate, bool, error) {
-	rows, ready, err := a.legacy.GetTrustQualifiedTrendingNotes(ctx, window, limit, offset, mode, store.TrustQualificationPolicy{
+	rows, ready, err := a.legacy.GetTrustQualifiedTrendingNotes(ctx, window, limit, offset, mode, readmodel.TrustQualificationPolicy{
 		MaxHops:      policy.MaxHops,
 		MinimumScore: policy.MinimumScore,
 	}, maxStaleness)
@@ -456,11 +456,11 @@ func (a legacyTrustQualifiedTrendingNotesAdapter) GetTrustQualifiedTrendingNotes
 }
 
 type legacyTrendingProfilesCapability interface {
-	GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingProfile, error)
+	GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingProfile, error)
 }
 
 type legacyRelatedProfilesCapability interface {
-	GetRelatedProfiles(ctx context.Context, pubkey string, limit int) ([]store.RelatedProfile, error)
+	GetRelatedProfiles(ctx context.Context, pubkey string, limit int) ([]readmodel.RelatedProfile, error)
 }
 
 type legacyTrustQualifiedTrendingProfilesCapability interface {
@@ -471,9 +471,9 @@ type legacyTrustQualifiedTrendingProfilesCapability interface {
 		offset int,
 		rising bool,
 		mode string,
-		policy store.TrustQualificationPolicy,
+		policy readmodel.TrustQualificationPolicy,
 		maxStaleness time.Duration,
-	) ([]store.TrustQualifiedTrendingProfile, bool, error)
+	) ([]readmodel.TrustQualifiedTrendingProfile, bool, error)
 }
 
 type legacyTrendingProfilesAdapter struct {
@@ -531,7 +531,7 @@ func (a legacyTrustQualifiedTrendingProfilesAdapter) GetTrustQualifiedTrendingPr
 	policy TrustQualificationPolicy,
 	maxStaleness time.Duration,
 ) ([]trustedProfileCandidate, bool, error) {
-	rows, ready, err := a.legacy.GetTrustQualifiedTrendingProfiles(ctx, window, limit, offset, rising, mode, store.TrustQualificationPolicy{
+	rows, ready, err := a.legacy.GetTrustQualifiedTrendingProfiles(ctx, window, limit, offset, rising, mode, readmodel.TrustQualificationPolicy{
 		MaxHops:      policy.MaxHops,
 		MinimumScore: policy.MinimumScore,
 	}, maxStaleness)
@@ -549,11 +549,11 @@ func (a legacyTrustQualifiedTrendingProfilesAdapter) GetTrustQualifiedTrendingPr
 }
 
 type legacyRisingProfilesCapability interface {
-	GetRisingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]store.TrendingProfile, error)
+	GetRisingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingProfile, error)
 }
 
 type legacyGroupedNoteAnalyticsCapability interface {
-	GetGroupedNoteAnalytics(ctx context.Context, req store.GroupedNoteAnalyticsQuery) (store.GroupedNoteAnalyticsProjection, error)
+	GetGroupedNoteAnalytics(ctx context.Context, req readmodel.GroupedNoteAnalyticsQuery) (readmodel.GroupedNoteAnalyticsProjection, error)
 }
 
 type legacyRisingProfilesAdapter struct {
@@ -585,7 +585,7 @@ func (a legacyGroupedNoteAnalyticsAdapter) GetGroupedNoteAnalytics(
 	ctx context.Context,
 	req GroupedNoteAnalyticsRequest,
 ) (GroupedNoteAnalyticsSummary, error) {
-	row, err := a.legacy.GetGroupedNoteAnalytics(ctx, store.GroupedNoteAnalyticsQuery{
+	row, err := a.legacy.GetGroupedNoteAnalytics(ctx, readmodel.GroupedNoteAnalyticsQuery{
 		Pubkey:        req.Pubkey,
 		WindowDays:    req.WindowDays,
 		GroupKind:     req.GroupKind,

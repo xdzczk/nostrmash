@@ -36,7 +36,10 @@ func (f WebsocketFetcher) FetchPage(ctx context.Context, relayURL string, reques
 	dialer := websocket.Dialer{
 		Proxy: http.ProxyFromEnvironment,
 	}
-	conn, _, err := dialer.DialContext(connectCtx, relayURL, nil)
+	conn, resp, err := dialer.DialContext(connectCtx, relayURL, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		return PageResult{}, fmt.Errorf("dial websocket: %w", err)
 	}

@@ -3,43 +3,43 @@ package query
 import (
 	"context"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type legacyAuthorAnalyticsSummaryReader interface {
-	GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) ([]store.AuthorAnalyticsSummaryProjection, error)
+	GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) ([]readmodel.AuthorAnalyticsSummaryProjection, error)
 }
 
 type legacyAuthorQuoteRepostRecentActivityReader interface {
-	GetAuthorQuoteRepostRecentActivity(ctx context.Context, pubkey string, limit int) ([]store.QuoteRepostActivityProjection, error)
+	GetAuthorQuoteRepostRecentActivity(ctx context.Context, pubkey string, limit int) ([]readmodel.QuoteRepostActivityProjection, error)
 }
 
 type legacyAuthorTopicStatsReader interface {
-	GetAuthorTopicStats(ctx context.Context, pubkey string, windowDays int, limit int) ([]store.AuthorTopicStatsProjection, error)
+	GetAuthorTopicStats(ctx context.Context, pubkey string, windowDays int, limit int) ([]readmodel.AuthorTopicStatsProjection, error)
 }
 
 type legacyAuthorTopLanguagesReader interface {
-	GetAuthorTopLanguages(ctx context.Context, pubkey string, windowDays int, limit int) ([]store.LanguageSummary, error)
+	GetAuthorTopLanguages(ctx context.Context, pubkey string, windowDays int, limit int) ([]readmodel.LanguageSummary, error)
 }
 
 type legacyAuthorRelayFootprintReader interface {
-	GetAuthorRelayFootprint(ctx context.Context, pubkey string, topRelayLimit int) (store.AuthorRelayFootprintProjection, error)
+	GetAuthorRelayFootprint(ctx context.Context, pubkey string, topRelayLimit int) (readmodel.AuthorRelayFootprintProjection, error)
 }
 
 type legacyAuthorMediaMixStatsReader interface {
-	GetAuthorMediaMixStats(ctx context.Context, pubkey string, windowDays int) (store.AuthorMediaMixStatsProjection, error)
+	GetAuthorMediaMixStats(ctx context.Context, pubkey string, windowDays int) (readmodel.AuthorMediaMixStatsProjection, error)
 }
 
 type legacyAuthorActivityWindowsReader interface {
-	GetAuthorActivityWindowBuckets(ctx context.Context, pubkey string, windowDays int) ([]store.AuthorActivityWindowBucketProjection, error)
+	GetAuthorActivityWindowBuckets(ctx context.Context, pubkey string, windowDays int) ([]readmodel.AuthorActivityWindowBucketProjection, error)
 }
 
 type legacyAuthorPostingPatternsReader interface {
-	GetAuthorPostingPatternBuckets(ctx context.Context, pubkey string, windowDays int) ([]store.AuthorPostingPatternBucketProjection, error)
+	GetAuthorPostingPatternBuckets(ctx context.Context, pubkey string, windowDays int) ([]readmodel.AuthorPostingPatternBucketProjection, error)
 }
 
 type legacyAuthorTopNotesReader interface {
-	GetAuthorTopNotes(ctx context.Context, pubkey string, windowDays int, limit int) ([]store.AuthorTopNoteProjection, error)
+	GetAuthorTopNotes(ctx context.Context, pubkey string, windowDays int, limit int) ([]readmodel.AuthorTopNoteProjection, error)
 }
 
 type legacyAuthorRecycleCandidatesReader interface {
@@ -53,7 +53,7 @@ type legacyAuthorRecycleCandidatesReader interface {
 		excludeRecentlyReposted bool,
 		recentRepostWindowDays int,
 		limit int,
-	) ([]store.AuthorRecycleCandidateProjection, error)
+	) ([]readmodel.AuthorRecycleCandidateProjection, error)
 }
 
 type legacyAuthorPerformanceAggregateReader interface {
@@ -61,9 +61,9 @@ type legacyAuthorPerformanceAggregateReader interface {
 		ctx context.Context,
 		pubkey string,
 		windowDays int,
-	) (store.AuthorPerformanceAggregateProjection, store.AuthorPerformanceAggregateProjection, error)
-	GetAuthorMediaMixStats(ctx context.Context, pubkey string, windowDays int) (store.AuthorMediaMixStatsProjection, error)
-	GetAuthorTopicStats(ctx context.Context, pubkey string, windowDays int, limit int) ([]store.AuthorTopicStatsProjection, error)
+	) (readmodel.AuthorPerformanceAggregateProjection, readmodel.AuthorPerformanceAggregateProjection, error)
+	GetAuthorMediaMixStats(ctx context.Context, pubkey string, windowDays int) (readmodel.AuthorMediaMixStatsProjection, error)
+	GetAuthorTopicStats(ctx context.Context, pubkey string, windowDays int, limit int) ([]readmodel.AuthorTopicStatsProjection, error)
 }
 
 func (a legacyReaderAdapter) GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) (AuthorAnalyticsSummary, error) {

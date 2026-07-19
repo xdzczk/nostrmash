@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *PostgresStore) GetParameterizedReplaceableList(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetParameterizedReplaceableList(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -54,7 +54,7 @@ func (s *PostgresStore) GetParameterizedReplaceableList(ctx context.Context, pub
 	return out, nil
 }
 
-func (s *PostgresStore) GetParameterizedReplaceableEvent(
+func (s *Read) GetParameterizedReplaceableEvent(
 	ctx context.Context,
 	pubkey string,
 	kind int,
@@ -87,7 +87,7 @@ func (s *PostgresStore) GetParameterizedReplaceableEvent(
 	return json.RawMessage(raw), nil
 }
 
-func (s *PostgresStore) GetParameterizedReplaceableEvents(ctx context.Context, kind int, dTag string, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetParameterizedReplaceableEvents(ctx context.Context, kind int, dTag string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -127,7 +127,7 @@ func (s *PostgresStore) GetParameterizedReplaceableEvents(ctx context.Context, k
 	}
 	return out, nil
 }
-func (s *PostgresStore) GetParameterizedReplaceableListByIdentifier(
+func (s *Read) GetParameterizedReplaceableListByIdentifier(
 	ctx context.Context,
 	pubkey string,
 	kind int,

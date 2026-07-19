@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-type wsFilterHandler func(WSGateway, context.Context, map[string]any, any) ([]any, error)
+type wsFilterHandler func(context.Context, WSGateway, map[string]any, any) ([]any, error)
 type wsFilterKindResolver func(any) string
 
 type wsFilterRoute struct {
@@ -41,12 +41,12 @@ func (g WSGateway) resolveFilter(ctx context.Context, filter map[string]any) ([]
 		if !ok {
 			continue
 		}
-		return route.handler(g, ctx, filter, raw)
+		return route.handler(ctx, g, filter, raw)
 	}
 	return nil, errors.New("unsupported")
 }
 
-func wsCacheFilterHandler(g WSGateway, ctx context.Context, _ map[string]any, raw any) ([]any, error) {
+func wsCacheFilterHandler(ctx context.Context, g WSGateway, _ map[string]any, raw any) ([]any, error) {
 	reqName, kwargs, err := parseCacheCallFilter(raw)
 	if err != nil {
 		return nil, err
@@ -54,11 +54,11 @@ func wsCacheFilterHandler(g WSGateway, ctx context.Context, _ map[string]any, ra
 	return g.dispatchCacheCall(ctx, reqName, kwargs)
 }
 
-func wsIDsFilterHandler(g WSGateway, ctx context.Context, _ map[string]any, raw any) ([]any, error) {
+func wsIDsFilterHandler(ctx context.Context, g WSGateway, _ map[string]any, raw any) ([]any, error) {
 	return g.resolveIDsFilter(ctx, raw)
 }
 
-func wsSearchFilterHandler(g WSGateway, ctx context.Context, filter map[string]any, raw any) ([]any, error) {
+func wsSearchFilterHandler(ctx context.Context, g WSGateway, filter map[string]any, raw any) ([]any, error) {
 	search, ok := raw.(string)
 	if !ok {
 		return nil, errors.New("unsupported")

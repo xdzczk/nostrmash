@@ -3,8 +3,6 @@ package jobs
 import (
 	"context"
 	"time"
-
-	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // replaceableRetentionTarget is the bounded metric label for superseded
@@ -62,55 +60,33 @@ func RunReplaceableRetentionLoop(ctx context.Context, log RetentionLogger, purge
 		"delete_batch_limit", cfg.DeleteBatchLimit,
 	)
 
-	ticker := time.NewTicker(cfg.RunInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		runReplaceableRetentionDrain(ctx, log, purger, cfg)
+	runRetentionTicker(ctx, cfg.RunInterval, replaceableRetentionDrain(log, purger, cfg))
+}
+
+func replaceableRetentionDrain(log RetentionLogger, purger ReplaceableRetentionPurger, cfg ReplaceableRetentionConfig) retentionDrain {
+	return retentionDrain{
+		log:          log,
+		metricTarget: replaceableRetentionTarget,
+		batchLimit:   cfg.DeleteBatchLimit,
+		purgedEvent:  "replaceable_retention_purged",
+		failedEvent:  "replaceable_retention_purge_failed",
+		catchupEvent: "replaceable_retention_catchup",
+		purge: func(ctx context.Context) (int64, []any, error) {
+			now := time.Now().UTC()
+			supersededBefore := now.Add(-cfg.MinAge)
+			deadGraceBefore := now.Add(-cfg.DeadGrace)
+			deleted, err := purger.PurgeSupersededReplaceableEvents(ctx, supersededBefore, deadGraceBefore, cfg.DeleteBatchLimit)
+			if err != nil {
+				return 0, nil, err
+			}
+			return deleted, []any{
+				"superseded_before", supersededBefore.Format(time.RFC3339),
+				"dead_grace_before", deadGraceBefore.Format(time.RFC3339),
+			}, nil
+		},
 	}
 }
 
 func runReplaceableRetentionDrain(ctx context.Context, log RetentionLogger, purger ReplaceableRetentionPurger, cfg ReplaceableRetentionConfig) {
-	consecutiveSaturated := 0
-	for {
-		now := time.Now().UTC()
-		supersededBefore := now.Add(-cfg.MinAge)
-		deadGraceBefore := now.Add(-cfg.DeadGrace)
-		deleted, err := purger.PurgeSupersededReplaceableEvents(ctx, supersededBefore, deadGraceBefore, cfg.DeleteBatchLimit)
-		if err != nil {
-			metrics.IncRetentionPurgeRun(replaceableRetentionTarget, "error")
-			log.Error("replaceable_retention_purge_failed", "error", err)
-			return
-		}
-		metrics.IncRetentionPurgeRun(replaceableRetentionTarget, "ok")
-		metrics.AddRetentionPurgedRows(replaceableRetentionTarget, deleted)
-		if deleted > 0 {
-			log.Info(
-				"replaceable_retention_purged",
-				"deleted", deleted,
-				"superseded_before", supersededBefore.Format(time.RFC3339),
-				"dead_grace_before", deadGraceBefore.Format(time.RFC3339),
-			)
-		}
-		if int(deleted) < cfg.DeleteBatchLimit {
-			return
-		}
-		consecutiveSaturated++
-		if consecutiveSaturated%retentionCatchupReportEvery == 0 {
-			log.Info(
-				"replaceable_retention_catchup",
-				"consecutive_full_batches", consecutiveSaturated,
-				"delete_batch_limit", cfg.DeleteBatchLimit,
-			)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retentionCatchupPause):
-		}
-	}
+	replaceableRetentionDrain(log, purger, cfg).run(ctx)
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/store"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 // EventStore contains only the persistence methods needed by live ingest.
@@ -203,7 +203,7 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 			Kind:        result.Event.Kind,
 			Sig:         result.Event.Sig,
 			Content:     result.Event.Content,
-			RawJSON:     json.RawMessage(result.RawJSON),
+			RawJSON:     result.RawJSON,
 			FirstSeenAt: seenAt,
 			InsertedAt:  seenAt,
 		}
@@ -276,5 +276,5 @@ func safeJSONPayload(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
 	}
-	return json.RawMessage(raw)
+	return raw
 }

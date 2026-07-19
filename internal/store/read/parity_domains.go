@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 const domainMediaURLFilterClause = `NOT (url ~* '\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|heic|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|ogg|m4a|flac|aac|opus)(\?|#|$)')`
 
-func (s *PostgresStore) GetEventLinkedDomains(
+func (s *Read) GetEventLinkedDomains(
 	ctx context.Context,
 	eventID string,
 	limit int,
@@ -56,7 +56,7 @@ func (s *PostgresStore) GetEventLinkedDomains(
 	return out, nil
 }
 
-func (s *PostgresStore) GetTopDomainsByAuthor(
+func (s *Read) GetTopDomainsByAuthor(
 	ctx context.Context,
 	pubkey string,
 	window time.Duration,
@@ -73,7 +73,7 @@ func (s *PostgresStore) GetTopDomainsByAuthor(
 	return s.getTopDomains(ctx, window, limit, offset, &pubkey)
 }
 
-func (s *PostgresStore) GetTopDomains(
+func (s *Read) GetTopDomains(
 	ctx context.Context,
 	window time.Duration,
 	limit int,
@@ -85,7 +85,7 @@ func (s *PostgresStore) GetTopDomains(
 	return s.getTopDomains(ctx, window, limit, offset, nil)
 }
 
-func (s *PostgresStore) getTopDomains(
+func (s *Read) getTopDomains(
 	ctx context.Context,
 	window time.Duration,
 	limit int,
@@ -156,7 +156,7 @@ func (s *PostgresStore) getTopDomains(
 	return scanDomainStatRows(rows)
 }
 
-func (s *PostgresStore) GetTrendingDomains(
+func (s *Read) GetTrendingDomains(
 	ctx context.Context,
 	window time.Duration,
 	limit int,
@@ -233,7 +233,7 @@ func (s *PostgresStore) GetTrendingDomains(
 	return out, nil
 }
 
-func (s *PostgresStore) GetDomainSummary(
+func (s *Read) GetDomainSummary(
 	ctx context.Context,
 	domain string,
 	recentLimit int,
@@ -316,7 +316,7 @@ func (s *PostgresStore) GetDomainSummary(
 	return summary, nil
 }
 
-func (s *PostgresStore) GetDomainNotes(
+func (s *Read) GetDomainNotes(
 	ctx context.Context,
 	domain string,
 	sort string,
@@ -424,7 +424,7 @@ func (s *PostgresStore) GetDomainNotes(
 	return out, nil
 }
 
-func (s *PostgresStore) hasDomain(ctx context.Context, domain string) (bool, error) {
+func (s *Read) hasDomain(ctx context.Context, domain string) (bool, error) {
 	var exists bool
 	query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM event_urls WHERE domain = $1 AND %s)`, domainMediaURLFilterClause)
 	if err := s.pool.QueryRow(ctx, query, domain).Scan(&exists); err != nil {

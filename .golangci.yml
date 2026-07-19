@@ -2,12 +2,26 @@ run:
   timeout: 7m
 
 linters-settings:
+  govet:
+    enable:
+      - nilness
   revive:
     confidence: 0.8
     rules:
       - name: empty-block
       - name: unreachable-code
       - name: superfluous-else
+      - name: context-as-argument
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: if-return
+      - name: indent-error-flow
+      - name: increment-decrement
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: var-declaration
   gosec:
     excludes:
       - G306
@@ -50,6 +64,7 @@ linters-settings:
 linters:
   disable-all: true
   enable:
+    - bodyclose
     - errcheck
     - depguard
     - gosec
@@ -58,10 +73,17 @@ linters:
     - misspell
     - revive
     - staticcheck
+    - unconvert
     - unused
 
 issues:
   exclude-rules:
+    # Test helpers idiomatically take testing.TB first; the ctx-first rule is
+    # for production APIs, so scope it out of test code.
+    - linters:
+        - revive
+      text: "context-as-argument"
+      path: (_test\.go|internal/testutil/)
     - linters:
         - unused
       path: internal/config/config\.go

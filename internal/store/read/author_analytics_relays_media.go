@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *PostgresStore) GetAuthorRelayFootprint(
+func (s *Read) GetAuthorRelayFootprint(
 	ctx context.Context,
 	pubkey string,
 	topRelayLimit int,
@@ -72,7 +72,7 @@ func (s *PostgresStore) GetAuthorRelayFootprint(
 	return out, nil
 }
 
-func (s *PostgresStore) GetAuthorMediaMixStats(
+func (s *Read) GetAuthorMediaMixStats(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,

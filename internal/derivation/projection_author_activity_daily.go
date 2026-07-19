@@ -9,10 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// authorAnalyticsWindows controls which window_days values the live
-// per-pubkey rebuild aggregates. Exposed (via SetAuthorAnalyticsWindows)
-// so the live sweeper can be configured to skip the most expensive
-// windows when the operator prefers freshness over completeness.
+// defaultAuthorAnalyticsWindows controls which window_days values the live
+// per-pubkey rebuild aggregates when a Handlers instance was not given an
+// explicit list (via HandlersOptions.AuthorAnalyticsWindows), letting the live
+// sweeper skip the most expensive windows when the operator prefers freshness
+// over completeness.
 //
 // The default omits 90 because each window roughly doubles per-pubkey
 // rebuild cost (each window runs 5 heavy CTE-based INSERTs scanning
@@ -26,15 +27,15 @@ import (
 // change schema. Existing window_days=90 rows remain queryable but stop
 // being refreshed; operators who need 90d data refreshed in real time
 // can set WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS=7,30,90.
-var authorAnalyticsWindows = []int{7, 30}
+var defaultAuthorAnalyticsWindows = []int{7, 30}
 
-// SetAuthorAnalyticsWindows replaces the live sweeper's window list
-// with the provided values. Must be called before any sweeper
-// goroutines start. Values must satisfy the schema CHECK
-// (window_days IN (7, 30, 90)); unknown values are silently dropped.
-func SetAuthorAnalyticsWindows(windows []int) {
+// normalizeAuthorAnalyticsWindows validates a requested window list against the
+// schema CHECK (window_days IN (7, 30, 90)), dropping unknown/duplicate values.
+// An empty or entirely-invalid list yields nil, signalling the caller to fall
+// back to the package default.
+func normalizeAuthorAnalyticsWindows(windows []int) []int {
 	if len(windows) == 0 {
-		return
+		return nil
 	}
 	allowed := map[int]struct{}{7: {}, 30: {}, 90: {}}
 	seen := map[int]struct{}{}
@@ -50,9 +51,18 @@ func SetAuthorAnalyticsWindows(windows []int) {
 		out = append(out, w)
 	}
 	if len(out) == 0 {
-		return
+		return nil
 	}
-	authorAnalyticsWindows = out
+	return out
+}
+
+// authorAnalyticsWindowList returns this handler's configured window list,
+// falling back to the package default when none was provided.
+func (h *Handlers) authorAnalyticsWindowList() []int {
+	if len(h.authorAnalyticsWindows) > 0 {
+		return h.authorAnalyticsWindows
+	}
+	return defaultAuthorAnalyticsWindows
 }
 
 func (h *Handlers) ProjectAuthorAnalytics(ctx context.Context, eventID string) error {
@@ -364,7 +374,7 @@ func (h *Handlers) projectAuthorAnalyticsForPubkeyTx(
 	if err := h.rebuildAuthorActivityDailyTx(ctx, tx, pubkey, activityVersion); err != nil {
 		return err
 	}
-	if err := h.rebuildAuthorWindowedStatsTx(
+	return h.rebuildAuthorWindowedStatsTx(
 		ctx,
 		tx,
 		pubkey,
@@ -373,10 +383,7 @@ func (h *Handlers) projectAuthorAnalyticsForPubkeyTx(
 		mediaVersion,
 		activityWindowVersion,
 		postingPatternVersion,
-	); err != nil {
-		return err
-	}
-	return nil
+	)
 }
 
 func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, pubkey string, version int) error {
@@ -536,7 +543,7 @@ func (h *Handlers) rebuildAuthorWindowedStatsTx(
 	activityWindowVersion int,
 	postingPatternVersion int,
 ) error {
-	for _, windowDays := range authorAnalyticsWindows {
+	for _, windowDays := range h.authorAnalyticsWindowList() {
 		cutoff := computeWindowCutoff(windowDays)
 		if err := h.upsertAuthorEngagementWindowTx(ctx, tx, pubkey, windowDays, cutoff, engagementVersion); err != nil {
 			return err

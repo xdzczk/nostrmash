@@ -1,20 +1,32 @@
 package store
 
 import (
-	"encoding/json"
 	"errors"
-	"time"
+
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/xdzczk/nostrmash/internal/jobs"
-	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/store/account"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
+	"github.com/xdzczk/nostrmash/internal/store/retention"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 // PostgresStore persists Layer 1 ingest records into Postgres.
+//
+// Bounded-context data access is being carved into sub-packages (see
+// internal/store/account) that PostgresStore embeds so its public method set
+// and interface satisfaction stay intact for existing callers.
 type PostgresStore struct {
 	pool         *pgxpool.Pool
 	jobPublisher jobs.CanonicalEventPublisher
+
+	*account.Accounts
+	*retention.Retention
+	*storetrust.Trust
+	*storeread.Read
 }
 
 // CanonicalInsertResult exposes idempotent upsert outcomes for metrics.
@@ -22,329 +34,84 @@ type CanonicalInsertResult struct {
 	EventInserted bool
 }
 
-var ErrNotFound = errors.New("not found")
+// ErrNotFound is re-exported from readmodel so query-layer callers can compare
+// against it without importing the concrete store package.
+var ErrNotFound = readmodel.ErrNotFound
 
 // ProfileProjection is the latest projected profile metadata for one pubkey.
-type ProfileProjection struct {
-	Pubkey            string
-	MetadataEventID   string
-	MetadataCreatedAt int64
-	ProfileJSON       json.RawMessage
-}
+type ProfileProjection = readmodel.ProfileProjection
 
 // ProfilePublicStatsProjection captures denormalized public-facing profile counters.
-type ProfilePublicStatsProjection struct {
-	Pubkey           string
-	FollowerCount    int64
-	FollowingCount   int64
-	NoteCount        int64
-	ReplyCount       int64
-	RecentActivityAt *int64
-}
+type ProfilePublicStatsProjection = readmodel.ProfilePublicStatsProjection
 
-type EventCounts struct {
-	EventID       string
-	ReplyCount    int64
-	ReactionCount int64
-	RepostCount   int64
-	ZapCount      int64
-	ZapMSats      int64
-	Consistency   string
-}
+type EventCounts = readmodel.EventCounts
 
-type ThreadSummaryProjection struct {
-	RootEventID      string
-	ReplyCount       int64
-	ParticipantCount int
-	MaxDepth         int
-	LastActivityAt   int64
-	Replies24h       int64
-	Replies7d        int64
-	Consistency      string
-}
+type ThreadSummaryProjection = readmodel.ThreadSummaryProjection
 
-type HotConversation struct {
-	RootEventID      string
-	AuthorPubkey     string
-	CreatedAt        int64
-	Content          string
-	ReplyCount       int64
-	ParticipantCount int
-	LastActivityAt   int64
-	Replies24h       int64
-	Replies7d        int64
-	VelocityScore    float64
-	Consistency      string
-}
+type HotConversation = readmodel.HotConversation
 
-type EventWithProvenance struct {
-	Event  json.RawMessage
-	Relays []model.EventRelay
-}
+type EventWithProvenance = readmodel.EventWithProvenance
 
-type EventOrderCursor struct {
-	CreatedAt int64
-	ID        string
-}
+type EventOrderCursor = readmodel.EventOrderCursor
 
-type AuthorAnalyticsSummaryProjection struct {
-	Pubkey                   string
-	WindowDays               int
-	PostCount                int64
-	NoteCount                int64
-	ReplyCount               int64
-	ActiveDays               int
-	EngagementReceived       int64
-	EngagementGiven          int64
-	CadencePostsPerDay       float64
-	CadencePostsPerActiveDay float64
-	RecentActivityAt         *int64
-	MediaMix                 AuthorMediaMixStatsProjection
-	QuoteRepost              AuthorQuoteRepostWindowProjection
-}
+type AuthorAnalyticsSummaryProjection = readmodel.AuthorAnalyticsSummaryProjection
 
-type AuthorRelayFootprintProjection struct {
-	Pubkey           string
-	RelayCount       int64
-	SeenOnEventCount int64
-	TopRelays        []RelayUsageSummary
-}
+type AuthorRelayFootprintProjection = readmodel.AuthorRelayFootprintProjection
 
-type AuthorQuoteRepostWindowProjection struct {
-	QuotesMade      int64
-	RepostsMade     int64
-	QuotesReceived  int64
-	RepostsReceived int64
-}
+type AuthorQuoteRepostWindowProjection = readmodel.AuthorQuoteRepostWindowProjection
 
-type QuoteRepostLinkedNoteProjection struct {
-	EventID      string
-	AuthorPubkey string
-	CreatedAt    int64
-	Content      string
-}
+type QuoteRepostLinkedNoteProjection = readmodel.QuoteRepostLinkedNoteProjection
 
-type QuoteRepostActivityProjection struct {
-	EventID     string
-	ActorPubkey string
-	CreatedAt   int64
-	Action      string
-	Quote       string
-	LinkedNote  QuoteRepostLinkedNoteProjection
-}
+type QuoteRepostActivityProjection = readmodel.QuoteRepostActivityProjection
 
-type NoteQuoteRepostLinkageProjection struct {
-	EventID        string
-	QuoteCount     int64
-	RepostCount    int64
-	RecentActivity []QuoteRepostActivityProjection
-}
+type NoteQuoteRepostLinkageProjection = readmodel.NoteQuoteRepostLinkageProjection
 
-type AuthorTopicStatsProjection struct {
-	Pubkey     string
-	WindowDays int
-	Hashtag    string
-	UsageCount int64
-	ActiveDays int
-}
+type AuthorTopicStatsProjection = readmodel.AuthorTopicStatsProjection
 
-type EventDomainLinkProjection struct {
-	EventID string
-	URL     string
-	Domain  string
-}
+type EventDomainLinkProjection = readmodel.EventDomainLinkProjection
 
-type DomainStatProjection struct {
-	Domain        string
-	LinkCount     int64
-	NoteCount     int64
-	UniqueAuthors int64
-}
+type DomainStatProjection = readmodel.DomainStatProjection
 
-type DomainActivityProjection struct {
-	LinkCount     int64
-	NoteCount     int64
-	UniqueAuthors int64
-}
+type DomainActivityProjection = readmodel.DomainActivityProjection
 
-type DomainActivityStatsProjection struct {
-	Last24h DomainActivityProjection
-	Last7d  DomainActivityProjection
-	Last30d DomainActivityProjection
-	All     DomainActivityProjection
-}
+type DomainActivityStatsProjection = readmodel.DomainActivityStatsProjection
 
-type DomainSummaryProjection struct {
-	Domain        string
-	LatestEventAt *int64
-	Activity      DomainActivityStatsProjection
-	RecentNotes   []TrendingNote
-	TopNotes      []TrendingNote
-}
+type DomainSummaryProjection = readmodel.DomainSummaryProjection
 
-type AuthorMediaMixStatsProjection struct {
-	Pubkey               string
-	WindowDays           int
-	TotalPosts           int64
-	WithImageCount       int64
-	WithVideoCount       int64
-	WithLinkCount        int64
-	WithArticleCount     int64
-	TextOnlyCount        int64
-	TotalAttachmentCount int64
-}
+type AuthorMediaMixStatsProjection = readmodel.AuthorMediaMixStatsProjection
 
-type AuthorActivityWindowBucketProjection struct {
-	Pubkey             string
-	WindowDays         int
-	DayOfWeek          int
-	HourOfDay          int
-	EngagementReceived int64
-	ReplyReceived      int64
-	ReactionReceived   int64
-	RepostReceived     int64
-	ZapReceived        int64
-}
+type AuthorActivityWindowBucketProjection = readmodel.AuthorActivityWindowBucketProjection
 
-type AuthorPostingPatternBucketProjection struct {
-	Pubkey     string
-	WindowDays int
-	DayOfWeek  int
-	HourOfDay  int
-	PostCount  int64
-	NoteCount  int64
-	ReplyCount int64
-}
+type AuthorPostingPatternBucketProjection = readmodel.AuthorPostingPatternBucketProjection
 
-type AuthorTopNoteProjection struct {
-	EventID             string
-	CreatedAt           int64
-	Content             string
-	ReplyCount          int64
-	ReactionCount       int64
-	RepostCount         int64
-	ZapCount            int64
-	ZapMSats            int64
-	WeightedEngagement  float64
-	MediaSegment        string
-	PrimaryTopicHashtag *string
-}
+type AuthorTopNoteProjection = readmodel.AuthorTopNoteProjection
 
-type AuthorRecycleCandidateProjection struct {
-	EventID               string
-	CreatedAt             int64
-	Content               string
-	ReplyCount            int64
-	ReactionCount         int64
-	RepostCount           int64
-	ZapCount              int64
-	ZapMSats              int64
-	WeightedEngagement    float64
-	PerformancePercentile float64
-	HasRecentRepostMarker bool
-	IsReply               bool
-	MediaSegment          string
-	PrimaryTopicHashtag   *string
-}
+type AuthorRecycleCandidateProjection = readmodel.AuthorRecycleCandidateProjection
 
-type AuthorPerformanceAggregateProjection struct {
-	NoteCount                 int64
-	TotalWeightedEngagement   float64
-	AverageWeightedEngagement float64
-	MedianWeightedEngagement  float64
-	TotalReplyCount           int64
-	TotalReactionCount        int64
-	TotalRepostCount          int64
-	TotalZapCount             int64
-	TotalZapMSats             int64
-	AverageReplyCount         float64
-	AverageReactionCount      float64
-	AverageRepostCount        float64
-	AverageZapCount           float64
-	MedianReplyCount          float64
-	MedianReactionCount       float64
-	MedianRepostCount         float64
-	MedianZapCount            float64
-}
+type AuthorPerformanceAggregateProjection = readmodel.AuthorPerformanceAggregateProjection
 
-type GroupedNoteAnalyticsQuery struct {
-	Pubkey        string
-	WindowDays    int
-	GroupKind     string
-	GroupKey      string
-	MetadataTag   string
-	TopNotesLimit int
-	TopicsLimit   int
-}
+type GroupedNoteAnalyticsQuery = readmodel.GroupedNoteAnalyticsQuery
 
-type GroupedEngagementTotalsProjection struct {
-	ReplyCount    int64
-	ReactionCount int64
-	RepostCount   int64
-	ZapCount      int64
-	ZapMSats      int64
-}
+type GroupedEngagementTotalsProjection = readmodel.GroupedEngagementTotalsProjection
 
-type GroupedMediaSummaryProjection struct {
-	TotalPosts           int64
-	WithImageCount       int64
-	WithVideoCount       int64
-	WithLinkCount        int64
-	WithArticleCount     int64
-	TextOnlyCount        int64
-	TotalAttachmentCount int64
-}
+type GroupedMediaSummaryProjection = readmodel.GroupedMediaSummaryProjection
 
-type GroupedTopNoteProjection struct {
-	EventID             string
-	CreatedAt           int64
-	Content             string
-	ReplyCount          int64
-	ReactionCount       int64
-	RepostCount         int64
-	ZapCount            int64
-	ZapMSats            int64
-	WeightedEngagement  float64
-	MediaSegment        string
-	PrimaryTopicHashtag *string
-}
+type GroupedTopNoteProjection = readmodel.GroupedTopNoteProjection
 
-type GroupedTopicSummaryProjection struct {
-	Hashtag    string
-	UsageCount int64
-	ActiveDays int
-}
+type GroupedTopicSummaryProjection = readmodel.GroupedTopicSummaryProjection
 
-type GroupedNoteAnalyticsProjection struct {
-	Pubkey      string
-	WindowDays  int
-	GroupKind   string
-	GroupKey    string
-	MetadataTag string
-	NoteCount   int64
-	Engagement  GroupedEngagementTotalsProjection
-	Media       GroupedMediaSummaryProjection
-	TopNotes    []GroupedTopNoteProjection
-	TopTopics   []GroupedTopicSummaryProjection
-}
+type GroupedNoteAnalyticsProjection = readmodel.GroupedNoteAnalyticsProjection
 
-type SearchDocumentProjection struct {
-	EntityType     string
-	EntityID       string
-	Title          string
-	Body           string
-	Aliases        []string
-	IdentityTokens []string
-	Freshness      time.Time
-	Popularity     float64
-	TrustScore     *float64
-	Score          float64
-}
+type SearchDocumentProjection = readmodel.SearchDocumentProjection
 
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{
 		pool:         pool,
 		jobPublisher: jobs.NewQueuePublisher(5),
+		Accounts:     account.New(pool),
+		Retention:    retention.New(pool),
+		Trust:        storetrust.New(pool),
+		Read:         storeread.New(pool),
 	}
 }
 

@@ -115,10 +115,7 @@ func (h *Handlers) recomputeDMUnreadPairAndAggregate(ctx context.Context, tx pgx
 	if err != nil {
 		return err
 	}
-	if err := h.upsertDMUnreadCounterTx(ctx, tx, receiver, "", aggregateCount, aggregateLatestAt, aggregateLatestID); err != nil {
-		return err
-	}
-	return nil
+	return h.upsertDMUnreadCounterTx(ctx, tx, receiver, "", aggregateCount, aggregateLatestAt, aggregateLatestID)
 }
 
 func (h *Handlers) computeDMUnreadCounterTx(

@@ -25,9 +25,10 @@ type wsConnSession struct {
 	reqInWindow         int
 	dmReqInWindow       int
 	done                chan struct{}
+	closeOnce           sync.Once
 }
 
-func newWSConnSession(g WSGateway, conn *websocket.Conn, requestCtx context.Context, remoteAddr string) *wsConnSession {
+func newWSConnSession(requestCtx context.Context, g WSGateway, conn *websocket.Conn, remoteAddr string) *wsConnSession {
 	return &wsConnSession{
 		gateway:             g,
 		conn:                conn,
@@ -75,7 +76,22 @@ func (s *wsConnSession) run() {
 func (s *wsConnSession) sendFrame(frame any) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	return writeFrame(s.conn, frame)
+	if err := writeFrame(s.conn, frame); err != nil {
+		// A failed write means the connection is broken. Tear it down so the
+		// read loop unblocks and the session ends promptly, rather than
+		// silently continuing to operate on a dead connection.
+		s.teardown()
+		return err
+	}
+	return nil
+}
+
+// teardown closes the underlying connection exactly once. Closing unblocks the
+// blocking ReadMessage in run(), which then returns and drives full cleanup.
+func (s *wsConnSession) teardown() {
+	s.closeOnce.Do(func() {
+		_ = s.conn.Close()
+	})
 }
 
 func (s *wsConnSession) handleREQFrame(subID string, filters []any) error {

@@ -1,4 +1,4 @@
-package store
+package trust
 
 import (
 	"context"
@@ -32,7 +32,7 @@ func normalizeSeedPubkeys(pubkeys []string) []string {
 // (trimmed, lowercased, de-duplicated); blank entries are skipped. The
 // ON CONFLICT WHERE guard skips already-active rows so updated_at does not
 // churn on every restart. Returns the number of rows inserted or reactivated.
-func (s *PostgresStore) UpsertActiveSeeds(ctx context.Context, pubkeys []string) (int64, error) {
+func (s *Trust) UpsertActiveSeeds(ctx context.Context, pubkeys []string) (int64, error) {
 	if s == nil || s.pool == nil {
 		return 0, fmt.Errorf("store is not initialized")
 	}
@@ -58,7 +58,7 @@ func (s *PostgresStore) UpsertActiveSeeds(ctx context.Context, pubkeys []string)
 // within maxHops of a seed (seeds are hop 0, already included in the snapshot).
 // This is the authoritative trusted-author set the live ingest gate enforces
 // against. Returned pubkeys are lowercased.
-func (s *PostgresStore) LoadTrustedSnapshotPubkeys(ctx context.Context, maxHops int) ([]string, error) {
+func (s *Trust) LoadTrustedSnapshotPubkeys(ctx context.Context, maxHops int) ([]string, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -100,7 +100,7 @@ func (s *PostgresStore) LoadTrustedSnapshotPubkeys(ctx context.Context, maxHops 
 // every row and would deactivate all seeds. The trust_worker reconcile guards
 // against this by skipping reconciliation entirely when no seeds are
 // configured. Returns the number of seeds deactivated.
-func (s *PostgresStore) DeactivateMissingSeeds(ctx context.Context, keep []string) (int64, error) {
+func (s *Trust) DeactivateMissingSeeds(ctx context.Context, keep []string) (int64, error) {
 	if s == nil || s.pool == nil {
 		return 0, fmt.Errorf("store is not initialized")
 	}

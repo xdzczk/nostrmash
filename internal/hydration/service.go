@@ -310,11 +310,11 @@ func (r *hydrationRun) newestNoteAt() *time.Time {
 	return &t
 }
 
-func capStrings(in []string, max int) []string {
-	if max <= 0 || len(in) <= max {
+func capStrings(in []string, limit int) []string {
+	if limit <= 0 || len(in) <= limit {
 		return in
 	}
-	return in[:max]
+	return in[:limit]
 }
 
 func isHexPubkey(s string) bool {

@@ -7,10 +7,12 @@ import (
 )
 
 var (
-	meiliSyncTotal    *prometheus.CounterVec
-	meiliSyncDuration *prometheus.HistogramVec
-	meiliSearchTotal  *prometheus.CounterVec
-	meiliSearchDur    *prometheus.HistogramVec
+	meiliSyncTotal              *prometheus.CounterVec
+	meiliSyncDuration           *prometheus.HistogramVec
+	meiliSearchTotal            *prometheus.CounterVec
+	meiliSearchDur              *prometheus.HistogramVec
+	meiliPendingBacklog         prometheus.Gauge
+	meiliPendingOldestAgeSecond prometheus.Gauge
 )
 
 func registerMeiliMetrics() {
@@ -44,12 +46,40 @@ func registerMeiliMetrics() {
 		},
 		[]string{"index"},
 	)
+	meiliPendingBacklog = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_pending_meilisearch_syncs",
+			Help: "Current depth of the pending_meilisearch_syncs queue awaiting indexing.",
+		},
+	)
+	meiliPendingOldestAgeSecond = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_pending_meilisearch_sync_oldest_age_seconds",
+			Help: "Age in seconds of the oldest pending Meilisearch sync (search index lag SLO signal).",
+		},
+	)
 	registry.MustRegister(
 		meiliSyncTotal,
 		meiliSyncDuration,
 		meiliSearchTotal,
 		meiliSearchDur,
+		meiliPendingBacklog,
+		meiliPendingOldestAgeSecond,
 	)
+}
+
+// SetMeilisearchSyncBacklog publishes the pending Meilisearch sync queue depth
+// and the age of its oldest entry, driving the search-index-lag SLO alert.
+func SetMeilisearchSyncBacklog(backlog int64, oldestAgeSeconds float64) {
+	ensureRegistered()
+	if backlog < 0 {
+		backlog = 0
+	}
+	if oldestAgeSeconds < 0 {
+		oldestAgeSeconds = 0
+	}
+	meiliPendingBacklog.Set(float64(backlog))
+	meiliPendingOldestAgeSecond.Set(oldestAgeSeconds)
 }
 
 func ObserveMeiliSync(kind, outcome string, d time.Duration) {

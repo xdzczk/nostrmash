@@ -97,10 +97,7 @@ func (h TrustRetentionHooks) Validate() error {
 	if err := validateTrustRetentionHook("low_value_enrichment_state", h.LowValueEnrichmentState); err != nil {
 		return err
 	}
-	if err := validateTrustRetentionHook("fallback_transient_metadata", h.FallbackTransientMetadata); err != nil {
-		return err
-	}
-	return nil
+	return validateTrustRetentionHook("fallback_transient_metadata", h.FallbackTransientMetadata)
 }
 
 func (h TrustRetentionHooks) isZero() bool {

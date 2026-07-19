@@ -7,27 +7,27 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type legacyReader interface {
 	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
-	GetEventWithProvenance(ctx context.Context, id string) (store.EventWithProvenance, error)
+	GetEventWithProvenance(ctx context.Context, id string) (readmodel.EventWithProvenance, error)
 	GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
 	GetEventSeenOn(ctx context.Context, id string) ([]model.EventRelay, error)
-	GetProfileByPubkey(ctx context.Context, pubkey string) (store.ProfileProjection, error)
-	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
-	GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (store.ProfilePublicStatsProjection, error)
+	GetProfileByPubkey(ctx context.Context, pubkey string) (readmodel.ProfileProjection, error)
+	GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]readmodel.ProfileProjection, error)
+	GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (readmodel.ProfilePublicStatsProjection, error)
 	GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
 	GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
-	GetEventCounts(ctx context.Context, eventID string) (store.EventCounts, error)
-	GetEventReplies(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	GetEventCounts(ctx context.Context, eventID string) (readmodel.EventCounts, error)
+	GetEventReplies(ctx context.Context, eventID string, limit int, cursor *readmodel.EventOrderCursor) ([]json.RawMessage, *readmodel.EventOrderCursor, error)
 	GetEventAncestors(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error)
 	ListRelayHealth(ctx context.Context) ([]model.IngestCheckpoint, error)
-	GetContactListByPubkey(ctx context.Context, pubkey string) (store.ContactListProjection, error)
-	GetRelayListByPubkey(ctx context.Context, pubkey string) (store.RelayListProjection, error)
+	GetContactListByPubkey(ctx context.Context, pubkey string) (readmodel.ContactListProjection, error)
+	GetRelayListByPubkey(ctx context.Context, pubkey string) (readmodel.RelayListProjection, error)
 	SearchEventsByContent(ctx context.Context, query string, limit int) ([]json.RawMessage, error)
-	SearchProfiles(ctx context.Context, query string, limit int) ([]store.ProfileProjection, error)
+	SearchProfiles(ctx context.Context, query string, limit int) ([]readmodel.ProfileProjection, error)
 	GetRecentEventsByKindAndPubkey(ctx context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error)
 	GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error)
 	GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error)
@@ -52,16 +52,16 @@ type legacyProfilesSearchReader interface {
 		sort string,
 		limit int,
 		offset int,
-	) ([]store.ProfileProjection, error)
+	) ([]readmodel.ProfileProjection, error)
 }
 
 type legacySearchSuggestionsReader interface {
-	SuggestProfiles(ctx context.Context, query string, limit int) ([]store.ProfileProjection, error)
-	SuggestHashtags(ctx context.Context, query string, limit int) ([]store.TrendingHashtag, error)
+	SuggestProfiles(ctx context.Context, query string, limit int) ([]readmodel.ProfileProjection, error)
+	SuggestHashtags(ctx context.Context, query string, limit int) ([]readmodel.TrendingHashtag, error)
 }
 
 type legacySearchDocumentsReader interface {
-	SearchDocuments(ctx context.Context, query string, limit int) ([]store.SearchDocumentProjection, error)
+	SearchDocuments(ctx context.Context, query string, limit int) ([]readmodel.SearchDocumentProjection, error)
 }
 
 type legacyReaderAdapter struct {
@@ -69,7 +69,7 @@ type legacyReaderAdapter struct {
 }
 
 type legacyDescendingThreadWindowReader interface {
-	GetEventRepliesDescending(ctx context.Context, eventID string, limit int, cursor *store.EventOrderCursor, offset int) ([]json.RawMessage, *store.EventOrderCursor, error)
+	GetEventRepliesDescending(ctx context.Context, eventID string, limit int, cursor *readmodel.EventOrderCursor, offset int) ([]json.RawMessage, *readmodel.EventOrderCursor, error)
 }
 
 func (a legacyReaderAdapter) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
@@ -304,7 +304,7 @@ func (a legacyReaderAdapter) GetFollowersByPubkey(ctx context.Context, targetPub
 
 type legacyFallbackReader interface {
 	FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
-	FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error)
+	FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]readmodel.ProfileProjection, error)
 }
 
 type legacyFallbackReaderAdapter struct {
@@ -351,7 +351,7 @@ func (a legacyFallbackReaderAdapter) FetchProfilesByPubkeys(ctx context.Context,
 }
 
 type legacyFallbackProfilePersister interface {
-	PersistFallbackProfile(ctx context.Context, pp store.ProfileProjection) error
+	PersistFallbackProfile(ctx context.Context, pp readmodel.ProfileProjection) error
 }
 
 type legacyFallbackProfilePersisterAdapter struct {
@@ -359,7 +359,7 @@ type legacyFallbackProfilePersisterAdapter struct {
 }
 
 func (a legacyFallbackProfilePersisterAdapter) PersistFallbackProfile(ctx context.Context, p Profile) error {
-	return a.legacy.PersistFallbackProfile(ctx, store.ProfileProjection{
+	return a.legacy.PersistFallbackProfile(ctx, readmodel.ProfileProjection{
 		Pubkey:            p.Pubkey,
 		MetadataEventID:   p.MetadataEventID,
 		MetadataCreatedAt: p.MetadataCreatedAt,

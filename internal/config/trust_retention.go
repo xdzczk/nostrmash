@@ -92,10 +92,7 @@ func validateTrustRetentionHooksConfig(cfg TrustRetentionHooksConfig) error {
 	if err := validateTrustRetentionHookConfig("TRUST_RETENTION_ENRICHMENT_STATE", cfg.LowValueEnrichmentState); err != nil {
 		return err
 	}
-	if err := validateTrustRetentionHookConfig("TRUST_RETENTION_FALLBACK_METADATA", cfg.FallbackTransientMetadata); err != nil {
-		return err
-	}
-	return nil
+	return validateTrustRetentionHookConfig("TRUST_RETENTION_FALLBACK_METADATA", cfg.FallbackTransientMetadata)
 }
 
 func validateTrustRetentionHookConfig(prefix string, cfg TrustRetentionHookConfig) error {

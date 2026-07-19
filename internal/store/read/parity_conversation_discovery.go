@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 )
 
 // GetHotConversations returns projection-backed active conversation hotspots.
-func (s *PostgresStore) GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]HotConversation, error) {
+func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]HotConversation, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
-	"github.com/xdzczk/nostrmash/internal/store"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 func (s eventService) getEventWithFallback(ctx context.Context, eventID string) (json.RawMessage, error) {
@@ -18,7 +18,7 @@ func (s eventService) getEventWithFallback(ctx context.Context, eventID string) 
 		metrics.ObserveLookupLocal("event_by_id", true)
 		return raw, nil
 	}
-	if !errors.Is(err, store.ErrNotFound) {
+	if !errors.Is(err, readmodel.ErrNotFound) {
 		return nil, err
 	}
 	metrics.ObserveLookupLocal("event_by_id", false)

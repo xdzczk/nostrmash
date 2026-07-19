@@ -53,6 +53,11 @@ func TestImportBoundaries(t *testing.T) {
 				if strings.HasPrefix(path, filepath.ToSlash("cmd/api/")) {
 					return false
 				}
+				// internal/app/api is the API binary's composition root and is
+				// permitted to wire the primal adapter alongside the native one.
+				if strings.HasPrefix(path, filepath.ToSlash("internal/app/api/")) {
+					return false
+				}
 				if strings.HasPrefix(path, filepath.ToSlash("internal/api_primal/")) {
 					return false
 				}
@@ -69,6 +74,23 @@ func TestImportBoundaries(t *testing.T) {
 			},
 			forbidden: []string{
 				"github.com/xdzczk/nostrmash/internal/derivation",
+			},
+		},
+		{
+			// The store bounded-context sub-packages (account, retention,
+			// trust, read) are independent contexts composed by the root
+			// PostgresStore. They must not depend on the parent store package
+			// or on each other; shared read models live in internal/readmodel.
+			name: "store bounded contexts stay independent",
+			appliesTo: func(path string) bool {
+				p := filepath.ToSlash(path)
+				return strings.HasPrefix(p, "internal/store/account/") ||
+					strings.HasPrefix(p, "internal/store/retention/") ||
+					strings.HasPrefix(p, "internal/store/trust/") ||
+					strings.HasPrefix(p, "internal/store/read/")
+			},
+			forbidden: []string{
+				"github.com/xdzczk/nostrmash/internal/store",
 			},
 		},
 		{
@@ -91,6 +113,10 @@ func TestImportBoundaries(t *testing.T) {
 				"github.com/xdzczk/nostrmash/internal/api",
 				"github.com/xdzczk/nostrmash/internal/api_primal",
 				"github.com/xdzczk/nostrmash/internal/transport",
+				// query consumes neutral readmodel DTOs and reaches the store only
+				// through injected interfaces; it must not import the concrete store
+				// package (test files are exempt and may use store aliases).
+				"github.com/xdzczk/nostrmash/internal/store",
 			},
 		},
 		{
@@ -110,6 +136,17 @@ func TestImportBoundaries(t *testing.T) {
 			},
 			forbidden: []string{
 				"github.com/xdzczk/nostrmash/internal/api",
+			},
+		},
+		{
+			name: "meili adapter does not depend on query orchestration",
+			appliesTo: func(path string) bool {
+				return strings.HasPrefix(path, filepath.ToSlash("internal/meili/"))
+			},
+			// meili is a lower-level search adapter; it returns neutral readmodel
+			// DTOs and must not import the higher-level query orchestration layer.
+			forbidden: []string{
+				"github.com/xdzczk/nostrmash/internal/query",
 			},
 		},
 		{

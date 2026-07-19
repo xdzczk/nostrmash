@@ -119,9 +119,9 @@ func (r *Reconciler) reconcileOnce(ctx context.Context) {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	var added, removed int
+	var drained []*managedRelay
 
 	for url := range desiredSet {
 		if _, exists := r.managers[url]; !exists {
@@ -135,16 +135,24 @@ func (r *Reconciler) reconcileOnce(ctx context.Context) {
 		if _, wanted := desiredSet[url]; !wanted {
 			managed.cancel()
 			delete(r.managers, url)
+			drained = append(drained, managed)
 			removed++
 			metrics.IncRelayReconcilerAction("remove")
 		}
 	}
 
+	activeCount := len(r.managers)
+	r.mu.Unlock()
+
+	// Wait for removed relay goroutines to finish before returning so the
+	// caller (and ultimately the DB pool) never races an in-flight handler.
+	r.waitForManagers(drained)
+
 	if added > 0 || removed > 0 {
 		r.log.Info("relay_reconciler_applied",
 			"added", added,
 			"removed", removed,
-			"active", len(r.managers),
+			"active", activeCount,
 		)
 	}
 }
@@ -245,10 +253,36 @@ func (r *Reconciler) reportStatus(ctx context.Context, relayURL string, state St
 
 func (r *Reconciler) drainAll() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	pending := make([]*managedRelay, 0, len(r.managers))
 	for url, managed := range r.managers {
 		managed.cancel()
+		pending = append(pending, managed)
 		delete(r.managers, url)
+	}
+	r.mu.Unlock()
+
+	r.waitForManagers(pending)
+}
+
+// waitForManagers blocks until every supplied relay goroutine has exited or the
+// shared drain timeout elapses, whichever comes first. Callers must have
+// already cancelled each manager's context.
+func (r *Reconciler) waitForManagers(managed []*managedRelay) {
+	if len(managed) == 0 {
+		return
+	}
+	deadline := time.NewTimer(r.drainTimeout)
+	defer deadline.Stop()
+	for _, m := range managed {
+		if m == nil || m.done == nil {
+			continue
+		}
+		select {
+		case <-m.done:
+		case <-deadline.C:
+			r.log.Warn("relay_reconciler_drain_timeout", "drain_timeout", r.drainTimeout.String())
+			return
+		}
 	}
 }
 

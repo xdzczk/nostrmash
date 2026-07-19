@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 // ThreadRequest captures transport-agnostic inputs for assembling one thread view.
@@ -83,11 +84,8 @@ type SearchSuggestionsResult struct {
 	Hashtags []HashtagSuggestion `json:"hashtags"`
 }
 
-type HashtagSuggestion struct {
-	Hashtag       string `json:"hashtag"`
-	EventCount    int64  `json:"event_count"`
-	UniqueAuthors int64  `json:"unique_authors"`
-}
+// HashtagSuggestion is re-exported from the neutral readmodel package.
+type HashtagSuggestion = readmodel.HashtagSuggestion
 
 type NotesSearchParams struct {
 	Query    string
@@ -105,18 +103,8 @@ type ProfileSearchParams struct {
 	Sort   string
 }
 
-type SearchDocument struct {
-	EntityType     string
-	EntityID       string
-	Title          string
-	Body           string
-	Aliases        []string
-	IdentityTokens []string
-	Freshness      time.Time
-	Popularity     float64
-	TrustScore     *float64
-	Score          float64
-}
+// SearchDocument is re-exported from the neutral readmodel package.
+type SearchDocument = readmodel.SearchDocument
 
 type TrustModeMetadata struct {
 	TrustMode    string `json:"trust_mode"`

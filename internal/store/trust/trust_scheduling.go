@@ -1,4 +1,4 @@
-package store
+package trust
 
 import (
 	"context"
@@ -65,7 +65,7 @@ func SortRelaysByWeights(normalized []string, baseOrder map[string]int, weights 
 	return sorted
 }
 
-func (s *PostgresStore) ListTrustRelayCandidates(
+func (s *Trust) ListTrustRelayCandidates(
 	ctx context.Context,
 	query TrustRelayCandidateQuery,
 ) ([]TrustRelayCandidate, error) {
@@ -164,7 +164,7 @@ func (s *PostgresStore) ListTrustRelayCandidates(
 	return out, nil
 }
 
-func (s *PostgresStore) PrioritizeConfiguredRelaysByTrust(
+func (s *Trust) PrioritizeConfiguredRelaysByTrust(
 	ctx context.Context,
 	relays []string,
 	topPubkeys int,
@@ -193,7 +193,7 @@ func (s *PostgresStore) PrioritizeConfiguredRelaysByTrust(
 	return sorted, nil
 }
 
-func (s *PostgresStore) ListTrustPubkeyCandidates(ctx context.Context, limit int) ([]TrustPubkeyCandidate, error) {
+func (s *Trust) ListTrustPubkeyCandidates(ctx context.Context, limit int) ([]TrustPubkeyCandidate, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

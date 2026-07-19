@@ -198,6 +198,10 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 	}
 	handlers := derivation.NewHandlersWithOptions(pool, derivation.HandlersOptions{
 		MeiliClient: meiliClient,
+		// The author-analytics sweeper (spawned below when enabled) reads its
+		// window list from the handlers instance; invalid/empty values fall back
+		// to the derivation package default.
+		AuthorAnalyticsWindows: cfg.AuthorAnalyticsSweeper.WindowsDays,
 	})
 
 	hydrationService, err := buildHydrationService(log, cfg, pool, postgresStore)
@@ -296,93 +300,126 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	runtimebootstrap.StartDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
 	logPoolCapacityBudget(log, cfg, bootstrap.Pool)
-	go RunJobRetentionLoop(ctx, log, bootstrap.Queue, cfg.JobRetention)
-	go RunInvalidEventsRetentionLoop(ctx, log, bootstrap.InvalidEventsStore, cfg.InvalidEventRetention)
-	go jobs.RunEngagementRetentionLoop(ctx, log, bootstrap.EngagementStore, jobs.EngagementRetentionConfig{
-		Enabled:          cfg.EngagementRetention.Enabled,
-		MaxAge:           cfg.EngagementRetention.MaxAge,
-		DeadGrace:        cfg.EngagementRetention.DeadGrace,
-		RunInterval:      cfg.EngagementRetention.RunInterval,
-		DeleteBatchLimit: cfg.EngagementRetention.DeleteBatchLimit,
+
+	// All background loops (retention, sweepers, metrics, claim loops) share a
+	// single cancellable context and WaitGroup so shutdown cancels every loop
+	// and waits for them to exit before the caller closes the DB pool.
+	loopCtx, cancelLoops := context.WithCancel(ctx)
+	defer cancelLoops()
+	var wg sync.WaitGroup
+	spawn := func(fn func(context.Context)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(loopCtx)
+		}()
+	}
+
+	spawn(func(c context.Context) { RunJobRetentionLoop(c, log, bootstrap.Queue, cfg.JobRetention) })
+	spawn(func(c context.Context) {
+		RunInvalidEventsRetentionLoop(c, log, bootstrap.InvalidEventsStore, cfg.InvalidEventRetention)
 	})
-	go jobs.RunReplaceableRetentionLoop(ctx, log, bootstrap.ReplaceableStore, jobs.ReplaceableRetentionConfig{
-		Enabled:          cfg.ReplaceableRetention.Enabled,
-		MinAge:           cfg.ReplaceableRetention.MinAge,
-		DeadGrace:        cfg.ReplaceableRetention.DeadGrace,
-		RunInterval:      cfg.ReplaceableRetention.RunInterval,
-		DeleteBatchLimit: cfg.ReplaceableRetention.DeleteBatchLimit,
+	spawn(func(c context.Context) {
+		jobs.RunEngagementRetentionLoop(c, log, bootstrap.EngagementStore, jobs.EngagementRetentionConfig{
+			Enabled:          cfg.EngagementRetention.Enabled,
+			MaxAge:           cfg.EngagementRetention.MaxAge,
+			DeadGrace:        cfg.EngagementRetention.DeadGrace,
+			RunInterval:      cfg.EngagementRetention.RunInterval,
+			DeleteBatchLimit: cfg.EngagementRetention.DeleteBatchLimit,
+		})
 	})
-	go jobs.RunDeletionRetentionLoop(ctx, log, bootstrap.DeletionStore, jobs.DeletionRetentionConfig{
-		Enabled:          cfg.DeletionRetention.Enabled,
-		MaxAge:           cfg.DeletionRetention.MaxAge,
-		DeadGrace:        cfg.DeletionRetention.DeadGrace,
-		RunInterval:      cfg.DeletionRetention.RunInterval,
-		DeleteBatchLimit: cfg.DeletionRetention.DeleteBatchLimit,
+	spawn(func(c context.Context) {
+		jobs.RunReplaceableRetentionLoop(c, log, bootstrap.ReplaceableStore, jobs.ReplaceableRetentionConfig{
+			Enabled:          cfg.ReplaceableRetention.Enabled,
+			MinAge:           cfg.ReplaceableRetention.MinAge,
+			DeadGrace:        cfg.ReplaceableRetention.DeadGrace,
+			RunInterval:      cfg.ReplaceableRetention.RunInterval,
+			DeleteBatchLimit: cfg.ReplaceableRetention.DeleteBatchLimit,
+		})
 	})
-	go jobs.RunUntrustedAuthorRetentionLoop(ctx, log, bootstrap.UntrustedStore, jobs.UntrustedAuthorRetentionConfig{
-		Enabled:          cfg.UntrustedAuthorRetention.Enabled,
-		MaxAge:           cfg.UntrustedAuthorRetention.MaxAge,
-		DeadGrace:        cfg.UntrustedAuthorRetention.DeadGrace,
-		RunInterval:      cfg.UntrustedAuthorRetention.RunInterval,
-		DeleteBatchLimit: cfg.UntrustedAuthorRetention.DeleteBatchLimit,
+	spawn(func(c context.Context) {
+		jobs.RunDeletionRetentionLoop(c, log, bootstrap.DeletionStore, jobs.DeletionRetentionConfig{
+			Enabled:          cfg.DeletionRetention.Enabled,
+			MaxAge:           cfg.DeletionRetention.MaxAge,
+			DeadGrace:        cfg.DeletionRetention.DeadGrace,
+			RunInterval:      cfg.DeletionRetention.RunInterval,
+			DeleteBatchLimit: cfg.DeletionRetention.DeleteBatchLimit,
+		})
 	})
-	go jobs.RunAuthorRecentRetentionLoop(ctx, log, bootstrap.AuthorRecentStore, jobs.AuthorRecentRetentionConfig{
-		Enabled:          cfg.AuthorRecentRetention.Enabled,
-		MaxAge:           cfg.AuthorRecentRetention.MaxAge,
-		PerAuthorCap:     cfg.AuthorRecentRetention.PerAuthorCap,
-		AuthorBatchLimit: cfg.AuthorRecentRetention.AuthorBatchLimit,
-		RunInterval:      cfg.AuthorRecentRetention.RunInterval,
-		DeleteBatchLimit: cfg.AuthorRecentRetention.DeleteBatchLimit,
+	spawn(func(c context.Context) {
+		jobs.RunUntrustedAuthorRetentionLoop(c, log, bootstrap.UntrustedStore, jobs.UntrustedAuthorRetentionConfig{
+			Enabled:          cfg.UntrustedAuthorRetention.Enabled,
+			MaxAge:           cfg.UntrustedAuthorRetention.MaxAge,
+			DeadGrace:        cfg.UntrustedAuthorRetention.DeadGrace,
+			RunInterval:      cfg.UntrustedAuthorRetention.RunInterval,
+			DeleteBatchLimit: cfg.UntrustedAuthorRetention.DeleteBatchLimit,
+		})
 	})
-	go jobs.RunSearchDocsRetentionLoop(ctx, log, bootstrap.SearchDocsStore, jobs.SearchDocsRetentionConfig{
-		Enabled:      cfg.SearchDocsRetention.Enabled,
-		BodyMaxAge:   cfg.SearchDocsRetention.BodyMaxAge,
-		BodyMaxChars: cfg.SearchDocsRetention.BodyMaxChars,
-		RunInterval:  cfg.SearchDocsRetention.RunInterval,
-		BatchLimit:   cfg.SearchDocsRetention.BatchLimit,
+	spawn(func(c context.Context) {
+		jobs.RunAuthorRecentRetentionLoop(c, log, bootstrap.AuthorRecentStore, jobs.AuthorRecentRetentionConfig{
+			Enabled:          cfg.AuthorRecentRetention.Enabled,
+			MaxAge:           cfg.AuthorRecentRetention.MaxAge,
+			PerAuthorCap:     cfg.AuthorRecentRetention.PerAuthorCap,
+			AuthorBatchLimit: cfg.AuthorRecentRetention.AuthorBatchLimit,
+			RunInterval:      cfg.AuthorRecentRetention.RunInterval,
+			DeleteBatchLimit: cfg.AuthorRecentRetention.DeleteBatchLimit,
+		})
 	})
-	go jobs.RunEventRelaysRetentionLoop(ctx, log, bootstrap.EventRelaysStore, jobs.EventRelaysRetentionConfig{
-		Enabled:          cfg.EventRelaysRetention.Enabled,
-		MaxAge:           cfg.EventRelaysRetention.MaxAge,
-		RunInterval:      cfg.EventRelaysRetention.RunInterval,
-		DeleteBatchLimit: cfg.EventRelaysRetention.DeleteBatchLimit,
+	spawn(func(c context.Context) {
+		jobs.RunSearchDocsRetentionLoop(c, log, bootstrap.SearchDocsStore, jobs.SearchDocsRetentionConfig{
+			Enabled:      cfg.SearchDocsRetention.Enabled,
+			BodyMaxAge:   cfg.SearchDocsRetention.BodyMaxAge,
+			BodyMaxChars: cfg.SearchDocsRetention.BodyMaxChars,
+			RunInterval:  cfg.SearchDocsRetention.RunInterval,
+			BatchLimit:   cfg.SearchDocsRetention.BatchLimit,
+		})
 	})
-	go jobs.RunTrustRetentionHooksLoop(ctx, log, bootstrap.TrustRetention, jobs.TrustRetentionHooksLoopConfig{
-		DiscoveryCandidates: jobs.TrustRetentionHookScope{
-			Enabled:          cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.Enabled,
-			TrustedHorizon:   cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.TrustedHorizon,
-			UntrustedHorizon: cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.UntrustedHorizon,
-		},
-		EnrichmentState: jobs.TrustRetentionHookScope{
-			Enabled:          cfg.TrustRetentionHooks.LowValueEnrichmentState.Enabled,
-			TrustedHorizon:   cfg.TrustRetentionHooks.LowValueEnrichmentState.TrustedHorizon,
-			UntrustedHorizon: cfg.TrustRetentionHooks.LowValueEnrichmentState.UntrustedHorizon,
-		},
-		RunInterval:      cfg.TrustRetentionLoop.RunInterval,
-		DeleteBatchLimit: cfg.TrustRetentionLoop.DeleteBatchLimit,
+	spawn(func(c context.Context) {
+		jobs.RunEventRelaysRetentionLoop(c, log, bootstrap.EventRelaysStore, jobs.EventRelaysRetentionConfig{
+			Enabled:          cfg.EventRelaysRetention.Enabled,
+			MaxAge:           cfg.EventRelaysRetention.MaxAge,
+			RunInterval:      cfg.EventRelaysRetention.RunInterval,
+			DeleteBatchLimit: cfg.EventRelaysRetention.DeleteBatchLimit,
+		})
 	})
-	go jobs.RunRowCountMetricsReporter(ctx, log, bootstrap.Pool, 60*time.Second)
-	go RunStorageGovernorLoop(ctx, log, bootstrap.Store, bootstrap.Queue, cfg)
-	go RunAccountStateRecomputeLoop(ctx, log, bootstrap.Store, cfg.AccountState)
-	go RunMeilisearchStartupSync(ctx, log, bootstrap.MeiliClient, bootstrap.Pool)
-	go RunRelayWindowSnapshotsLoop(ctx, log, bootstrap.Handlers)
+	spawn(func(c context.Context) {
+		jobs.RunTrustRetentionHooksLoop(c, log, bootstrap.TrustRetention, jobs.TrustRetentionHooksLoopConfig{
+			DiscoveryCandidates: jobs.TrustRetentionHookScope{
+				Enabled:          cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.Enabled,
+				TrustedHorizon:   cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.TrustedHorizon,
+				UntrustedHorizon: cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.UntrustedHorizon,
+			},
+			EnrichmentState: jobs.TrustRetentionHookScope{
+				Enabled:          cfg.TrustRetentionHooks.LowValueEnrichmentState.Enabled,
+				TrustedHorizon:   cfg.TrustRetentionHooks.LowValueEnrichmentState.TrustedHorizon,
+				UntrustedHorizon: cfg.TrustRetentionHooks.LowValueEnrichmentState.UntrustedHorizon,
+			},
+			RunInterval:      cfg.TrustRetentionLoop.RunInterval,
+			DeleteBatchLimit: cfg.TrustRetentionLoop.DeleteBatchLimit,
+		})
+	})
+	spawn(func(c context.Context) { jobs.RunRowCountMetricsReporter(c, log, bootstrap.Pool, 60*time.Second) })
+	spawn(func(c context.Context) { RunStorageGovernorLoop(c, log, bootstrap.Store, bootstrap.Queue, cfg) })
+	spawn(func(c context.Context) { RunAccountStateRecomputeLoop(c, log, bootstrap.Store, cfg.AccountState) })
+	spawn(func(c context.Context) { RunMeilisearchStartupSync(c, log, bootstrap.MeiliClient, bootstrap.Pool) })
+	spawn(func(c context.Context) { RunRelayWindowSnapshotsLoop(c, log, bootstrap.Handlers) })
 
 	if cfg.AuthorAnalyticsSweeper.Enabled {
-		// Apply WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS before any sweeper
-		// goroutine starts so they all see a consistent window list.
-		// SetAuthorAnalyticsWindows silently ignores values outside the
-		// schema CHECK ({7, 30, 90}); on an entirely-invalid list it
-		// retains the package default ([7, 30]).
-		derivation.SetAuthorAnalyticsWindows(cfg.AuthorAnalyticsSweeper.WindowsDays)
+		// The window list (WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS) was applied to
+		// the derivation handlers at construction; every sweeper goroutine reads
+		// the same per-instance list. Invalid/empty values fall back to the
+		// package default ([7, 30]).
 		for i := 0; i < cfg.AuthorAnalyticsSweeper.Concurrency; i++ {
 			workerIdx := i
-			go RunAuthorAnalyticsSweeperLoop(
-				ctx,
-				log,
-				bootstrap.Handlers,
-				cfg.AuthorAnalyticsSweeper,
-				workerIdx,
-			)
+			spawn(func(c context.Context) {
+				RunAuthorAnalyticsSweeperLoop(
+					c,
+					log,
+					bootstrap.Handlers,
+					cfg.AuthorAnalyticsSweeper,
+					workerIdx,
+				)
+			})
 		}
 		log.Info(
 			"author_analytics_sweeper_enabled",
@@ -399,13 +436,15 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	if cfg.ProfileStatsSweeper.Enabled {
 		for i := 0; i < cfg.ProfileStatsSweeper.Concurrency; i++ {
 			workerIdx := i
-			go RunProfileStatsSweeperLoop(
-				ctx,
-				log,
-				bootstrap.Handlers,
-				cfg.ProfileStatsSweeper,
-				workerIdx,
-			)
+			spawn(func(c context.Context) {
+				RunProfileStatsSweeperLoop(
+					c,
+					log,
+					bootstrap.Handlers,
+					cfg.ProfileStatsSweeper,
+					workerIdx,
+				)
+			})
 		}
 		log.Info(
 			"profile_stats_sweeper_enabled",
@@ -420,13 +459,15 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	if cfg.MeilisearchSweeper.Enabled && bootstrap.MeiliClient != nil && bootstrap.MeiliClient.Enabled() {
 		for i := 0; i < cfg.MeilisearchSweeper.Concurrency; i++ {
 			workerIdx := i
-			go RunMeilisearchSweeperLoop(
-				ctx,
-				log,
-				bootstrap.Handlers,
-				cfg.MeilisearchSweeper,
-				workerIdx,
-			)
+			spawn(func(c context.Context) {
+				RunMeilisearchSweeperLoop(
+					c,
+					log,
+					bootstrap.Handlers,
+					cfg.MeilisearchSweeper,
+					workerIdx,
+				)
+			})
 		}
 		log.Info(
 			"meilisearch_sweeper_enabled",
@@ -445,7 +486,7 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		}
 		registryStore := relayregistry.NewStore(bootstrap.Pool)
 		registryController := relaycontrol.NewController(slogLogger, registryStore, bootstrap.Pool, cfg.RelayRegistry)
-		go registryController.RunRefreshLoop(ctx)
+		spawn(registryController.RunRefreshLoop)
 	}
 	const (
 		pollInterval = 1 * time.Second
@@ -469,9 +510,12 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 			continue
 		}
 		enabledPools = append(enabledPools, spec.name)
-		go RunStaleRecoveryLoop(ctx, log, bootstrap.Queue, spec.name, cfg.JobRecovery)
+		poolName := spec.name
+		spawn(func(c context.Context) { RunStaleRecoveryLoop(c, log, bootstrap.Queue, poolName, cfg.JobRecovery) })
 	}
-	go RunQueueAndRebuildMetricsReporter(ctx, log, bootstrap.Pool, enabledPools, 30*time.Second)
+	spawn(func(c context.Context) {
+		RunQueueAndRebuildMetricsReporter(c, log, bootstrap.Pool, enabledPools, 30*time.Second)
+	})
 
 	log.Info(
 		"worker_started",
@@ -482,20 +526,14 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		"backfill_concurrency", cfg.BackfillConcurrency,
 	)
 
-	loopCtx, cancelLoops := context.WithCancel(ctx)
-	defer cancelLoops()
-
-	var wg sync.WaitGroup
 	for _, spec := range specs {
 		if spec.concurrency <= 0 {
 			continue
 		}
 		spec := spec
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		spawn(func(c context.Context) {
 			claimLoop(
-				loopCtx,
+				c,
 				log,
 				bootstrap.Queue,
 				bootstrap.WorkerID,
@@ -506,13 +544,36 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 				retryDelay,
 				bootstrap.ProcessJob,
 			)
-		}()
+		})
 	}
 
 	<-ctx.Done()
 	cancelLoops()
-	wg.Wait()
+	waitWithTimeout(&wg, workerDrainTimeout, func() {
+		log.Error("worker_background_loops_drain_timeout", "drain_timeout", workerDrainTimeout.String())
+	})
 	log.Info("shutdown_complete")
+}
+
+// workerDrainTimeout bounds how long shutdown waits for background worker loops
+// to exit after their context is cancelled, before the caller closes the pool.
+const workerDrainTimeout = 30 * time.Second
+
+// waitWithTimeout blocks until wg completes or timeout elapses, invoking onTimeout
+// once if the deadline is hit first.
+func waitWithTimeout(wg *sync.WaitGroup, timeout time.Duration, onTimeout func()) {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		if onTimeout != nil {
+			onTimeout()
+		}
+	}
 }
 
 func ResolveBuildVersion(appVersion, buildVersion string) string {
@@ -881,6 +942,11 @@ func RunMeilisearchSweeperLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// A single sweeper goroutine publishes the backlog/lag SLO gauge so
+			// the N goroutines don't all issue the same aggregate query each tick.
+			if workerIdx == 0 {
+				reportMeilisearchBacklogGauge(ctx, log, handlers)
+			}
 			started := time.Now()
 			processed, err := handlers.DrainPendingMeilisearchSyncBatch(ctx, cfg.BatchSize)
 			outcome := "ok"
@@ -917,6 +983,18 @@ func RunMeilisearchSweeperLoop(
 			}
 		}
 	}
+}
+
+// reportMeilisearchBacklogGauge publishes the pending Meilisearch sync backlog
+// and oldest-entry age to Prometheus. Failures are logged and swallowed so a
+// transient DB hiccup never wedges the sweeper.
+func reportMeilisearchBacklogGauge(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	backlog, oldestAge, err := handlers.PendingMeilisearchSyncStats(ctx)
+	if err != nil {
+		log.Error("meilisearch_sweeper_backlog_gauge_failed", "error", err)
+		return
+	}
+	metrics.SetMeilisearchSyncBacklog(backlog, oldestAge.Seconds())
 }
 
 // RunProfileStatsSweeperLoop drains the

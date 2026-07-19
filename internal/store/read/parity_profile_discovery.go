@@ -1,22 +1,28 @@
-package store
+package read
 
 import (
 	"context"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
-func (s *PostgresStore) GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {
+func (s *Read) GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {
 	return s.getProfileDiscoveryRows(ctx, window, limit, offset, false)
 }
 
-func (s *PostgresStore) GetRisingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {
+func (s *Read) GetRisingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {
 	return s.getProfileDiscoveryRows(ctx, window, limit, offset, true)
 }
 
 // GetRelatedProfiles returns bounded related-profile candidates for one focal pubkey.
-func (s *PostgresStore) GetRelatedProfiles(ctx context.Context, pubkey string, limit int) ([]RelatedProfile, error) {
+func (s *Read) GetRelatedProfiles(ctx context.Context, pubkey string, limit int) (_ []RelatedProfile, err error) {
+	started := time.Now()
+	defer func() {
+		metrics.ObserveDBOperation("get_related_profiles", dbResultFromErr(err), time.Since(started))
+	}()
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -294,13 +300,21 @@ func (s *PostgresStore) GetRelatedProfiles(ctx context.Context, pubkey string, l
 	return out, nil
 }
 
-func (s *PostgresStore) getProfileDiscoveryRows(
+func (s *Read) getProfileDiscoveryRows(
 	ctx context.Context,
 	window time.Duration,
 	limit int,
 	offset int,
 	rising bool,
-) ([]TrendingProfile, error) {
+) (_ []TrendingProfile, err error) {
+	started := time.Now()
+	op := "get_trending_profiles"
+	if rising {
+		op = "get_rising_profiles"
+	}
+	defer func() {
+		metrics.ObserveDBOperation(op, dbResultFromErr(err), time.Since(started))
+	}()
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

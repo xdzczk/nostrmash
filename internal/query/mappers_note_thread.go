@@ -2,10 +2,10 @@ package query
 
 import (
 	"github.com/xdzczk/nostrmash/internal/model"
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
-func eventWithProvenanceFromStore(row store.EventWithProvenance) EventWithProvenance {
+func eventWithProvenanceFromStore(row readmodel.EventWithProvenance) EventWithProvenance {
 	relays := make([]model.EventRelay, 0, len(row.Relays))
 	for _, relay := range row.Relays {
 		relays = append(relays, model.EventRelay{
@@ -20,7 +20,7 @@ func eventWithProvenanceFromStore(row store.EventWithProvenance) EventWithProven
 	}
 }
 
-func eventCountsFromStore(row store.EventCounts) EventCounts {
+func eventCountsFromStore(row readmodel.EventCounts) EventCounts {
 	return EventCounts{
 		EventID:       row.EventID,
 		ReplyCount:    row.ReplyCount,
@@ -32,7 +32,7 @@ func eventCountsFromStore(row store.EventCounts) EventCounts {
 	}
 }
 
-func threadSummaryFromStore(row store.ThreadSummaryProjection) ThreadSummary {
+func threadSummaryFromStore(row readmodel.ThreadSummaryProjection) ThreadSummary {
 	return ThreadSummary{
 		RootEventID:      row.RootEventID,
 		ReplyCount:       row.ReplyCount,
@@ -47,7 +47,7 @@ func threadSummaryFromStore(row store.ThreadSummaryProjection) ThreadSummary {
 	}
 }
 
-func noteStatsFromStore(row store.NoteStats) (NoteEngagementCounts, NoteMediaFlags) {
+func noteStatsFromStore(row readmodel.NoteStats) (NoteEngagementCounts, NoteMediaFlags) {
 	return NoteEngagementCounts{
 			ReplyCount:    row.ReplyCount,
 			ReactionCount: row.ReactionCount,
@@ -63,14 +63,14 @@ func noteStatsFromStore(row store.NoteStats) (NoteEngagementCounts, NoteMediaFla
 		}
 }
 
-func noteConversationActivityFromStore(row store.NoteConversationVelocity) NoteConversationActivity {
+func noteConversationActivityFromStore(row readmodel.NoteConversationVelocity) NoteConversationActivity {
 	return NoteConversationActivity{
 		Replies24h: row.Replies24h,
 		Replies7d:  row.Replies7d,
 	}
 }
 
-func relatedNoteFromStore(row store.RelatedNote) RelatedNote {
+func relatedNoteFromStore(row readmodel.RelatedNote) RelatedNote {
 	return RelatedNote{
 		EventID:      row.EventID,
 		AuthorPubkey: row.AuthorPubkey,

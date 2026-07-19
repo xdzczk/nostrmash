@@ -1,9 +1,11 @@
-package store
+package retention
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // PurgeStaleEventRelays deletes a bounded batch of event_relays provenance
@@ -15,7 +17,7 @@ import (
 // The seen_at scan is served by idx_event_relays_seen_at_pubkey (migration
 // 000045); the earliest-row check is served by the (event_id, relay_url)
 // primary key.
-func (s *PostgresStore) PurgeStaleEventRelays(
+func (s *Retention) PurgeStaleEventRelays(
 	ctx context.Context,
 	seenBefore time.Time,
 	limit int,
@@ -30,6 +32,7 @@ func (s *PostgresStore) PurgeStaleEventRelays(
 		return 0, fmt.Errorf("limit must be > 0")
 	}
 
+	started := time.Now()
 	tag, err := s.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT er.event_id, er.relay_url
@@ -51,6 +54,7 @@ func (s *PostgresStore) PurgeStaleEventRelays(
 		WHERE er.event_id = c.event_id
 		  AND er.relay_url = c.relay_url
 	`, seenBefore.UTC(), limit)
+	metrics.ObserveDBOperation("purge_stale_event_relays", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge stale event relays: %w", err)
 	}

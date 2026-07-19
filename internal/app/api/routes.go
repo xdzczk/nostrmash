@@ -1,4 +1,4 @@
-package main
+package appapi
 
 import (
 	"net/http"
@@ -195,6 +195,6 @@ func registerDeclaredRoutes(publicMux, adminMux *http.ServeMux, defs []routeDefi
 	}
 }
 
-func contractOwnedRoutes() []routeDefinition {
+func ContractOwnedRoutes() []routeDefinition {
 	return buildRouteDefinitions(nil, api.Handlers{}, api_primal.Handlers{}, api_primal.WSGateway{}, api.AdminHandlers{})
 }

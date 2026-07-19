@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func (s *PostgresStore) GetDirectMessages(ctx context.Context, pubkey string, peer string, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetDirectMessages(ctx context.Context, pubkey string, peer string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -98,7 +98,7 @@ func (s *PostgresStore) GetDirectMessages(ctx context.Context, pubkey string, pe
 	return out, nil
 }
 
-func (s *PostgresStore) GetDirectMessagesWithRange(
+func (s *Read) GetDirectMessagesWithRange(
 	ctx context.Context,
 	pubkey string,
 	peer string,

@@ -29,11 +29,46 @@ func (h Handlers) GetRelatedProfiles(w http.ResponseWriter, r *http.Request) {
 		"pubkey": pubkey,
 		"limit":  limit,
 	})
-	if h.writePublicCachedResponse(w, cachePolicy) {
-		return
-	}
-	related, err := h.service.GetRelatedProfiles(r.Context(), pubkey, limit)
-	if err != nil {
+	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
+		related, relatedErr := h.service.GetRelatedProfiles(r.Context(), pubkey, limit)
+		if relatedErr != nil {
+			return nil, relatedErr
+		}
+		relatedPubkeys := make([]string, 0, len(related))
+		for _, profile := range related {
+			relatedPubkeys = append(relatedPubkeys, profile.Pubkey)
+		}
+		identities, identitiesErr := h.resolveProfileIdentities(r.Context(), relatedPubkeys)
+		if identitiesErr != nil {
+			return nil, identitiesErr
+		}
+		items := make([]map[string]any, 0, len(related))
+		for _, profile := range related {
+			item := map[string]any{
+				"pubkey":                 profile.Pubkey,
+				"topic_overlap":          profile.TopicOverlap,
+				"reply_adjacency":        profile.ReplyAdjacency,
+				"interaction_adjacency":  profile.InteractionAdjacency,
+				"quote_repost_adjacency": profile.QuoteRepostAdjacency,
+				"reasons":                profile.Reasons,
+				"score":                  profile.Score,
+			}
+			if npub := encodeNpub(profile.Pubkey); npub != "" {
+				item["npub"] = npub
+			}
+			if identity, ok := identities[profile.Pubkey]; ok {
+				applyProfileIdentity(item, identity)
+			}
+			items = append(items, item)
+		}
+		payload := map[string]any{
+			"pubkey":      pubkey,
+			"related":     items,
+			"consistency": "eventual",
+		}
+		h.addDiscoveryTrustMetadata(payload)
+		return payload, nil
+	}); err != nil {
 		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "profile not found")
 			return
@@ -45,42 +80,6 @@ func (h Handlers) GetRelatedProfiles(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	relatedPubkeys := make([]string, 0, len(related))
-	for _, profile := range related {
-		relatedPubkeys = append(relatedPubkeys, profile.Pubkey)
-	}
-	identities, err := h.resolveProfileIdentities(r.Context(), relatedPubkeys)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-	items := make([]map[string]any, 0, len(related))
-	for _, profile := range related {
-		item := map[string]any{
-			"pubkey":                 profile.Pubkey,
-			"topic_overlap":          profile.TopicOverlap,
-			"reply_adjacency":        profile.ReplyAdjacency,
-			"interaction_adjacency":  profile.InteractionAdjacency,
-			"quote_repost_adjacency": profile.QuoteRepostAdjacency,
-			"reasons":                profile.Reasons,
-			"score":                  profile.Score,
-		}
-		if npub := encodeNpub(profile.Pubkey); npub != "" {
-			item["npub"] = npub
-		}
-		if identity, ok := identities[profile.Pubkey]; ok {
-			applyProfileIdentity(item, identity)
-		}
-		items = append(items, item)
-	}
-	payload := map[string]any{
-		"pubkey":      pubkey,
-		"related":     items,
-		"consistency": "eventual",
-	}
-	h.addDiscoveryTrustMetadata(payload)
-	h.cachePublicPayload(cachePolicy, payload)
-	writeJSON(w, http.StatusOK, payload)
 }
 
 func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request, surface string) {
@@ -99,25 +98,45 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if surface != "trending" && surface != "rising" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "unsupported discovery surface")
+		return
+	}
 	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "profiles_"+surface, map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
 	})
-	if h.writePublicCachedResponse(w, cachePolicy) {
-		return
-	}
-	var profilesRows []query.TrendingProfile
-	switch surface {
-	case "trending":
-		profilesRows, err = h.service.GetTrendingProfiles(r.Context(), window, limit, offset)
-	case "rising":
-		profilesRows, err = h.service.GetRisingProfiles(r.Context(), window, limit, offset)
-	default:
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "unsupported discovery surface")
-		return
-	}
-	if err != nil {
+	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
+		var profilesRows []query.TrendingProfile
+		var rowsErr error
+		switch surface {
+		case "rising":
+			profilesRows, rowsErr = h.service.GetRisingProfiles(r.Context(), window, limit, offset)
+		default:
+			profilesRows, rowsErr = h.service.GetTrendingProfiles(r.Context(), window, limit, offset)
+		}
+		if rowsErr != nil {
+			return nil, rowsErr
+		}
+		pubkeys := make([]string, 0, len(profilesRows))
+		for _, profile := range profilesRows {
+			pubkeys = append(pubkeys, profile.Pubkey)
+		}
+		identities, identitiesErr := h.resolveProfileIdentities(r.Context(), pubkeys)
+		if identitiesErr != nil {
+			return nil, identitiesErr
+		}
+		profiles := buildDiscoveryProfileItems(profilesRows, identities)
+		payload := map[string]any{
+			"surface":     surface,
+			"window":      windowLabel,
+			"profiles":    profiles,
+			"consistency": "eventual",
+		}
+		h.addDiscoveryTrustMetadata(payload)
+		return payload, nil
+	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
 			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "discovery profiles are not available on this deployment")
 			return
@@ -125,23 +144,4 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	pubkeys := make([]string, 0, len(profilesRows))
-	for _, profile := range profilesRows {
-		pubkeys = append(pubkeys, profile.Pubkey)
-	}
-	identities, err := h.resolveProfileIdentities(r.Context(), pubkeys)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-	profiles := buildDiscoveryProfileItems(profilesRows, identities)
-	payload := map[string]any{
-		"surface":     surface,
-		"window":      windowLabel,
-		"profiles":    profiles,
-		"consistency": "eventual",
-	}
-	h.addDiscoveryTrustMetadata(payload)
-	h.cachePublicPayload(cachePolicy, payload)
-	writeJSON(w, http.StatusOK, payload)
 }

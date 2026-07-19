@@ -11,7 +11,7 @@ import (
 
 	ms "github.com/meilisearch/meilisearch-go"
 	"github.com/xdzczk/nostrmash/internal/metrics"
-	"github.com/xdzczk/nostrmash/internal/query"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type eventHydrator interface {
@@ -127,7 +127,7 @@ func (s *Searcher) SearchProfiles(
 	_ string,
 	limit int,
 	offset int,
-) ([]query.Profile, error) {
+) ([]readmodel.Profile, error) {
 	started := time.Now()
 	outcome := "success"
 	defer func() {
@@ -146,7 +146,7 @@ func (s *Searcher) SearchProfiles(
 		outcome = "error"
 		return nil, err
 	}
-	out := make([]query.Profile, 0, len(resp.Hits))
+	out := make([]readmodel.Profile, 0, len(resp.Hits))
 	localHighlights := make(map[string]any)
 	for _, hit := range resp.Hits {
 		pubkey := hitString(hit, "pubkey")
@@ -156,7 +156,7 @@ func (s *Searcher) SearchProfiles(
 		if formatted := hitFormatted(hit); len(formatted) > 0 {
 			localHighlights[pubkey] = formatted
 		}
-		out = append(out, query.Profile{
+		out = append(out, readmodel.Profile{
 			Pubkey:            pubkey,
 			MetadataEventID:   hitString(hit, "metadata_event_id"),
 			MetadataCreatedAt: hitInt64(hit, "metadata_created_at"),
@@ -167,7 +167,7 @@ func (s *Searcher) SearchProfiles(
 	return out, nil
 }
 
-func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limit int) ([]query.Profile, error) {
+func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limit int) ([]readmodel.Profile, error) {
 	started := time.Now()
 	outcome := "success"
 	defer func() {
@@ -191,7 +191,7 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 		outcome = "error"
 		return nil, err
 	}
-	out := make([]query.Profile, 0, len(resp.Hits))
+	out := make([]readmodel.Profile, 0, len(resp.Hits))
 	localHighlights := make(map[string]any)
 	for _, hit := range resp.Hits {
 		pubkey := hitString(hit, "pubkey")
@@ -201,7 +201,7 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 		if formatted := hitFormatted(hit); len(formatted) > 0 {
 			localHighlights[pubkey] = formatted
 		}
-		out = append(out, query.Profile{
+		out = append(out, readmodel.Profile{
 			Pubkey:            pubkey,
 			MetadataEventID:   hitString(hit, "metadata_event_id"),
 			MetadataCreatedAt: hitInt64(hit, "metadata_created_at"),
@@ -212,12 +212,12 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 	return out, nil
 }
 
-func (s *Searcher) SuggestHashtags(ctx context.Context, searchQuery string, limit int) ([]query.HashtagSuggestion, error) {
+func (s *Searcher) SuggestHashtags(ctx context.Context, searchQuery string, limit int) ([]readmodel.HashtagSuggestion, error) {
 	rows, err := s.SearchDocuments(ctx, searchQuery, limit*3)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]query.HashtagSuggestion, 0, limit)
+	out := make([]readmodel.HashtagSuggestion, 0, limit)
 	seen := make(map[string]struct{}, limit)
 	for _, row := range rows {
 		if row.EntityType != "hashtag" {
@@ -231,7 +231,7 @@ func (s *Searcher) SuggestHashtags(ctx context.Context, searchQuery string, limi
 			continue
 		}
 		seen[tag] = struct{}{}
-		out = append(out, query.HashtagSuggestion{
+		out = append(out, readmodel.HashtagSuggestion{
 			Hashtag:    tag,
 			EventCount: int64(row.Popularity),
 		})
@@ -242,7 +242,7 @@ func (s *Searcher) SuggestHashtags(ctx context.Context, searchQuery string, limi
 	return out, nil
 }
 
-func (s *Searcher) SearchDocuments(ctx context.Context, searchQuery string, limit int) ([]query.SearchDocument, error) {
+func (s *Searcher) SearchDocuments(ctx context.Context, searchQuery string, limit int) ([]readmodel.SearchDocument, error) {
 	started := time.Now()
 	outcome := "success"
 	defer func() {
@@ -261,14 +261,14 @@ func (s *Searcher) SearchDocuments(ctx context.Context, searchQuery string, limi
 		outcome = "error"
 		return nil, err
 	}
-	out := make([]query.SearchDocument, 0, len(resp.Hits))
+	out := make([]readmodel.SearchDocument, 0, len(resp.Hits))
 	for _, hit := range resp.Hits {
 		entityType := hitString(hit, "entity_type")
 		entityID := hitString(hit, "entity_id")
 		if entityType == "" || entityID == "" {
 			continue
 		}
-		row := query.SearchDocument{
+		row := readmodel.SearchDocument{
 			EntityType:     entityType,
 			EntityID:       entityID,
 			Title:          hitString(hit, "title"),

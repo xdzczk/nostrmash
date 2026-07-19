@@ -194,7 +194,10 @@ func (c *Client) collectFromRelays(ctx context.Context, filter map[string]any, m
 
 func queryRelay(ctx context.Context, relayURL string, filter map[string]any, maxEvents int) ([]json.RawMessage, error) {
 	dialer := websocket.Dialer{}
-	conn, _, err := dialer.DialContext(ctx, relayURL, nil)
+	conn, resp, err := dialer.DialContext(ctx, relayURL, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("dial relay %s: %w", relayURL, err)
 	}

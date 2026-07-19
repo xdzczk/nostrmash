@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 func (s Service) GetBookmarks(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
@@ -20,7 +20,7 @@ func (s Service) GetBookmarks(ctx context.Context, pubkey string, limit int) ([]
 		if err == nil {
 			return []json.RawMessage{latest}, nil
 		}
-		if !errors.Is(err, store.ErrNotFound) && !IsUnsupportedCapability(err) {
+		if !errors.Is(err, readmodel.ErrNotFound) && !IsUnsupportedCapability(err) {
 			return nil, err
 		}
 	}

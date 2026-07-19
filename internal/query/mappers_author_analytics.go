@@ -3,10 +3,10 @@ package query
 import (
 	"fmt"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
-func authorAnalyticsSummaryFromStore(pubkey string, rows []store.AuthorAnalyticsSummaryProjection) AuthorAnalyticsSummary {
+func authorAnalyticsSummaryFromStore(pubkey string, rows []readmodel.AuthorAnalyticsSummaryProjection) AuthorAnalyticsSummary {
 	out := AuthorAnalyticsSummary{
 		Pubkey:  pubkey,
 		Windows: make([]AuthorAnalyticsWindowSummary, 0, len(rows)),
@@ -36,7 +36,7 @@ func authorAnalyticsSummaryFromStore(pubkey string, rows []store.AuthorAnalytics
 	return out
 }
 
-func authorRelayFootprintFromStore(row store.AuthorRelayFootprintProjection) AuthorRelayFootprintSummary {
+func authorRelayFootprintFromStore(row readmodel.AuthorRelayFootprintProjection) AuthorRelayFootprintSummary {
 	out := AuthorRelayFootprintSummary{
 		RelayCount:       row.RelayCount,
 		SeenOnEventCount: row.SeenOnEventCount,
@@ -48,7 +48,7 @@ func authorRelayFootprintFromStore(row store.AuthorRelayFootprintProjection) Aut
 	return out
 }
 
-func quoteRepostActivityFromStore(row store.QuoteRepostActivityProjection) QuoteRepostActivity {
+func quoteRepostActivityFromStore(row readmodel.QuoteRepostActivityProjection) QuoteRepostActivity {
 	return QuoteRepostActivity{
 		EventID:     row.EventID,
 		ActorPubkey: row.ActorPubkey,
@@ -64,7 +64,7 @@ func quoteRepostActivityFromStore(row store.QuoteRepostActivityProjection) Quote
 	}
 }
 
-func noteQuoteRepostLinkageFromStore(row store.NoteQuoteRepostLinkageProjection) NoteQuoteRepostLinkageSummary {
+func noteQuoteRepostLinkageFromStore(row readmodel.NoteQuoteRepostLinkageProjection) NoteQuoteRepostLinkageSummary {
 	out := NoteQuoteRepostLinkageSummary{
 		EventID:        row.EventID,
 		QuoteCount:     row.QuoteCount,
@@ -77,7 +77,7 @@ func noteQuoteRepostLinkageFromStore(row store.NoteQuoteRepostLinkageProjection)
 	return out
 }
 
-func authorTopicStatFromStore(row store.AuthorTopicStatsProjection) AuthorTopicStat {
+func authorTopicStatFromStore(row readmodel.AuthorTopicStatsProjection) AuthorTopicStat {
 	return AuthorTopicStat{
 		Hashtag:    row.Hashtag,
 		UsageCount: row.UsageCount,
@@ -85,7 +85,7 @@ func authorTopicStatFromStore(row store.AuthorTopicStatsProjection) AuthorTopicS
 	}
 }
 
-func authorMediaMixFromStore(row store.AuthorMediaMixStatsProjection) AuthorAnalyticsMediaMix {
+func authorMediaMixFromStore(row readmodel.AuthorMediaMixStatsProjection) AuthorAnalyticsMediaMix {
 	return AuthorAnalyticsMediaMix{
 		TotalPosts:           row.TotalPosts,
 		WithImageCount:       row.WithImageCount,
@@ -100,7 +100,7 @@ func authorMediaMixFromStore(row store.AuthorMediaMixStatsProjection) AuthorAnal
 func authorActivityWindowsFromStore(
 	pubkey string,
 	windowDays int,
-	rows []store.AuthorActivityWindowBucketProjection,
+	rows []readmodel.AuthorActivityWindowBucketProjection,
 ) AuthorActivityWindows {
 	byHour := make([]AuthorHourlyEngagementWindow, 24)
 	for hour := 0; hour < 24; hour++ {
@@ -149,7 +149,7 @@ func authorActivityWindowsFromStore(
 func authorPostingPatternsFromStore(
 	pubkey string,
 	windowDays int,
-	rows []store.AuthorPostingPatternBucketProjection,
+	rows []readmodel.AuthorPostingPatternBucketProjection,
 ) AuthorPostingPatterns {
 	byHour := make([]AuthorHourlyPostingPattern, 24)
 	for hour := 0; hour < 24; hour++ {
@@ -189,7 +189,7 @@ func authorPostingPatternsFromStore(
 	}
 }
 
-func authorTopNoteFromStore(row store.AuthorTopNoteProjection) AuthorTopNote {
+func authorTopNoteFromStore(row readmodel.AuthorTopNoteProjection) AuthorTopNote {
 	out := AuthorTopNote{
 		EventID:            row.EventID,
 		CreatedAt:          row.CreatedAt,
@@ -208,7 +208,7 @@ func authorTopNoteFromStore(row store.AuthorTopNoteProjection) AuthorTopNote {
 	return out
 }
 
-func authorRecycleCandidateFromStore(row store.AuthorRecycleCandidateProjection) AuthorRecycleCandidate {
+func authorRecycleCandidateFromStore(row readmodel.AuthorRecycleCandidateProjection) AuthorRecycleCandidate {
 	out := AuthorRecycleCandidate{
 		EventID:               row.EventID,
 		CreatedAt:             row.CreatedAt,
@@ -233,10 +233,10 @@ func authorRecycleCandidateFromStore(row store.AuthorRecycleCandidateProjection)
 func authorPerformanceSummaryFromStore(
 	pubkey string,
 	windowDays int,
-	current store.AuthorPerformanceAggregateProjection,
-	previous store.AuthorPerformanceAggregateProjection,
-	mediaMix store.AuthorMediaMixStatsProjection,
-	topics []store.AuthorTopicStatsProjection,
+	current readmodel.AuthorPerformanceAggregateProjection,
+	previous readmodel.AuthorPerformanceAggregateProjection,
+	mediaMix readmodel.AuthorMediaMixStatsProjection,
+	topics []readmodel.AuthorTopicStatsProjection,
 ) AuthorPerformanceSummary {
 	out := AuthorPerformanceSummary{
 		Pubkey:                  pubkey,
@@ -286,7 +286,7 @@ func authorPerformanceSummaryFromStore(
 	return out
 }
 
-func groupedNoteAnalyticsFromStore(row store.GroupedNoteAnalyticsProjection) GroupedNoteAnalyticsSummary {
+func groupedNoteAnalyticsFromStore(row readmodel.GroupedNoteAnalyticsProjection) GroupedNoteAnalyticsSummary {
 	out := GroupedNoteAnalyticsSummary{
 		Pubkey:      row.Pubkey,
 		Window:      fmt.Sprintf("%dd", row.WindowDays),

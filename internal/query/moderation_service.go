@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 func (s Service) GetMuteList(ctx context.Context, pubkey string) ([]string, error) {
 	if r := s.capabilities.moderation.listByKind; r != nil {
 		values, err := r.GetModerationList(ctx, pubkey, 10000)
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
+			if errors.Is(err, readmodel.ErrNotFound) {
 				return []string{}, nil
 			}
 			return nil, err
@@ -34,7 +34,7 @@ func (s Service) GetMutedBy(ctx context.Context, pubkey string, limit int) ([]js
 	if r := s.capabilities.moderation.mutedBy; r != nil {
 		values, err := r.GetMutedBy(ctx, pubkey, limit)
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
+			if errors.Is(err, readmodel.ErrNotFound) {
 				return []json.RawMessage{}, nil
 			}
 			return nil, err
@@ -48,7 +48,7 @@ func (s Service) GetAllowList(ctx context.Context, pubkey string) ([]string, err
 	if r := s.capabilities.moderation.listByKind; r != nil {
 		values, err := r.GetModerationList(ctx, pubkey, 10001)
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
+			if errors.Is(err, readmodel.ErrNotFound) {
 				return []string{}, nil
 			}
 			return nil, err
@@ -62,7 +62,7 @@ func (s Service) GetMuteLists(ctx context.Context, pubkey string) ([]string, err
 	if r := s.capabilities.moderation.listByIdentifier; r != nil {
 		values, err := r.GetModerationListByIdentifier(ctx, pubkey, "mutelists")
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
+			if errors.Is(err, readmodel.ErrNotFound) {
 				return []string{}, nil
 			}
 			return nil, err
@@ -76,7 +76,7 @@ func (s Service) GetIdentifierAllowList(ctx context.Context, pubkey string) ([]s
 	if r := s.capabilities.moderation.listByIdentifier; r != nil {
 		values, err := r.GetModerationListByIdentifier(ctx, pubkey, "allowlist")
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
+			if errors.Is(err, readmodel.ErrNotFound) {
 				return []string{}, nil
 			}
 			return nil, err

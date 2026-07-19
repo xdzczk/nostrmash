@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/logging"
+	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/query"
 )
 
@@ -43,6 +45,10 @@ type profilePublicSummaryResponse struct {
 	RecentNotePreviews []map[string]any            `json:"recent_note_previews"`
 	RelatedDiscovery   profileRelatedDiscovery     `json:"related_discovery"`
 	IdentityDetails    profileIdentityDetails      `json:"identity_details"`
+	// Partial is true when one or more enrichment sections (recent notes,
+	// related/rising profiles) failed to load for a reason other than
+	// not-found, so the client can distinguish "no data" from "degraded".
+	Partial bool `json:"partial"`
 }
 
 type profileHeroResponse struct {
@@ -226,8 +232,8 @@ func (h Handlers) GetProfilePublicSummary(w http.ResponseWriter, r *http.Request
 		return
 	}
 	identity := profileIdentityFieldsFromProfile(summary.Profile)
-	recentNotes, recentNotePreviews := h.loadProfileRecentNotes(r, summary.Profile.Pubkey)
-	relatedDiscovery := h.loadProfileRelatedDiscovery(r, summary.Profile.Pubkey)
+	recentNotes, recentNotePreviews, notesPartial := h.loadProfileRecentNotes(r, summary.Profile.Pubkey)
+	relatedDiscovery, discoveryPartial := h.loadProfileRelatedDiscovery(r, summary.Profile.Pubkey)
 	heroCounters := profileSummaryStatsResponse{
 		FollowerCount:    summary.Stats.FollowerCount,
 		FollowingCount:   summary.Stats.FollowingCount,
@@ -284,18 +290,22 @@ func (h Handlers) GetProfilePublicSummary(w http.ResponseWriter, r *http.Request
 		RecentNotePreviews: recentNotePreviews,
 		RelatedDiscovery:   relatedDiscovery,
 		IdentityDetails:    identityDetails,
+		Partial:            notesPartial || discoveryPartial,
 	})
 }
 
-func (h Handlers) loadProfileRecentNotes(r *http.Request, pubkey string) ([]json.RawMessage, []map[string]any) {
+// loadProfileRecentNotes returns the author's recent notes plus a partial flag
+// that is true when the load failed for a reason other than not-found.
+func (h Handlers) loadProfileRecentNotes(r *http.Request, pubkey string) ([]json.RawMessage, []map[string]any, bool) {
 	notes, err := h.service.GetAuthorEvents(r.Context(), pubkey, 20)
 	if err != nil {
-		return []json.RawMessage{}, []map[string]any{}
+		partial := h.noteEnrichmentFailure(r, "profile_public_summary", "recent_notes", pubkey, err)
+		return []json.RawMessage{}, []map[string]any{}, partial
 	}
-	return notes, buildRawNotePreviewItems(notes)
+	return notes, buildRawNotePreviewItems(notes), false
 }
 
-func (h Handlers) loadProfileRelatedDiscovery(r *http.Request, pubkey string) profileRelatedDiscovery {
+func (h Handlers) loadProfileRelatedDiscovery(r *http.Request, pubkey string) (profileRelatedDiscovery, bool) {
 	out := profileRelatedDiscovery{
 		RelatedProfiles: []map[string]any{},
 		RisingProfiles:  []map[string]any{},
@@ -304,26 +314,26 @@ func (h Handlers) loadProfileRelatedDiscovery(r *http.Request, pubkey string) pr
 	defer cancel()
 
 	var (
-		wg      sync.WaitGroup
-		related []query.RelatedProfile
-		rising  []query.TrendingProfile
+		wg                    sync.WaitGroup
+		related               []query.RelatedProfile
+		rising                []query.TrendingProfile
+		relatedErr, risingErr error
 	)
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		rows, err := h.service.GetRelatedProfiles(ctx, pubkey, 8)
-		if err == nil {
-			related = rows
-		}
+		related, relatedErr = h.service.GetRelatedProfiles(ctx, pubkey, 8)
 	}()
 	go func() {
 		defer wg.Done()
-		rows, err := h.service.GetRisingProfiles(ctx, 7*24*time.Hour, 8, 0)
-		if err == nil {
-			rising = rows
-		}
+		rising, risingErr = h.service.GetRisingProfiles(ctx, 7*24*time.Hour, 8, 0)
 	}()
 	wg.Wait()
+
+	partial := h.noteEnrichmentFailure(r, "profile_public_summary", "related_profiles", pubkey, relatedErr)
+	if h.noteEnrichmentFailure(r, "profile_public_summary", "rising_profiles", pubkey, risingErr) {
+		partial = true
+	}
 
 	if len(related) > 0 {
 		relatedPubkeys := make([]string, 0, len(related))
@@ -347,7 +357,26 @@ func (h Handlers) loadProfileRelatedDiscovery(r *http.Request, pubkey string) pr
 		}
 		out.RisingProfiles = buildDiscoveryProfileItems(rising, identities)
 	}
-	return out
+	return out, partial
+}
+
+// noteEnrichmentFailure logs and counts an enrichment failure that degrades a
+// response to partial. Not-found and nil errors are treated as "no data" and
+// return false; any other error returns true (degraded) after emitting a
+// warning and the partial-response metric.
+func (h Handlers) noteEnrichmentFailure(r *http.Request, surface, component, pubkey string, err error) bool {
+	if err == nil || query.IsNotFound(err) {
+		return false
+	}
+	logging.WithRequestID(r.Context(), apiErrLog).Warn(
+		"api_enrichment_degraded",
+		"surface", surface,
+		"component", component,
+		"pubkey", pubkey,
+		"error", err,
+	)
+	metrics.IncAPIPartialResponse(surface, component)
+	return true
 }
 
 func buildRelatedProfileItems(rows []query.RelatedProfile, identities map[string]profileIdentityFields) []map[string]any {

@@ -52,10 +52,10 @@ High-risk edits are those that change shared thread/event/profile assembly seman
 
 ## Current authority boundary
 
-- `internal/query/service.go` is the shared application-service layer for migrated read orchestration paths.
-- Native HTTP and Primal HTTP are mixed:
-  - migrated handlers delegate through `h.service` (`GetThread`, batch event/profile reads, profile reads, author/contact/relay reads)
-  - non-migrated handlers still call store methods directly when behavior remains transport-specific
+- `internal/query/service.go` is the shared application-service layer for all product read orchestration paths.
+- Native HTTP and Primal HTTP product read handlers delegate through `h.service` (`GetThread`, batch event/profile reads, profile reads, author/contact/relay reads). This is enforced by `internal/archtest` (`TestProductHandlerFilesDoNotUseDirectStoreReads`, `TestNativeProductReadHandlersStayQueryOrchestrated`, `TestPrimalProductReadHandlersStayQueryOrchestrated`).
+- The only handlers permitted to touch the store directly are a small, explicit admin/ops allowlist (relay registry, storage stats, trust runs, account-state overrides); everything else is a compile-time boundary violation.
+- `internal/query` no longer imports `internal/store`: it consumes storage-neutral read models from `internal/readmodel` and reaches the data layer through injected interfaces (enforced by the `query ↛ store` archtest rule).
 - Primal WebSocket constructs `query.Service` in `NewWSGateway` and delegates cache-call reads through `g.query`.
 - WebSocket still owns compatibility-only stream shaping (metadata injection, synthetic range markers, moderation/DM response shaping), so transport-specific composition remains in gateway code.
 
@@ -66,7 +66,7 @@ High-risk edits are those that change shared thread/event/profile assembly seman
 - Transport entrypoint:
   - `GET /api/v1/threads/{eventId}` -> `internal/api.Handlers.GetThread`
 - Downstream calls:
-  - `query.NewService(h.store).GetThread`
+  - `h.service.GetThread` (shared `query.Service`, injected at handler construction)
   - local `encodeEventCursor`
 - Where orchestration/business assembly happens:
   - In `internal/query.Service.GetThread`, which assembles focal event, ancestor chain, missing ancestor ids, and paged replies.
@@ -81,7 +81,7 @@ High-risk edits are those that change shared thread/event/profile assembly seman
 - Transport entrypoint:
   - `GET /primal/v1/threads/{eventId}` -> `internal/api_primal.Handlers.GetThreadView`
 - Downstream calls:
-  - `query.NewService(h.store).GetThread`
+  - `h.service.GetThread` (shared `query.Service`, injected at handler construction)
   - local `encodeEventCursor`
   - `buildThreadViewResponse`
 - Where orchestration/business assembly happens:

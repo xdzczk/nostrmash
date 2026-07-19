@@ -35,9 +35,9 @@ func BenchmarkServiceGetEventBatch(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		out, err := svc.GetEvents(context.Background(), ids)
+		out, err := svc.GetEventBatch(context.Background(), ids)
 		if err != nil {
-			b.Fatalf("GetEvents: %v", err)
+			b.Fatalf("GetEventBatch: %v", err)
 		}
 		if len(out) == 0 {
 			b.Fatal("expected non-empty event batch result")

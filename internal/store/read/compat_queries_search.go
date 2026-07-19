@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -9,12 +9,12 @@ import (
 )
 
 // SearchEventsByContent returns note-like events filtered by content text.
-func (s *PostgresStore) SearchEventsByContent(ctx context.Context, query string, limit int) ([]json.RawMessage, error) {
+func (s *Read) SearchEventsByContent(ctx context.Context, query string, limit int) ([]json.RawMessage, error) {
 	return s.SearchNotes(ctx, query, "relevant", nil, "", limit, 0)
 }
 
 // SearchNotes returns note-like events filtered by content text with minimal sorting/filtering options.
-func (s *PostgresStore) SearchNotes(
+func (s *Read) SearchNotes(
 	ctx context.Context,
 	query string,
 	sort string,
@@ -146,12 +146,12 @@ func nullableLanguageFilter(language string) any {
 }
 
 // SearchProfiles returns latest profile projections matching query.
-func (s *PostgresStore) SearchProfiles(ctx context.Context, query string, limit int) ([]ProfileProjection, error) {
+func (s *Read) SearchProfiles(ctx context.Context, query string, limit int) ([]ProfileProjection, error) {
 	return s.SearchProfilesWithOptions(ctx, query, "relevant", limit, 0)
 }
 
 // SearchProfilesWithOptions returns latest profile projections matching query with minimal sorting/pagination options.
-func (s *PostgresStore) SearchProfilesWithOptions(
+func (s *Read) SearchProfilesWithOptions(
 	ctx context.Context,
 	query string,
 	sort string,
@@ -286,7 +286,7 @@ func (s *PostgresStore) SearchProfilesWithOptions(
 }
 
 // SuggestProfiles returns lightweight profile suggestions for typeahead search.
-func (s *PostgresStore) SuggestProfiles(ctx context.Context, query string, limit int) ([]ProfileProjection, error) {
+func (s *Read) SuggestProfiles(ctx context.Context, query string, limit int) ([]ProfileProjection, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -399,7 +399,7 @@ func (s *PostgresStore) SuggestProfiles(ctx context.Context, query string, limit
 }
 
 // SuggestHashtags returns lightweight hashtag suggestions for typeahead search.
-func (s *PostgresStore) SuggestHashtags(ctx context.Context, query string, limit int) ([]TrendingHashtag, error) {
+func (s *Read) SuggestHashtags(ctx context.Context, query string, limit int) ([]TrendingHashtag, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

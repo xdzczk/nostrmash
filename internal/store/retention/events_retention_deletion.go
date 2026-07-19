@@ -1,9 +1,11 @@
-package store
+package retention
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // PurgeProcessedDeletionEvents deletes a bounded batch of raw deletion events
@@ -23,7 +25,7 @@ import (
 // The (kind, created_at) scan is served by idx_events_kind_created_at; the
 // per-candidate jobs lookup is served by the unique index on
 // jobs.idempotency_key.
-func (s *PostgresStore) PurgeProcessedDeletionEvents(
+func (s *Retention) PurgeProcessedDeletionEvents(
 	ctx context.Context,
 	createdBefore time.Time,
 	deadGraceBefore time.Time,
@@ -42,6 +44,7 @@ func (s *PostgresStore) PurgeProcessedDeletionEvents(
 		return 0, fmt.Errorf("deadGraceBefore is required")
 	}
 
+	started := time.Now()
 	tag, err := s.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT e.id
@@ -68,6 +71,7 @@ func (s *PostgresStore) PurgeProcessedDeletionEvents(
 		deadGraceBefore.UTC(),
 		limit,
 	)
+	metrics.ObserveDBOperation("purge_processed_deletion_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge processed deletion events: %w", err)
 	}

@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -10,17 +10,17 @@ import (
 // GetTrendingNotes returns trending short notes (kind 1 only). Long-form
 // articles (kind 30023) are served separately by GetTrendingLongForm so the two
 // surfaces never blend together.
-func (s *PostgresStore) GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+func (s *Read) GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
 	return s.getTrendingNotesForKinds(ctx, []int{1}, window, limit, offset)
 }
 
 // GetTrendingLongForm returns trending long-form articles (kind 30023). It
 // mirrors GetTrendingNotes but scopes the candidate set to articles.
-func (s *PostgresStore) GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+func (s *Read) GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
 	return s.getTrendingNotesForKinds(ctx, []int{30023}, window, limit, offset)
 }
 
-func (s *PostgresStore) getTrendingNotesForKinds(ctx context.Context, kinds []int, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

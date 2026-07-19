@@ -13,8 +13,8 @@ type ThreadService interface {
 
 // EventService defines transport-agnostic event read orchestration.
 type EventService interface {
-	GetEvent(ctx context.Context, id string) (json.RawMessage, error)
-	GetEvents(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
+	GetEventByID(ctx context.Context, id string) (json.RawMessage, error)
+	GetEventBatch(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
 	GetEventActionCounts(ctx context.Context, eventID string) (ActionCounts, error)
 }
 

@@ -1,9 +1,11 @@
-package store
+package retention
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // PurgeUntrustedAuthorEvents deletes a bounded batch of raw author-gated
@@ -29,7 +31,7 @@ import (
 // Trade-off (accepted, same as engagement retention): if an author becomes
 // trusted later, their pre-trust history is gone locally and must be
 // re-hydrated from relays.
-func (s *PostgresStore) PurgeUntrustedAuthorEvents(
+func (s *Retention) PurgeUntrustedAuthorEvents(
 	ctx context.Context,
 	olderThan time.Time,
 	deadGraceBefore time.Time,
@@ -48,6 +50,7 @@ func (s *PostgresStore) PurgeUntrustedAuthorEvents(
 		return 0, fmt.Errorf("deadGraceBefore is required")
 	}
 
+	started := time.Now()
 	tag, err := s.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT e.id
@@ -81,6 +84,7 @@ func (s *PostgresStore) PurgeUntrustedAuthorEvents(
 		deadGraceBefore.UTC(),
 		limit,
 	)
+	metrics.ObserveDBOperation("purge_untrusted_author_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge untrusted author events: %w", err)
 	}

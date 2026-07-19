@@ -1,4 +1,4 @@
-package store
+package trust
 
 import (
 	"context"
@@ -23,7 +23,7 @@ type TrustPubkeyFrontierRefreshResult struct {
 	ActiveCount        int
 }
 
-func (s *PostgresStore) RefreshTrustPubkeyFrontier(
+func (s *Trust) RefreshTrustPubkeyFrontier(
 	ctx context.Context,
 	limit int,
 	minStableWindow time.Duration,
@@ -153,7 +153,7 @@ func (s *PostgresStore) RefreshTrustPubkeyFrontier(
 	}, nil
 }
 
-func (s *PostgresStore) ClaimTrustPubkeyFrontierForFetch(
+func (s *Trust) ClaimTrustPubkeyFrontierForFetch(
 	ctx context.Context,
 	limit int,
 	cooldown time.Duration,
@@ -210,7 +210,7 @@ func (s *PostgresStore) ClaimTrustPubkeyFrontierForFetch(
 	return out, nil
 }
 
-func (s *PostgresStore) MarkTrustPubkeyFetchSuccess(
+func (s *Trust) MarkTrustPubkeyFetchSuccess(
 	ctx context.Context,
 	pubkey string,
 	cooldown time.Duration,
@@ -239,7 +239,7 @@ func (s *PostgresStore) MarkTrustPubkeyFetchSuccess(
 	return nil
 }
 
-func (s *PostgresStore) MarkTrustPubkeyFetchFailure(
+func (s *Trust) MarkTrustPubkeyFetchFailure(
 	ctx context.Context,
 	pubkey string,
 	retryAfter time.Duration,
@@ -271,7 +271,7 @@ func (s *PostgresStore) MarkTrustPubkeyFetchFailure(
 	return nil
 }
 
-func (s *PostgresStore) GetTrustPubkeyFrontierStats(ctx context.Context) (active, candidate, cooldown, failed int, err error) {
+func (s *Trust) GetTrustPubkeyFrontierStats(ctx context.Context) (active, candidate, cooldown, failed int, err error) {
 	if s == nil || s.pool == nil {
 		return 0, 0, 0, 0, fmt.Errorf("store is not initialized")
 	}

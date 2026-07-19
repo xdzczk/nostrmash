@@ -1,4 +1,4 @@
-package main
+package appapi
 
 import (
 	"os"
@@ -13,7 +13,7 @@ func TestOpenAPIContainsAllContractOwnedRoutes_OneWayPolicy(t *testing.T) {
 	if !ok {
 		t.Fatal("resolve current test file path")
 	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
+	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
 	openapiFile := filepath.Join(root, "docs", "openapi.yaml")
 	openapiSource, err := os.ReadFile(openapiFile)
 	if err != nil {
@@ -21,7 +21,7 @@ func TestOpenAPIContainsAllContractOwnedRoutes_OneWayPolicy(t *testing.T) {
 	}
 
 	openapiMethods := parseOpenAPIPathMethods(string(openapiSource))
-	defs := contractOwnedRoutes()
+	defs := ContractOwnedRoutes()
 	seen := map[string]struct{}{}
 	for _, def := range defs {
 		if !def.OwnsContract {
@@ -92,7 +92,7 @@ func TestContractOwnedRoutes_DeclareDiscoveryNamespace(t *testing.T) {
 		"GET /api/v1/discovery/content/stats",
 	}
 	ownsByPattern := make(map[string]bool)
-	for _, def := range contractOwnedRoutes() {
+	for _, def := range ContractOwnedRoutes() {
 		ownsByPattern[strings.TrimSpace(def.Pattern)] = def.OwnsContract
 	}
 	for _, pattern := range required {
@@ -112,7 +112,7 @@ func TestContractOwnedRoutes_DeclareNotePageNamespace(t *testing.T) {
 		"GET /api/v1/notes/{event_id}/related",
 	}
 	ownsByPattern := make(map[string]bool)
-	for _, def := range contractOwnedRoutes() {
+	for _, def := range ContractOwnedRoutes() {
 		ownsByPattern[strings.TrimSpace(def.Pattern)] = def.OwnsContract
 	}
 	for _, pattern := range required {
@@ -133,7 +133,7 @@ func TestContractOwnedRoutes_DeclareThreadNamespace(t *testing.T) {
 		"GET /api/v1/threads/{root_event_id}/activity",
 	}
 	ownsByPattern := make(map[string]bool)
-	for _, def := range contractOwnedRoutes() {
+	for _, def := range ContractOwnedRoutes() {
 		ownsByPattern[strings.TrimSpace(def.Pattern)] = def.OwnsContract
 	}
 	for _, pattern := range required {
@@ -160,7 +160,7 @@ func TestContractOwnedRoutes_DeclareAuthorAnalyticsNamespace(t *testing.T) {
 		"GET /api/v1/authors/{pubkey}/analytics/recycle-candidates",
 	}
 	ownsByPattern := make(map[string]bool)
-	for _, def := range contractOwnedRoutes() {
+	for _, def := range ContractOwnedRoutes() {
 		ownsByPattern[strings.TrimSpace(def.Pattern)] = def.OwnsContract
 	}
 	for _, pattern := range required {

@@ -3,8 +3,6 @@ package jobs
 import (
 	"context"
 	"time"
-
-	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 const authorRecentRetentionTarget = "author_recent_events"
@@ -54,54 +52,28 @@ func RunAuthorRecentRetentionLoop(ctx context.Context, log RetentionLogger, prun
 		"delete_batch_limit", cfg.DeleteBatchLimit,
 	)
 
-	ticker := time.NewTicker(cfg.RunInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		runAuthorRecentRetentionDrain(ctx, log, pruner, cfg)
+	runRetentionTicker(ctx, cfg.RunInterval, authorRecentRetentionDrain(log, pruner, cfg))
+}
+
+func authorRecentRetentionDrain(log RetentionLogger, pruner AuthorRecentRetentionPruner, cfg AuthorRecentRetentionConfig) retentionDrain {
+	return retentionDrain{
+		log:          log,
+		metricTarget: authorRecentRetentionTarget,
+		batchLimit:   cfg.DeleteBatchLimit,
+		purgedEvent:  "author_recent_retention_pruned",
+		failedEvent:  "author_recent_retention_prune_failed",
+		catchupEvent: "author_recent_retention_catchup",
+		purge: func(ctx context.Context) (int64, []any, error) {
+			olderThan := time.Now().UTC().Add(-cfg.MaxAge)
+			deleted, err := pruner.PruneAuthorRecentEvents(ctx, olderThan, cfg.PerAuthorCap, cfg.AuthorBatchLimit, cfg.DeleteBatchLimit)
+			if err != nil {
+				return 0, nil, err
+			}
+			return deleted, []any{"older_than", olderThan.Format(time.RFC3339)}, nil
+		},
 	}
 }
 
 func runAuthorRecentRetentionDrain(ctx context.Context, log RetentionLogger, pruner AuthorRecentRetentionPruner, cfg AuthorRecentRetentionConfig) {
-	consecutiveSaturated := 0
-	for {
-		olderThan := time.Now().UTC().Add(-cfg.MaxAge)
-		deleted, err := pruner.PruneAuthorRecentEvents(ctx, olderThan, cfg.PerAuthorCap, cfg.AuthorBatchLimit, cfg.DeleteBatchLimit)
-		if err != nil {
-			metrics.IncRetentionPurgeRun(authorRecentRetentionTarget, "error")
-			log.Error("author_recent_retention_prune_failed", "error", err)
-			return
-		}
-		metrics.IncRetentionPurgeRun(authorRecentRetentionTarget, "ok")
-		metrics.AddRetentionPurgedRows(authorRecentRetentionTarget, deleted)
-		if deleted > 0 {
-			log.Info(
-				"author_recent_retention_pruned",
-				"deleted", deleted,
-				"older_than", olderThan.Format(time.RFC3339),
-			)
-		}
-		// Both passes are bounded by DeleteBatchLimit; a combined result below
-		// one batch limit means neither pass saturated.
-		if int(deleted) < cfg.DeleteBatchLimit {
-			return
-		}
-		consecutiveSaturated++
-		if consecutiveSaturated%retentionCatchupReportEvery == 0 {
-			log.Info(
-				"author_recent_retention_catchup",
-				"consecutive_full_batches", consecutiveSaturated,
-				"delete_batch_limit", cfg.DeleteBatchLimit,
-			)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retentionCatchupPause):
-		}
-	}
+	authorRecentRetentionDrain(log, pruner, cfg).run(ctx)
 }

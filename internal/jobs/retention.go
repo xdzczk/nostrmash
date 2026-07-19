@@ -83,7 +83,78 @@ func RunRetentionLoop(ctx context.Context, log RetentionLogger, queue RetentionP
 		"delete_batch_limit", cfg.DeleteBatchLimit,
 	)
 
-	ticker := time.NewTicker(cfg.RunInterval)
+	runRetentionTicker(ctx, cfg.RunInterval, jobsRetentionDrain(log, queue, cfg))
+}
+
+// retentionDrain is the shared auto-pacing engine behind every retention loop.
+// A drain runs purge batches back-to-back while each returns saturated
+// (deleted >= batchLimit), pausing retentionCatchupPause between batches and
+// emitting standardized purge/catchup/error logs plus retention metrics. Each
+// loop supplies a purge closure (which computes cutoffs, performs the delete,
+// and returns the rows deleted plus fields to log) and its log/metric identity,
+// so the ticker + catchup + metrics mechanics live in exactly one place.
+type retentionDrain struct {
+	log          RetentionLogger
+	metricTarget string
+	batchLimit   int
+	purgedEvent  string // log event on a non-empty purge, e.g. "job_retention_purged"
+	failedEvent  string // log event on purge error, e.g. "job_retention_purge_failed"
+	catchupEvent string // log event on sustained catchup, e.g. "job_retention_catchup"
+	// staticFields are prepended to every log line (e.g. {"target", ...} for
+	// loops that drain multiple scopes through the same engine). May be nil.
+	staticFields []any
+	// purge runs exactly one batch and returns the rows deleted plus structured
+	// fields describing the cutoffs used, included on a non-empty purge line.
+	purge func(ctx context.Context) (deleted int64, purgedFields []any, err error)
+}
+
+// run executes one scheduled retention cycle. It returns when a batch comes
+// back below the limit, the purge errors, or ctx is cancelled.
+func (d retentionDrain) run(ctx context.Context) {
+	consecutiveSaturated := 0
+	for {
+		deleted, purgedFields, err := d.purge(ctx)
+		if err != nil {
+			metrics.IncRetentionPurgeRun(d.metricTarget, "error")
+			d.log.Error(d.failedEvent, d.withStatic("error", err)...)
+			return
+		}
+		metrics.IncRetentionPurgeRun(d.metricTarget, "ok")
+		metrics.AddRetentionPurgedRows(d.metricTarget, deleted)
+		if deleted > 0 {
+			d.log.Info(d.purgedEvent, d.withStatic(append([]any{"deleted", deleted}, purgedFields...)...)...)
+		}
+		if int(deleted) < d.batchLimit {
+			return
+		}
+		consecutiveSaturated++
+		if consecutiveSaturated%retentionCatchupReportEvery == 0 {
+			d.log.Info(d.catchupEvent, d.withStatic("consecutive_full_batches", consecutiveSaturated, "delete_batch_limit", d.batchLimit)...)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(retentionCatchupPause):
+		}
+	}
+}
+
+// withStatic prepends the drain's static log fields to per-call fields.
+func (d retentionDrain) withStatic(extra ...any) []any {
+	if len(d.staticFields) == 0 {
+		return extra
+	}
+	out := make([]any, 0, len(d.staticFields)+len(extra))
+	out = append(out, d.staticFields...)
+	out = append(out, extra...)
+	return out
+}
+
+// runRetentionTicker schedules one or more drains on a shared interval ticker,
+// running every drain per tick until ctx is cancelled. Multiple drains model
+// loops that groom several scopes on the same cadence.
+func runRetentionTicker(ctx context.Context, runInterval time.Duration, drains ...retentionDrain) {
+	ticker := time.NewTicker(runInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -91,53 +162,36 @@ func RunRetentionLoop(ctx context.Context, log RetentionLogger, queue RetentionP
 			return
 		case <-ticker.C:
 		}
-		runRetentionDrain(ctx, log, queue, cfg)
+		for _, drain := range drains {
+			if ctx.Err() != nil {
+				return
+			}
+			drain.run(ctx)
+		}
 	}
 }
 
-// runRetentionDrain executes one scheduled retention cycle, which is itself
-// allowed to perform multiple back-to-back DELETE batches as long as each
-// batch comes back saturated. Returns when (a) a batch is below the limit,
-// (b) PurgeTerminalJobs errors, or (c) ctx is cancelled.
-func runRetentionDrain(ctx context.Context, log RetentionLogger, queue RetentionPurger, cfg RetentionConfig) {
-	consecutiveSaturated := 0
-	for {
-		now := time.Now().UTC()
-		succeededBefore := now.Add(-cfg.SucceededMaxAge)
-		deadBefore := now.Add(-cfg.DeadMaxAge)
-		deleted, err := queue.PurgeTerminalJobs(ctx, succeededBefore, deadBefore, cfg.DeleteBatchLimit)
-		if err != nil {
-			metrics.IncRetentionPurgeRun("jobs_terminal", "error")
-			log.Error("job_retention_purge_failed", "error", err)
-			return
-		}
-		metrics.IncRetentionPurgeRun("jobs_terminal", "ok")
-		metrics.AddRetentionPurgedRows("jobs_terminal", deleted)
-		if deleted > 0 {
-			log.Info(
-				"job_retention_purged",
-				"deleted", deleted,
+// jobsRetentionDrain builds the terminal-jobs purge drain.
+func jobsRetentionDrain(log RetentionLogger, queue RetentionPurger, cfg RetentionConfig) retentionDrain {
+	return retentionDrain{
+		log:          log,
+		metricTarget: "jobs_terminal",
+		batchLimit:   cfg.DeleteBatchLimit,
+		purgedEvent:  "job_retention_purged",
+		failedEvent:  "job_retention_purge_failed",
+		catchupEvent: "job_retention_catchup",
+		purge: func(ctx context.Context) (int64, []any, error) {
+			now := time.Now().UTC()
+			succeededBefore := now.Add(-cfg.SucceededMaxAge)
+			deadBefore := now.Add(-cfg.DeadMaxAge)
+			deleted, err := queue.PurgeTerminalJobs(ctx, succeededBefore, deadBefore, cfg.DeleteBatchLimit)
+			if err != nil {
+				return 0, nil, err
+			}
+			return deleted, []any{
 				"succeeded_before", succeededBefore.Format(time.RFC3339),
 				"dead_before", deadBefore.Format(time.RFC3339),
-			)
-		}
-		// Below-limit batch == queue is caught up for now; let the outer
-		// ticker schedule the next cycle.
-		if int(deleted) < cfg.DeleteBatchLimit {
-			return
-		}
-		consecutiveSaturated++
-		if consecutiveSaturated%retentionCatchupReportEvery == 0 {
-			log.Info(
-				"job_retention_catchup",
-				"consecutive_full_batches", consecutiveSaturated,
-				"delete_batch_limit", cfg.DeleteBatchLimit,
-			)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retentionCatchupPause):
-		}
+			}, nil
+		},
 	}
 }

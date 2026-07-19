@@ -16,7 +16,9 @@ func (g WSGateway) cacheDispatchDirectMessageContacts(ctx context.Context, kwarg
 		return nil, err
 	}
 	limit := toInt(kwargs["limit"], 20)
-	offset := toInt(kwargs["offset"], 0)
+	// Bound offset to the same ceiling as the feed/thread paths so a hostile or
+	// buggy client cannot force pathological deep-OFFSET scans on the DM tables.
+	offset := toBoundedNonNegativeInt(kwargs["offset"], 0, 10000)
 	since := toInt64(kwargs["since"], 0)
 	until := toInt64(kwargs["until"], time.Now().Unix())
 	values, err := g.query.GetDirectMessageContactsDetailed(ctx, pubkey, limit, offset, since, until)
@@ -41,7 +43,7 @@ func (g WSGateway) cacheDispatchDirectMessages(ctx context.Context, kwargs map[s
 	since := toInt64(kwargs["since"], 0)
 	until := toInt64(kwargs["until"], time.Now().Unix())
 	limit := toInt(kwargs["limit"], 20)
-	offset := toInt(kwargs["offset"], 0)
+	offset := toBoundedNonNegativeInt(kwargs["offset"], 0, 10000)
 	values, err := g.query.GetDirectMessagesWithRange(ctx, pubkey, peer, since, until, limit, offset)
 	if err != nil {
 		return nil, wrapPrimalRequestError(err)

@@ -263,3 +263,27 @@ func (h *Handlers) PendingMeilisearchSyncBacklog(ctx context.Context) (int64, er
 	}
 	return n, nil
 }
+
+// PendingMeilisearchSyncStats returns both the queue depth and the age of the
+// oldest pending entry. The oldest-age signal is the search-index-lag SLO:
+// unlike a raw backlog count it stays flat under steady high throughput and
+// only grows when the sweeper cannot keep up. Returns a zero age when the
+// queue is empty.
+func (h *Handlers) PendingMeilisearchSyncStats(ctx context.Context) (backlog int64, oldestAge time.Duration, err error) {
+	if h == nil || h.pool == nil {
+		return 0, 0, fmt.Errorf("handlers are not initialized")
+	}
+	var oldestAgeSeconds float64
+	if err := h.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*),
+			COALESCE(EXTRACT(EPOCH FROM (now() - MIN(marked_at))), 0)
+		FROM pending_meilisearch_syncs
+	`).Scan(&backlog, &oldestAgeSeconds); err != nil {
+		return 0, 0, fmt.Errorf("read pending meilisearch sync stats: %w", err)
+	}
+	if oldestAgeSeconds < 0 {
+		oldestAgeSeconds = 0
+	}
+	return backlog, time.Duration(oldestAgeSeconds * float64(time.Second)), nil
+}

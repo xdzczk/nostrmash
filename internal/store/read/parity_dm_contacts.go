@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func (s *PostgresStore) GetDirectMessageContacts(ctx context.Context, pubkey string, limit int) ([]string, error) {
+func (s *Read) GetDirectMessageContacts(ctx context.Context, pubkey string, limit int) ([]string, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -71,7 +71,7 @@ func (s *PostgresStore) GetDirectMessageContacts(ctx context.Context, pubkey str
 	return out, nil
 }
 
-func (s *PostgresStore) GetDirectMessageContactsDetailed(
+func (s *Read) GetDirectMessageContactsDetailed(
 	ctx context.Context,
 	receiver string,
 	limit int,

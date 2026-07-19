@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
-	"github.com/xdzczk/nostrmash/internal/store"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 type profileService struct {
@@ -46,7 +46,7 @@ func (s profileService) GetProfile(ctx context.Context, pubkey string) (Profile,
 		metrics.ObserveLookupLocal("profile_by_pubkey", true)
 		return row, nil
 	}
-	if !errors.Is(err, store.ErrNotFound) {
+	if !errors.Is(err, readmodel.ErrNotFound) {
 		return Profile{}, err
 	}
 	metrics.ObserveLookupLocal("profile_by_pubkey", false)

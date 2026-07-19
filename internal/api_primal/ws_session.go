@@ -46,6 +46,6 @@ func (g WSGateway) runWS(conn *websocket.Conn, r *http.Request) {
 	remoteAddr := conn.RemoteAddr().String()
 	g.log.Info("compat_ws_connected", "remote_addr", remoteAddr)
 	defer g.log.Info("compat_ws_disconnected", "remote_addr", remoteAddr)
-	session := newWSConnSession(g, conn, r.Context(), remoteAddr)
+	session := newWSConnSession(r.Context(), g, conn, remoteAddr)
 	session.run()
 }

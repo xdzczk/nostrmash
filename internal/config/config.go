@@ -210,10 +210,7 @@ func validateRelayConfig(cfg RelayConfig) error {
 		return fmt.Errorf("INGESTOR_RELAY_BACKOFF_INITIAL must be <= INGESTOR_RELAY_BACKOFF_MAX")
 	}
 	if len(cfg.URLs) == 0 {
-		if err := validateFilterGroups(cfg); err != nil {
-			return err
-		}
-		return nil
+		return validateFilterGroups(cfg)
 	}
 	if len(cfg.Allowlist) == 0 {
 		return fmt.Errorf("INGESTOR_RELAY_ALLOWLIST is required when INGESTOR_RELAY_URLS is set")
@@ -248,11 +245,7 @@ func validateRelayConfig(cfg RelayConfig) error {
 		}
 	}
 
-	if err := validateFilterGroups(cfg); err != nil {
-		return err
-	}
-
-	return nil
+	return validateFilterGroups(cfg)
 }
 
 func validateBackfillConfig(cfg BackfillConfig) error {

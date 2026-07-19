@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func (s *PostgresStore) GetAuthorTopNotes(
+func (s *Read) GetAuthorTopNotes(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,

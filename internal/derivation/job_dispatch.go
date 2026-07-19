@@ -13,6 +13,31 @@ type Job struct {
 	Payload json.RawMessage
 }
 
+// eventJobHandlers maps every job type whose payload is a single {event_id}
+// envelope to the handler method that processes it. Using a registry keeps the
+// dispatch table declarative — adding a projection means adding one row rather
+// than another near-identical decode+call case in a long switch. Method
+// expressions capture the receiver so the handler is bound at dispatch time.
+var eventJobHandlers = map[string]func(*Handlers, context.Context, string) error{
+	JobTypeDeriveEventBundle:        (*Handlers).DeriveEventBundle,
+	JobTypeDeriveEventRelationships: (*Handlers).DeriveEventRelationships,
+	JobTypeUpdateReplaceableState:   (*Handlers).UpdateReplaceableState,
+	JobTypeProjectProfilesLatest:    (*Handlers).ProjectProfilesLatest,
+	JobTypeProjectAuthorRecentEvent: (*Handlers).ProjectAuthorRecentEvent,
+	JobTypeProjectReplyCounts:       (*Handlers).ProjectReplyCounts,
+	JobTypeProjectReactionCounts:    (*Handlers).ProjectReactionCounts,
+	JobTypeProjectRepostCounts:      (*Handlers).ProjectRepostCounts,
+	JobTypeProjectReactionEvents:    (*Handlers).ProjectReactionEvents,
+	JobTypeProjectRepostEvents:      (*Handlers).ProjectRepostEvents,
+	JobTypeProjectDeletionEvents:    (*Handlers).ProjectDeletionEvents,
+	JobTypeProjectContactLists:      (*Handlers).ProjectContactListsLatest,
+	JobTypeProjectRelayLists:        (*Handlers).ProjectRelayListsLatest,
+	JobTypeProjectDMUnreadCounts:    (*Handlers).ProjectDMUnreadCounts,
+	JobTypeProjectZapReceipts:       (*Handlers).ProjectZapReceipts,
+	JobTypeUpdateThreadProjection:   (*Handlers).UpdateThreadProjection,
+	JobTypeRepairUnresolvedRefs:     (*Handlers).RepairUnresolvedReferences,
+}
+
 // ProcessJob executes one derivation job payload using the same logic as cmd/worker.
 func ProcessJob(ctx context.Context, handlers *Handlers, job Job) error {
 	select {
@@ -22,6 +47,13 @@ func ProcessJob(ctx context.Context, handlers *Handlers, job Job) error {
 	}
 	if handlers == nil {
 		return fmt.Errorf("derivation handlers are not configured")
+	}
+	if handle, ok := eventJobHandlers[job.JobType]; ok {
+		payload, err := decodeEventJobPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return handle(handlers, ctx, payload.EventID)
 	}
 	switch job.JobType {
 	case JobTypeRebuildProjectionScope:
@@ -33,108 +65,6 @@ func ProcessJob(ctx context.Context, handlers *Handlers, job Job) error {
 			return fmt.Errorf("run_id is required in payload")
 		}
 		return handlers.ExecuteProjectionRebuildRun(ctx, payload.RunID)
-	case JobTypeDeriveEventBundle:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.DeriveEventBundle(ctx, payload.EventID)
-	case JobTypeDeriveEventRelationships:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.DeriveEventRelationships(ctx, payload.EventID)
-	case JobTypeUpdateReplaceableState:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.UpdateReplaceableState(ctx, payload.EventID)
-	case JobTypeProjectProfilesLatest:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectProfilesLatest(ctx, payload.EventID)
-	case JobTypeProjectAuthorRecentEvent:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectAuthorRecentEvent(ctx, payload.EventID)
-	case JobTypeProjectReplyCounts:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectReplyCounts(ctx, payload.EventID)
-	case JobTypeProjectReactionCounts:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectReactionCounts(ctx, payload.EventID)
-	case JobTypeProjectRepostCounts:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectRepostCounts(ctx, payload.EventID)
-	case JobTypeProjectReactionEvents:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectReactionEvents(ctx, payload.EventID)
-	case JobTypeProjectRepostEvents:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectRepostEvents(ctx, payload.EventID)
-	case JobTypeProjectDeletionEvents:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectDeletionEvents(ctx, payload.EventID)
-	case JobTypeProjectContactLists:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectContactListsLatest(ctx, payload.EventID)
-	case JobTypeProjectRelayLists:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectRelayListsLatest(ctx, payload.EventID)
-	case JobTypeProjectDMUnreadCounts:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectDMUnreadCounts(ctx, payload.EventID)
-	case JobTypeProjectZapReceipts:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.ProjectZapReceipts(ctx, payload.EventID)
-	case JobTypeUpdateThreadProjection:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.UpdateThreadProjection(ctx, payload.EventID)
-	case JobTypeRepairUnresolvedRefs:
-		payload, err := decodeEventJobPayload(job.Payload)
-		if err != nil {
-			return err
-		}
-		return handlers.RepairUnresolvedReferences(ctx, payload.EventID)
 	default:
 		return fmt.Errorf("job type %q not implemented", job.JobType)
 	}

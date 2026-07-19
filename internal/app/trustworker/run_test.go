@@ -1,4 +1,4 @@
-package main
+package apptrustworker
 
 import (
 	"context"
@@ -190,18 +190,11 @@ func TestRunClaimLoop_RecoversFromPanicAndFailsTrustJob(t *testing.T) {
 }
 
 func TestResolveBuildVersion(t *testing.T) {
-	orig := buildVersion
-	t.Cleanup(func() {
-		buildVersion = orig
-	})
-
-	buildVersion = "binary-v1.2.3"
-	if got := resolveBuildVersion("env-v9.9.9"); got != "binary-v1.2.3" {
+	if got := resolveBuildVersion("binary-v1.2.3", "env-v9.9.9"); got != "binary-v1.2.3" {
 		t.Fatalf("expected build version override, got %q", got)
 	}
 
-	buildVersion = ""
-	if got := resolveBuildVersion(" env-v9.9.9 "); got != "env-v9.9.9" {
+	if got := resolveBuildVersion("", " env-v9.9.9 "); got != "env-v9.9.9" {
 		t.Fatalf("expected fallback to app version, got %q", got)
 	}
 }

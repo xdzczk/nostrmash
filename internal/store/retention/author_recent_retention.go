@@ -1,9 +1,11 @@
-package store
+package retention
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // PruneAuthorRecentEvents bounds the author_recent_events projection with two
@@ -22,7 +24,7 @@ import (
 // reads exact. Kind-filtered reads over a capped author may return fewer rows
 // than an uncapped table would — an accepted trade-off documented in
 // docs/design/storage-discipline.md.
-func (s *PostgresStore) PruneAuthorRecentEvents(
+func (s *Retention) PruneAuthorRecentEvents(
 	ctx context.Context,
 	olderThan time.Time,
 	perAuthorCap int,
@@ -39,6 +41,7 @@ func (s *PostgresStore) PruneAuthorRecentEvents(
 		return 0, fmt.Errorf("perAuthorCap, authorBatchLimit and deleteBatchLimit must be > 0")
 	}
 
+	ageStarted := time.Now()
 	ageTag, err := s.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT author_pubkey, event_id
@@ -51,11 +54,13 @@ func (s *PostgresStore) PruneAuthorRecentEvents(
 		WHERE a.author_pubkey = c.author_pubkey
 		  AND a.event_id = c.event_id
 	`, olderThan.UTC().Unix(), deleteBatchLimit)
+	metrics.ObserveDBOperation("prune_author_recent_events_age", dbResultFromErr(err), time.Since(ageStarted))
 	if err != nil {
 		return 0, fmt.Errorf("prune author recent events by age: %w", err)
 	}
 	deleted := ageTag.RowsAffected()
 
+	capStarted := time.Now()
 	capTag, err := s.pool.Exec(ctx, `
 		WITH offenders AS (
 			SELECT author_pubkey
@@ -81,6 +86,7 @@ func (s *PostgresStore) PruneAuthorRecentEvents(
 		WHERE a.author_pubkey = v.author_pubkey
 		  AND a.event_id = v.event_id
 	`, perAuthorCap, authorBatchLimit, deleteBatchLimit)
+	metrics.ObserveDBOperation("prune_author_recent_events_cap", dbResultFromErr(err), time.Since(capStarted))
 	if err != nil {
 		return deleted, fmt.Errorf("prune author recent events by cap: %w", err)
 	}

@@ -178,6 +178,17 @@ groups:
           description: "Retention purge runs are erroring over 15m. Inspect worker logs and retention configuration for jobs/invalid_events."
           runbook: "docs/operations.md#alert-response-playbook"
 
+      - alert: NostrMashMeilisearchSyncLagHigh
+        expr: nostrmash_pending_meilisearch_sync_oldest_age_seconds > 300 and nostrmash_pending_meilisearch_syncs > 0
+        for: 10m
+        labels:
+          severity: warning
+          slo: search-freshness
+        annotations:
+          summary: "Meilisearch index lag is elevated"
+          description: "The oldest pending Meilisearch sync has been waiting over 5 minutes for 10m while the backlog is non-empty. The sweeper cannot keep up; check Meilisearch health, WORKER_MEILISEARCH_SWEEPER_* tuning, and derivation logs."
+          runbook: "docs/operations.md#alert-response-playbook"
+
       - alert: NostrMashDatabaseGrowthSustained
         expr: nostrmash:storage:database_growth_bytes_per_hour:6h > 52428800
         for: 6h

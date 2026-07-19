@@ -92,12 +92,16 @@ func runTrustTargetedFetchLoop(
 			if err != nil {
 				failures++
 				metrics.IncTrustFetchPubkeyOutcome("error")
-				_ = eventStore.MarkTrustPubkeyFetchFailure(ctx, entry.Pubkey, trustFetch.RetryDelay, err)
+				if markErr := eventStore.MarkTrustPubkeyFetchFailure(ctx, entry.Pubkey, trustFetch.RetryDelay, err); markErr != nil {
+					log.Warn("trust_fetch_mark_failure_failed", "pubkey", entry.Pubkey, "error", markErr)
+				}
 				continue
 			}
 			successes++
 			metrics.IncTrustFetchPubkeyOutcome("success")
-			_ = eventStore.MarkTrustPubkeyFetchSuccess(ctx, entry.Pubkey, trustFetch.FetchCooldown)
+			if markErr := eventStore.MarkTrustPubkeyFetchSuccess(ctx, entry.Pubkey, trustFetch.FetchCooldown); markErr != nil {
+				log.Warn("trust_fetch_mark_success_failed", "pubkey", entry.Pubkey, "error", markErr)
+			}
 		}
 
 		if successes > 0 && failures == 0 {

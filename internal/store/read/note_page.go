@@ -1,48 +1,21 @@
-package store
+package read
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"strings"
 )
 
-type NoteStats struct {
-	EventID         string
-	ReplyCount      int64
-	ReactionCount   int64
-	RepostCount     int64
-	ZapCount        int64
-	ZapMSats        int64
-	HasImage        bool
-	HasVideo        bool
-	HasLink         bool
-	HasArticle      bool
-	AttachmentCount int
-}
+type NoteStats = readmodel.NoteStats
 
-type NoteConversationVelocity struct {
-	Replies24h int64
-	Replies7d  int64
-}
+type NoteConversationVelocity = readmodel.NoteConversationVelocity
 
-type RelatedNote struct {
-	EventID       string
-	AuthorPubkey  string
-	CreatedAt     int64
-	Content       string
-	Event         json.RawMessage
-	ReplyCount    int64
-	ReactionCount int64
-	RepostCount   int64
-	ZapCount      int64
-	ZapMSats      int64
-	Reasons       []string
-	RankScore     int64
-}
+type RelatedNote = readmodel.RelatedNote
 
 // GetNoteStats returns projection-backed interaction counters for a note page.
-func (s *PostgresStore) GetNoteStats(ctx context.Context, eventID string) (NoteStats, error) {
+func (s *Read) GetNoteStats(ctx context.Context, eventID string) (NoteStats, error) {
 	out := NoteStats{}
 	if s == nil || s.pool == nil {
 		return out, fmt.Errorf("store is not initialized")
@@ -89,7 +62,7 @@ func (s *PostgresStore) GetNoteStats(ctx context.Context, eventID string) (NoteS
 }
 
 // GetNoteConversationVelocity returns bounded recent reply velocity for one note.
-func (s *PostgresStore) GetNoteConversationVelocity(ctx context.Context, eventID string) (NoteConversationVelocity, error) {
+func (s *Read) GetNoteConversationVelocity(ctx context.Context, eventID string) (NoteConversationVelocity, error) {
 	out := NoteConversationVelocity{}
 	if s == nil || s.pool == nil {
 		return out, fmt.Errorf("store is not initialized")
@@ -122,7 +95,7 @@ func (s *PostgresStore) GetNoteConversationVelocity(ctx context.Context, eventID
 }
 
 // GetNoteQuoteRepostLinkage returns bounded quote/repost linkage rollups for one focal note.
-func (s *PostgresStore) GetNoteQuoteRepostLinkage(
+func (s *Read) GetNoteQuoteRepostLinkage(
 	ctx context.Context,
 	eventID string,
 	recentLimit int,
@@ -209,7 +182,7 @@ func (s *PostgresStore) GetNoteQuoteRepostLinkage(
 }
 
 // GetRelatedNotes returns bounded related-note candidates for one focal note.
-func (s *PostgresStore) GetRelatedNotes(ctx context.Context, eventID string, limit int) ([]RelatedNote, error) {
+func (s *Read) GetRelatedNotes(ctx context.Context, eventID string, limit int) ([]RelatedNote, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

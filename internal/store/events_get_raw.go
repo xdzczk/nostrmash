@@ -12,7 +12,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 // GetEventRawByID returns the canonical Layer 1 event JSON by id.

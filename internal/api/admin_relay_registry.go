@@ -173,10 +173,7 @@ func (s *adminService) SetRelayRegistryPolicy(ctx context.Context, req adminSetP
 		}
 	}
 
-	if err := registryStore.SetManualPolicy(ctx, urlKey, relayregistry.ManualPolicy(req.Policy)); err != nil {
-		return err
-	}
-	return nil
+	return registryStore.SetManualPolicy(ctx, urlKey, relayregistry.ManualPolicy(req.Policy))
 }
 
 func (h AdminHandlers) GetRelayDiagnostics(w http.ResponseWriter, r *http.Request) {

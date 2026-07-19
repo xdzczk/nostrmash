@@ -94,7 +94,7 @@ func (h Handlers) BatchGetEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	foundByID, err := h.service.GetEvents(r.Context(), normalizedIDs)
+	foundByID, err := h.service.GetEventBatch(r.Context(), normalizedIDs)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return

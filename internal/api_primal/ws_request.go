@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 func (g WSGateway) handleRequestFilters(ctx context.Context, subID string, remoteAddr string, filters []any) [][]any {

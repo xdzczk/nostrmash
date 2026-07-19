@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func (s *PostgresStore) GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) ([]AuthorAnalyticsSummaryProjection, error) {
+func (s *Read) GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) ([]AuthorAnalyticsSummaryProjection, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -118,7 +118,7 @@ func (s *PostgresStore) GetAuthorAnalyticsSummary(ctx context.Context, pubkey st
 	return out, nil
 }
 
-func (s *PostgresStore) GetAuthorQuoteRepostRecentActivity(
+func (s *Read) GetAuthorQuoteRepostRecentActivity(
 	ctx context.Context,
 	pubkey string,
 	limit int,

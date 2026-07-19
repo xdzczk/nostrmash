@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,6 +27,11 @@ type BuildInfo struct {
 	Commit  string
 	Time    string
 }
+
+// backgroundDrainTimeout bounds how long shutdown waits for background ingest
+// loops (relay reconciler/manager, metrics, trust fetch, discovery) to exit
+// after their context is cancelled, before the caller closes the DB pool.
+const backgroundDrainTimeout = 15 * time.Second
 
 type runner struct {
 	eventStore   *store.PostgresStore
@@ -143,11 +149,44 @@ func runLifecycle(
 		sinceResolver     relay.SinceResolver
 		err               error
 	)
+
+	// loopCtx governs every background loop so shutdown can cancel and then
+	// wait for them to exit before the caller closes the DB pool. waitLoops is
+	// deferred (runs before cancelLoops via LIFO) so all return paths drain.
+	loopCtx, cancelLoops := context.WithCancel(ctx)
+	defer cancelLoops()
+	var loopWG sync.WaitGroup
+	spawn := func(fn func(context.Context)) {
+		loopWG.Add(1)
+		go func() {
+			defer loopWG.Done()
+			fn(loopCtx)
+		}()
+	}
+	waitLoops := func() {
+		cancelLoops()
+		done := make(chan struct{})
+		go func() {
+			loopWG.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(backgroundDrainTimeout):
+			log.Warn("ingestor_background_loops_drain_timeout", "drain_timeout", backgroundDrainTimeout.String())
+		}
+	}
+	defer waitLoops()
+
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
-	go runMetricsLogger(ctx, log, runner.processor, 30*time.Second)
-	go runTrustedAuthorSetRefreshLoop(ctx, log, runner.trustedSet, runner.eventStore, cfg.TrustGate.Mode, cfg.TrustGate.MaxHops, cfg.TrustGate.RefreshInterval)
+	spawn(func(c context.Context) { runMetricsLogger(c, log, runner.processor, 30*time.Second) })
+	spawn(func(c context.Context) {
+		runTrustedAuthorSetRefreshLoop(c, log, runner.trustedSet, runner.eventStore, cfg.TrustGate.Mode, cfg.TrustGate.MaxHops, cfg.TrustGate.RefreshInterval)
+	})
 	if runner.observations != nil {
-		go RunObservationFlushLoop(ctx, log, runner.eventStore, runner.observations, cfg.AccountObservation.FlushInterval)
+		spawn(func(c context.Context) {
+			RunObservationFlushLoop(c, log, runner.eventStore, runner.observations, cfg.AccountObservation.FlushInterval)
+		})
 	}
 
 	if cfg.Runtime.Mode == "replay" {
@@ -204,7 +243,7 @@ func runLifecycle(
 		"bootstrap_lookback_seconds", cfg.Relay.LiveBootstrapLookbackSeconds,
 		"resume_overlap_seconds", cfg.Relay.LiveResumeOverlapSeconds,
 	)
-	go runCheckpointFreshnessReporter(ctx, log, pool, cfg.Relay.ActiveFilterGroup, 30*time.Second)
+	spawn(func(c context.Context) { runCheckpointFreshnessReporter(c, log, pool, cfg.Relay.ActiveFilterGroup, 30*time.Second) })
 
 	prioritizedRelays := append([]string(nil), cfg.Relay.URLs...)
 	if cfg.TrustPrioritization.Enabled {
@@ -254,20 +293,22 @@ func runLifecycle(
 	}
 
 	if cfg.TrustFetch.Enabled {
-		go runTrustTargetedFetchLoop(
-			ctx,
-			log,
-			runner.eventStore,
-			cfg.TrustPrioritization,
-			cfg.TrustFetch,
-			prioritizedRelays,
-			backfill.WebsocketFetcher{
-				Log:            log,
-				ConnectTimeout: cfg.Backfill.ConnectTimeout,
-				IdleTimeout:    cfg.Backfill.IdleTimeout,
-			},
-			handlerWithPool(runner.processor.Handle, jobs.WorkerPoolBackfill),
-		)
+		spawn(func(c context.Context) {
+			runTrustTargetedFetchLoop(
+				c,
+				log,
+				runner.eventStore,
+				cfg.TrustPrioritization,
+				cfg.TrustFetch,
+				prioritizedRelays,
+				backfill.WebsocketFetcher{
+					Log:            log,
+					ConnectTimeout: cfg.Backfill.ConnectTimeout,
+					IdleTimeout:    cfg.Backfill.IdleTimeout,
+				},
+				handlerWithPool(runner.processor.Handle, jobs.WorkerPoolBackfill),
+			)
+		})
 		log.Info(
 			"trust_fetch_started",
 			"max_tracked_pubkeys", cfg.TrustFetch.MaxTrackedPubkeys,
@@ -277,19 +318,21 @@ func runLifecycle(
 	}
 
 	if cfg.AuthorMetadataDiscovery.Enabled {
-		go runAuthorMetadataDiscoveryLoop(
-			ctx,
-			log,
-			runner.eventStore,
-			cfg.AuthorMetadataDiscovery,
-			prioritizedRelays,
-			backfill.WebsocketFetcher{
-				Log:            log,
-				ConnectTimeout: cfg.Backfill.ConnectTimeout,
-				IdleTimeout:    cfg.Backfill.IdleTimeout,
-			},
-			handlerWithPool(runner.processor.Handle, jobs.WorkerPoolBackfill),
-		)
+		spawn(func(c context.Context) {
+			runAuthorMetadataDiscoveryLoop(
+				c,
+				log,
+				runner.eventStore,
+				cfg.AuthorMetadataDiscovery,
+				prioritizedRelays,
+				backfill.WebsocketFetcher{
+					Log:            log,
+					ConnectTimeout: cfg.Backfill.ConnectTimeout,
+					IdleTimeout:    cfg.Backfill.IdleTimeout,
+				},
+				handlerWithPool(runner.processor.Handle, jobs.WorkerPoolBackfill),
+			)
+		})
 		log.Info(
 			"author_metadata_discovery_started",
 			"batch_size", cfg.AuthorMetadataDiscovery.BatchSize,
@@ -322,7 +365,7 @@ func runLifecycle(
 				},
 			},
 		)
-		go reconciler.Run(ctx)
+		spawn(reconciler.Run)
 		log.Info("relay_reconciler_started", "fallback_relay_count", len(prioritizedRelays))
 	} else {
 		relayManager, err := relay.NewManager(
@@ -349,7 +392,7 @@ func runLifecycle(
 			log.Error("relay_config", "error", err)
 			return err
 		}
-		go relayManager.Start(ctx)
+		spawn(relayManager.Start)
 		log.Info("relay_manager_started", "relay_count", len(prioritizedRelays))
 	}
 

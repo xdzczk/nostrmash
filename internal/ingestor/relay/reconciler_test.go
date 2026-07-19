@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -170,6 +171,80 @@ func TestReconciler_NoUnnecessaryReconnects(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("stable relay should only be connected once, got %d connect calls", count)
+	}
+}
+
+// trackingConnector counts how many relay goroutines are currently live so a
+// test can assert they have all exited once Run returns after cancellation.
+type trackingConnector struct {
+	live atomic.Int64
+}
+
+func (c *trackingConnector) Connect(ctx context.Context, relayURL string) (Connection, error) {
+	c.live.Add(1)
+	return &trackingConn{parent: c, done: make(chan error), msgs: make(chan []byte)}, nil
+}
+
+type trackingConn struct {
+	parent *trackingConnector
+	done   chan error
+	msgs   chan []byte
+	once   sync.Once
+}
+
+func (c *trackingConn) Done() <-chan error      { return c.done }
+func (c *trackingConn) Messages() <-chan []byte { return c.msgs }
+func (c *trackingConn) Close() error {
+	c.once.Do(func() { c.parent.live.Add(-1) })
+	return nil
+}
+
+func TestReconciler_DrainWaitsForRelayGoroutines(t *testing.T) {
+	provider := &fakeDesiredSetProvider{urls: []string{"wss://relay1.example.com", "wss://relay2.example.com"}}
+	connector := &trackingConnector{}
+	log := slog.Default()
+
+	r := NewReconciler(log, connector, nil, nil, provider, ReconcilerConfig{
+		PollInterval: 50 * time.Millisecond,
+		DrainTimeout: 2 * time.Second,
+		ConnectConfig: Config{
+			ConnectTimeout: 5 * time.Second,
+			InitialBackoff: 10 * time.Millisecond,
+			MaxBackoff:     50 * time.Millisecond,
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	returned := make(chan struct{})
+	go func() {
+		r.Run(ctx)
+		close(returned)
+	}()
+
+	// Wait for both relays to be connected.
+	deadline := time.After(2 * time.Second)
+	for connector.live.Load() < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("relays never connected, live=%d", connector.live.Load())
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	cancel()
+
+	select {
+	case <-returned:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return after cancellation")
+	}
+
+	if got := connector.live.Load(); got != 0 {
+		t.Fatalf("expected all relay goroutines drained before Run returned, live=%d", got)
+	}
+	if snap := r.Snapshot(); len(snap) != 0 {
+		t.Fatalf("expected no managed relays after drain, got %v", snap)
 	}
 }
 

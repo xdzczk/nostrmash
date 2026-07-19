@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func (s *PostgresStore) GetAuthorActivityWindowBuckets(
+func (s *Read) GetAuthorActivityWindowBuckets(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
@@ -72,7 +72,7 @@ func (s *PostgresStore) GetAuthorActivityWindowBuckets(
 	return out, nil
 }
 
-func (s *PostgresStore) GetAuthorPostingPatternBuckets(
+func (s *Read) GetAuthorPostingPatternBuckets(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,

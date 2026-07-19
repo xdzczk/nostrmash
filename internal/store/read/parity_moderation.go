@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 // includes targetPubkey as a muted p-tag, i.e. "who mutes this profile". Each
 // row carries the muter pubkey plus the source mute-list event metadata so the
 // caller can hydrate and link back to the originating list.
-func (s *PostgresStore) GetMutedBy(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetMutedBy(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -63,7 +63,7 @@ func (s *PostgresStore) GetMutedBy(ctx context.Context, targetPubkey string, lim
 	return out, nil
 }
 
-func (s *PostgresStore) GetModerationList(ctx context.Context, pubkey string, kind int) ([]string, error) {
+func (s *Read) GetModerationList(ctx context.Context, pubkey string, kind int) ([]string, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -107,7 +107,7 @@ func (s *PostgresStore) GetModerationList(ctx context.Context, pubkey string, ki
 	return out, nil
 }
 
-func (s *PostgresStore) IsHiddenByContentModeration(ctx context.Context, viewerPubkey string, eventID string) (bool, string, error) {
+func (s *Read) IsHiddenByContentModeration(ctx context.Context, viewerPubkey string, eventID string) (bool, string, error) {
 	viewerPubkey = strings.TrimSpace(viewerPubkey)
 	eventID = strings.TrimSpace(eventID)
 	if viewerPubkey == "" || eventID == "" {
@@ -184,7 +184,7 @@ func (s *PostgresStore) IsHiddenByContentModeration(ctx context.Context, viewerP
 	}
 	return false, "", nil
 }
-func (s *PostgresStore) GetModerationListByIdentifier(ctx context.Context, pubkey string, identifier string) ([]string, error) {
+func (s *Read) GetModerationListByIdentifier(ctx context.Context, pubkey string, identifier string) ([]string, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

@@ -3,8 +3,6 @@ package jobs
 import (
 	"context"
 	"time"
-
-	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 const eventRelaysRetentionTarget = "event_relays"
@@ -49,52 +47,28 @@ func RunEventRelaysRetentionLoop(ctx context.Context, log RetentionLogger, purge
 		"delete_batch_limit", cfg.DeleteBatchLimit,
 	)
 
-	ticker := time.NewTicker(cfg.RunInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		runEventRelaysRetentionDrain(ctx, log, purger, cfg)
+	runRetentionTicker(ctx, cfg.RunInterval, eventRelaysRetentionDrain(log, purger, cfg))
+}
+
+func eventRelaysRetentionDrain(log RetentionLogger, purger EventRelaysRetentionPurger, cfg EventRelaysRetentionConfig) retentionDrain {
+	return retentionDrain{
+		log:          log,
+		metricTarget: eventRelaysRetentionTarget,
+		batchLimit:   cfg.DeleteBatchLimit,
+		purgedEvent:  "event_relays_retention_purged",
+		failedEvent:  "event_relays_retention_purge_failed",
+		catchupEvent: "event_relays_retention_catchup",
+		purge: func(ctx context.Context) (int64, []any, error) {
+			seenBefore := time.Now().UTC().Add(-cfg.MaxAge)
+			deleted, err := purger.PurgeStaleEventRelays(ctx, seenBefore, cfg.DeleteBatchLimit)
+			if err != nil {
+				return 0, nil, err
+			}
+			return deleted, []any{"seen_before", seenBefore.Format(time.RFC3339)}, nil
+		},
 	}
 }
 
 func runEventRelaysRetentionDrain(ctx context.Context, log RetentionLogger, purger EventRelaysRetentionPurger, cfg EventRelaysRetentionConfig) {
-	consecutiveSaturated := 0
-	for {
-		seenBefore := time.Now().UTC().Add(-cfg.MaxAge)
-		deleted, err := purger.PurgeStaleEventRelays(ctx, seenBefore, cfg.DeleteBatchLimit)
-		if err != nil {
-			metrics.IncRetentionPurgeRun(eventRelaysRetentionTarget, "error")
-			log.Error("event_relays_retention_purge_failed", "error", err)
-			return
-		}
-		metrics.IncRetentionPurgeRun(eventRelaysRetentionTarget, "ok")
-		metrics.AddRetentionPurgedRows(eventRelaysRetentionTarget, deleted)
-		if deleted > 0 {
-			log.Info(
-				"event_relays_retention_purged",
-				"deleted", deleted,
-				"seen_before", seenBefore.Format(time.RFC3339),
-			)
-		}
-		if int(deleted) < cfg.DeleteBatchLimit {
-			return
-		}
-		consecutiveSaturated++
-		if consecutiveSaturated%retentionCatchupReportEvery == 0 {
-			log.Info(
-				"event_relays_retention_catchup",
-				"consecutive_full_batches", consecutiveSaturated,
-				"delete_batch_limit", cfg.DeleteBatchLimit,
-			)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retentionCatchupPause):
-		}
-	}
+	eventRelaysRetentionDrain(log, purger, cfg).run(ctx)
 }

@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 type notePageEvent struct {
@@ -48,8 +49,8 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 		RepostCount:   counts.RepostCount,
 	}
 	media := deriveNoteMediaFlags(parsed)
-	if cap := s.capabilities.notePage.noteStats; cap != nil {
-		stats, mediaStats, statsErr := cap.GetNoteStats(ctx, normalizedEventID)
+	if capability := s.capabilities.notePage.noteStats; capability != nil {
+		stats, mediaStats, statsErr := capability.GetNoteStats(ctx, normalizedEventID)
 		if statsErr == nil {
 			engagement = stats
 			media = mediaStats
@@ -100,13 +101,20 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 	}
 	var referenceEvent json.RawMessage
 	if referenceEventID != nil {
-		referenceEvent, _ = s.GetEventByID(ctx, *referenceEventID)
+		var refErr error
+		referenceEvent, refErr = s.GetEventByID(ctx, *referenceEventID)
+		if refErr != nil && !IsNotFound(refErr) {
+			// The referenced event is best-effort enrichment; do not fail the
+			// whole note page, but surface the degradation instead of hiding it.
+			span.SetAttr("reference_event.error", refErr.Error())
+			metrics.IncAPIPartialResponse("note_page_summary", "reference_event")
+		}
 	}
 
 	var conversation *NoteConversationActivity
 	if includeConversation {
-		if cap := s.capabilities.notePage.conversationVelocity; cap != nil {
-			activity, activityErr := cap.GetNoteConversationVelocity(ctx, normalizedEventID)
+		if capability := s.capabilities.notePage.conversationVelocity; capability != nil {
+			activity, activityErr := capability.GetNoteConversationVelocity(ctx, normalizedEventID)
 			if activityErr == nil {
 				conversation = &activity
 			} else if !IsNotFound(activityErr) {
@@ -115,8 +123,8 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 		}
 	}
 	var quoteRepostLinkage *NoteQuoteRepostLinkageSummary
-	if cap := s.capabilities.notePage.quoteRepostLinkage; cap != nil {
-		linkage, linkageErr := cap.GetNoteQuoteRepostLinkage(ctx, normalizedEventID, 6)
+	if capability := s.capabilities.notePage.quoteRepostLinkage; capability != nil {
+		linkage, linkageErr := capability.GetNoteQuoteRepostLinkage(ctx, normalizedEventID, 6)
 		if linkageErr == nil {
 			quoteRepostLinkage = &linkage
 		} else if !IsNotFound(linkageErr) {

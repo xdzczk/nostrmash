@@ -50,9 +50,9 @@ func TestServiceGetActionCountsUsesSharedEventOrchestration(t *testing.T) {
 		},
 	}
 
-	out, err := svc.GetActionCounts(context.Background(), "event-2")
+	out, err := svc.GetEventActionCounts(context.Background(), "event-2")
 	if err != nil {
-		t.Fatalf("GetActionCounts returned error: %v", err)
+		t.Fatalf("GetEventActionCounts returned error: %v", err)
 	}
 	if out.EventID != "event-2" || out.ReplyCount != 1 || out.ReactionCount != 5 || out.RepostCount != 0 {
 		t.Fatalf("unexpected action counts: %#v", out)

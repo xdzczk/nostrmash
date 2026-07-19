@@ -6,11 +6,39 @@ set -euo pipefail
 # - enforce minimum package coverage where runtime risk is highest
 # - avoid vanity global thresholds
 POLICY=(
-  "./internal/api:35"
-  "./internal/query:25"
-  "./internal/store:20"
+  "./internal/api:38"
+  "./internal/query:28"
+  "./internal/store:22"
   "./internal/api_primal:60"
+  # Newly tracked high-risk packages. Baselines are intentionally conservative
+  # (near current reality) so they act as ratchets that can only be raised as
+  # real tests land, never as spurious CI failures.
+  "./internal/derivation:1"
+  "./internal/worker/runtime:0"
+  "./internal/trust:15"
 )
+
+# Packages whose coverage is only meaningful with a live Postgres (they are
+# thin wrappers over SQL). Their strict floor is skipped when TEST_DATABASE_URL
+# is unset so local/non-integration runs don't fail spuriously; CI runs with a
+# Postgres service and therefore enforces them.
+DB_DEPENDENT=(
+  "./internal/store"
+  "./internal/derivation"
+  "./internal/worker/runtime"
+  "./internal/trust"
+)
+
+is_db_dependent() {
+  local candidate="$1"
+  local db_pkg
+  for db_pkg in "${DB_DEPENDENT[@]}"; do
+    if [[ "${db_pkg}" == "${candidate}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 failures=0
 
@@ -82,7 +110,7 @@ for entry in "${POLICY[@]}"; do
     fi
   fi
 
-  if [[ "${pkg}" == "./internal/store" && -z "${TEST_DATABASE_URL:-}" ]]; then
+  if is_db_dependent "${pkg}" && [[ -z "${TEST_DATABASE_URL:-}" ]]; then
     effective_min="0"
     echo "INFO ${pkg}: TEST_DATABASE_URL is unset; skipping strict threshold (${min}%) for local/non-integration runs"
   fi

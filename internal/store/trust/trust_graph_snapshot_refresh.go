@@ -1,4 +1,4 @@
-package store
+package trust
 
 import (
 	"context"
@@ -13,7 +13,7 @@ type TrustGraphSnapshotRefreshResult struct {
 	SourceRunID  *int64
 }
 
-func (s *PostgresStore) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (TrustGraphSnapshotRefreshResult, error) {
+func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (TrustGraphSnapshotRefreshResult, error) {
 	if s == nil || s.pool == nil {
 		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("store is not initialized")
 	}

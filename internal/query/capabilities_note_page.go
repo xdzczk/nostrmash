@@ -3,7 +3,7 @@ package query
 import (
 	"context"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type noteStatsCapability interface {
@@ -46,7 +46,7 @@ func adaptNotePageCapabilities(reader any, caps *serviceCapabilities) {
 }
 
 type legacyNoteStatsCapability interface {
-	GetNoteStats(ctx context.Context, eventID string) (store.NoteStats, error)
+	GetNoteStats(ctx context.Context, eventID string) (readmodel.NoteStats, error)
 }
 
 type legacyNoteStatsAdapter struct {
@@ -63,7 +63,7 @@ func (a legacyNoteStatsAdapter) GetNoteStats(ctx context.Context, eventID string
 }
 
 type legacyNoteConversationVelocityCapability interface {
-	GetNoteConversationVelocity(ctx context.Context, eventID string) (store.NoteConversationVelocity, error)
+	GetNoteConversationVelocity(ctx context.Context, eventID string) (readmodel.NoteConversationVelocity, error)
 }
 
 type legacyNoteConversationVelocityAdapter struct {
@@ -79,7 +79,7 @@ func (a legacyNoteConversationVelocityAdapter) GetNoteConversationVelocity(ctx c
 }
 
 type legacyRelatedNotesCapability interface {
-	GetRelatedNotes(ctx context.Context, eventID string, limit int) ([]store.RelatedNote, error)
+	GetRelatedNotes(ctx context.Context, eventID string, limit int) ([]readmodel.RelatedNote, error)
 }
 
 type legacyRelatedNotesAdapter struct {
@@ -103,7 +103,7 @@ type legacyNoteQuoteRepostLinkageCapability interface {
 		ctx context.Context,
 		eventID string,
 		recentLimit int,
-	) (store.NoteQuoteRepostLinkageProjection, error)
+	) (readmodel.NoteQuoteRepostLinkageProjection, error)
 }
 
 type legacyNoteQuoteRepostLinkageAdapter struct {

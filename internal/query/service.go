@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type Reader interface {
@@ -168,27 +168,21 @@ func NewServiceWithOptions(reader any, options ServiceOptions) (Service, error) 
 	if err != nil {
 		return Service{}, err
 	}
-	mode := strings.ToLower(strings.TrimSpace(options.DiscoveryCandidateTrustMode))
-	if mode == "" {
-		mode = trustModeOpen
+	discoveryMode, err := ParseTrustMode(options.DiscoveryCandidateTrustMode, TrustModeOpen)
+	if err != nil {
+		return Service{}, fmt.Errorf("discovery trust mode: %w", err)
 	}
-	if mode != trustModeOpen && mode != trustModePreferTrusted && mode != trustModeTrustedOnly {
-		return Service{}, fmt.Errorf("invalid discovery trust mode %q", mode)
+	mode := discoveryMode.String()
+	searchTrustMode, err := ParseTrustMode(options.SearchRankingTrustMode, TrustModePreferTrusted)
+	if err != nil {
+		return Service{}, fmt.Errorf("search ranking trust mode: %w", err)
 	}
-	searchMode := strings.ToLower(strings.TrimSpace(options.SearchRankingTrustMode))
-	if searchMode == "" {
-		searchMode = trustModePreferTrusted
+	searchMode := searchTrustMode.String()
+	fallbackTrustMode, err := ParseTrustMode(options.FallbackFetchTrustMode, TrustModeOpen)
+	if err != nil {
+		return Service{}, fmt.Errorf("fallback fetch trust mode: %w", err)
 	}
-	if searchMode != trustModeOpen && searchMode != trustModePreferTrusted && searchMode != trustModeTrustedOnly {
-		return Service{}, fmt.Errorf("invalid search ranking trust mode %q", searchMode)
-	}
-	fallbackMode := strings.ToLower(strings.TrimSpace(options.FallbackFetchTrustMode))
-	if fallbackMode == "" {
-		fallbackMode = trustModeOpen
-	}
-	if fallbackMode != trustModeOpen && fallbackMode != trustModePreferTrusted && fallbackMode != trustModeTrustedOnly {
-		return Service{}, fmt.Errorf("invalid fallback fetch trust mode %q", fallbackMode)
-	}
+	fallbackMode := fallbackTrustMode.String()
 	maxHops := options.DiscoveryCandidateMaxHops
 	if maxHops <= 0 {
 		maxHops = 3
@@ -263,7 +257,7 @@ var (
 	_ ReadOrchestration = Service{}
 
 	// ErrThreadEventNotFound indicates the focal/root event for a thread was not found.
-	// This is intentionally narrower than store.ErrNotFound so transports can preserve
+	// This is intentionally narrower than readmodel.ErrNotFound so transports can preserve
 	// historical status code behavior for non-root thread fetch failures.
 	ErrThreadEventNotFound = errors.New("thread event not found")
 
@@ -292,7 +286,7 @@ func normalizeUniqueStrings(values []string) []string {
 }
 
 func IsNotFound(err error) bool {
-	return errors.Is(err, store.ErrNotFound)
+	return errors.Is(err, readmodel.ErrNotFound)
 }
 
 func unsupportedCapabilityError(feature string) error {

@@ -1,8 +1,8 @@
 package query
 
-import "github.com/xdzczk/nostrmash/internal/store"
+import "github.com/xdzczk/nostrmash/internal/readmodel"
 
-func trustScoreFromStore(row store.TrustGlobalScore) TrustScore {
+func trustScoreFromStore(row readmodel.TrustGlobalScore) TrustScore {
 	return TrustScore{
 		Pubkey:         row.Pubkey,
 		Score:          row.Score,
@@ -14,7 +14,7 @@ func trustScoreFromStore(row store.TrustGlobalScore) TrustScore {
 	}
 }
 
-func trustStateFromStore(row store.TrustState) TrustState {
+func trustStateFromStore(row readmodel.TrustState) TrustState {
 	return TrustState{
 		Pubkey:       row.Pubkey,
 		Score:        row.Score,
@@ -29,7 +29,7 @@ func trustStateFromStore(row store.TrustState) TrustState {
 	}
 }
 
-func trustRunFromStore(row store.TrustRun) TrustRun {
+func trustRunFromStore(row readmodel.TrustRun) TrustRun {
 	return TrustRun{
 		ID:                 row.ID,
 		DerivationName:     row.DerivationName,
@@ -55,7 +55,7 @@ func trustRunFromStore(row store.TrustRun) TrustRun {
 	}
 }
 
-func trustQualificationFromStore(row store.TrustQualification) TrustQualification {
+func trustQualificationFromStore(row readmodel.TrustQualification) TrustQualification {
 	return TrustQualification{
 		Pubkey:       row.Pubkey,
 		Trusted:      row.Trusted,

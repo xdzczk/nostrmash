@@ -6,7 +6,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/store/failure"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 // WithPanicRecovery converts unexpected panics into API-safe 500 responses.

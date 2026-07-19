@@ -55,7 +55,10 @@ func (p *Prober) Probe(ctx context.Context, relayURL string) ProbeResult {
 		Proxy:            http.ProxyFromEnvironment,
 		HandshakeTimeout: p.cfg.ConnectTimeout,
 	}
-	conn, _, err := dialer.DialContext(ctx, relayURL, nil)
+	conn, resp, err := dialer.DialContext(ctx, relayURL, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	result.ConnectLatencyMs = float64(time.Since(connectStart).Milliseconds())
 	if err != nil {
 		result.Status = relayregistry.ProbeStatusConnectFailed

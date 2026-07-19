@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func (s *PostgresStore) GetAuthorTopicStats(
+func (s *Read) GetAuthorTopicStats(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
@@ -60,7 +60,7 @@ func (s *PostgresStore) GetAuthorTopicStats(
 	return out, nil
 }
 
-func (s *PostgresStore) GetAuthorTopLanguages(
+func (s *Read) GetAuthorTopLanguages(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,

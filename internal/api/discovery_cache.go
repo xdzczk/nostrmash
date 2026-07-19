@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -116,6 +118,9 @@ type discoveryResponseCache struct {
 	maxEntries int
 	seq        uint64
 	entries    map[string]discoveryCacheEntry
+	// builds deduplicates concurrent rebuilds of the same key so a cache
+	// expiry under load triggers exactly one recompute instead of a stampede.
+	builds singleflight.Group
 }
 
 type discoveryCacheEntry struct {
@@ -206,36 +211,72 @@ func (c *discoveryResponseCache) evictOldestLocked() {
 	}
 }
 
-func (h Handlers) writePublicCachedResponse(w http.ResponseWriter, policy publicResponseCachePolicy) bool {
+// servePublicCached writes a cached JSON response for policy, building it via
+// build on a miss. Concurrent misses for the same cache key are collapsed to a
+// single build via singleflight, so an expiry under load never triggers a
+// recompute stampede. On a build error nothing is written and the error is
+// returned so the caller can map it to the appropriate status code, preserving
+// each handler's existing error semantics (not-found, unsupported-capability).
+func (h Handlers) servePublicCached(w http.ResponseWriter, policy publicResponseCachePolicy, build func() (map[string]any, error)) error {
 	if h.discoveryCache == nil {
-		return false
+		payload, err := build()
+		if err != nil {
+			return err
+		}
+		writeJSON(w, http.StatusOK, payload)
+		return nil
 	}
-	payload, ok := h.discoveryCache.get(policy.key)
+	if payload, ok := h.discoveryCache.get(policy.key); ok {
+		if h.cacheLookupObserver != nil {
+			h.cacheLookupObserver(string(policy.family), policy.endpoint, true)
+		}
+		h.writeCachedPayload(w, payload)
+		return nil
+	}
 	if h.cacheLookupObserver != nil {
-		h.cacheLookupObserver(string(policy.family), policy.endpoint, ok)
+		h.cacheLookupObserver(string(policy.family), policy.endpoint, false)
 	}
-	if !ok {
-		return false
+	encoded, err := h.buildAndCachePayload(policy, build)
+	if err != nil {
+		return err
 	}
+	h.writeCachedPayload(w, encoded)
+	return nil
+}
+
+// buildAndCachePayload runs build under singleflight keyed by the cache key,
+// marshals and stores the result, and returns the encoded bytes. A follower
+// that arrives after the leader has already populated the cache serves the
+// freshly-cached bytes without rebuilding.
+func (h Handlers) buildAndCachePayload(policy publicResponseCachePolicy, build func() (map[string]any, error)) ([]byte, error) {
+	ttl := h.cacheConfig.ttlForFamily(policy.family)
+	encoded, err, _ := h.discoveryCache.builds.Do(policy.key, func() (any, error) {
+		if payload, ok := h.discoveryCache.get(policy.key); ok {
+			return payload, nil
+		}
+		payload, buildErr := build()
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		bytes, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		if ttl > 0 {
+			h.discoveryCache.set(policy.key, bytes, ttl)
+		}
+		return bytes, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return encoded.([]byte), nil
+}
+
+func (h Handlers) writeCachedPayload(w http.ResponseWriter, payload []byte) {
 	w.Header().Set("Content-Type", discoveryCacheContentTypeJSONName)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(payload)
-	return true
-}
-
-func (h Handlers) cachePublicPayload(policy publicResponseCachePolicy, payload map[string]any, ttlOverride ...time.Duration) {
-	ttl := h.cacheConfig.ttlForFamily(policy.family)
-	if len(ttlOverride) > 0 {
-		ttl = ttlOverride[0]
-	}
-	if h.discoveryCache == nil || ttl <= 0 {
-		return
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-	h.discoveryCache.set(policy.key, encoded, ttl)
 }
 
 func (h Handlers) newPublicCachePolicy(family publicCacheFamily, endpoint string, params map[string]any) publicResponseCachePolicy {

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 // Logger is the minimal logger contract shared across binary entrypoints.
@@ -42,10 +42,7 @@ func InitTracing(
 	version string,
 	environment string,
 ) error {
-	if err := traceutil.Init(ctx, serviceName, binaryRole, version, environment); err != nil {
-		return err
-	}
-	return nil
+	return traceutil.Init(ctx, serviceName, binaryRole, version, environment)
 }
 
 func ShutdownTracing(log Logger) {

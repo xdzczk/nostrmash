@@ -8,10 +8,10 @@ type boundedBackoff struct {
 	current time.Duration
 }
 
-func newBoundedBackoff(initial, max time.Duration) *boundedBackoff {
+func newBoundedBackoff(initial, maxBackoff time.Duration) *boundedBackoff {
 	return &boundedBackoff{
 		initial: initial,
-		max:     max,
+		max:     maxBackoff,
 	}
 }
 

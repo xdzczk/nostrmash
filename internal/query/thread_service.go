@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xdzczk/nostrmash/internal/store"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 type threadService struct {
@@ -38,7 +38,7 @@ func (s threadService) GetThread(ctx context.Context, req ThreadRequest) (out Th
 	}
 	raw, err := s.reader.GetEventRawByID(ctx, eventID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, readmodel.ErrNotFound) {
 			return out, ErrThreadEventNotFound
 		}
 		return out, err
@@ -87,7 +87,7 @@ func (s threadService) GetThreadWindow(ctx context.Context, req ThreadWindowRequ
 	}
 	raw, err := s.reader.GetEventRawByID(ctx, eventID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, readmodel.ErrNotFound) {
 			return ThreadView{}, ErrThreadEventNotFound
 		}
 		return ThreadView{}, err
@@ -210,17 +210,17 @@ func parseReplyMeta(raw json.RawMessage) (replyMeta, bool) {
 	return replyMeta{createdAt: payload.CreatedAt, id: payload.ID}, true
 }
 
-func appendTailReplies(dst []json.RawMessage, batch []json.RawMessage, max int) []json.RawMessage {
-	if max <= 0 {
+func appendTailReplies(dst []json.RawMessage, batch []json.RawMessage, limit int) []json.RawMessage {
+	if limit <= 0 {
 		return dst[:0]
 	}
-	if len(batch) >= max {
-		tail := batch[len(batch)-max:]
-		out := make([]json.RawMessage, 0, max)
+	if len(batch) >= limit {
+		tail := batch[len(batch)-limit:]
+		out := make([]json.RawMessage, 0, limit)
 		out = append(out, tail...)
 		return out
 	}
-	needDrop := len(dst) + len(batch) - max
+	needDrop := len(dst) + len(batch) - limit
 	if needDrop > 0 {
 		dst = append(dst[:0], dst[needDrop:]...)
 	}
@@ -228,13 +228,13 @@ func appendTailReplies(dst []json.RawMessage, batch []json.RawMessage, max int) 
 	return dst
 }
 
-func appendTailReply(dst []json.RawMessage, value json.RawMessage, max int) []json.RawMessage {
-	if max <= 0 {
+func appendTailReply(dst []json.RawMessage, value json.RawMessage, limit int) []json.RawMessage {
+	if limit <= 0 {
 		return dst[:0]
 	}
-	if len(dst) >= max {
+	if len(dst) >= limit {
 		copy(dst, dst[1:])
-		dst = dst[:max-1]
+		dst = dst[:limit-1]
 	}
 	return append(dst, value)
 }

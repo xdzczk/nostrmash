@@ -31,6 +31,33 @@ func DatabaseURL(t testing.TB, suiteName string) string {
 	return ""
 }
 
+// RedisURL returns TEST_REDIS_URL and skips the test if unset. Kept as a
+// string-only helper (no go-redis import) so dependent packages construct their
+// own client without risking an import cycle through this test utility.
+func RedisURL(t testing.TB, suiteName string) string {
+	t.Helper()
+	if url := strings.TrimSpace(os.Getenv("TEST_REDIS_URL")); url != "" {
+		return url
+	}
+	t.Skipf("set TEST_REDIS_URL to run %s integration tests", suiteName)
+	return ""
+}
+
+// MeiliURL returns TEST_MEILI_URL and skips the test if unset.
+func MeiliURL(t testing.TB, suiteName string) string {
+	t.Helper()
+	if url := strings.TrimSpace(os.Getenv("TEST_MEILI_URL")); url != "" {
+		return url
+	}
+	t.Skipf("set TEST_MEILI_URL to run %s integration tests", suiteName)
+	return ""
+}
+
+// MeiliMasterKey returns the optional TEST_MEILI_MASTER_KEY (empty when unset).
+func MeiliMasterKey() string {
+	return strings.TrimSpace(os.Getenv("TEST_MEILI_MASTER_KEY"))
+}
+
 // SetupSchemaPool creates an isolated schema-scoped pool and drops the schema in cleanup.
 func SetupSchemaPool(t testing.TB, ctx context.Context, dbURL, schemaPrefix string) *pgxpool.Pool {
 	t.Helper()

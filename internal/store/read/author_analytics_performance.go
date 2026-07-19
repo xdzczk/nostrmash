@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func (s *PostgresStore) GetAuthorRecycleCandidates(
+func (s *Read) GetAuthorRecycleCandidates(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
@@ -222,7 +222,7 @@ func (s *PostgresStore) GetAuthorRecycleCandidates(
 	return out, nil
 }
 
-func (s *PostgresStore) GetAuthorPerformanceAggregate(
+func (s *Read) GetAuthorPerformanceAggregate(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
@@ -253,7 +253,7 @@ func (s *PostgresStore) GetAuthorPerformanceAggregate(
 	return current, previous, nil
 }
 
-func (s *PostgresStore) getAuthorPerformanceAggregateForRange(
+func (s *Read) getAuthorPerformanceAggregateForRange(
 	ctx context.Context,
 	pubkey string,
 	startInclusive int64,

@@ -59,7 +59,7 @@ func (g WSGateway) cacheDispatchAuthorReplies(ctx context.Context, kwargs map[st
 
 func (g WSGateway) cacheDispatchEventActions(ctx context.Context, kwargs map[string]any) ([]any, error) {
 	eventID, _ := kwargs["event_id"].(string)
-	counts, err := g.query.GetActionCounts(ctx, eventID)
+	counts, err := g.query.GetEventActionCounts(ctx, eventID)
 	if err != nil {
 		return nil, wrapPrimalRequestError(err)
 	}

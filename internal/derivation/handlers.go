@@ -12,6 +12,9 @@ import (
 type Handlers struct {
 	pool  *pgxpool.Pool
 	meili MeilisearchSyncer
+	// authorAnalyticsWindows is the per-instance window_days list the live
+	// author-analytics sweeper rebuilds. Empty means use the package default.
+	authorAnalyticsWindows []int
 }
 
 type EventJobPayload = jobs.EventJobPayload
@@ -24,6 +27,10 @@ type MeilisearchSyncer interface {
 
 type HandlersOptions struct {
 	MeiliClient MeilisearchSyncer
+	// AuthorAnalyticsWindows overrides the live author-analytics sweeper's
+	// window_days list. Values outside the schema CHECK ({7, 30, 90}) are
+	// dropped; an entirely-invalid list falls back to the package default.
+	AuthorAnalyticsWindows []int
 }
 
 func NewHandlers(pool *pgxpool.Pool) *Handlers {
@@ -32,8 +39,9 @@ func NewHandlers(pool *pgxpool.Pool) *Handlers {
 
 func NewHandlersWithOptions(pool *pgxpool.Pool, options HandlersOptions) *Handlers {
 	return &Handlers{
-		pool:  pool,
-		meili: options.MeiliClient,
+		pool:                   pool,
+		meili:                  options.MeiliClient,
+		authorAnalyticsWindows: normalizeAuthorAnalyticsWindows(options.AuthorAnalyticsWindows),
 	}
 }
 

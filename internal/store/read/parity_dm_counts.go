@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *PostgresStore) GetDirectMessageUnreadCounts(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetDirectMessageUnreadCounts(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -70,7 +70,7 @@ func (s *PostgresStore) GetDirectMessageUnreadCounts(ctx context.Context, pubkey
 	return out, nil
 }
 
-func (s *PostgresStore) GetDirectMessageCount(ctx context.Context, receiver string, sender string) (int64, error) {
+func (s *Read) GetDirectMessageCount(ctx context.Context, receiver string, sender string) (int64, error) {
 	if s == nil || s.pool == nil {
 		return 0, fmt.Errorf("store is not initialized")
 	}
@@ -144,7 +144,7 @@ func (s *PostgresStore) GetDirectMessageCount(ctx context.Context, receiver stri
 	return count, nil
 }
 
-func (s *PostgresStore) ResetDirectMessageCount(ctx context.Context, receiver string, sender string) error {
+func (s *Read) ResetDirectMessageCount(ctx context.Context, receiver string, sender string) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("store is not initialized")
 	}
@@ -197,7 +197,7 @@ func (s *PostgresStore) ResetDirectMessageCount(ctx context.Context, receiver st
 	return nil
 }
 
-func (s *PostgresStore) ResetDirectMessageCounts(ctx context.Context, receiver string) error {
+func (s *Read) ResetDirectMessageCounts(ctx context.Context, receiver string) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("store is not initialized")
 	}
@@ -216,7 +216,7 @@ func (s *PostgresStore) ResetDirectMessageCounts(ctx context.Context, receiver s
 	return nil
 }
 
-func (s *PostgresStore) ResetDirectMessageUnread(ctx context.Context, pubkey string, peer string) error {
+func (s *Read) ResetDirectMessageUnread(ctx context.Context, pubkey string, peer string) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("store is not initialized")
 	}

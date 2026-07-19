@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 )
 
 // GetFollowersByPubkey returns follower edges derived from latest kind:3 contact lists.
-func (s *PostgresStore) GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -51,7 +51,7 @@ func (s *PostgresStore) GetFollowersByPubkey(ctx context.Context, targetPubkey s
 	return out, nil
 }
 
-func (s *PostgresStore) GetHighlightsByEventID(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetHighlightsByEventID(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -94,7 +94,7 @@ func (s *PostgresStore) GetHighlightsByEventID(ctx context.Context, eventID stri
 	return out, nil
 }
 
-func (s *PostgresStore) GetHighlightsByATarget(
+func (s *Read) GetHighlightsByATarget(
 	ctx context.Context,
 	kind int,
 	pubkey string,

@@ -1,50 +1,21 @@
-package store
+package trust
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"strings"
-	"time"
+
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 
 	"github.com/jackc/pgx/v5"
 )
 
-type TrustGlobalScore struct {
-	Pubkey         string
-	Score          float64
-	Rank           int64
-	RunID          int64
-	DerivationName string
-	TargetVersion  int
-	ComputedAt     time.Time
-}
+type TrustGlobalScore = readmodel.TrustGlobalScore
 
-type TrustRun struct {
-	ID                 int64
-	DerivationName     string
-	TargetVersion      int
-	Status             string
-	JobID              *int64
-	Attempts           int
-	InputFollowerEdges int64
-	ScoreRowsPublished int64
-	RedisSnapshotRef   *string
-	CurrentPhase       *string
-	SyncJobID          *int64
-	ComputeJobID       *int64
-	PromoteJobID       *int64
-	PhaseStartedAt     *time.Time
-	PhaseFinishedAt    *time.Time
-	PhaseLastError     *string
-	StartedAt          *time.Time
-	FinishedAt         *time.Time
-	LastError          *string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-}
+type TrustRun = readmodel.TrustRun
 
-func (s *PostgresStore) GetTrustScore(ctx context.Context, pubkey string) (TrustGlobalScore, error) {
+func (s *Trust) GetTrustScore(ctx context.Context, pubkey string) (TrustGlobalScore, error) {
 	pubkey = strings.TrimSpace(pubkey)
 	if pubkey == "" {
 		return TrustGlobalScore{}, fmt.Errorf("pubkey is required")
@@ -65,7 +36,7 @@ func (s *PostgresStore) GetTrustScore(ctx context.Context, pubkey string) (Trust
 		&out.ComputedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return TrustGlobalScore{}, ErrNotFound
+			return TrustGlobalScore{}, readmodel.ErrNotFound
 		}
 		return TrustGlobalScore{}, fmt.Errorf("get trust score: %w", err)
 	}
@@ -73,7 +44,7 @@ func (s *PostgresStore) GetTrustScore(ctx context.Context, pubkey string) (Trust
 	return out, nil
 }
 
-func (s *PostgresStore) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustGlobalScore, error) {
+func (s *Trust) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustGlobalScore, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -110,7 +81,7 @@ func (s *PostgresStore) ListTopTrustedPubkeys(ctx context.Context, limit int) ([
 	return out, nil
 }
 
-func (s *PostgresStore) GetTrustRun(ctx context.Context, runID int64) (TrustRun, error) {
+func (s *Trust) GetTrustRun(ctx context.Context, runID int64) (TrustRun, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, derivation_name, target_version, status, job_id, attempts,
 		       input_follower_edges_count, score_rows_published, redis_snapshot_ref,
@@ -123,14 +94,14 @@ func (s *PostgresStore) GetTrustRun(ctx context.Context, runID int64) (TrustRun,
 	out, err := scanTrustRun(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return TrustRun{}, ErrNotFound
+			return TrustRun{}, readmodel.ErrNotFound
 		}
 		return TrustRun{}, err
 	}
 	return out, nil
 }
 
-func (s *PostgresStore) ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, error) {
+func (s *Trust) ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, error) {
 	if limit <= 0 {
 		limit = 50
 	}

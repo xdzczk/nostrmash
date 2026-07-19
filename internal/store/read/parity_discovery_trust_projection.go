@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -16,7 +16,7 @@ const (
 
 // GetTrustQualifiedTrendingNotes returns trust-qualified trending short notes
 // (kind 1 only). Long-form articles are served by GetTrustQualifiedTrendingLongForm.
-func (s *PostgresStore) GetTrustQualifiedTrendingNotes(
+func (s *Read) GetTrustQualifiedTrendingNotes(
 	ctx context.Context,
 	window time.Duration,
 	limit int,
@@ -30,7 +30,7 @@ func (s *PostgresStore) GetTrustQualifiedTrendingNotes(
 
 // GetTrustQualifiedTrendingLongForm returns trust-qualified trending long-form
 // articles (kind 30023).
-func (s *PostgresStore) GetTrustQualifiedTrendingLongForm(
+func (s *Read) GetTrustQualifiedTrendingLongForm(
 	ctx context.Context,
 	window time.Duration,
 	limit int,
@@ -42,7 +42,7 @@ func (s *PostgresStore) GetTrustQualifiedTrendingLongForm(
 	return s.getTrustQualifiedTrendingForKinds(ctx, []int{30023}, window, limit, offset, mode, policy, maxStaleness)
 }
 
-func (s *PostgresStore) getTrustQualifiedTrendingForKinds(
+func (s *Read) getTrustQualifiedTrendingForKinds(
 	ctx context.Context,
 	kinds []int,
 	window time.Duration,
@@ -137,7 +137,7 @@ func (s *PostgresStore) getTrustQualifiedTrendingForKinds(
 	return out, true, nil
 }
 
-func (s *PostgresStore) GetTrustQualifiedTrendingProfiles(
+func (s *Read) GetTrustQualifiedTrendingProfiles(
 	ctx context.Context,
 	window time.Duration,
 	limit int,
@@ -240,7 +240,7 @@ func (s *PostgresStore) GetTrustQualifiedTrendingProfiles(
 	return out, true, nil
 }
 
-func (s *PostgresStore) trustedDiscoveryProjectionReady(
+func (s *Read) trustedDiscoveryProjectionReady(
 	ctx context.Context,
 	projectionName string,
 	maxStaleness time.Duration,

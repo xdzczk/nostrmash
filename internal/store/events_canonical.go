@@ -9,7 +9,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 // InsertCanonicalEvent stores a canonical event, its expanded tags, and relay provenance.
@@ -85,7 +85,7 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 		event.Kind,
 		event.Sig,
 		event.Content,
-		json.RawMessage(event.RawJSON),
+		event.RawJSON,
 		firstSeenAt,
 		insertedAt,
 	).Scan(&outcome.EventInserted)
@@ -93,23 +93,42 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 		return outcome, fmt.Errorf("upsert event: %w", err)
 	}
 
-	for _, tag := range expandedTags {
-		_, err := tx.Exec(ctx, `
+	if len(expandedTags) > 0 {
+		// Insert all expanded tags in a single round-trip via unnest arrays
+		// instead of one Exec per tag. Tag-heavy events (e.g. large kind-3
+		// contact lists) previously drove N round-trips and dominated ingest
+		// latency and WAL churn. The event id is constant across rows, so it is
+		// passed as a scalar rather than a repeated array column.
+		tagNames := make([]string, len(expandedTags))
+		tagIndexes := make([]int32, len(expandedTags))
+		valueIndexes := make([]int32, len(expandedTags))
+		values := make([]string, len(expandedTags))
+		rawValues := make([]string, len(expandedTags))
+		for i, tag := range expandedTags {
+			tagNames[i] = tag.TagName
+			tagIndexes[i] = int32(tag.TagIndex)
+			valueIndexes[i] = int32(tag.ValueIndex)
+			values[i] = tag.Value
+			rawValues[i] = string(tag.RawValues)
+		}
+		_, err = tx.Exec(ctx, `
 			INSERT INTO event_tags (
 				event_id, tag_name, tag_index, value_index, value, raw_values
 			)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			SELECT $1, t.tag_name, t.tag_index, t.value_index, t.value, t.raw_values::jsonb
+			FROM unnest($2::text[], $3::int[], $4::int[], $5::text[], $6::text[])
+				AS t(tag_name, tag_index, value_index, value, raw_values)
 			ON CONFLICT (event_id, tag_index, value_index) DO NOTHING
 		`,
-			tag.EventID,
-			tag.TagName,
-			tag.TagIndex,
-			tag.ValueIndex,
-			tag.Value,
-			json.RawMessage(tag.RawValues),
+			event.ID,
+			tagNames,
+			tagIndexes,
+			valueIndexes,
+			values,
+			rawValues,
 		)
 		if err != nil {
-			return outcome, fmt.Errorf("insert event tag: %w", err)
+			return outcome, fmt.Errorf("insert event tags: %w", err)
 		}
 	}
 

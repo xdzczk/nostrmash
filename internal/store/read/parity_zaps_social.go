@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -28,7 +28,7 @@ const authorSentZapsSelect = `
 	LEFT JOIN events te ON te.id = zr.event_id
 `
 
-func (s *PostgresStore) GetAuthorSentZaps(
+func (s *Read) GetAuthorSentZaps(
 	ctx context.Context,
 	pubkey string,
 	limit int,
@@ -127,7 +127,7 @@ func (s *PostgresStore) GetAuthorSentZaps(
 	return out, nextCursor, nil
 }
 
-func (s *PostgresStore) GetUserZaps(ctx context.Context, pubkey string, limit int, sortBySats bool) ([]json.RawMessage, error) {
+func (s *Read) GetUserZaps(ctx context.Context, pubkey string, limit int, sortBySats bool) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -180,7 +180,7 @@ func (s *PostgresStore) GetUserZaps(ctx context.Context, pubkey string, limit in
 	return out, nil
 }
 
-func (s *PostgresStore) GetEventZapsBySats(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetEventZapsBySats(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -227,7 +227,7 @@ func (s *PostgresStore) GetEventZapsBySats(ctx context.Context, eventID string, 
 	return out, nil
 }
 
-func (s *PostgresStore) IsUserFollowing(ctx context.Context, followerPubkey string, followedPubkey string) (bool, error) {
+func (s *Read) IsUserFollowing(ctx context.Context, followerPubkey string, followedPubkey string) (bool, error) {
 	if s == nil || s.pool == nil {
 		return false, fmt.Errorf("store is not initialized")
 	}
@@ -250,7 +250,7 @@ func (s *PostgresStore) IsUserFollowing(ctx context.Context, followerPubkey stri
 	return exists, nil
 }
 
-func (s *PostgresStore) GetMutualFollows(ctx context.Context, leftPubkey string, rightPubkey string, limit int) ([]string, error) {
+func (s *Read) GetMutualFollows(ctx context.Context, leftPubkey string, rightPubkey string, limit int) ([]string, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

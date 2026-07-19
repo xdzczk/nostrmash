@@ -1,13 +1,14 @@
 package query
 
-import "encoding/json"
+import (
+	"encoding/json"
 
-type Profile struct {
-	Pubkey            string
-	MetadataEventID   string
-	MetadataCreatedAt int64
-	ProfileJSON       json.RawMessage
-}
+	"github.com/xdzczk/nostrmash/internal/readmodel"
+)
+
+// Profile is re-exported from the neutral readmodel package so lower-level
+// adapters (e.g. meili) can return it without importing query.
+type Profile = readmodel.Profile
 
 type ProfilePublicStats struct {
 	Pubkey           string

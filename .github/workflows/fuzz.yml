@@ -1,0 +1,69 @@
+name: Nightly Fuzz
+
+on:
+  schedule:
+    # 03:17 UTC nightly (off the hour to avoid scheduler congestion).
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: "Seconds to run each fuzz target"
+        required: false
+        default: "60"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target.pkg }} ${{ matrix.target.func }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { pkg: "./internal/api", func: "FuzzDecodeEventCursor" }
+          - { pkg: "./internal/api", func: "FuzzBatchGetEventsRequestDecoder" }
+          - { pkg: "./internal/api", func: "FuzzBatchGetProfilesRequestDecoder" }
+          - { pkg: "./internal/api_primal", func: "FuzzPrimalDecodeEventCursor" }
+          - { pkg: "./internal/api_primal", func: "FuzzPrimalBatchGetEventsRequestDecoder" }
+          - { pkg: "./internal/api_primal", func: "FuzzPrimalBatchGetUserInfosRequestDecoder" }
+          - { pkg: "./internal/api_primal", func: "FuzzParseParameterizedReplaceableRefs" }
+          - { pkg: "./internal/api_primal", func: "FuzzParseAndValidateDMResetAuth" }
+          - { pkg: "./internal/api_primal", func: "FuzzDecodeFrame" }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.5"
+          cache: true
+
+      - name: Run fuzz target
+        env:
+          FUZZ_SECONDS: ${{ inputs.fuzz_seconds || '60' }}
+        run: |
+          set -uo pipefail
+          echo "Fuzzing ${{ matrix.target.func }} in ${{ matrix.target.pkg }} for ${FUZZ_SECONDS}s"
+          go test "${{ matrix.target.pkg }}" \
+            -run '^$' \
+            -fuzz '^${{ matrix.target.func }}$' \
+            -fuzztime "${FUZZ_SECONDS}s" \
+            | tee fuzz-output.txt
+          status=${PIPESTATUS[0]}
+          echo "exit_status=${status}"
+          exit "${status}"
+
+      - name: Upload failing corpus
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-corpus-${{ matrix.target.func }}
+          path: |
+            internal/**/testdata/fuzz/${{ matrix.target.func }}/**
+            fuzz-output.txt
+          retention-days: 30
+          if-no-files-found: warn

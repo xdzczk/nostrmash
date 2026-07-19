@@ -1,33 +1,22 @@
-package store
+package read
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
 
-type ContactListProjection struct {
-	Pubkey          string
-	EventID         string
-	CreatedAt       int64
-	DerivationVer   int
-	ContactsJSONRaw json.RawMessage
-}
+type ContactListProjection = readmodel.ContactListProjection
 
-type RelayListProjection struct {
-	Pubkey        string
-	EventID       string
-	CreatedAt     int64
-	DerivationVer int
-	RelaysJSONRaw json.RawMessage
-}
+type RelayListProjection = readmodel.RelayListProjection
 
 // GetContactListByPubkey returns latest projected contact list for one pubkey.
-func (s *PostgresStore) GetContactListByPubkey(ctx context.Context, pubkey string) (ContactListProjection, error) {
+func (s *Read) GetContactListByPubkey(ctx context.Context, pubkey string) (ContactListProjection, error) {
 	out := ContactListProjection{}
 	if s == nil || s.pool == nil {
 		return out, fmt.Errorf("store is not initialized")
@@ -60,7 +49,7 @@ func (s *PostgresStore) GetContactListByPubkey(ctx context.Context, pubkey strin
 }
 
 // GetRelayListByPubkey returns latest projected relay list for one pubkey.
-func (s *PostgresStore) GetRelayListByPubkey(ctx context.Context, pubkey string) (RelayListProjection, error) {
+func (s *Read) GetRelayListByPubkey(ctx context.Context, pubkey string) (RelayListProjection, error) {
 	out := RelayListProjection{}
 	if s == nil || s.pool == nil {
 		return out, fmt.Errorf("store is not initialized")

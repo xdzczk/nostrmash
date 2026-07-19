@@ -3,7 +3,7 @@ package query
 import (
 	"context"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type trustStateCapability interface {
@@ -78,17 +78,17 @@ func adaptTrustCapabilities(reader any, caps *serviceCapabilities) {
 }
 
 type legacyTrustCapability interface {
-	GetTrustState(ctx context.Context, pubkey string) (store.TrustState, error)
-	GetTrustStates(ctx context.Context, pubkeys []string) (map[string]store.TrustState, error)
-	GetTrustScore(ctx context.Context, pubkey string) (store.TrustGlobalScore, error)
-	ListTopTrustedPubkeys(ctx context.Context, limit int) ([]store.TrustGlobalScore, error)
-	GetTrustRun(ctx context.Context, runID int64) (store.TrustRun, error)
-	ListTrustRuns(ctx context.Context, limit int) ([]store.TrustRun, error)
+	GetTrustState(ctx context.Context, pubkey string) (readmodel.TrustState, error)
+	GetTrustStates(ctx context.Context, pubkeys []string) (map[string]readmodel.TrustState, error)
+	GetTrustScore(ctx context.Context, pubkey string) (readmodel.TrustGlobalScore, error)
+	ListTopTrustedPubkeys(ctx context.Context, limit int) ([]readmodel.TrustGlobalScore, error)
+	GetTrustRun(ctx context.Context, runID int64) (readmodel.TrustRun, error)
+	ListTrustRuns(ctx context.Context, limit int) ([]readmodel.TrustRun, error)
 }
 
 type legacyTrustQualificationCapability interface {
-	GetTrustQualifications(ctx context.Context, pubkeys []string, policy store.TrustQualificationPolicy) (map[string]store.TrustQualification, error)
-	IsTrustedAuthor(ctx context.Context, pubkey string, policy store.TrustQualificationPolicy) (bool, error)
+	GetTrustQualifications(ctx context.Context, pubkeys []string, policy readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error)
+	IsTrustedAuthor(ctx context.Context, pubkey string, policy readmodel.TrustQualificationPolicy) (bool, error)
 }
 
 type legacyTrustAdapter struct {
@@ -164,7 +164,7 @@ func (a legacyTrustQualificationAdapter) GetTrustQualifications(
 	pubkeys []string,
 	policy TrustQualificationPolicy,
 ) (map[string]TrustQualification, error) {
-	rows, err := a.legacy.GetTrustQualifications(ctx, pubkeys, store.TrustQualificationPolicy{
+	rows, err := a.legacy.GetTrustQualifications(ctx, pubkeys, readmodel.TrustQualificationPolicy{
 		MaxHops:      policy.MaxHops,
 		MinimumScore: policy.MinimumScore,
 	})
@@ -183,7 +183,7 @@ func (a legacyTrustQualificationAdapter) IsTrustedAuthor(
 	pubkey string,
 	policy TrustQualificationPolicy,
 ) (bool, error) {
-	return a.legacy.IsTrustedAuthor(ctx, pubkey, store.TrustQualificationPolicy{
+	return a.legacy.IsTrustedAuthor(ctx, pubkey, readmodel.TrustQualificationPolicy{
 		MaxHops:      policy.MaxHops,
 		MinimumScore: policy.MinimumScore,
 	})

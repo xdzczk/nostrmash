@@ -3,8 +3,6 @@ package jobs
 import (
 	"context"
 	"time"
-
-	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // engagementRetentionTarget is the bounded metric label for engagement purge
@@ -59,55 +57,33 @@ func RunEngagementRetentionLoop(ctx context.Context, log RetentionLogger, purger
 		"delete_batch_limit", cfg.DeleteBatchLimit,
 	)
 
-	ticker := time.NewTicker(cfg.RunInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		runEngagementRetentionDrain(ctx, log, purger, cfg)
+	runRetentionTicker(ctx, cfg.RunInterval, engagementRetentionDrain(log, purger, cfg))
+}
+
+func engagementRetentionDrain(log RetentionLogger, purger EngagementRetentionPurger, cfg EngagementRetentionConfig) retentionDrain {
+	return retentionDrain{
+		log:          log,
+		metricTarget: engagementRetentionTarget,
+		batchLimit:   cfg.DeleteBatchLimit,
+		purgedEvent:  "engagement_retention_purged",
+		failedEvent:  "engagement_retention_purge_failed",
+		catchupEvent: "engagement_retention_catchup",
+		purge: func(ctx context.Context) (int64, []any, error) {
+			now := time.Now().UTC()
+			createdBefore := now.Add(-cfg.MaxAge)
+			deadGraceBefore := now.Add(-cfg.DeadGrace)
+			deleted, err := purger.PurgeExpiredEngagementEvents(ctx, createdBefore, deadGraceBefore, cfg.DeleteBatchLimit)
+			if err != nil {
+				return 0, nil, err
+			}
+			return deleted, []any{
+				"created_before", createdBefore.Format(time.RFC3339),
+				"dead_grace_before", deadGraceBefore.Format(time.RFC3339),
+			}, nil
+		},
 	}
 }
 
 func runEngagementRetentionDrain(ctx context.Context, log RetentionLogger, purger EngagementRetentionPurger, cfg EngagementRetentionConfig) {
-	consecutiveSaturated := 0
-	for {
-		now := time.Now().UTC()
-		createdBefore := now.Add(-cfg.MaxAge)
-		deadGraceBefore := now.Add(-cfg.DeadGrace)
-		deleted, err := purger.PurgeExpiredEngagementEvents(ctx, createdBefore, deadGraceBefore, cfg.DeleteBatchLimit)
-		if err != nil {
-			metrics.IncRetentionPurgeRun(engagementRetentionTarget, "error")
-			log.Error("engagement_retention_purge_failed", "error", err)
-			return
-		}
-		metrics.IncRetentionPurgeRun(engagementRetentionTarget, "ok")
-		metrics.AddRetentionPurgedRows(engagementRetentionTarget, deleted)
-		if deleted > 0 {
-			log.Info(
-				"engagement_retention_purged",
-				"deleted", deleted,
-				"created_before", createdBefore.Format(time.RFC3339),
-				"dead_grace_before", deadGraceBefore.Format(time.RFC3339),
-			)
-		}
-		if int(deleted) < cfg.DeleteBatchLimit {
-			return
-		}
-		consecutiveSaturated++
-		if consecutiveSaturated%retentionCatchupReportEvery == 0 {
-			log.Info(
-				"engagement_retention_catchup",
-				"consecutive_full_batches", consecutiveSaturated,
-				"delete_batch_limit", cfg.DeleteBatchLimit,
-			)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retentionCatchupPause):
-		}
-	}
+	engagementRetentionDrain(log, purger, cfg).run(ctx)
 }

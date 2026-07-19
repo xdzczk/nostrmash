@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func (s *PostgresStore) GetRecentEventsByKindAndPubkey(
+func (s *Read) GetRecentEventsByKindAndPubkey(
 	ctx context.Context,
 	kind int,
 	pubkey string,
@@ -58,7 +58,7 @@ func (s *PostgresStore) GetRecentEventsByKindAndPubkey(
 // Served directly from canonical event_tags (idx_event_tags_p_lookup) since the
 // derived pubkey_references table was dropped in migration 000053. EXISTS keeps
 // events with multiple p-tags to the same target from appearing twice.
-func (s *PostgresStore) GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -104,7 +104,7 @@ func (s *PostgresStore) GetEventsReferencingPubkey(ctx context.Context, targetPu
 	return out, nil
 }
 
-func (s *PostgresStore) GetEventsByATagAndKind(ctx context.Context, kind int, aTagValue string, limit int) ([]json.RawMessage, error) {
+func (s *Read) GetEventsByATagAndKind(ctx context.Context, kind int, aTagValue string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

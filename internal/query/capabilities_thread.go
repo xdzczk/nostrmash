@@ -3,7 +3,7 @@ package query
 import (
 	"context"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type threadSummaryCapability interface {
@@ -11,7 +11,7 @@ type threadSummaryCapability interface {
 }
 
 type legacyThreadSummaryCapability interface {
-	GetThreadSummary(ctx context.Context, rootEventID string) (store.ThreadSummaryProjection, error)
+	GetThreadSummary(ctx context.Context, rootEventID string) (readmodel.ThreadSummaryProjection, error)
 }
 
 type legacyThreadSummaryAdapter struct {

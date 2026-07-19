@@ -9,10 +9,48 @@ import (
 	"time"
 )
 
+// TrustMode is the validated, typed trust-gating mode used across discovery,
+// search, and fallback surfaces. Parsing happens once at the config boundary
+// (ParseTrustMode); internal comparisons use the derived string constants.
+type TrustMode string
+
 const (
-	trustModeOpen          = "open"
-	trustModePreferTrusted = "prefer_trusted"
-	trustModeTrustedOnly   = "trusted_only"
+	TrustModeOpen          TrustMode = "open"
+	TrustModePreferTrusted TrustMode = "prefer_trusted"
+	TrustModeTrustedOnly   TrustMode = "trusted_only"
+)
+
+// Valid reports whether m is a recognized trust mode.
+func (m TrustMode) Valid() bool {
+	switch m {
+	case TrustModeOpen, TrustModePreferTrusted, TrustModeTrustedOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m TrustMode) String() string { return string(m) }
+
+// ParseTrustMode normalizes and validates a raw trust-mode string, applying
+// def when the input is empty. It is the single validated parse point.
+func ParseTrustMode(raw string, def TrustMode) (TrustMode, error) {
+	normalized := TrustMode(strings.ToLower(strings.TrimSpace(raw)))
+	if normalized == "" {
+		normalized = def
+	}
+	if !normalized.Valid() {
+		return "", fmt.Errorf("invalid trust mode %q", string(normalized))
+	}
+	return normalized, nil
+}
+
+// Internal string constants derived from the typed modes so the many existing
+// string comparisons remain valid without a package-wide type migration.
+const (
+	trustModeOpen          = string(TrustModeOpen)
+	trustModePreferTrusted = string(TrustModePreferTrusted)
+	trustModeTrustedOnly   = string(TrustModeTrustedOnly)
 )
 
 var hashtagPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9_])#([a-z0-9_]{1,64})`)

@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -37,7 +37,7 @@ import (
 // trade-off because the discovery loop runs on a steady cadence and the
 // scan-based query was so slow it actively prevented projections from
 // catching up at all.
-func (s *PostgresStore) FindActiveAuthorsWithoutMetadata(ctx context.Context, limit int) ([]string, error) {
+func (s *Read) FindActiveAuthorsWithoutMetadata(ctx context.Context, limit int) ([]string, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -81,7 +81,7 @@ func (s *PostgresStore) FindActiveAuthorsWithoutMetadata(ctx context.Context, li
 // CountActiveAuthorsWithoutMetadata returns the number of note authors that
 // have no kind-0 metadata projected. See FindActiveAuthorsWithoutMetadata for
 // the rationale behind driving off profile_public_stats.
-func (s *PostgresStore) CountActiveAuthorsWithoutMetadata(ctx context.Context) (int64, error) {
+func (s *Read) CountActiveAuthorsWithoutMetadata(ctx context.Context) (int64, error) {
 	if s == nil || s.pool == nil {
 		return 0, fmt.Errorf("store is not initialized")
 	}

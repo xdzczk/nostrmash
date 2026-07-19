@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
-	"github.com/xdzczk/nostrmash/internal/store"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 type eventService struct {
@@ -26,7 +26,7 @@ func NewEventService(reader EventReader) EventService {
 	return eventService{reader: reader}
 }
 
-func (s Service) GetActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
+func (s Service) GetEventActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
 	return eventService{reader: s.reader, policy: s.fallbackPolicy()}.GetEventActionCounts(ctx, eventID)
 }
 
@@ -50,11 +50,7 @@ func (s eventService) GetEventActionCounts(ctx context.Context, eventID string) 
 	}, nil
 }
 
-func (s Service) GetEvent(ctx context.Context, id string) (json.RawMessage, error) {
-	return s.GetEventByID(ctx, id)
-}
-
-func (s eventService) GetEvent(ctx context.Context, id string) (json.RawMessage, error) {
+func (s eventService) GetEventByID(ctx context.Context, id string) (json.RawMessage, error) {
 	trimmedID := strings.TrimSpace(id)
 	if trimmedID == "" {
 		return nil, fmt.Errorf("event id is required")
@@ -62,11 +58,7 @@ func (s eventService) GetEvent(ctx context.Context, id string) (json.RawMessage,
 	return s.getEventWithFallback(ctx, trimmedID)
 }
 
-func (s Service) GetEvents(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
-	return s.GetEventBatch(ctx, ids)
-}
-
-func (s eventService) GetEvents(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
+func (s eventService) GetEventBatch(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
 	normalized := normalizeUniqueStrings(ids)
 	if len(normalized) == 0 {
 		return map[string]json.RawMessage{}, nil
@@ -78,20 +70,16 @@ func (s eventService) GetEvents(ctx context.Context, ids []string) (map[string]j
 	return s.mergeEventsWithFallback(ctx, normalized, found)
 }
 
-func (s Service) GetEventActionCounts(ctx context.Context, eventID string) (ActionCounts, error) {
-	return s.GetActionCounts(ctx, eventID)
-}
-
 func (s Service) GetEventByID(ctx context.Context, id string) (raw json.RawMessage, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_event_by_id")
 	defer func() { span.End(err) }()
-	return eventService{reader: s.reader, fallback: s.fallback, persister: s.fallbackEventPersister, policy: s.fallbackPolicy()}.GetEvent(ctx, id)
+	return eventService{reader: s.reader, fallback: s.fallback, persister: s.fallbackEventPersister, policy: s.fallbackPolicy()}.GetEventByID(ctx, id)
 }
 
 func (s Service) GetEventBatch(ctx context.Context, ids []string) (out map[string]json.RawMessage, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_event_batch")
 	defer func() { span.End(err) }()
-	return eventService{reader: s.reader, fallback: s.fallback, persister: s.fallbackEventPersister, policy: s.fallbackPolicy()}.GetEvents(ctx, ids)
+	return eventService{reader: s.reader, fallback: s.fallback, persister: s.fallbackEventPersister, policy: s.fallbackPolicy()}.GetEventBatch(ctx, ids)
 }
 
 func (s Service) Search(ctx context.Context, text string, limit int) (out SearchResult, err error) {
@@ -650,12 +638,12 @@ func (s Service) GetEventWithProvenance(ctx context.Context, eventID string) (Ev
 			Consistency: "strong",
 		}, nil
 	}
-	if !errors.Is(err, store.ErrNotFound) {
+	if !errors.Is(err, readmodel.ErrNotFound) {
 		return EventWithProvenanceResult{}, err
 	}
-	raw, fallbackErr := eventService{reader: s.reader, fallback: s.fallback, persister: s.fallbackEventPersister, policy: s.fallbackPolicy()}.GetEvent(ctx, eventID)
+	raw, fallbackErr := eventService{reader: s.reader, fallback: s.fallback, persister: s.fallbackEventPersister, policy: s.fallbackPolicy()}.GetEventByID(ctx, eventID)
 	if fallbackErr != nil {
-		return EventWithProvenanceResult{}, store.ErrNotFound
+		return EventWithProvenanceResult{}, readmodel.ErrNotFound
 	}
 	return EventWithProvenanceResult{
 		Event:       raw,
@@ -843,7 +831,7 @@ func buildFallbackAuthorZapRecord(senderPubkey string, event json.RawMessage) js
 		"receiver_pubkey": receiver,
 		"target_event_id": targetEventID,
 		"created_at":      payload.CreatedAt,
-		"event":           json.RawMessage(event),
+		"event":           event,
 	}
 	if msats > 0 {
 		record["msats"] = msats

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/xdzczk/nostrmash/internal/store"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type isUserFollowingCapability interface {
@@ -41,11 +41,11 @@ type eventZapsBySatsCapability interface {
 }
 
 type authorSentZapsCapability interface {
-	GetAuthorSentZaps(ctx context.Context, pubkey string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	GetAuthorSentZaps(ctx context.Context, pubkey string, limit int, cursor *readmodel.EventOrderCursor) ([]json.RawMessage, *readmodel.EventOrderCursor, error)
 }
 
 type authorReactionsCapability interface {
-	GetAuthorReactions(ctx context.Context, pubkey string, limit int, cursor *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	GetAuthorReactions(ctx context.Context, pubkey string, limit int, cursor *readmodel.EventOrderCursor) ([]json.RawMessage, *readmodel.EventOrderCursor, error)
 }
 
 type authorRecentEventsByKindCapability interface {

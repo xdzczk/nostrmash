@@ -25,7 +25,10 @@ func TestWSGateway_ModerationEmptyListsReturnEvents(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
 	}
@@ -102,7 +105,10 @@ func TestWSGateway_FilterlistResponsesIncludeListEventsAndMetadata(t *testing.T)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
 	}
@@ -190,7 +196,10 @@ func TestWSGateway_SearchFilterlistReturnsFilteringReason(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
 	}
@@ -273,7 +282,10 @@ func TestWSGateway_IsHiddenByContentModerationSupportsTagAwarePubkeysAndReasons(
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
 	}
@@ -342,7 +354,10 @@ func TestWSGateway_HiddenByContentUnsupportedKeepsCompatVisiblePayload(t *testin
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/primal/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
 	}

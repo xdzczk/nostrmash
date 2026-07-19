@@ -130,10 +130,7 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("compute top hashtags 7d snapshot: %w", err)
 		}
-		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags7d, jsonArray(topHashtags7d)); err != nil {
-			return err
-		}
-		return nil
+		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags7d, jsonArray(topHashtags7d))
 	})
 }
 

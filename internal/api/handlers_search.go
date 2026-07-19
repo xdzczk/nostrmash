@@ -199,11 +199,27 @@ func (h Handlers) SearchSuggest(w http.ResponseWriter, r *http.Request) {
 		"q":     normalizeCacheFolded(queryText),
 		"limit": limit,
 	})
-	if h.writePublicCachedResponse(w, cachePolicy) {
-		return
-	}
-	result, err := h.service.SearchSuggestions(r.Context(), queryText, limit)
-	if err != nil {
+	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
+		result, resultErr := h.service.SearchSuggestions(r.Context(), queryText, limit)
+		if resultErr != nil {
+			return nil, resultErr
+		}
+		hashtags := make([]map[string]any, 0, len(result.Hashtags))
+		for _, hashtag := range result.Hashtags {
+			hashtags = append(hashtags, map[string]any{
+				"hashtag":        hashtag.Hashtag,
+				"event_count":    hashtag.EventCount,
+				"unique_authors": hashtag.UniqueAuthors,
+			})
+		}
+		return map[string]any{
+			"query":         queryText,
+			"profiles":      projectProfiles(result.Profiles),
+			"hashtags":      hashtags,
+			"search_engine": h.service.SearchEngineName(),
+			"consistency":   "eventual",
+		}, nil
+	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
 			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "search suggestions are not available on this deployment")
 			return
@@ -211,23 +227,6 @@ func (h Handlers) SearchSuggest(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	hashtags := make([]map[string]any, 0, len(result.Hashtags))
-	for _, hashtag := range result.Hashtags {
-		hashtags = append(hashtags, map[string]any{
-			"hashtag":        hashtag.Hashtag,
-			"event_count":    hashtag.EventCount,
-			"unique_authors": hashtag.UniqueAuthors,
-		})
-	}
-	payload := map[string]any{
-		"query":         queryText,
-		"profiles":      projectProfiles(result.Profiles),
-		"hashtags":      hashtags,
-		"search_engine": h.service.SearchEngineName(),
-		"consistency":   "eventual",
-	}
-	h.cachePublicPayload(cachePolicy, payload)
-	writeJSON(w, http.StatusOK, payload)
 }
 
 func normalizeSuggestionQuery(raw string) string {

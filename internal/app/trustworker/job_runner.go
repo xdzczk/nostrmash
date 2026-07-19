@@ -1,4 +1,4 @@
-package main
+package apptrustworker
 
 import (
 	"context"

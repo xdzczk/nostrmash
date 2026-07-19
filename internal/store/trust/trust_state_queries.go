@@ -1,13 +1,15 @@
-package store
+package trust
 
 import (
 	"context"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
-func (s *PostgresStore) GetTrustQualifications(
+func (s *Trust) GetTrustQualifications(
 	ctx context.Context,
 	pubkeys []string,
 	policy TrustQualificationPolicy,
@@ -31,7 +33,7 @@ func (s *PostgresStore) GetTrustQualifications(
 	return out, nil
 }
 
-func (s *PostgresStore) IsTrustedAuthor(ctx context.Context, pubkey string, policy TrustQualificationPolicy) (bool, error) {
+func (s *Trust) IsTrustedAuthor(ctx context.Context, pubkey string, policy TrustQualificationPolicy) (bool, error) {
 	pubkey = strings.TrimSpace(pubkey)
 	if pubkey == "" {
 		return false, fmt.Errorf("pubkey is required")
@@ -47,7 +49,7 @@ func (s *PostgresStore) IsTrustedAuthor(ctx context.Context, pubkey string, poli
 	return qualification.Trusted, nil
 }
 
-func (s *PostgresStore) GetTrustState(ctx context.Context, pubkey string) (TrustState, error) {
+func (s *Trust) GetTrustState(ctx context.Context, pubkey string) (TrustState, error) {
 	pubkey = strings.TrimSpace(pubkey)
 	if pubkey == "" {
 		return TrustState{}, fmt.Errorf("pubkey is required")
@@ -58,12 +60,12 @@ func (s *PostgresStore) GetTrustState(ctx context.Context, pubkey string) (Trust
 	}
 	state, ok := states[pubkey]
 	if !ok || !trustStateKnown(state) {
-		return TrustState{}, ErrNotFound
+		return TrustState{}, readmodel.ErrNotFound
 	}
 	return state, nil
 }
 
-func (s *PostgresStore) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]TrustState, error) {
+func (s *Trust) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]TrustState, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -152,7 +154,7 @@ func (s *PostgresStore) GetTrustStates(ctx context.Context, pubkeys []string) (m
 	return out, nil
 }
 
-func (s *PostgresStore) GetTrustSnapshotRefreshedAt(ctx context.Context) (*time.Time, error) {
+func (s *Trust) GetTrustSnapshotRefreshedAt(ctx context.Context) (*time.Time, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}

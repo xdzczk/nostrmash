@@ -1,9 +1,11 @@
-package store
+package retention
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // PurgeStaleTrustedDiscoveryCandidates deletes trusted discovery candidate
@@ -13,7 +15,7 @@ import (
 // snapshot, so steady-state rows keep a fresh projected_at and survive; only
 // rows a refresh no longer touches decay out. Both tables are rebuildable
 // from the trust snapshot plus discovery stats.
-func (s *PostgresStore) PurgeStaleTrustedDiscoveryCandidates(
+func (s *Retention) PurgeStaleTrustedDiscoveryCandidates(
 	ctx context.Context,
 	trustedBefore time.Time,
 	untrustedBefore time.Time,
@@ -30,6 +32,7 @@ func (s *PostgresStore) PurgeStaleTrustedDiscoveryCandidates(
 	}
 
 	var total int64
+	noteStarted := time.Now()
 	noteTag, err := s.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT event_id
@@ -42,11 +45,13 @@ func (s *PostgresStore) PurgeStaleTrustedDiscoveryCandidates(
 		USING candidates c
 		WHERE t.event_id = c.event_id
 	`, trustedBefore.UTC(), untrustedBefore.UTC(), limit)
+	metrics.ObserveDBOperation("purge_stale_trusted_note_discovery_candidates", dbResultFromErr(err), time.Since(noteStarted))
 	if err != nil {
 		return 0, fmt.Errorf("purge stale trusted note discovery candidates: %w", err)
 	}
 	total += noteTag.RowsAffected()
 
+	profileStarted := time.Now()
 	profileTag, err := s.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT pubkey
@@ -59,6 +64,7 @@ func (s *PostgresStore) PurgeStaleTrustedDiscoveryCandidates(
 		USING candidates c
 		WHERE t.pubkey = c.pubkey
 	`, trustedBefore.UTC(), untrustedBefore.UTC(), limit)
+	metrics.ObserveDBOperation("purge_stale_trusted_profile_discovery_candidates", dbResultFromErr(err), time.Since(profileStarted))
 	if err != nil {
 		return total, fmt.Errorf("purge stale trusted profile discovery candidates: %w", err)
 	}
@@ -73,7 +79,7 @@ func (s *PostgresStore) PurgeStaleTrustedDiscoveryCandidates(
 // observation count signal is lost, which is the accepted cost of bounding a
 // table that otherwise grows one row per pubkey ever seen on the firehose.
 // Accounts at 'candidate' or above are never touched.
-func (s *PostgresStore) PurgeIdleAccountStates(
+func (s *Retention) PurgeIdleAccountStates(
 	ctx context.Context,
 	trustedBefore time.Time,
 	untrustedBefore time.Time,
@@ -89,6 +95,7 @@ func (s *PostgresStore) PurgeIdleAccountStates(
 		return 0, fmt.Errorf("limit must be > 0")
 	}
 
+	started := time.Now()
 	tag, err := s.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT a.pubkey
@@ -107,6 +114,7 @@ func (s *PostgresStore) PurgeIdleAccountStates(
 		USING candidates c
 		WHERE a.pubkey = c.pubkey
 	`, trustedBefore.UTC(), untrustedBefore.UTC(), limit)
+	metrics.ObserveDBOperation("purge_idle_account_states", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge idle account states: %w", err)
 	}

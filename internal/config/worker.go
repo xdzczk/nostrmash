@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -264,19 +263,7 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
-	concurrency, err := getEnvPositiveIntStrict("WORKER_CONCURRENCY", 4)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	liveConcurrency, err := getEnvNonNegativeIntStrict("WORKER_LIVE_CONCURRENCY", concurrency)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	backfillConcurrency, err := getEnvNonNegativeIntStrict("WORKER_BACKFILL_CONCURRENCY", concurrency)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	claimBatchSize, err := getEnvPositiveIntStrict("WORKER_CLAIM_BATCH_SIZE", 10)
+	concurrency, err := loadWorkerConcurrency()
 	if err != nil {
 		return WorkerConfig{}, err
 	}
@@ -288,135 +275,7 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
-	invalidRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_INVALID_EVENTS_RETENTION_MAX_AGE", 30*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	invalidRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_INVALID_EVENTS_RETENTION_RUN_INTERVAL", 1*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	invalidRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_INVALID_EVENTS_RETENTION_DELETE_BATCH_LIMIT", 500)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	invalidPayloadTrimMaxAge, err := getEnvPositiveDurationStrict("WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE", 7*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	invalidPayloadTrimBatchLimit, err := getEnvPositiveIntStrict("WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT", 500)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	engagementRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_MAX_AGE", 14*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	engagementRetentionDeadGrace, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE", 7*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	engagementRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL", 1*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	engagementRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT", 2000)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	replaceableRetentionMinAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_REPLACEABLE_MIN_AGE", 24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	replaceableRetentionDeadGrace, err := getEnvPositiveDurationStrict("WORKER_RETENTION_REPLACEABLE_DEAD_GRACE", 7*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	replaceableRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL", 1*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	replaceableRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT", 2000)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	deletionRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_MAX_AGE", 14*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	deletionRetentionDeadGrace, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_DEAD_GRACE", 7*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	deletionRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_RUN_INTERVAL", 1*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	deletionRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT", 2000)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	untrustedRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_MAX_AGE", 14*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	untrustedRetentionDeadGrace, err := getEnvPositiveDurationStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_DEAD_GRACE", 7*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	untrustedRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL", 1*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	untrustedRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_DELETE_BATCH_LIMIT", 2000)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorRecentRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_AUTHOR_RECENT_MAX_AGE", 90*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorRecentRetentionPerAuthorCap, err := getEnvPositiveIntStrict("WORKER_RETENTION_AUTHOR_RECENT_PER_AUTHOR_CAP", 200)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorRecentRetentionAuthorBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_AUTHOR_RECENT_AUTHOR_BATCH_LIMIT", 500)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorRecentRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_AUTHOR_RECENT_RUN_INTERVAL", 6*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorRecentRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_AUTHOR_RECENT_DELETE_BATCH_LIMIT", 5000)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	searchDocsRetentionBodyMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_SEARCH_DOCS_BODY_MAX_AGE", 30*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	searchDocsRetentionBodyMaxChars, err := getEnvPositiveIntStrict("WORKER_RETENTION_SEARCH_DOCS_BODY_MAX_CHARS", 280)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	searchDocsRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_SEARCH_DOCS_RUN_INTERVAL", 6*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	searchDocsRetentionBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_SEARCH_DOCS_BATCH_LIMIT", 2000)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	eventRelaysRetentionMaxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EVENT_RELAYS_MAX_AGE", 30*24*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	eventRelaysRetentionRunInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EVENT_RELAYS_RUN_INTERVAL", 6*time.Hour)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	eventRelaysRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_EVENT_RELAYS_DELETE_BATCH_LIMIT", 5000)
+	retention, err := loadWorkerRetentionConfigs()
 	if err != nil {
 		return WorkerConfig{}, err
 	}
@@ -424,71 +283,11 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
-	trustRetentionRunInterval, err := getEnvPositiveDurationStrict("TRUST_RETENTION_RUN_INTERVAL", 1*time.Hour)
+	sweepers, err := loadWorkerSweeperConfigs()
 	if err != nil {
 		return WorkerConfig{}, err
 	}
-	trustRetentionDeleteBatchLimit, err := getEnvPositiveIntStrict("TRUST_RETENTION_DELETE_BATCH_LIMIT", 2000)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorAnalyticsSweeperInterval, err := getEnvPositiveDurationStrict("WORKER_AUTHOR_ANALYTICS_SWEEPER_INTERVAL", 5*time.Second)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorAnalyticsSweeperBatch, err := getEnvPositiveIntStrict("WORKER_AUTHOR_ANALYTICS_SWEEPER_BATCH_SIZE", 25)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorAnalyticsSweeperConcurrency, err := getEnvPositiveIntStrict("WORKER_AUTHOR_ANALYTICS_SWEEPER_CONCURRENCY", 4)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorAnalyticsWindowsDays, err := getEnvIntListStrict("WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS", []int{7, 30})
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	authorAnalyticsRebuildTimeout, err := getEnvPositiveDurationStrict("WORKER_AUTHOR_ANALYTICS_REBUILD_TIMEOUT", 90*time.Second)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	profileStatsSweeperInterval, err := getEnvPositiveDurationStrict("WORKER_PROFILE_STATS_SWEEPER_INTERVAL", 5*time.Second)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	profileStatsSweeperBatch, err := getEnvPositiveIntStrict("WORKER_PROFILE_STATS_SWEEPER_BATCH_SIZE", 25)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	profileStatsSweeperConcurrency, err := getEnvPositiveIntStrict("WORKER_PROFILE_STATS_SWEEPER_CONCURRENCY", 4)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	meilisearchSweeperInterval, err := getEnvPositiveDurationStrict("WORKER_MEILISEARCH_SWEEPER_INTERVAL", 2*time.Second)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	meilisearchSweeperBatch, err := getEnvPositiveIntStrict("WORKER_MEILISEARCH_SWEEPER_BATCH_SIZE", 50)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	meilisearchSweeperConcurrency, err := getEnvPositiveIntStrict("WORKER_MEILISEARCH_SWEEPER_CONCURRENCY", 4)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	accountStateInterval, err := getEnvPositiveDurationStrict("WORKER_ACCOUNT_STATE_INTERVAL", 1*time.Minute)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	accountStateBatch, err := getEnvPositiveIntStrict("WORKER_ACCOUNT_STATE_BATCH_SIZE", 500)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	accountStateStaleAfter, err := getEnvPositiveDurationStrict("WORKER_ACCOUNT_STATE_STALE_AFTER", 15*time.Minute)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
-	accountStateTransitionMaxAge, err := getEnvPositiveDurationStrict("WORKER_ACCOUNT_STATE_TRANSITION_MAX_AGE", 30*24*time.Hour)
+	accountState, err := loadWorkerAccountStateConfig()
 	if err != nil {
 		return WorkerConfig{}, err
 	}
@@ -497,118 +296,29 @@ func LoadWorker() (WorkerConfig, error) {
 		return WorkerConfig{}, err
 	}
 	cfg := WorkerConfig{
-		Shared:              shared,
-		Concurrency:         concurrency,
-		LiveConcurrency:     liveConcurrency,
-		BackfillConcurrency: backfillConcurrency,
-		ClaimBatchSize:      claimBatchSize,
-		JobRecovery:         jobRecovery,
-		JobRetention:        jobRetention,
-		InvalidEventRetention: WorkerInvalidEventRetentionConfig{
-			Enabled:          getEnvBool("WORKER_INVALID_EVENTS_RETENTION_ENABLED", true),
-			MaxAge:           invalidRetentionMaxAge,
-			RunInterval:      invalidRetentionRunInterval,
-			DeleteBatchLimit: invalidRetentionDeleteBatchLimit,
-			PayloadTrim: WorkerInvalidEventPayloadTrimConfig{
-				Enabled:    getEnvBool("WORKER_INVALID_EVENTS_PAYLOAD_TRIM_ENABLED", true),
-				MaxAge:     invalidPayloadTrimMaxAge,
-				BatchLimit: invalidPayloadTrimBatchLimit,
-			},
-		},
-		EngagementRetention: WorkerEngagementRetentionConfig{
-			Enabled:          getEnvBool("WORKER_RETENTION_ENGAGEMENT_ENABLED", true),
-			MaxAge:           engagementRetentionMaxAge,
-			DeadGrace:        engagementRetentionDeadGrace,
-			RunInterval:      engagementRetentionRunInterval,
-			DeleteBatchLimit: engagementRetentionDeleteBatchLimit,
-		},
-		ReplaceableRetention: WorkerReplaceableRetentionConfig{
-			Enabled:          getEnvBool("WORKER_RETENTION_REPLACEABLE_ENABLED", true),
-			MinAge:           replaceableRetentionMinAge,
-			DeadGrace:        replaceableRetentionDeadGrace,
-			RunInterval:      replaceableRetentionRunInterval,
-			DeleteBatchLimit: replaceableRetentionDeleteBatchLimit,
-		},
-		DeletionRetention: WorkerDeletionRetentionConfig{
-			Enabled:          getEnvBool("WORKER_RETENTION_DELETION_ENABLED", true),
-			MaxAge:           deletionRetentionMaxAge,
-			DeadGrace:        deletionRetentionDeadGrace,
-			RunInterval:      deletionRetentionRunInterval,
-			DeleteBatchLimit: deletionRetentionDeleteBatchLimit,
-		},
-		UntrustedAuthorRetention: WorkerUntrustedAuthorRetentionConfig{
-			Enabled:          getEnvBool("WORKER_RETENTION_UNTRUSTED_AUTHOR_ENABLED", true),
-			MaxAge:           untrustedRetentionMaxAge,
-			DeadGrace:        untrustedRetentionDeadGrace,
-			RunInterval:      untrustedRetentionRunInterval,
-			DeleteBatchLimit: untrustedRetentionDeleteBatchLimit,
-		},
-		AuthorRecentRetention: WorkerAuthorRecentRetentionConfig{
-			Enabled:          getEnvBool("WORKER_RETENTION_AUTHOR_RECENT_ENABLED", true),
-			MaxAge:           authorRecentRetentionMaxAge,
-			PerAuthorCap:     authorRecentRetentionPerAuthorCap,
-			AuthorBatchLimit: authorRecentRetentionAuthorBatchLimit,
-			RunInterval:      authorRecentRetentionRunInterval,
-			DeleteBatchLimit: authorRecentRetentionDeleteBatchLimit,
-		},
-		SearchDocsRetention: WorkerSearchDocsRetentionConfig{
-			Enabled:      getEnvBool("WORKER_RETENTION_SEARCH_DOCS_ENABLED", true),
-			BodyMaxAge:   searchDocsRetentionBodyMaxAge,
-			BodyMaxChars: searchDocsRetentionBodyMaxChars,
-			RunInterval:  searchDocsRetentionRunInterval,
-			BatchLimit:   searchDocsRetentionBatchLimit,
-		},
-		EventRelaysRetention: WorkerEventRelaysRetentionConfig{
-			Enabled:          getEnvBool("WORKER_RETENTION_EVENT_RELAYS_ENABLED", true),
-			MaxAge:           eventRelaysRetentionMaxAge,
-			RunInterval:      eventRelaysRetentionRunInterval,
-			DeleteBatchLimit: eventRelaysRetentionDeleteBatchLimit,
-		},
-		TrustRetentionHooks: trustRetentionHooks,
-		TrustRetentionLoop: WorkerTrustRetentionLoopConfig{
-			RunInterval:      trustRetentionRunInterval,
-			DeleteBatchLimit: trustRetentionDeleteBatchLimit,
-		},
-		AuthorAnalyticsSweeper: WorkerAuthorAnalyticsSweeperConfig{
-			Enabled:        getEnvBool("WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED", true),
-			Interval:       authorAnalyticsSweeperInterval,
-			BatchSize:      authorAnalyticsSweeperBatch,
-			Concurrency:    authorAnalyticsSweeperConcurrency,
-			WindowsDays:    authorAnalyticsWindowsDays,
-			RebuildTimeout: authorAnalyticsRebuildTimeout,
-		},
-		ProfileStatsSweeper: WorkerProfileStatsSweeperConfig{
-			Enabled:     getEnvBool("WORKER_PROFILE_STATS_SWEEPER_ENABLED", true),
-			Interval:    profileStatsSweeperInterval,
-			BatchSize:   profileStatsSweeperBatch,
-			Concurrency: profileStatsSweeperConcurrency,
-		},
-		MeilisearchSweeper: WorkerMeilisearchSweeperConfig{
-			Enabled:     getEnvBool("WORKER_MEILISEARCH_SWEEPER_ENABLED", true),
-			Interval:    meilisearchSweeperInterval,
-			BatchSize:   meilisearchSweeperBatch,
-			Concurrency: meilisearchSweeperConcurrency,
-		},
-		AccountState: WorkerAccountStateConfig{
-			Enabled:                   getEnvBool("WORKER_ACCOUNT_STATE_ENABLED", true),
-			Interval:                  accountStateInterval,
-			BatchSize:                 accountStateBatch,
-			StaleAfter:                accountStateStaleAfter,
-			TransitionRetentionMaxAge: accountStateTransitionMaxAge,
-		},
-		Hydration: hydrationCfg,
-		Meilisearch: MeilisearchConfig{
-			Enabled:      getEnvBool("MEILI_ENABLED", false),
-			URL:          getEnv("MEILI_URL", ""),
-			MasterKey:    getEnv("MEILI_MASTER_KEY", ""),
-			SearchAPIKey: getEnv("MEILI_SEARCH_API_KEY", ""),
-		},
-	}
-	cfg.Meilisearch.URL = strings.TrimSpace(cfg.Meilisearch.URL)
-	cfg.Meilisearch.MasterKey = strings.TrimSpace(cfg.Meilisearch.MasterKey)
-	cfg.Meilisearch.SearchAPIKey = strings.TrimSpace(cfg.Meilisearch.SearchAPIKey)
-	if cfg.Meilisearch.SearchAPIKey == "" {
-		cfg.Meilisearch.SearchAPIKey = cfg.Meilisearch.MasterKey
+		Shared:                   shared,
+		Concurrency:              concurrency.Concurrency,
+		LiveConcurrency:          concurrency.LiveConcurrency,
+		BackfillConcurrency:      concurrency.BackfillConcurrency,
+		ClaimBatchSize:           concurrency.ClaimBatchSize,
+		JobRecovery:              jobRecovery,
+		JobRetention:             jobRetention,
+		InvalidEventRetention:    retention.InvalidEvent,
+		EngagementRetention:      retention.Engagement,
+		ReplaceableRetention:     retention.Replaceable,
+		DeletionRetention:        retention.Deletion,
+		UntrustedAuthorRetention: retention.UntrustedAuthor,
+		AuthorRecentRetention:    retention.AuthorRecent,
+		SearchDocsRetention:      retention.SearchDocs,
+		EventRelaysRetention:     retention.EventRelays,
+		TrustRetentionHooks:      trustRetentionHooks,
+		TrustRetentionLoop:       retention.TrustRetention,
+		AuthorAnalyticsSweeper:   sweepers.AuthorAnalytics,
+		ProfileStatsSweeper:      sweepers.ProfileStats,
+		MeilisearchSweeper:       sweepers.Meilisearch,
+		AccountState:             accountState,
+		Hydration:                hydrationCfg,
+		Meilisearch:              loadWorkerMeilisearchConfig(),
 	}
 	relayRegistryCfg, err := LoadRelayRegistryConfig()
 	if err != nil {

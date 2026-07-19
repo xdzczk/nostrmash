@@ -1,37 +1,16 @@
-package store
+package trust
 
 import (
 	"strings"
-	"time"
+
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
-type TrustQualificationPolicy struct {
-	MaxHops      int
-	MinimumScore float64
-}
+type TrustQualificationPolicy = readmodel.TrustQualificationPolicy
 
-type TrustQualification struct {
-	Pubkey       string
-	Trusted      bool
-	IsSeed       bool
-	DistanceHops *int
-	Score        *float64
-	Rank         *int64
-	SourceRunID  *int64
-}
+type TrustQualification = readmodel.TrustQualification
 
-type TrustState struct {
-	Pubkey       string
-	Score        *float64
-	Qualified    bool
-	Tier         string
-	HopDistance  *int
-	HopBucket    string
-	Rank         *int64
-	ComputedAt   *time.Time
-	GenerationID *int64
-	IsSeed       bool
-}
+type TrustState = readmodel.TrustState
 
 func normalizePubkeys(pubkeys []string) []string {
 	out := make([]string, 0, len(pubkeys))

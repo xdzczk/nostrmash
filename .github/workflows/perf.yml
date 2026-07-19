@@ -1,6 +1,10 @@
 name: Performance Snapshot
 
 on:
+  push:
+    branches:
+      - main
+  pull_request:
   workflow_dispatch:
     inputs:
       bench_count:
@@ -28,11 +32,102 @@ on:
         required: false
         default: "false"
 
-jobs:
-  collect:
-    name: Collect and compare perf snapshot
-    runs-on: ubuntu-latest
+# The protected baseline lives at a fixed path so pull requests always know
+# where to find it. It is regenerated and committed by the baseline job on every
+# push to main, keeping it on the same runner architecture as PR comparisons.
+env:
+  PROTECTED_BASELINE_DIR: benchmarks/history/protection/main-latest
+  PROTECTED_THRESHOLD_PCT: "15"
 
+jobs:
+  baseline:
+    name: Refresh committed protected baseline (main)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.5"
+          cache: true
+
+      - name: Collect protected baseline
+        run: |
+          rm -rf "${PROTECTED_BASELINE_DIR}"
+          PERF_BENCH_COUNT=5 \
+          PERF_COLLECT_SCOPE=protected \
+          PERF_OUTPUT_BASE="$(dirname "${PROTECTED_BASELINE_DIR}")" \
+          PERF_RUN_ID="$(basename "${PROTECTED_BASELINE_DIR}")" \
+          bash ./scripts/perf_collect.sh
+
+      - name: Commit updated baseline
+        run: |
+          if git diff --quiet -- "${PROTECTED_BASELINE_DIR}"; then
+            echo "No baseline changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${PROTECTED_BASELINE_DIR}"
+          git commit -m "chore(perf): refresh protected benchmark baseline [skip ci]"
+          git push
+
+  compare:
+    name: Compare protected benchmarks (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.5"
+          cache: true
+
+      - name: Collect current protected snapshot
+        run: |
+          PERF_BENCH_COUNT=5 \
+          PERF_COLLECT_SCOPE=protected \
+          PERF_OUTPUT_BASE=benchmarks/history/ci \
+          PERF_RUN_ID=current \
+          bash ./scripts/perf_collect.sh
+
+      - name: Compare against committed baseline
+        run: |
+          set -euo pipefail
+          if [ ! -d "${PROTECTED_BASELINE_DIR}/benchmarks" ]; then
+            echo "No committed protected baseline yet (${PROTECTED_BASELINE_DIR}); running advisory only."
+            echo "The baseline is created by the first push to main after this workflow lands."
+            exit 0
+          fi
+          REGRESSION_THRESHOLD_PCT="${PROTECTED_THRESHOLD_PCT}" \
+          ENFORCEMENT_MODE="release_candidate" \
+          FAIL_ON_REGRESSION=1 \
+          bash ./scripts/perf_protect_compare.sh \
+            "${PROTECTED_BASELINE_DIR}" \
+            benchmarks/history/ci/current \
+            benchmarks/compare
+
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-compare-${{ github.run_number }}
+          path: benchmarks/compare/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  snapshot:
+    name: Manual perf snapshot
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6

@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func (s *PostgresStore) SearchDocuments(ctx context.Context, query string, limit int) ([]SearchDocumentProjection, error) {
+func (s *Read) SearchDocuments(ctx context.Context, query string, limit int) ([]SearchDocumentProjection, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -123,7 +123,7 @@ func (s *PostgresStore) SearchDocuments(ctx context.Context, query string, limit
 	return out, nil
 }
 
-func (s *PostgresStore) RebuildSearchDocuments(ctx context.Context) error {
+func (s *Read) RebuildSearchDocuments(ctx context.Context) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("store is not initialized")
 	}

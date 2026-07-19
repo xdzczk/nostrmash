@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 var storeHashtagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
-func (s *PostgresStore) GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingHashtag, error) {
+func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingHashtag, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -62,7 +62,7 @@ func (s *PostgresStore) GetTrendingHashtags(ctx context.Context, window time.Dur
 	return out, nil
 }
 
-func (s *PostgresStore) GetHashtagSummary(ctx context.Context, hashtag string) (HashtagSummary, error) {
+func (s *Read) GetHashtagSummary(ctx context.Context, hashtag string) (HashtagSummary, error) {
 	if s == nil || s.pool == nil {
 		return HashtagSummary{}, fmt.Errorf("store is not initialized")
 	}
@@ -109,7 +109,7 @@ func (s *PostgresStore) GetHashtagSummary(ctx context.Context, hashtag string) (
 	return summary, nil
 }
 
-func (s *PostgresStore) GetHashtagNotes(
+func (s *Read) GetHashtagNotes(
 	ctx context.Context,
 	hashtag string,
 	sort string,
@@ -212,7 +212,7 @@ func (s *PostgresStore) GetHashtagNotes(
 	return out, nil
 }
 
-func (s *PostgresStore) GetRelatedHashtags(
+func (s *Read) GetRelatedHashtags(
 	ctx context.Context,
 	hashtag string,
 	limit int,
@@ -277,7 +277,7 @@ func (s *PostgresStore) GetRelatedHashtags(
 	return out, nil
 }
 
-func (s *PostgresStore) hasHashtag(ctx context.Context, hashtag string) (bool, error) {
+func (s *Read) hasHashtag(ctx context.Context, hashtag string) (bool, error) {
 	var exists bool
 	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM event_hashtags WHERE hashtag = $1)`, hashtag).Scan(&exists); err != nil {
 		return false, fmt.Errorf("check hashtag existence: %w", err)

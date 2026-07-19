@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -36,7 +35,7 @@ func (s *PostgresStore) InsertInvalidEvent(ctx context.Context, invalid model.In
 		invalid.SourceRelay,
 		invalid.ErrorCode,
 		invalid.ErrorMessage,
-		json.RawMessage(invalid.RawPayload),
+		invalid.RawPayload,
 		seenAt,
 	)
 	if err != nil {

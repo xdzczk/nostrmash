@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func (s *PostgresStore) GetNetworkStats(ctx context.Context) (NetworkStats, error) {
+func (s *Read) GetNetworkStats(ctx context.Context) (NetworkStats, error) {
 	out := NetworkStats{}
 	if s == nil || s.pool == nil {
 		return out, fmt.Errorf("store is not initialized")
@@ -63,7 +63,7 @@ func approxLiveTupleCount(ctx context.Context, pool *pgxpool.Pool, tableName str
 	return estimate, nil
 }
 
-func (s *PostgresStore) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (PublicDiscoveryNetworkStats, error) {
+func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (PublicDiscoveryNetworkStats, error) {
 	out := PublicDiscoveryNetworkStats{}
 	if s == nil || s.pool == nil {
 		return out, fmt.Errorf("store is not initialized")
@@ -215,7 +215,7 @@ type relaySnapshotTopRelayRow struct {
 // on the missing-row signal in metrics/logs to surface the
 // operational failure (the migration has not run, or the table was
 // truncated).
-func (s *PostgresStore) getTopRelaysByActivity(ctx context.Context, limit int) ([]RelayUsageSummary, error) {
+func (s *Read) getTopRelaysByActivity(ctx context.Context, limit int) ([]RelayUsageSummary, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -261,7 +261,7 @@ func (s *PostgresStore) getTopRelaysByActivity(ctx context.Context, limit int) (
 // getRelaySummaryStats reads the precomputed summary row from
 // relay_window_snapshots. See the comment on getTopRelaysByActivity
 // for why there is intentionally no live-query fallback.
-func (s *PostgresStore) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, error) {
+func (s *Read) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, error) {
 	var payload []byte
 	err := s.pool.QueryRow(ctx, `
 		SELECT payload
@@ -305,7 +305,7 @@ type homeWindowSnapshotPayload struct {
 	ActiveAuthors int64 `json:"active_authors"`
 }
 
-func (s *PostgresStore) getHomeWindowSnapshot(ctx context.Context, label string) (homeWindowSnapshotPayload, error) {
+func (s *Read) getHomeWindowSnapshot(ctx context.Context, label string) (homeWindowSnapshotPayload, error) {
 	var payload []byte
 	err := s.pool.QueryRow(ctx, `
 		SELECT payload
@@ -333,7 +333,7 @@ type languageSnapshotRow struct {
 	Count    int64  `json:"count"`
 }
 
-func (s *PostgresStore) getTopLanguagesSnapshot(ctx context.Context, label string, limit int) ([]LanguageSummary, error) {
+func (s *Read) getTopLanguagesSnapshot(ctx context.Context, label string, limit int) ([]LanguageSummary, error) {
 	if limit <= 0 {
 		limit = 8
 	}
@@ -369,7 +369,7 @@ type hashtagSnapshotRow struct {
 	UniqueAuthors int64  `json:"unique_authors"`
 }
 
-func (s *PostgresStore) getTopHashtagsSnapshot(ctx context.Context, label string, limit int) ([]TrendingHashtag, error) {
+func (s *Read) getTopHashtagsSnapshot(ctx context.Context, label string, limit int) ([]TrendingHashtag, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -411,7 +411,7 @@ func isUndefinedRelationError(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "42P01"
 }
 
-func (s *PostgresStore) GetCuratedValues(ctx context.Context, tableName string, valueColumn string, limit int) ([]string, error) {
+func (s *Read) GetCuratedValues(ctx context.Context, tableName string, valueColumn string, limit int) ([]string, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -458,7 +458,7 @@ func (s *PostgresStore) GetCuratedValues(ctx context.Context, tableName string, 
 	return out, nil
 }
 
-func (s *PostgresStore) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]CuratedRecommendedRead, error) {
+func (s *Read) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]CuratedRecommendedRead, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -492,7 +492,7 @@ func (s *PostgresStore) GetCuratedRecommendedReads(ctx context.Context, limit in
 	return out, nil
 }
 
-func (s *PostgresStore) GetCuratedReadsTopics(ctx context.Context, limit int) ([]CuratedReadsTopic, error) {
+func (s *Read) GetCuratedReadsTopics(ctx context.Context, limit int) ([]CuratedReadsTopic, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -526,7 +526,7 @@ func (s *PostgresStore) GetCuratedReadsTopics(ctx context.Context, limit int) ([
 	return out, nil
 }
 
-func (s *PostgresStore) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]CuratedFeaturedAuthor, error) {
+func (s *Read) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]CuratedFeaturedAuthor, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -560,7 +560,7 @@ func (s *PostgresStore) GetCuratedFeaturedAuthors(ctx context.Context, limit int
 	return out, nil
 }
 
-func (s *PostgresStore) GetCreatorPaidTiers(ctx context.Context, pubkey string) ([]json.RawMessage, error) {
+func (s *Read) GetCreatorPaidTiers(ctx context.Context, pubkey string) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -596,7 +596,7 @@ func (s *PostgresStore) GetCreatorPaidTiers(ctx context.Context, pubkey string) 
 	return out, nil
 }
 
-func (s *PostgresStore) GetPubkeyByLNAddress(ctx context.Context, lnAddress string) (string, error) {
+func (s *Read) GetPubkeyByLNAddress(ctx context.Context, lnAddress string) (string, error) {
 	if s == nil || s.pool == nil {
 		return "", fmt.Errorf("store is not initialized")
 	}

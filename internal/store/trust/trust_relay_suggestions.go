@@ -1,4 +1,4 @@
-package store
+package trust
 
 import (
 	"context"
@@ -13,7 +13,7 @@ type TrustRelaySuggestionRefreshResult struct {
 	NewPromotions int
 }
 
-func (s *PostgresStore) RefreshTrustRelaySuggestions(
+func (s *Trust) RefreshTrustRelaySuggestions(
 	ctx context.Context,
 	candidates []TrustRelayCandidate,
 	stableWindow time.Duration,
@@ -136,7 +136,7 @@ type TrustRelaySuggestion struct {
 	UpdatedAt               time.Time
 }
 
-func (s *PostgresStore) ListTrustRelaySuggestions(
+func (s *Trust) ListTrustRelaySuggestions(
 	ctx context.Context,
 	limit int,
 	recommendedOnly bool,

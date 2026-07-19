@@ -3,8 +3,6 @@ package jobs
 import (
 	"context"
 	"time"
-
-	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // untrustedRetentionTarget is the bounded metric label for untrusted-author
@@ -58,55 +56,33 @@ func RunUntrustedAuthorRetentionLoop(ctx context.Context, log RetentionLogger, p
 		"delete_batch_limit", cfg.DeleteBatchLimit,
 	)
 
-	ticker := time.NewTicker(cfg.RunInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		runUntrustedAuthorRetentionDrain(ctx, log, purger, cfg)
+	runRetentionTicker(ctx, cfg.RunInterval, untrustedAuthorRetentionDrain(log, purger, cfg))
+}
+
+func untrustedAuthorRetentionDrain(log RetentionLogger, purger UntrustedAuthorRetentionPurger, cfg UntrustedAuthorRetentionConfig) retentionDrain {
+	return retentionDrain{
+		log:          log,
+		metricTarget: untrustedRetentionTarget,
+		batchLimit:   cfg.DeleteBatchLimit,
+		purgedEvent:  "untrusted_retention_purged",
+		failedEvent:  "untrusted_retention_purge_failed",
+		catchupEvent: "untrusted_retention_catchup",
+		purge: func(ctx context.Context) (int64, []any, error) {
+			now := time.Now().UTC()
+			olderThan := now.Add(-cfg.MaxAge)
+			deadGraceBefore := now.Add(-cfg.DeadGrace)
+			deleted, err := purger.PurgeUntrustedAuthorEvents(ctx, olderThan, deadGraceBefore, cfg.DeleteBatchLimit)
+			if err != nil {
+				return 0, nil, err
+			}
+			return deleted, []any{
+				"older_than", olderThan.Format(time.RFC3339),
+				"dead_grace_before", deadGraceBefore.Format(time.RFC3339),
+			}, nil
+		},
 	}
 }
 
 func runUntrustedAuthorRetentionDrain(ctx context.Context, log RetentionLogger, purger UntrustedAuthorRetentionPurger, cfg UntrustedAuthorRetentionConfig) {
-	consecutiveSaturated := 0
-	for {
-		now := time.Now().UTC()
-		olderThan := now.Add(-cfg.MaxAge)
-		deadGraceBefore := now.Add(-cfg.DeadGrace)
-		deleted, err := purger.PurgeUntrustedAuthorEvents(ctx, olderThan, deadGraceBefore, cfg.DeleteBatchLimit)
-		if err != nil {
-			metrics.IncRetentionPurgeRun(untrustedRetentionTarget, "error")
-			log.Error("untrusted_retention_purge_failed", "error", err)
-			return
-		}
-		metrics.IncRetentionPurgeRun(untrustedRetentionTarget, "ok")
-		metrics.AddRetentionPurgedRows(untrustedRetentionTarget, deleted)
-		if deleted > 0 {
-			log.Info(
-				"untrusted_retention_purged",
-				"deleted", deleted,
-				"older_than", olderThan.Format(time.RFC3339),
-				"dead_grace_before", deadGraceBefore.Format(time.RFC3339),
-			)
-		}
-		if int(deleted) < cfg.DeleteBatchLimit {
-			return
-		}
-		consecutiveSaturated++
-		if consecutiveSaturated%retentionCatchupReportEvery == 0 {
-			log.Info(
-				"untrusted_retention_catchup",
-				"consecutive_full_batches", consecutiveSaturated,
-				"delete_batch_limit", cfg.DeleteBatchLimit,
-			)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retentionCatchupPause):
-		}
-	}
+	untrustedAuthorRetentionDrain(log, purger, cfg).run(ctx)
 }

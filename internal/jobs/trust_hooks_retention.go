@@ -3,8 +3,6 @@ package jobs
 import (
 	"context"
 	"time"
-
-	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 const (
@@ -100,44 +98,27 @@ func drainTrustScope(
 	scope TrustRetentionHookScope,
 	purge func(ctx context.Context, trustedBefore, untrustedBefore time.Time, limit int) (int64, error),
 ) {
-	consecutiveSaturated := 0
-	for {
-		now := time.Now().UTC()
-		trustedBefore := now.Add(-scope.TrustedHorizon)
-		untrustedBefore := now.Add(-scope.UntrustedHorizon)
-		deleted, err := purge(ctx, trustedBefore, untrustedBefore, cfg.DeleteBatchLimit)
-		if err != nil {
-			metrics.IncRetentionPurgeRun(target, "error")
-			log.Error("trust_retention_hooks_purge_failed", "target", target, "error", err)
-			return
-		}
-		metrics.IncRetentionPurgeRun(target, "ok")
-		metrics.AddRetentionPurgedRows(target, deleted)
-		if deleted > 0 {
-			log.Info(
-				"trust_retention_hooks_purged",
-				"target", target,
-				"deleted", deleted,
+	drain := retentionDrain{
+		log:          log,
+		metricTarget: target,
+		batchLimit:   cfg.DeleteBatchLimit,
+		purgedEvent:  "trust_retention_hooks_purged",
+		failedEvent:  "trust_retention_hooks_purge_failed",
+		catchupEvent: "trust_retention_hooks_catchup",
+		staticFields: []any{"target", target},
+		purge: func(ctx context.Context) (int64, []any, error) {
+			now := time.Now().UTC()
+			trustedBefore := now.Add(-scope.TrustedHorizon)
+			untrustedBefore := now.Add(-scope.UntrustedHorizon)
+			deleted, err := purge(ctx, trustedBefore, untrustedBefore, cfg.DeleteBatchLimit)
+			if err != nil {
+				return 0, nil, err
+			}
+			return deleted, []any{
 				"trusted_before", trustedBefore.Format(time.RFC3339),
 				"untrusted_before", untrustedBefore.Format(time.RFC3339),
-			)
-		}
-		if int(deleted) < cfg.DeleteBatchLimit {
-			return
-		}
-		consecutiveSaturated++
-		if consecutiveSaturated%retentionCatchupReportEvery == 0 {
-			log.Info(
-				"trust_retention_hooks_catchup",
-				"target", target,
-				"consecutive_full_batches", consecutiveSaturated,
-				"delete_batch_limit", cfg.DeleteBatchLimit,
-			)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retentionCatchupPause):
-		}
+			}, nil
+		},
 	}
+	drain.run(ctx)
 }

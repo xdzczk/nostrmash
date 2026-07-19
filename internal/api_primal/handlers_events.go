@@ -21,7 +21,7 @@ func (h Handlers) GetEventByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, err := h.service.GetEvent(r.Context(), eventID)
+	raw, err := h.service.GetEventByID(r.Context(), eventID)
 	if err != nil {
 		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
@@ -73,7 +73,7 @@ func (h Handlers) BatchGetEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	foundByID, err := h.service.GetEvents(r.Context(), normalizedIDs)
+	foundByID, err := h.service.GetEventBatch(r.Context(), normalizedIDs)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return

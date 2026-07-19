@@ -1,4 +1,4 @@
-package store
+package read
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func (s *PostgresStore) GetGroupedNoteAnalytics(
+func (s *Read) GetGroupedNoteAnalytics(
 	ctx context.Context,
 	query GroupedNoteAnalyticsQuery,
 ) (GroupedNoteAnalyticsProjection, error) {

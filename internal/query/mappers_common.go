@@ -1,8 +1,8 @@
 package query
 
-import "github.com/xdzczk/nostrmash/internal/store"
+import "github.com/xdzczk/nostrmash/internal/readmodel"
 
-func eventCursorFromStore(cursor *store.EventOrderCursor) *EventCursor {
+func eventCursorFromStore(cursor *readmodel.EventOrderCursor) *EventCursor {
 	if cursor == nil {
 		return nil
 	}
@@ -12,17 +12,17 @@ func eventCursorFromStore(cursor *store.EventOrderCursor) *EventCursor {
 	}
 }
 
-func eventCursorToStore(cursor *EventCursor) *store.EventOrderCursor {
+func eventCursorToStore(cursor *EventCursor) *readmodel.EventOrderCursor {
 	if cursor == nil {
 		return nil
 	}
-	return &store.EventOrderCursor{
+	return &readmodel.EventOrderCursor{
 		CreatedAt: cursor.CreatedAt,
 		ID:        cursor.ID,
 	}
 }
 
-func profileFromStore(row store.ProfileProjection) Profile {
+func profileFromStore(row readmodel.ProfileProjection) Profile {
 	return Profile{
 		Pubkey:            row.Pubkey,
 		MetadataEventID:   row.MetadataEventID,
@@ -31,7 +31,7 @@ func profileFromStore(row store.ProfileProjection) Profile {
 	}
 }
 
-func profilePublicStatsFromStore(row store.ProfilePublicStatsProjection) ProfilePublicStats {
+func profilePublicStatsFromStore(row readmodel.ProfilePublicStatsProjection) ProfilePublicStats {
 	return ProfilePublicStats{
 		Pubkey:           row.Pubkey,
 		FollowerCount:    row.FollowerCount,
@@ -42,7 +42,7 @@ func profilePublicStatsFromStore(row store.ProfilePublicStatsProjection) Profile
 	}
 }
 
-func contactListFromStore(row store.ContactListProjection) ContactList {
+func contactListFromStore(row readmodel.ContactListProjection) ContactList {
 	return ContactList{
 		Pubkey:          row.Pubkey,
 		EventID:         row.EventID,
@@ -52,7 +52,7 @@ func contactListFromStore(row store.ContactListProjection) ContactList {
 	}
 }
 
-func relayListFromStore(row store.RelayListProjection) RelayList {
+func relayListFromStore(row readmodel.RelayListProjection) RelayList {
 	return RelayList{
 		Pubkey:        row.Pubkey,
 		EventID:       row.EventID,
@@ -62,14 +62,14 @@ func relayListFromStore(row store.RelayListProjection) RelayList {
 	}
 }
 
-func languageSummaryFromStore(row store.LanguageSummary) LanguageSummary {
+func languageSummaryFromStore(row readmodel.LanguageSummary) LanguageSummary {
 	return LanguageSummary{
 		Language: row.Language,
 		Count:    row.Count,
 	}
 }
 
-func relayUsageFromStore(row store.RelayUsageSummary) RelayUsageSummary {
+func relayUsageFromStore(row readmodel.RelayUsageSummary) RelayUsageSummary {
 	return RelayUsageSummary{
 		RelayURL:      row.RelayURL,
 		EventCount:    row.EventCount,
@@ -77,7 +77,7 @@ func relayUsageFromStore(row store.RelayUsageSummary) RelayUsageSummary {
 	}
 }
 
-func searchDocumentFromStore(row store.SearchDocumentProjection) SearchDocument {
+func searchDocumentFromStore(row readmodel.SearchDocumentProjection) SearchDocument {
 	return SearchDocument{
 		EntityType:     row.EntityType,
 		EntityID:       row.EntityID,

@@ -1,4 +1,4 @@
-package store
+package read
 
 const (
 	authorWeightedReplyWeight      = 3.0

@@ -1,9 +1,11 @@
-package store
+package retention
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
 // PurgeExpiredEngagementEvents deletes a bounded batch of raw engagement events
@@ -21,7 +23,7 @@ import (
 // The (kind, created_at) scan is served by idx_events_kind_created_at; the
 // per-candidate jobs lookup is served by the unique index on
 // jobs.idempotency_key.
-func (s *PostgresStore) PurgeExpiredEngagementEvents(
+func (s *Retention) PurgeExpiredEngagementEvents(
 	ctx context.Context,
 	createdBefore time.Time,
 	deadGraceBefore time.Time,
@@ -40,6 +42,7 @@ func (s *PostgresStore) PurgeExpiredEngagementEvents(
 		return 0, fmt.Errorf("deadGraceBefore is required")
 	}
 
+	started := time.Now()
 	tag, err := s.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT e.id
@@ -66,6 +69,7 @@ func (s *PostgresStore) PurgeExpiredEngagementEvents(
 		deadGraceBefore.UTC(),
 		limit,
 	)
+	metrics.ObserveDBOperation("purge_expired_engagement_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {
 		return 0, fmt.Errorf("purge expired engagement events: %w", err)
 	}

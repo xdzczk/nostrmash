@@ -1,8 +1,8 @@
 package query
 
-import "github.com/xdzczk/nostrmash/internal/store"
+import "github.com/xdzczk/nostrmash/internal/readmodel"
 
-func networkStatsFromStore(row store.NetworkStats) NetworkStats {
+func networkStatsFromStore(row readmodel.NetworkStats) NetworkStats {
 	return NetworkStats{
 		Events:   row.Events,
 		Profiles: row.Profiles,
@@ -10,7 +10,7 @@ func networkStatsFromStore(row store.NetworkStats) NetworkStats {
 	}
 }
 
-func publicDiscoveryNetworkStatsFromStore(row store.PublicDiscoveryNetworkStats) PublicDiscoveryNetworkStats {
+func publicDiscoveryNetworkStatsFromStore(row readmodel.PublicDiscoveryNetworkStats) PublicDiscoveryNetworkStats {
 	out := PublicDiscoveryNetworkStats{
 		EventsIngested:    row.EventsIngested,
 		ProjectedProfiles: row.ProjectedProfiles,
@@ -72,7 +72,7 @@ func publicDiscoveryNetworkStatsFromStore(row store.PublicDiscoveryNetworkStats)
 	return out
 }
 
-func curatedRecommendedReadFromStore(row store.CuratedRecommendedRead) CuratedRecommendedRead {
+func curatedRecommendedReadFromStore(row readmodel.CuratedRecommendedRead) CuratedRecommendedRead {
 	return CuratedRecommendedRead{
 		EventID: row.EventID,
 		Title:   row.Title,
@@ -81,21 +81,21 @@ func curatedRecommendedReadFromStore(row store.CuratedRecommendedRead) CuratedRe
 	}
 }
 
-func curatedReadsTopicFromStore(row store.CuratedReadsTopic) CuratedReadsTopic {
+func curatedReadsTopicFromStore(row readmodel.CuratedReadsTopic) CuratedReadsTopic {
 	return CuratedReadsTopic{
 		Topic: row.Topic,
 		Rank:  row.Rank,
 	}
 }
 
-func curatedFeaturedAuthorFromStore(row store.CuratedFeaturedAuthor) CuratedFeaturedAuthor {
+func curatedFeaturedAuthorFromStore(row readmodel.CuratedFeaturedAuthor) CuratedFeaturedAuthor {
 	return CuratedFeaturedAuthor{
 		Pubkey: row.Pubkey,
 		Rank:   row.Rank,
 	}
 }
 
-func trendingHashtagFromStore(row store.TrendingHashtag) TrendingHashtag {
+func trendingHashtagFromStore(row readmodel.TrendingHashtag) TrendingHashtag {
 	return TrendingHashtag{
 		Hashtag:       row.Hashtag,
 		EventCount:    row.EventCount,
@@ -103,7 +103,7 @@ func trendingHashtagFromStore(row store.TrendingHashtag) TrendingHashtag {
 	}
 }
 
-func hashtagSummaryFromStore(row store.HashtagSummary) HashtagSummary {
+func hashtagSummaryFromStore(row readmodel.HashtagSummary) HashtagSummary {
 	return HashtagSummary{
 		Hashtag:       row.Hashtag,
 		LatestEventAt: row.LatestEventAt,
@@ -116,14 +116,14 @@ func hashtagSummaryFromStore(row store.HashtagSummary) HashtagSummary {
 	}
 }
 
-func hashtagActivityFromStore(row store.HashtagActivity) HashtagActivity {
+func hashtagActivityFromStore(row readmodel.HashtagActivity) HashtagActivity {
 	return HashtagActivity{
 		EventCount:    row.EventCount,
 		UniqueAuthors: row.UniqueAuthors,
 	}
 }
 
-func relatedHashtagFromStore(row store.RelatedHashtag) RelatedHashtag {
+func relatedHashtagFromStore(row readmodel.RelatedHashtag) RelatedHashtag {
 	return RelatedHashtag{
 		Hashtag:             row.Hashtag,
 		CoOccurrenceCount:   row.CoOccurrenceCount,
@@ -131,7 +131,7 @@ func relatedHashtagFromStore(row store.RelatedHashtag) RelatedHashtag {
 	}
 }
 
-func eventDomainLinkFromStore(row store.EventDomainLinkProjection) EventDomainLink {
+func eventDomainLinkFromStore(row readmodel.EventDomainLinkProjection) EventDomainLink {
 	return EventDomainLink{
 		EventID: row.EventID,
 		URL:     row.URL,
@@ -139,7 +139,7 @@ func eventDomainLinkFromStore(row store.EventDomainLinkProjection) EventDomainLi
 	}
 }
 
-func domainStatFromStore(row store.DomainStatProjection) DomainStat {
+func domainStatFromStore(row readmodel.DomainStatProjection) DomainStat {
 	return DomainStat{
 		Domain:        row.Domain,
 		LinkCount:     row.LinkCount,
@@ -148,7 +148,7 @@ func domainStatFromStore(row store.DomainStatProjection) DomainStat {
 	}
 }
 
-func domainActivityFromStore(row store.DomainActivityProjection) DomainActivity {
+func domainActivityFromStore(row readmodel.DomainActivityProjection) DomainActivity {
 	return DomainActivity{
 		LinkCount:     row.LinkCount,
 		NoteCount:     row.NoteCount,
@@ -156,7 +156,7 @@ func domainActivityFromStore(row store.DomainActivityProjection) DomainActivity 
 	}
 }
 
-func domainSummaryFromStore(row store.DomainSummaryProjection) DomainSummary {
+func domainSummaryFromStore(row readmodel.DomainSummaryProjection) DomainSummary {
 	out := DomainSummary{
 		Domain:        row.Domain,
 		LatestEventAt: row.LatestEventAt,
@@ -178,7 +178,7 @@ func domainSummaryFromStore(row store.DomainSummaryProjection) DomainSummary {
 	return out
 }
 
-func trendingNoteFromStore(row store.TrendingNote) TrendingNote {
+func trendingNoteFromStore(row readmodel.TrendingNote) TrendingNote {
 	return TrendingNote{
 		EventID:       row.EventID,
 		AuthorPubkey:  row.AuthorPubkey,
@@ -194,7 +194,7 @@ func trendingNoteFromStore(row store.TrendingNote) TrendingNote {
 	}
 }
 
-func hotConversationFromStore(row store.HotConversation) HotConversation {
+func hotConversationFromStore(row readmodel.HotConversation) HotConversation {
 	return HotConversation{
 		RootEventID:      row.RootEventID,
 		AuthorPubkey:     row.AuthorPubkey,
@@ -210,7 +210,7 @@ func hotConversationFromStore(row store.HotConversation) HotConversation {
 	}
 }
 
-func trendingProfileFromStore(row store.TrendingProfile) TrendingProfile {
+func trendingProfileFromStore(row readmodel.TrendingProfile) TrendingProfile {
 	return TrendingProfile{
 		Pubkey:                   row.Pubkey,
 		Score:                    row.Score,
@@ -224,7 +224,7 @@ func trendingProfileFromStore(row store.TrendingProfile) TrendingProfile {
 	}
 }
 
-func relatedProfileFromStore(row store.RelatedProfile) RelatedProfile {
+func relatedProfileFromStore(row readmodel.RelatedProfile) RelatedProfile {
 	return RelatedProfile{
 		Pubkey:               row.Pubkey,
 		TopicOverlap:         row.TopicOverlap,

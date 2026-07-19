@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
-	"github.com/xdzczk/nostrmash/internal/store/traceutil"
+	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
 // CheckpointStore persists per-relay backfill progress.
