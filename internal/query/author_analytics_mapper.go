@@ -6,43 +6,43 @@ import (
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
-type legacyAuthorAnalyticsSummaryReader interface {
+type readModelAuthorAnalyticsSummaryReader interface {
 	GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) ([]readmodel.AuthorAnalyticsSummaryProjection, error)
 }
 
-type legacyAuthorQuoteRepostRecentActivityReader interface {
+type readModelAuthorQuoteRepostRecentActivityReader interface {
 	GetAuthorQuoteRepostRecentActivity(ctx context.Context, pubkey string, limit int) ([]readmodel.QuoteRepostActivityProjection, error)
 }
 
-type legacyAuthorTopicStatsReader interface {
+type readModelAuthorTopicStatsReader interface {
 	GetAuthorTopicStats(ctx context.Context, pubkey string, windowDays int, limit int) ([]readmodel.AuthorTopicStatsProjection, error)
 }
 
-type legacyAuthorTopLanguagesReader interface {
+type readModelAuthorTopLanguagesReader interface {
 	GetAuthorTopLanguages(ctx context.Context, pubkey string, windowDays int, limit int) ([]readmodel.LanguageSummary, error)
 }
 
-type legacyAuthorRelayFootprintReader interface {
+type readModelAuthorRelayFootprintReader interface {
 	GetAuthorRelayFootprint(ctx context.Context, pubkey string, topRelayLimit int) (readmodel.AuthorRelayFootprintProjection, error)
 }
 
-type legacyAuthorMediaMixStatsReader interface {
+type readModelAuthorMediaMixStatsReader interface {
 	GetAuthorMediaMixStats(ctx context.Context, pubkey string, windowDays int) (readmodel.AuthorMediaMixStatsProjection, error)
 }
 
-type legacyAuthorActivityWindowsReader interface {
+type readModelAuthorActivityWindowsReader interface {
 	GetAuthorActivityWindowBuckets(ctx context.Context, pubkey string, windowDays int) ([]readmodel.AuthorActivityWindowBucketProjection, error)
 }
 
-type legacyAuthorPostingPatternsReader interface {
+type readModelAuthorPostingPatternsReader interface {
 	GetAuthorPostingPatternBuckets(ctx context.Context, pubkey string, windowDays int) ([]readmodel.AuthorPostingPatternBucketProjection, error)
 }
 
-type legacyAuthorTopNotesReader interface {
+type readModelAuthorTopNotesReader interface {
 	GetAuthorTopNotes(ctx context.Context, pubkey string, windowDays int, limit int) ([]readmodel.AuthorTopNoteProjection, error)
 }
 
-type legacyAuthorRecycleCandidatesReader interface {
+type readModelAuthorRecycleCandidatesReader interface {
 	GetAuthorRecycleCandidates(
 		ctx context.Context,
 		pubkey string,
@@ -56,7 +56,7 @@ type legacyAuthorRecycleCandidatesReader interface {
 	) ([]readmodel.AuthorRecycleCandidateProjection, error)
 }
 
-type legacyAuthorPerformanceAggregateReader interface {
+type readModelAuthorPerformanceAggregateReader interface {
 	GetAuthorPerformanceAggregate(
 		ctx context.Context,
 		pubkey string,
@@ -66,8 +66,8 @@ type legacyAuthorPerformanceAggregateReader interface {
 	GetAuthorTopicStats(ctx context.Context, pubkey string, windowDays int, limit int) ([]readmodel.AuthorTopicStatsProjection, error)
 }
 
-func (a legacyReaderAdapter) GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) (AuthorAnalyticsSummary, error) {
-	reader, ok := a.legacy.(legacyAuthorAnalyticsSummaryReader)
+func (a readModelReaderAdapter) GetAuthorAnalyticsSummary(ctx context.Context, pubkey string) (AuthorAnalyticsSummary, error) {
+	reader, ok := a.readModel.(readModelAuthorAnalyticsSummaryReader)
 	if !ok {
 		return AuthorAnalyticsSummary{}, unsupportedCapabilityError("author analytics summary")
 	}
@@ -80,7 +80,7 @@ func (a legacyReaderAdapter) GetAuthorAnalyticsSummary(ctx context.Context, pubk
 	if err == nil {
 		out.RecentQuoteRepostActivity = recent
 	}
-	if relayReader, ok := a.legacy.(legacyAuthorRelayFootprintReader); ok {
+	if relayReader, ok := a.readModel.(readModelAuthorRelayFootprintReader); ok {
 		relayFootprint, relayErr := relayReader.GetAuthorRelayFootprint(ctx, pubkey, 8)
 		if relayErr == nil {
 			mapped := authorRelayFootprintFromStore(relayFootprint)
@@ -90,12 +90,12 @@ func (a legacyReaderAdapter) GetAuthorAnalyticsSummary(ctx context.Context, pubk
 	return out, nil
 }
 
-func (a legacyReaderAdapter) GetAuthorQuoteRepostRecentActivity(
+func (a readModelReaderAdapter) GetAuthorQuoteRepostRecentActivity(
 	ctx context.Context,
 	pubkey string,
 	limit int,
 ) ([]QuoteRepostActivity, error) {
-	reader, ok := a.legacy.(legacyAuthorQuoteRepostRecentActivityReader)
+	reader, ok := a.readModel.(readModelAuthorQuoteRepostRecentActivityReader)
 	if !ok {
 		return nil, unsupportedCapabilityError("author quote/repost recent activity")
 	}
@@ -110,13 +110,13 @@ func (a legacyReaderAdapter) GetAuthorQuoteRepostRecentActivity(
 	return out, nil
 }
 
-func (a legacyReaderAdapter) GetAuthorTopicStats(
+func (a readModelReaderAdapter) GetAuthorTopicStats(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
 	limit int,
 ) ([]AuthorTopicStat, error) {
-	reader, ok := a.legacy.(legacyAuthorTopicStatsReader)
+	reader, ok := a.readModel.(readModelAuthorTopicStatsReader)
 	if !ok {
 		return nil, unsupportedCapabilityError("author topic stats")
 	}
@@ -131,13 +131,13 @@ func (a legacyReaderAdapter) GetAuthorTopicStats(
 	return out, nil
 }
 
-func (a legacyReaderAdapter) GetAuthorTopLanguages(
+func (a readModelReaderAdapter) GetAuthorTopLanguages(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
 	limit int,
 ) ([]LanguageSummary, error) {
-	reader, ok := a.legacy.(legacyAuthorTopLanguagesReader)
+	reader, ok := a.readModel.(readModelAuthorTopLanguagesReader)
 	if !ok {
 		return nil, unsupportedCapabilityError("author top languages")
 	}
@@ -152,12 +152,12 @@ func (a legacyReaderAdapter) GetAuthorTopLanguages(
 	return out, nil
 }
 
-func (a legacyReaderAdapter) GetAuthorMediaMixStats(
+func (a readModelReaderAdapter) GetAuthorMediaMixStats(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
 ) (AuthorAnalyticsMediaMix, error) {
-	reader, ok := a.legacy.(legacyAuthorMediaMixStatsReader)
+	reader, ok := a.readModel.(readModelAuthorMediaMixStatsReader)
 	if !ok {
 		return AuthorAnalyticsMediaMix{}, unsupportedCapabilityError("author media mix stats")
 	}
@@ -168,12 +168,12 @@ func (a legacyReaderAdapter) GetAuthorMediaMixStats(
 	return authorMediaMixFromStore(row), nil
 }
 
-func (a legacyReaderAdapter) GetAuthorActivityWindows(
+func (a readModelReaderAdapter) GetAuthorActivityWindows(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
 ) (AuthorActivityWindows, error) {
-	reader, ok := a.legacy.(legacyAuthorActivityWindowsReader)
+	reader, ok := a.readModel.(readModelAuthorActivityWindowsReader)
 	if !ok {
 		return AuthorActivityWindows{}, unsupportedCapabilityError("author activity windows")
 	}
@@ -184,12 +184,12 @@ func (a legacyReaderAdapter) GetAuthorActivityWindows(
 	return authorActivityWindowsFromStore(pubkey, windowDays, rows), nil
 }
 
-func (a legacyReaderAdapter) GetAuthorPostingPatterns(
+func (a readModelReaderAdapter) GetAuthorPostingPatterns(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
 ) (AuthorPostingPatterns, error) {
-	reader, ok := a.legacy.(legacyAuthorPostingPatternsReader)
+	reader, ok := a.readModel.(readModelAuthorPostingPatternsReader)
 	if !ok {
 		return AuthorPostingPatterns{}, unsupportedCapabilityError("author posting patterns")
 	}
@@ -200,13 +200,13 @@ func (a legacyReaderAdapter) GetAuthorPostingPatterns(
 	return authorPostingPatternsFromStore(pubkey, windowDays, rows), nil
 }
 
-func (a legacyReaderAdapter) GetAuthorTopNotes(
+func (a readModelReaderAdapter) GetAuthorTopNotes(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
 	limit int,
 ) ([]AuthorTopNote, error) {
-	reader, ok := a.legacy.(legacyAuthorTopNotesReader)
+	reader, ok := a.readModel.(readModelAuthorTopNotesReader)
 	if !ok {
 		return nil, unsupportedCapabilityError("author top notes")
 	}
@@ -221,7 +221,7 @@ func (a legacyReaderAdapter) GetAuthorTopNotes(
 	return out, nil
 }
 
-func (a legacyReaderAdapter) GetAuthorRecycleCandidates(
+func (a readModelReaderAdapter) GetAuthorRecycleCandidates(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
@@ -232,7 +232,7 @@ func (a legacyReaderAdapter) GetAuthorRecycleCandidates(
 	recentRepostWindowDays int,
 	limit int,
 ) ([]AuthorRecycleCandidate, error) {
-	reader, ok := a.legacy.(legacyAuthorRecycleCandidatesReader)
+	reader, ok := a.readModel.(readModelAuthorRecycleCandidatesReader)
 	if !ok {
 		return nil, unsupportedCapabilityError("author recycle candidates")
 	}
@@ -257,12 +257,12 @@ func (a legacyReaderAdapter) GetAuthorRecycleCandidates(
 	return out, nil
 }
 
-func (a legacyReaderAdapter) GetAuthorPerformanceSummary(
+func (a readModelReaderAdapter) GetAuthorPerformanceSummary(
 	ctx context.Context,
 	pubkey string,
 	windowDays int,
 ) (AuthorPerformanceSummary, error) {
-	reader, ok := a.legacy.(legacyAuthorPerformanceAggregateReader)
+	reader, ok := a.readModel.(readModelAuthorPerformanceAggregateReader)
 	if !ok {
 		return AuthorPerformanceSummary{}, unsupportedCapabilityError("author performance summary")
 	}

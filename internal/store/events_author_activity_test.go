@@ -16,13 +16,17 @@ func TestGetAuthorSentZaps_FiltersBySenderAndPaginates(t *testing.T) {
 	s := NewPostgresStore(pool)
 	sender := "sender_zapper"
 	receiver := "receiver_creator"
+	thirdParty := "third_party_zapper"
 	targetNote := "target_note_1"
 
 	mustInsertEventRow(t, pool, targetNote, receiver, 1000, 1)
 	mustInsertZapReceipt(t, pool, "zap_newest", sender, receiver, targetNote, 21, 2002)
 	mustInsertZapReceipt(t, pool, "zap_middle", sender, receiver, targetNote, 5, 2001)
 	mustInsertZapReceipt(t, pool, "zap_oldest", sender, receiver, targetNote, 1, 2000)
-	mustInsertZapReceipt(t, pool, "zap_received_only", receiver, sender, targetNote, 100, 1999)
+	// A zap the receiver only *received* (sent by a third party). It must never
+	// appear in the receiver's SENT zaps, since GetAuthorSentZaps filters on
+	// sender_pubkey.
+	mustInsertZapReceipt(t, pool, "zap_received_only", thirdParty, receiver, targetNote, 100, 1999)
 
 	firstPage, next, err := s.GetAuthorSentZaps(ctx, sender, 2, nil)
 	if err != nil {

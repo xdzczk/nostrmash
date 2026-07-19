@@ -1,4 +1,4 @@
-.PHONY: lint lint-ci test test-race test-race-policy cover coverage-policy verify-clean verify-local verify-docker contract-drift rules-check benchmark-hot benchmark-query benchmark-ws benchmark-replay-derivation benchmark-protected perf-collect perf-protect-collect perf-protect-compare loadtest loadtest-api loadtest-worker loadtest-ingest loadtest-replay-rebuild loadtest-ws-api build mod-verify vulncheck configdoc configdoc-check sqlc sqlc-check fmt fmt-check imports imports-check format ci
+.PHONY: lint lint-ci test test-race test-race-policy cover coverage-policy verify-clean verify-local verify-docker contract-drift rules-check benchmark-hot benchmark-query benchmark-ws benchmark-replay-derivation benchmark-protected perf-collect perf-protect-collect perf-protect-compare loadtest loadtest-api loadtest-worker loadtest-ingest loadtest-replay-rebuild loadtest-ws-api fuzz build mod-verify vulncheck configdoc configdoc-check sqlc sqlc-check fmt fmt-check imports imports-check format ci
 BENCH_HOT_PKGS := ./internal/query ./internal/store ./internal/replay ./internal/derivation ./internal/api_primal ./internal/trust
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -116,6 +116,11 @@ loadtest-replay-rebuild:
 
 loadtest-ws-api:
 	bash ./loadtest/run.sh ws-api-pressure
+
+# Run every Fuzz* target in the WS/API packages for a short bounded budget.
+# Override the per-target budget with FUZZTIME (e.g. FUZZTIME=60s make fuzz).
+fuzz:
+	FUZZTIME=$(or $(FUZZTIME),20s) bash ./scripts/fuzz_all.sh
 
 build:
 	mkdir -p "$(BUILD_OUTPUT_DIR)"

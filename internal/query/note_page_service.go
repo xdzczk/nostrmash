@@ -50,10 +50,9 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 	}
 	media := deriveNoteMediaFlags(parsed)
 	if capability := s.capabilities.notePage.noteStats; capability != nil {
-		stats, mediaStats, statsErr := capability.GetNoteStats(ctx, normalizedEventID)
+		row, statsErr := capability.GetNoteStats(ctx, normalizedEventID)
 		if statsErr == nil {
-			engagement = stats
-			media = mediaStats
+			engagement, media = noteStatsFromStore(row)
 		}
 	}
 
@@ -114,8 +113,9 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 	var conversation *NoteConversationActivity
 	if includeConversation {
 		if capability := s.capabilities.notePage.conversationVelocity; capability != nil {
-			activity, activityErr := capability.GetNoteConversationVelocity(ctx, normalizedEventID)
+			row, activityErr := capability.GetNoteConversationVelocity(ctx, normalizedEventID)
 			if activityErr == nil {
+				activity := noteConversationActivityFromStore(row)
 				conversation = &activity
 			} else if !IsNotFound(activityErr) {
 				return NoteSummary{}, activityErr
@@ -124,8 +124,9 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 	}
 	var quoteRepostLinkage *NoteQuoteRepostLinkageSummary
 	if capability := s.capabilities.notePage.quoteRepostLinkage; capability != nil {
-		linkage, linkageErr := capability.GetNoteQuoteRepostLinkage(ctx, normalizedEventID, 6)
+		row, linkageErr := capability.GetNoteQuoteRepostLinkage(ctx, normalizedEventID, 6)
 		if linkageErr == nil {
+			linkage := noteQuoteRepostLinkageFromStore(row)
 			quoteRepostLinkage = &linkage
 		} else if !IsNotFound(linkageErr) {
 			return NoteSummary{}, linkageErr
@@ -164,7 +165,11 @@ func (s Service) GetNoteRelated(ctx context.Context, eventID string, limit int) 
 		limit = 50
 	}
 	if cap := s.capabilities.notePage.relatedNotes; cap != nil {
-		return cap.GetRelatedNotes(ctx, normalizedEventID, limit)
+		rows, relErr := cap.GetRelatedNotes(ctx, normalizedEventID, limit)
+		if relErr != nil {
+			return nil, relErr
+		}
+		return mapSlice(rows, relatedNoteFromStore), nil
 	}
 	return nil, unsupportedCapabilityError("related notes")
 }

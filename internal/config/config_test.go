@@ -67,6 +67,66 @@ func TestLoad_IngestorCompatibilityWrapper(t *testing.T) {
 	}
 }
 
+func TestResolveDatabaseMaxConns(t *testing.T) {
+	cases := []struct {
+		name    string
+		service string
+		env     int32
+		url     string
+		want    int32
+	}{
+		{name: "env wins over everything", service: "api", env: 50, url: "postgres://h/db?pool_max_conns=10", want: 50},
+		{name: "dsn honored when env unset", service: "api", env: 0, url: "postgres://h/db?pool_max_conns=10", want: 0},
+		{name: "api service default", service: "api", env: 0, url: "postgres://h/db", want: 32},
+		{name: "worker service default", service: "worker", env: 0, url: "postgres://h/db", want: 16},
+		{name: "ingestor service default", service: "ingestor", env: 0, url: "postgres://h/db", want: 8},
+		{name: "trust_worker service default", service: "trust_worker", env: 0, url: "postgres://h/db", want: 8},
+		{name: "unknown service fallback", service: "mystery", env: 0, url: "postgres://h/db", want: databaseMaxConnsFallbackDefault},
+		{name: "keyword dsn form honored", service: "worker", env: 0, url: "host=h dbname=db pool_max_conns=5", want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveDatabaseMaxConns(tc.service, tc.env, tc.url); got != tc.want {
+				t.Fatalf("resolveDatabaseMaxConns(%q, %d, %q) = %d, want %d", tc.service, tc.env, tc.url, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadSharedConfig_DatabaseMaxConnsPrecedence(t *testing.T) {
+	t.Run("api default applied when unset", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		cfg, err := loadSharedConfig("api")
+		if err != nil {
+			t.Fatalf("load shared config: %v", err)
+		}
+		if cfg.Database.MaxConns != 32 {
+			t.Fatalf("expected api default 32, got %d", cfg.Database.MaxConns)
+		}
+	})
+	t.Run("env overrides default", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		t.Setenv("DATABASE_MAX_CONNS", "7")
+		cfg, err := loadSharedConfig("api")
+		if err != nil {
+			t.Fatalf("load shared config: %v", err)
+		}
+		if cfg.Database.MaxConns != 7 {
+			t.Fatalf("expected env override 7, got %d", cfg.Database.MaxConns)
+		}
+	})
+	t.Run("dsn pool_max_conns defers override", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example?pool_max_conns=9")
+		cfg, err := loadSharedConfig("api")
+		if err != nil {
+			t.Fatalf("load shared config: %v", err)
+		}
+		if cfg.Database.MaxConns != 0 {
+			t.Fatalf("expected 0 (defer to DSN), got %d", cfg.Database.MaxConns)
+		}
+	})
+}
+
 func TestLoadSharedConfig_TrustPolicyDefaults(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	cfg, err := loadSharedConfig("api")

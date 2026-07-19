@@ -70,7 +70,11 @@ func (s Service) GetThreadSummary(ctx context.Context, rootEventID string) (out 
 	if cap == nil {
 		return ThreadSummary{}, unsupportedCapabilityError("thread summary")
 	}
-	return cap.GetThreadSummary(ctx, rootEventID)
+	row, err := cap.GetThreadSummary(ctx, rootEventID)
+	if err != nil {
+		return ThreadSummary{}, err
+	}
+	return threadSummaryFromStore(row), nil
 }
 
 func (s Service) GetThreadWindow(ctx context.Context, req ThreadWindowRequest) (out ThreadView, err error) {

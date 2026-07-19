@@ -21,7 +21,11 @@ func (s Service) GetEventLinkedDomains(ctx context.Context, eventID string, limi
 		limit = 500
 	}
 	if r := s.capabilities.curated.eventLinkedDomains; r != nil {
-		return r.GetEventLinkedDomains(ctx, eventID, limit)
+		rows, err := r.GetEventLinkedDomains(ctx, eventID, limit)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, eventDomainLinkFromStore), nil
 	}
 	return nil, unsupportedCapabilityError("event linked domains")
 }
@@ -50,7 +54,11 @@ func (s Service) GetTopDomainsByAuthor(
 		offset = 0
 	}
 	if r := s.capabilities.curated.topDomainsByAuthor; r != nil {
-		return r.GetTopDomainsByAuthor(ctx, pubkey, window, limit, offset)
+		rows, err := r.GetTopDomainsByAuthor(ctx, pubkey, window, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, domainStatFromStore), nil
 	}
 	return nil, unsupportedCapabilityError("top domains by author")
 }
@@ -74,7 +82,11 @@ func (s Service) GetTopDomains(
 		offset = 0
 	}
 	if r := s.capabilities.curated.topDomains; r != nil {
-		return r.GetTopDomains(ctx, window, limit, offset)
+		rows, err := r.GetTopDomains(ctx, window, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, domainStatFromStore), nil
 	}
 	return nil, unsupportedCapabilityError("top domains")
 }
@@ -98,7 +110,11 @@ func (s Service) GetTrendingDomains(
 		offset = 0
 	}
 	if r := s.capabilities.curated.trendingDomains; r != nil {
-		return r.GetTrendingDomains(ctx, window, limit, offset)
+		rows, err := r.GetTrendingDomains(ctx, window, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, domainSummaryFromStore), nil
 	}
 	return nil, unsupportedCapabilityError("trending domains")
 }
@@ -109,7 +125,11 @@ func (s Service) GetDomainSummary(ctx context.Context, domain string) (DomainSum
 		return DomainSummary{}, err
 	}
 	if r := s.capabilities.curated.domainSummary; r != nil {
-		return r.GetDomainSummary(ctx, normalized, 5, 5)
+		row, err := r.GetDomainSummary(ctx, normalized, 5, 5)
+		if err != nil {
+			return DomainSummary{}, err
+		}
+		return domainSummaryFromStore(row), nil
 	}
 	return DomainSummary{}, unsupportedCapabilityError("domain summary")
 }
@@ -127,7 +147,11 @@ func (s Service) GetDomainNotes(
 		return nil, err
 	}
 	if r := s.capabilities.curated.domainNotes; r != nil {
-		return r.GetDomainNotes(ctx, normalized, sort, window, limit, offset)
+		rows, err := r.GetDomainNotes(ctx, normalized, sort, window, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, trendingNoteFromStore), nil
 	}
 	return nil, unsupportedCapabilityError("domain notes")
 }

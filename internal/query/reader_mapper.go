@@ -9,7 +9,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
-type legacyReader interface {
+type readModelReader interface {
 	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
 	GetEventWithProvenance(ctx context.Context, id string) (readmodel.EventWithProvenance, error)
 	GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
@@ -32,7 +32,7 @@ type legacyReader interface {
 	GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error)
 }
 
-type legacyNotesSearchReader interface {
+type readModelNotesSearchReader interface {
 	SearchNotes(
 		ctx context.Context,
 		query string,
@@ -44,7 +44,7 @@ type legacyNotesSearchReader interface {
 	) ([]json.RawMessage, error)
 }
 
-type legacyProfilesSearchReader interface {
+type readModelProfilesSearchReader interface {
 	SearchProfilesWithOptions(
 		ctx context.Context,
 		query string,
@@ -54,53 +54,53 @@ type legacyProfilesSearchReader interface {
 	) ([]readmodel.ProfileProjection, error)
 }
 
-type legacySearchSuggestionsReader interface {
+type readModelSearchSuggestionsReader interface {
 	SuggestProfiles(ctx context.Context, query string, limit int) ([]readmodel.ProfileProjection, error)
 	SuggestHashtags(ctx context.Context, query string, limit int) ([]readmodel.TrendingHashtag, error)
 }
 
-type legacySearchDocumentsReader interface {
+type readModelSearchDocumentsReader interface {
 	SearchDocuments(ctx context.Context, query string, limit int) ([]readmodel.SearchDocumentProjection, error)
 }
 
-type legacyReaderAdapter struct {
-	legacy legacyReader
+type readModelReaderAdapter struct {
+	readModel readModelReader
 }
 
-type legacyDescendingThreadWindowReader interface {
+type readModelDescendingThreadWindowReader interface {
 	GetEventRepliesDescending(ctx context.Context, eventID string, limit int, cursor *readmodel.EventOrderCursor, offset int) ([]json.RawMessage, *readmodel.EventOrderCursor, error)
 }
 
-func (a legacyReaderAdapter) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
-	return a.legacy.GetEventRawByID(ctx, id)
+func (a readModelReaderAdapter) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {
+	return a.readModel.GetEventRawByID(ctx, id)
 }
 
-func (a legacyReaderAdapter) GetEventWithProvenance(ctx context.Context, id string) (EventWithProvenance, error) {
-	row, err := a.legacy.GetEventWithProvenance(ctx, id)
+func (a readModelReaderAdapter) GetEventWithProvenance(ctx context.Context, id string) (EventWithProvenance, error) {
+	row, err := a.readModel.GetEventWithProvenance(ctx, id)
 	if err != nil {
 		return EventWithProvenance{}, err
 	}
 	return eventWithProvenanceFromStore(row), nil
 }
 
-func (a legacyReaderAdapter) GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
-	return a.legacy.GetEventRawsByIDs(ctx, ids)
+func (a readModelReaderAdapter) GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
+	return a.readModel.GetEventRawsByIDs(ctx, ids)
 }
 
-func (a legacyReaderAdapter) GetEventSeenOn(ctx context.Context, id string) ([]model.EventRelay, error) {
-	return a.legacy.GetEventSeenOn(ctx, id)
+func (a readModelReaderAdapter) GetEventSeenOn(ctx context.Context, id string) ([]model.EventRelay, error) {
+	return a.readModel.GetEventSeenOn(ctx, id)
 }
 
-func (a legacyReaderAdapter) GetProfileByPubkey(ctx context.Context, pubkey string) (Profile, error) {
-	row, err := a.legacy.GetProfileByPubkey(ctx, pubkey)
+func (a readModelReaderAdapter) GetProfileByPubkey(ctx context.Context, pubkey string) (Profile, error) {
+	row, err := a.readModel.GetProfileByPubkey(ctx, pubkey)
 	if err != nil {
 		return Profile{}, err
 	}
 	return profileFromStore(row), nil
 }
 
-func (a legacyReaderAdapter) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {
-	rows, err := a.legacy.GetProfilesByPubkeys(ctx, pubkeys)
+func (a readModelReaderAdapter) GetProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {
+	rows, err := a.readModel.GetProfilesByPubkeys(ctx, pubkeys)
 	if err != nil {
 		return nil, err
 	}
@@ -111,40 +111,40 @@ func (a legacyReaderAdapter) GetProfilesByPubkeys(ctx context.Context, pubkeys [
 	return out, nil
 }
 
-func (a legacyReaderAdapter) GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (ProfilePublicStats, error) {
-	row, err := a.legacy.GetProfilePublicStatsByPubkey(ctx, pubkey)
+func (a readModelReaderAdapter) GetProfilePublicStatsByPubkey(ctx context.Context, pubkey string) (ProfilePublicStats, error) {
+	row, err := a.readModel.GetProfilePublicStatsByPubkey(ctx, pubkey)
 	if err != nil {
 		return ProfilePublicStats{}, err
 	}
 	return profilePublicStatsFromStore(row), nil
 }
 
-func (a legacyReaderAdapter) GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
-	return a.legacy.GetAuthorRecentEvents(ctx, pubkey, limit)
+func (a readModelReaderAdapter) GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
+	return a.readModel.GetAuthorRecentEvents(ctx, pubkey, limit)
 }
 
-func (a legacyReaderAdapter) GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
-	return a.legacy.GetAuthorReplies(ctx, pubkey, limit)
+func (a readModelReaderAdapter) GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
+	return a.readModel.GetAuthorReplies(ctx, pubkey, limit)
 }
 
-func (a legacyReaderAdapter) GetEventCounts(ctx context.Context, eventID string) (EventCounts, error) {
-	row, err := a.legacy.GetEventCounts(ctx, eventID)
+func (a readModelReaderAdapter) GetEventCounts(ctx context.Context, eventID string) (EventCounts, error) {
+	row, err := a.readModel.GetEventCounts(ctx, eventID)
 	if err != nil {
 		return EventCounts{}, err
 	}
 	return eventCountsFromStore(row), nil
 }
 
-func (a legacyReaderAdapter) GetEventReplies(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error) {
-	replies, next, err := a.legacy.GetEventReplies(ctx, eventID, limit, eventCursorToStore(cursor))
+func (a readModelReaderAdapter) GetEventReplies(ctx context.Context, eventID string, limit int, cursor *EventCursor) ([]json.RawMessage, *EventCursor, error) {
+	replies, next, err := a.readModel.GetEventReplies(ctx, eventID, limit, eventCursorToStore(cursor))
 	if err != nil {
 		return nil, nil, err
 	}
 	return replies, eventCursorFromStore(next), nil
 }
 
-func (a legacyReaderAdapter) GetEventRepliesDescending(ctx context.Context, eventID string, limit int, cursor *EventCursor, offset int) ([]json.RawMessage, *EventCursor, error) {
-	descReader, ok := a.legacy.(legacyDescendingThreadWindowReader)
+func (a readModelReaderAdapter) GetEventRepliesDescending(ctx context.Context, eventID string, limit int, cursor *EventCursor, offset int) ([]json.RawMessage, *EventCursor, error) {
+	descReader, ok := a.readModel.(readModelDescendingThreadWindowReader)
 	if !ok {
 		return nil, nil, unsupportedCapabilityError("thread descending replies")
 	}
@@ -155,36 +155,36 @@ func (a legacyReaderAdapter) GetEventRepliesDescending(ctx context.Context, even
 	return replies, eventCursorFromStore(next), nil
 }
 
-func (a legacyReaderAdapter) GetEventAncestors(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error) {
-	return a.legacy.GetEventAncestors(ctx, eventID, maxDepth)
+func (a readModelReaderAdapter) GetEventAncestors(ctx context.Context, eventID string, maxDepth int) ([]json.RawMessage, []string, error) {
+	return a.readModel.GetEventAncestors(ctx, eventID, maxDepth)
 }
 
-func (a legacyReaderAdapter) ListRelayHealth(ctx context.Context) ([]model.IngestCheckpoint, error) {
-	return a.legacy.ListRelayHealth(ctx)
+func (a readModelReaderAdapter) ListRelayHealth(ctx context.Context) ([]model.IngestCheckpoint, error) {
+	return a.readModel.ListRelayHealth(ctx)
 }
 
-func (a legacyReaderAdapter) GetContactListByPubkey(ctx context.Context, pubkey string) (ContactList, error) {
-	row, err := a.legacy.GetContactListByPubkey(ctx, pubkey)
+func (a readModelReaderAdapter) GetContactListByPubkey(ctx context.Context, pubkey string) (ContactList, error) {
+	row, err := a.readModel.GetContactListByPubkey(ctx, pubkey)
 	if err != nil {
 		return ContactList{}, err
 	}
 	return contactListFromStore(row), nil
 }
 
-func (a legacyReaderAdapter) GetRelayListByPubkey(ctx context.Context, pubkey string) (RelayList, error) {
-	row, err := a.legacy.GetRelayListByPubkey(ctx, pubkey)
+func (a readModelReaderAdapter) GetRelayListByPubkey(ctx context.Context, pubkey string) (RelayList, error) {
+	row, err := a.readModel.GetRelayListByPubkey(ctx, pubkey)
 	if err != nil {
 		return RelayList{}, err
 	}
 	return relayListFromStore(row), nil
 }
 
-func (a legacyReaderAdapter) SearchEventsByContent(ctx context.Context, query string, limit int) ([]json.RawMessage, error) {
-	return a.legacy.SearchEventsByContent(ctx, query, limit)
+func (a readModelReaderAdapter) SearchEventsByContent(ctx context.Context, query string, limit int) ([]json.RawMessage, error) {
+	return a.readModel.SearchEventsByContent(ctx, query, limit)
 }
 
-func (a legacyReaderAdapter) SearchProfiles(ctx context.Context, query string, limit int) ([]Profile, error) {
-	rows, err := a.legacy.SearchProfiles(ctx, query, limit)
+func (a readModelReaderAdapter) SearchProfiles(ctx context.Context, query string, limit int) ([]Profile, error) {
+	rows, err := a.readModel.SearchProfiles(ctx, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func (a legacyReaderAdapter) SearchProfiles(ctx context.Context, query string, l
 	return out, nil
 }
 
-func (a legacyReaderAdapter) SearchNotes(
+func (a readModelReaderAdapter) SearchNotes(
 	ctx context.Context,
 	query string,
 	sort string,
@@ -204,23 +204,23 @@ func (a legacyReaderAdapter) SearchNotes(
 	limit int,
 	offset int,
 ) ([]json.RawMessage, error) {
-	if advanced, ok := a.legacy.(legacyNotesSearchReader); ok {
+	if advanced, ok := a.readModel.(readModelNotesSearchReader); ok {
 		return advanced.SearchNotes(ctx, query, sort, window, language, limit, offset)
 	}
 	if sort == "relevant" && window == nil && offset == 0 && language == "" {
-		return a.legacy.SearchEventsByContent(ctx, query, limit)
+		return a.readModel.SearchEventsByContent(ctx, query, limit)
 	}
 	return nil, unsupportedCapabilityError("advanced notes search")
 }
 
-func (a legacyReaderAdapter) SearchProfilesWithOptions(
+func (a readModelReaderAdapter) SearchProfilesWithOptions(
 	ctx context.Context,
 	query string,
 	sort string,
 	limit int,
 	offset int,
 ) ([]Profile, error) {
-	if advanced, ok := a.legacy.(legacyProfilesSearchReader); ok {
+	if advanced, ok := a.readModel.(readModelProfilesSearchReader); ok {
 		rows, err := advanced.SearchProfilesWithOptions(ctx, query, sort, limit, offset)
 		if err != nil {
 			return nil, err
@@ -237,8 +237,8 @@ func (a legacyReaderAdapter) SearchProfilesWithOptions(
 	return nil, unsupportedCapabilityError("advanced profile search")
 }
 
-func (a legacyReaderAdapter) SuggestProfiles(ctx context.Context, query string, limit int) ([]Profile, error) {
-	reader, ok := a.legacy.(legacySearchSuggestionsReader)
+func (a readModelReaderAdapter) SuggestProfiles(ctx context.Context, query string, limit int) ([]Profile, error) {
+	reader, ok := a.readModel.(readModelSearchSuggestionsReader)
 	if !ok {
 		return nil, unsupportedCapabilityError("search profile suggestions")
 	}
@@ -253,8 +253,8 @@ func (a legacyReaderAdapter) SuggestProfiles(ctx context.Context, query string, 
 	return out, nil
 }
 
-func (a legacyReaderAdapter) SuggestHashtags(ctx context.Context, query string, limit int) ([]HashtagSuggestion, error) {
-	reader, ok := a.legacy.(legacySearchSuggestionsReader)
+func (a readModelReaderAdapter) SuggestHashtags(ctx context.Context, query string, limit int) ([]HashtagSuggestion, error) {
+	reader, ok := a.readModel.(readModelSearchSuggestionsReader)
 	if !ok {
 		return nil, unsupportedCapabilityError("search hashtag suggestions")
 	}
@@ -273,8 +273,8 @@ func (a legacyReaderAdapter) SuggestHashtags(ctx context.Context, query string, 
 	return out, nil
 }
 
-func (a legacyReaderAdapter) SearchDocuments(ctx context.Context, query string, limit int) ([]SearchDocument, error) {
-	reader, ok := a.legacy.(legacySearchDocumentsReader)
+func (a readModelReaderAdapter) SearchDocuments(ctx context.Context, query string, limit int) ([]SearchDocument, error) {
+	reader, ok := a.readModel.(readModelSearchDocumentsReader)
 	if !ok {
 		return nil, unsupportedCapabilityError("search documents")
 	}
@@ -289,31 +289,31 @@ func (a legacyReaderAdapter) SearchDocuments(ctx context.Context, query string, 
 	return out, nil
 }
 
-func (a legacyReaderAdapter) GetRecentEventsByKindAndPubkey(ctx context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error) {
-	return a.legacy.GetRecentEventsByKindAndPubkey(ctx, kind, pubkey, limit)
+func (a readModelReaderAdapter) GetRecentEventsByKindAndPubkey(ctx context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error) {
+	return a.readModel.GetRecentEventsByKindAndPubkey(ctx, kind, pubkey, limit)
 }
 
-func (a legacyReaderAdapter) GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
-	return a.legacy.GetEventsReferencingPubkey(ctx, targetPubkey, limit)
+func (a readModelReaderAdapter) GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+	return a.readModel.GetEventsReferencingPubkey(ctx, targetPubkey, limit)
 }
 
-func (a legacyReaderAdapter) GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
-	return a.legacy.GetFollowersByPubkey(ctx, targetPubkey, limit)
+func (a readModelReaderAdapter) GetFollowersByPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
+	return a.readModel.GetFollowersByPubkey(ctx, targetPubkey, limit)
 }
 
-type legacyFallbackReader interface {
+type readModelFallbackReader interface {
 	FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
 	FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]readmodel.ProfileProjection, error)
 }
 
-type legacyFallbackReaderAdapter struct {
-	legacy legacyFallbackReader
+type readModelFallbackReaderAdapter struct {
+	readModel readModelFallbackReader
 }
 
 // FallbackStoreReader is the readmodel-shaped relay-fallback surface (satisfied
 // by the relaylookup client). AdaptFallbackReader wraps it into the query-shaped
 // FallbackReader consumed by the Service.
-type FallbackStoreReader = legacyFallbackReader
+type FallbackStoreReader = readModelFallbackReader
 
 // AdaptFallbackReader wraps a readmodel-shaped relay fallback reader into the
 // query-shaped FallbackReader. Returns nil when no fallback is configured.
@@ -321,15 +321,15 @@ func AdaptFallbackReader(r FallbackStoreReader) FallbackReader {
 	if r == nil {
 		return nil
 	}
-	return legacyFallbackReaderAdapter{legacy: r}
+	return readModelFallbackReaderAdapter{readModel: r}
 }
 
-func (a legacyFallbackReaderAdapter) FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
-	return a.legacy.FetchEventsByIDs(ctx, ids)
+func (a readModelFallbackReaderAdapter) FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
+	return a.readModel.FetchEventsByIDs(ctx, ids)
 }
 
-func (a legacyFallbackReaderAdapter) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {
-	rows, err := a.legacy.FetchProfilesByPubkeys(ctx, pubkeys)
+func (a readModelFallbackReaderAdapter) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {
+	rows, err := a.readModel.FetchProfilesByPubkeys(ctx, pubkeys)
 	if err != nil {
 		return nil, err
 	}
@@ -340,16 +340,16 @@ func (a legacyFallbackReaderAdapter) FetchProfilesByPubkeys(ctx context.Context,
 	return out, nil
 }
 
-type legacyFallbackProfilePersister interface {
+type readModelFallbackProfilePersister interface {
 	PersistFallbackProfile(ctx context.Context, pp readmodel.ProfileProjection) error
 }
 
-type legacyFallbackProfilePersisterAdapter struct {
-	legacy legacyFallbackProfilePersister
+type readModelFallbackProfilePersisterAdapter struct {
+	readModel readModelFallbackProfilePersister
 }
 
-func (a legacyFallbackProfilePersisterAdapter) PersistFallbackProfile(ctx context.Context, p Profile) error {
-	return a.legacy.PersistFallbackProfile(ctx, readmodel.ProfileProjection{
+func (a readModelFallbackProfilePersisterAdapter) PersistFallbackProfile(ctx context.Context, p Profile) error {
+	return a.readModel.PersistFallbackProfile(ctx, readmodel.ProfileProjection{
 		Pubkey:            p.Pubkey,
 		MetadataEventID:   p.MetadataEventID,
 		MetadataCreatedAt: p.MetadataCreatedAt,
@@ -357,16 +357,16 @@ func (a legacyFallbackProfilePersisterAdapter) PersistFallbackProfile(ctx contex
 	})
 }
 
-type legacyFallbackEventPersister interface {
+type readModelFallbackEventPersister interface {
 	PersistFallbackEvent(ctx context.Context, eventID string, raw json.RawMessage) error
 }
 
-type legacyFallbackEventPersisterAdapter struct {
-	legacy legacyFallbackEventPersister
+type readModelFallbackEventPersisterAdapter struct {
+	readModel readModelFallbackEventPersister
 }
 
-func (a legacyFallbackEventPersisterAdapter) PersistFallbackEvent(ctx context.Context, eventID string, raw json.RawMessage) error {
-	return a.legacy.PersistFallbackEvent(ctx, eventID, raw)
+func (a readModelFallbackEventPersisterAdapter) PersistFallbackEvent(ctx context.Context, eventID string, raw json.RawMessage) error {
+	return a.readModel.PersistFallbackEvent(ctx, eventID, raw)
 }
 
 // AdaptFallbackEventPersister wraps a store-level event persister as a query-level one.
@@ -377,8 +377,8 @@ func AdaptFallbackEventPersister(persister any) FallbackEventPersister {
 	if adapted, ok := persister.(FallbackEventPersister); ok {
 		return adapted
 	}
-	if legacy, ok := persister.(legacyFallbackEventPersister); ok {
-		return legacyFallbackEventPersisterAdapter{legacy: legacy}
+	if readModel, ok := persister.(readModelFallbackEventPersister); ok {
+		return readModelFallbackEventPersisterAdapter{readModel: readModel}
 	}
 	return nil
 }
@@ -391,8 +391,8 @@ func AdaptFallbackProfilePersister(persister any) FallbackProfilePersister {
 	if adapted, ok := persister.(FallbackProfilePersister); ok {
 		return adapted
 	}
-	if legacy, ok := persister.(legacyFallbackProfilePersister); ok {
-		return legacyFallbackProfilePersisterAdapter{legacy: legacy}
+	if readModel, ok := persister.(readModelFallbackProfilePersister); ok {
+		return readModelFallbackProfilePersisterAdapter{readModel: readModel}
 	}
 	return nil
 }

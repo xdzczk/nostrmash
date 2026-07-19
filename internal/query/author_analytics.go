@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 var authorAnalyticsWindowByLabel = map[string]int{
@@ -287,7 +289,7 @@ func (s Service) GetGroupedNoteAnalytics(
 		topicsLimit = 20
 	}
 	if r := s.capabilities.curated.groupedNoteAnalytics; r != nil {
-		return r.GetGroupedNoteAnalytics(ctx, GroupedNoteAnalyticsRequest{
+		row, err := r.GetGroupedNoteAnalytics(ctx, readmodel.GroupedNoteAnalyticsQuery{
 			Pubkey:        pubkey,
 			WindowDays:    windowDays,
 			GroupKind:     groupKind,
@@ -296,6 +298,10 @@ func (s Service) GetGroupedNoteAnalytics(
 			TopNotesLimit: topNotesLimit,
 			TopicsLimit:   topicsLimit,
 		})
+		if err != nil {
+			return GroupedNoteAnalyticsSummary{}, err
+		}
+		return groupedNoteAnalyticsFromStore(row), nil
 	}
 	return GroupedNoteAnalyticsSummary{}, unsupportedCapabilityError("grouped note analytics")
 }

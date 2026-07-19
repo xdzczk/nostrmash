@@ -98,7 +98,7 @@ func (p fallbackPolicyRuntime) lookupTrust(ctx context.Context, pubkeys []string
 			rows := make(map[string]TrustQualification, len(states))
 			trusted := make(map[string]bool, len(states))
 			for pubkey, state := range states {
-				row := trustQualificationFromState(state, p.trustPolicy)
+				row := trustQualificationFromState(trustStateFromStore(state), p.trustPolicy)
 				rows[pubkey] = row
 				trusted[pubkey] = row.Trusted
 			}
@@ -106,11 +106,14 @@ func (p fallbackPolicyRuntime) lookupTrust(ctx context.Context, pubkeys []string
 		}
 	}
 	if p.qualifier != nil {
-		rows, err := p.qualifier.GetTrustQualifications(ctx, pubkeys, p.trustPolicy)
+		storeRows, err := p.qualifier.GetTrustQualifications(ctx, pubkeys, trustQualificationPolicyToStore(p.trustPolicy))
 		if err == nil {
-			trusted := make(map[string]bool, len(rows))
-			for pubkey, row := range rows {
-				trusted[pubkey] = row.Trusted
+			rows := make(map[string]TrustQualification, len(storeRows))
+			trusted := make(map[string]bool, len(storeRows))
+			for pubkey, row := range storeRows {
+				mapped := trustQualificationFromStore(row)
+				rows[pubkey] = mapped
+				trusted[pubkey] = mapped.Trusted
 			}
 			return rows, trusted
 		}

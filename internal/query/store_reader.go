@@ -16,50 +16,54 @@ package query
 //     typed value and a compile-time assertion in the composition root proves
 //     the store is complete.
 //
-// The group interfaces intentionally embed the existing readmodel-shaped
-// capability interfaces so the internal query-shaped slots keep being fed by
-// the per-capability mapper adapters (see the capabilities_* files); no
-// behavior changes, only the wiring becomes typed.
+// The group interfaces embed the readmodel-shaped capability interfaces
+// directly; the internal capability slots are readmodel-shaped too, and the
+// Service maps to query DTOs at the response edge via the mappers_*.go plain
+// functions. There are no wrapper adapters.
 
 // StoreReader is the readmodel-shaped core read surface implemented by the
 // production store. The Service wraps it internally to produce query DTOs.
-type StoreReader = legacyReader
+type StoreReader = readModelReader
 
 // CuratedReads bundles the discovery/curation capability surface.
 type CuratedReads interface {
-	legacyNetworkStatsCapability
-	legacyPublicDiscoveryNetworkStatsCapability
+	networkStatsCapability
+	publicDiscoveryNetworkStatsCapability
 	curatedValuesCapability
-	legacyCuratedRecommendedReadsCapability
-	legacyCuratedReadsTopicsCapability
-	legacyTrendingHashtagsCapability
-	legacyHashtagSummaryCapability
-	legacyHashtagNotesCapability
-	legacyRelatedHashtagsCapability
-	legacyEventLinkedDomainsCapability
-	legacyTopDomainsCapability
-	legacyTopDomainsByAuthorCapability
-	legacyTrendingDomainsCapability
-	legacyDomainSummaryCapability
-	legacyDomainNotesCapability
-	legacyTrendingNotesCapability
-	legacyTrendingLongFormCapability
-	legacyHotConversationsCapability
-	legacyTrustQualifiedTrendingNotesCapability
-	legacyTrendingProfilesCapability
-	legacyRelatedProfilesCapability
-	legacyTrustQualifiedTrendingProfilesCapability
-	legacyRisingProfilesCapability
-	legacyCuratedFeaturedAuthorsCapability
+	curatedRecommendedReadsCapability
+	curatedReadsTopicsCapability
+	trendingHashtagsCapability
+	hashtagSummaryCapability
+	hashtagNotesCapability
+	relatedHashtagsCapability
+	eventLinkedDomainsCapability
+	topDomainsCapability
+	topDomainsByAuthorCapability
+	trendingDomainsCapability
+	domainSummaryCapability
+	domainNotesCapability
+	trendingNotesCapability
+	trendingLongFormCapability
+	hotConversationsCapability
+	trustQualifiedTrendingNotesCapability
+	trendingProfilesCapability
+	relatedProfilesCapability
+	trustQualifiedTrendingProfilesCapability
+	risingProfilesCapability
+	curatedFeaturedAuthorsCapability
 	creatorPaidTiersCapability
 	pubkeyByLNAddressCapability
-	legacyGroupedNoteAnalyticsCapability
+	groupedNoteAnalyticsCapability
 }
 
 // TrustReads bundles the trust-state/score/qualification capability surface.
 type TrustReads interface {
-	legacyTrustCapability
-	legacyTrustQualificationCapability
+	trustStateCapability
+	trustScoreCapability
+	topTrustedPubkeysCapability
+	trustRunCapability
+	trustRunsCapability
+	trustQualificationCapability
 }
 
 // DMReads bundles the direct-message capability surface.
@@ -110,41 +114,41 @@ type EventReads interface {
 
 // ThreadReads bundles the thread-summary capability surface.
 type ThreadReads interface {
-	legacyThreadSummaryCapability
+	threadSummaryCapability
 }
 
 // NotePageReads bundles the note-page enrichment capability surface.
 type NotePageReads interface {
-	legacyNoteStatsCapability
-	legacyNoteConversationVelocityCapability
-	legacyRelatedNotesCapability
-	legacyNoteQuoteRepostLinkageCapability
+	noteStatsCapability
+	noteConversationVelocityCapability
+	relatedNotesCapability
+	noteQuoteRepostLinkageCapability
 }
 
 // AuthorAnalyticsReads bundles the author-analytics capability surface that the
 // core reader adapter previously discovered via secondary type-probes.
 type AuthorAnalyticsReads interface {
-	legacyAuthorAnalyticsSummaryReader
-	legacyAuthorQuoteRepostRecentActivityReader
-	legacyAuthorTopicStatsReader
-	legacyAuthorTopLanguagesReader
-	legacyAuthorRelayFootprintReader
-	legacyAuthorMediaMixStatsReader
-	legacyAuthorActivityWindowsReader
-	legacyAuthorPostingPatternsReader
-	legacyAuthorTopNotesReader
-	legacyAuthorRecycleCandidatesReader
-	legacyAuthorPerformanceAggregateReader
+	readModelAuthorAnalyticsSummaryReader
+	readModelAuthorQuoteRepostRecentActivityReader
+	readModelAuthorTopicStatsReader
+	readModelAuthorTopLanguagesReader
+	readModelAuthorRelayFootprintReader
+	readModelAuthorMediaMixStatsReader
+	readModelAuthorActivityWindowsReader
+	readModelAuthorPostingPatternsReader
+	readModelAuthorTopNotesReader
+	readModelAuthorRecycleCandidatesReader
+	readModelAuthorPerformanceAggregateReader
 }
 
 // AdvancedSearchReads bundles the advanced search/suggestion capability surface
 // that the core reader adapter previously discovered via secondary type-probes.
 type AdvancedSearchReads interface {
-	legacyNotesSearchReader
-	legacyProfilesSearchReader
-	legacySearchSuggestionsReader
-	legacySearchDocumentsReader
-	legacyDescendingThreadWindowReader
+	readModelNotesSearchReader
+	readModelProfilesSearchReader
+	readModelSearchSuggestionsReader
+	readModelSearchDocumentsReader
+	readModelDescendingThreadWindowReader
 }
 
 // FullStoreReader is the complete typed read surface satisfied by the

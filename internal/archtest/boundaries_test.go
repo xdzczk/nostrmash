@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -522,6 +523,62 @@ func TestConstructorsAreTyped(t *testing.T) {
 	if len(violations) > 0 {
 		sort.Strings(violations)
 		t.Fatalf("untyped constructor violations:\n- %s", strings.Join(violations, "\n- "))
+	}
+}
+
+// TestQueryDeclaresNoLegacyCapabilityMachinery enforces the full DTO
+// unification outcome: the query layer's internal capability slots are
+// readmodel-shaped and the Service maps to query DTOs at the response edge via
+// plain mapper functions. The historic per-capability duality (a query-shaped
+// interface, a readmodel-shaped `legacy*Capability` twin, and a bridging
+// `legacy*Adapter` wrapper) is gone. This guard fails if any `legacy*Adapter`
+// or `legacy*Capability` type declaration reappears in internal/query.
+func TestQueryDeclaresNoLegacyCapabilityMachinery(t *testing.T) {
+	root := repoRoot(t)
+	fset := token.NewFileSet()
+	dir := filepath.Join(root, filepath.FromSlash("internal/query"))
+
+	forbidden := regexp.MustCompile(`^legacy.*(Adapter|Capability)$`)
+
+	var violations []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		file := parseFile(t, fset, path)
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.Name == nil {
+					continue
+				}
+				if forbidden.MatchString(ts.Name.Name) {
+					violations = append(violations,
+						fmt.Sprintf("%s: type %s reintroduces legacy capability/adapter machinery; keep capability slots readmodel-shaped and map via mappers_*.go", rel, ts.Name.Name))
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk internal/query: %v", err)
+	}
+
+	if len(violations) > 0 {
+		sort.Strings(violations)
+		t.Fatalf("legacy capability machinery violations:\n- %s", strings.Join(violations, "\n- "))
 	}
 }
 

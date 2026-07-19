@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
@@ -307,11 +308,11 @@ func TestSearchNotes_TrustModePreferTrustedBoostsAndPaginates(t *testing.T) {
 			}
 			return base[offset:end], nil
 		},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
 			trustCalls++
-			out := map[string]TrustQualification{}
+			out := map[string]readmodel.TrustQualification{}
 			for _, pubkey := range pubkeys {
-				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: pubkey == "u3" || pubkey == "u5"}
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "u3" || pubkey == "u5"}
 			}
 			return out, nil
 		},
@@ -348,10 +349,10 @@ func TestSearchNotes_TrustModeTrustedOnlyCanReturnEmpty(t *testing.T) {
 				mustRawEvent(t, "n2", "u2"),
 			}, nil
 		},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
-			out := map[string]TrustQualification{}
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
 			for _, pubkey := range pubkeys {
-				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: false}
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: false}
 			}
 			return out, nil
 		},
@@ -391,10 +392,10 @@ func TestSearchProfiles_TrustModePreferTrustedBoostsAndPaginates(t *testing.T) {
 			}
 			return base[offset:end], nil
 		},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
-			out := map[string]TrustQualification{}
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
 			for _, pubkey := range pubkeys {
-				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: pubkey == "p3"}
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "p3"}
 			}
 			return out, nil
 		},
@@ -426,10 +427,10 @@ func TestSearchProfiles_TrustModeTrustedOnlyFilters(t *testing.T) {
 				{Pubkey: "p3"},
 			}, nil
 		},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
-			out := map[string]TrustQualification{}
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
 			for _, pubkey := range pubkeys {
-				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: pubkey == "p2"}
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "p2"}
 			}
 			return out, nil
 		},
@@ -454,8 +455,8 @@ type readerWithAdvancedSearch struct {
 	Reader
 	searchNotesFn            func(context.Context, string, string, *time.Duration, string, int, int) ([]json.RawMessage, error)
 	searchProfilesFn         func(context.Context, string, string, int, int) ([]Profile, error)
-	getTrustQualificationsFn func(context.Context, []string, TrustQualificationPolicy) (map[string]TrustQualification, error)
-	isTrustedAuthorFn        func(context.Context, string, TrustQualificationPolicy) (bool, error)
+	getTrustQualificationsFn func(context.Context, []string, readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error)
+	isTrustedAuthorFn        func(context.Context, string, readmodel.TrustQualificationPolicy) (bool, error)
 }
 
 func (r readerWithAdvancedSearch) SearchNotes(
@@ -489,10 +490,10 @@ func (r readerWithAdvancedSearch) SearchProfilesWithOptions(
 func (r readerWithAdvancedSearch) GetTrustQualifications(
 	ctx context.Context,
 	pubkeys []string,
-	policy TrustQualificationPolicy,
-) (map[string]TrustQualification, error) {
+	policy readmodel.TrustQualificationPolicy,
+) (map[string]readmodel.TrustQualification, error) {
 	if r.getTrustQualificationsFn == nil {
-		return map[string]TrustQualification{}, nil
+		return map[string]readmodel.TrustQualification{}, nil
 	}
 	return r.getTrustQualificationsFn(ctx, pubkeys, policy)
 }
@@ -500,7 +501,7 @@ func (r readerWithAdvancedSearch) GetTrustQualifications(
 func (r readerWithAdvancedSearch) IsTrustedAuthor(
 	ctx context.Context,
 	pubkey string,
-	policy TrustQualificationPolicy,
+	policy readmodel.TrustQualificationPolicy,
 ) (bool, error) {
 	if r.isTrustedAuthorFn == nil {
 		return false, nil

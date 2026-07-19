@@ -6,7 +6,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/store"
+	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
 
 func TestServiceCapabilities_FullCapabilityReader(t *testing.T) {
@@ -85,8 +87,8 @@ func TestServiceCapabilities_PartialCapabilityReader(t *testing.T) {
 				return nil, errors.New("unused")
 			},
 		},
-		getCuratedRecommendedReadsFn: func(context.Context, int) ([]CuratedRecommendedRead, error) {
-			return []CuratedRecommendedRead{{EventID: "evt-partial"}}, nil
+		getCuratedRecommendedReadsFn: func(context.Context, int) ([]storeread.CuratedRecommendedRead, error) {
+			return []storeread.CuratedRecommendedRead{{EventID: "evt-partial"}}, nil
 		},
 		getRecentEventsByKindAndPubkeyFn: func(_ context.Context, kind int, _ string, _ int) ([]json.RawMessage, error) {
 			return []json.RawMessage{json.RawMessage(`{"kind":9735}`)}, nil
@@ -170,8 +172,8 @@ func TestNewServiceWithOptions_SucceedsWithMixedCapabilities(t *testing.T) {
 				return nil, errors.New("unused")
 			},
 		},
-		getCuratedRecommendedReadsFn: func(context.Context, int) ([]CuratedRecommendedRead, error) {
-			return []CuratedRecommendedRead{{EventID: "evt-partial"}}, nil
+		getCuratedRecommendedReadsFn: func(context.Context, int) ([]storeread.CuratedRecommendedRead, error) {
+			return []storeread.CuratedRecommendedRead{{EventID: "evt-partial"}}, nil
 		},
 		getRecentEventsByKindAndPubkeyFn: func(_ context.Context, kind int, _ string, _ int) ([]json.RawMessage, error) {
 			return []json.RawMessage{json.RawMessage(`{"kind":9735}`)}, nil
@@ -258,12 +260,12 @@ func (r fullCapabilityReader) GetModerationList(context.Context, string, int) ([
 	return []string{"pk-muted"}, nil
 }
 
-func (r fullCapabilityReader) GetCuratedRecommendedReads(context.Context, int) ([]CuratedRecommendedRead, error) {
-	return []CuratedRecommendedRead{{EventID: "evt-curated"}}, nil
+func (r fullCapabilityReader) GetCuratedRecommendedReads(context.Context, int) ([]storeread.CuratedRecommendedRead, error) {
+	return []storeread.CuratedRecommendedRead{{EventID: "evt-curated"}}, nil
 }
 
-func (r fullCapabilityReader) GetTrustScore(context.Context, string) (TrustScore, error) {
-	return TrustScore{Pubkey: "pk-1", Score: 0.91}, nil
+func (r fullCapabilityReader) GetTrustScore(context.Context, string) (readmodel.TrustGlobalScore, error) {
+	return readmodel.TrustGlobalScore{Pubkey: "pk-1", Score: 0.91}, nil
 }
 
 func (r fullCapabilityReader) GetParameterizedReplaceableEvent(context.Context, string, int, string) (json.RawMessage, error) {
@@ -280,7 +282,7 @@ func (r fullCapabilityReader) GetUserZaps(context.Context, string, int, bool) ([
 
 type partialCapabilityReader struct {
 	fakeReader
-	getCuratedRecommendedReadsFn     func(context.Context, int) ([]CuratedRecommendedRead, error)
+	getCuratedRecommendedReadsFn     func(context.Context, int) ([]storeread.CuratedRecommendedRead, error)
 	getRecentEventsByKindAndPubkeyFn func(context.Context, int, string, int) ([]json.RawMessage, error)
 }
 
@@ -296,9 +298,9 @@ func (r moderationCapabilityReader) GetModerationList(ctx context.Context, pubke
 	return r.getModerationListFn(ctx, pubkey, kind)
 }
 
-func (r partialCapabilityReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]CuratedRecommendedRead, error) {
+func (r partialCapabilityReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]storeread.CuratedRecommendedRead, error) {
 	if r.getCuratedRecommendedReadsFn == nil {
-		return []CuratedRecommendedRead{}, nil
+		return []storeread.CuratedRecommendedRead{}, nil
 	}
 	return r.getCuratedRecommendedReadsFn(ctx, limit)
 }

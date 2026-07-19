@@ -86,11 +86,8 @@ func (s Service) getTrendingNotesTrustAware(ctx context.Context, window time.Dur
 	if notesCap == nil {
 		return nil, unsupportedCapabilityError("trending notes")
 	}
-	var tqFetch trustQualifiedTrendingFetch
-	if cap := s.capabilities.curated.trustQualifiedNotes; cap != nil {
-		tqFetch = cap.GetTrustQualifiedTrendingNotes
-	}
-	return s.getTrendingTrustAware(ctx, window, limit, offset, notesCap.GetTrendingNotes, tqFetch)
+	tqFetch := queryTrustQualifiedNotesFetch(s.capabilities.curated.trustQualifiedNotes)
+	return s.getTrendingTrustAware(ctx, window, limit, offset, queryTrendingNotesFetch(notesCap.GetTrendingNotes), tqFetch)
 }
 
 func (s Service) getTrendingLongFormTrustAware(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
@@ -100,7 +97,7 @@ func (s Service) getTrendingLongFormTrustAware(ctx context.Context, window time.
 	}
 	// Long-form volume is low, so we always qualify on the fly rather than
 	// maintaining a dedicated trust projection.
-	return s.getTrendingTrustAware(ctx, window, limit, offset, longFormCap.GetTrendingLongForm, nil)
+	return s.getTrendingTrustAware(ctx, window, limit, offset, queryTrendingNotesFetch(longFormCap.GetTrendingLongForm), nil)
 }
 
 func (s Service) getTrendingTrustAware(
@@ -197,11 +194,8 @@ func (s Service) collectTrustedTrendingNotes(
 	if capability == nil {
 		return nil, unsupportedCapabilityError("trending notes")
 	}
-	var tqFetch trustQualifiedTrendingFetch
-	if cap := s.capabilities.curated.trustQualifiedNotes; cap != nil {
-		tqFetch = cap.GetTrustQualifiedTrendingNotes
-	}
-	return s.collectTrustedTrending(ctx, window, targetRows, scanBudget, capability.GetTrendingNotes, tqFetch)
+	tqFetch := queryTrustQualifiedNotesFetch(s.capabilities.curated.trustQualifiedNotes)
+	return s.collectTrustedTrending(ctx, window, targetRows, scanBudget, queryTrendingNotesFetch(capability.GetTrendingNotes), tqFetch)
 }
 
 func (s Service) collectTrustedTrending(
@@ -310,20 +304,27 @@ func (s Service) collectTrustedTrendingProfiles(
 		scanBudget = targetRows
 	}
 	if capability := s.capabilities.curated.trustQualifiedProfiles; capability != nil {
-		rows, ready, err := capability.GetTrustQualifiedTrendingProfiles(
+		storeRows, ready, err := capability.GetTrustQualifiedTrendingProfiles(
 			ctx,
 			window,
 			scanBudget,
 			0,
 			rising,
 			s.discoveryTrustMode,
-			s.discoveryTrustPolicy,
+			trustQualificationPolicyToStore(s.discoveryTrustPolicy),
 			s.discoveryProjectionMaxStaleness,
 		)
 		switch {
 		case err != nil && !IsUnsupportedCapability(err):
 			return nil, err
 		case err == nil && ready:
+			rows := make([]trustedProfileCandidate, 0, len(storeRows))
+			for _, row := range storeRows {
+				rows = append(rows, trustedProfileCandidate{
+					profile: trendingProfileFromStore(row.Profile),
+					trusted: row.Trusted,
+				})
+			}
 			return rows, nil
 		}
 		// A missing or unsupported trust-qualified projection degrades to

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/store"
 	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
@@ -41,13 +42,13 @@ func TestGetPublicDiscoveryNetworkStats(t *testing.T) {
 				return nil, store.ErrNotFound
 			},
 		},
-		getPublicNetworkStatsFn: func(context.Context, int) (PublicDiscoveryNetworkStats, error) {
-			return PublicDiscoveryNetworkStats{
+		getPublicNetworkStatsFn: func(context.Context, int) (storeread.PublicDiscoveryNetworkStats, error) {
+			return storeread.PublicDiscoveryNetworkStats{
 				EventsIngested:    44,
 				ProjectedProfiles: 12,
 				Relays:            8,
-				ActiveAuthors:     WindowedCount{Last24h: 4, Last7d: 10},
-				NoteVolume:        WindowedCount{Last24h: 17, Last7d: 61},
+				ActiveAuthors:     storeread.WindowedCount{Last24h: 4, Last7d: 10},
+				NoteVolume:        storeread.WindowedCount{Last24h: 17, Last7d: 61},
 			}, nil
 		},
 	})
@@ -230,10 +231,10 @@ func TestDiscoveryTrustPolicy_TrendingNotesPreferTrusted(t *testing.T) {
 				{EventID: "n3", AuthorPubkey: "u3", Score: 98},
 			}, nil
 		},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
-			out := map[string]TrustQualification{}
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
 			for _, pubkey := range pubkeys {
-				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: pubkey == "u3"}
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "u3"}
 			}
 			return out, nil
 		},
@@ -264,10 +265,10 @@ func TestDiscoveryTrustPolicy_TrendingNotesTrustedOnly(t *testing.T) {
 				{EventID: "n3", AuthorPubkey: "u3"},
 			}, nil
 		},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
-			out := map[string]TrustQualification{}
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
 			for _, pubkey := range pubkeys {
-				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: pubkey == "u2" || pubkey == "u3"}
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "u2" || pubkey == "u3"}
 			}
 			return out, nil
 		},
@@ -304,9 +305,9 @@ func TestDiscoveryTrustPolicy_UsesProjectedTrustQualifiedNotesWhenReady(t *testi
 				},
 			}, true, nil
 		},
-		getTrustQualificationsFn: func(_ context.Context, _ []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
+		getTrustQualificationsFn: func(_ context.Context, _ []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
 			fallbackQualificationCalls++
-			return map[string]TrustQualification{}, nil
+			return map[string]readmodel.TrustQualification{}, nil
 		},
 	}, ServiceOptions{
 		DiscoveryCandidateTrustMode: trustModePreferTrusted,
@@ -338,10 +339,10 @@ func TestDiscoveryTrustPolicy_ProfilesApplyConsistentQualification(t *testing.T)
 				{Pubkey: "p3", Score: 98},
 			}, nil
 		},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
-			out := map[string]TrustQualification{}
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
 			for _, pubkey := range pubkeys {
-				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: pubkey == "p3"}
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "p3"}
 			}
 			return out, nil
 		},
@@ -376,10 +377,10 @@ func TestDiscoveryTrustPolicy_HashtagsDerivedFromTrustedNotes(t *testing.T) {
 			t.Fatal("open hashtag query path should be bypassed under trust policy")
 			return nil, nil
 		},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
-			out := map[string]TrustQualification{}
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
 			for _, pubkey := range pubkeys {
-				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: pubkey == "u1" || pubkey == "u3"}
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: pubkey == "u1" || pubkey == "u3"}
 			}
 			return out, nil
 		},
@@ -415,22 +416,22 @@ type curatedLegacyReader struct {
 	getTrendingProfilesFn               func(context.Context, time.Duration, int, int) ([]storeread.TrendingProfile, error)
 	getTrustQualifiedTrendingProfilesFn func(context.Context, time.Duration, int, int, bool, string, storetrust.TrustQualificationPolicy, time.Duration) ([]storeread.TrustQualifiedTrendingProfile, bool, error)
 	getCuratedFeaturedAuthorsFn         func(context.Context, int) ([]storeread.CuratedFeaturedAuthor, error)
-	getTrustQualificationsFn            func(context.Context, []string, TrustQualificationPolicy) (map[string]TrustQualification, error)
-	isTrustedAuthorFn                   func(context.Context, string, TrustQualificationPolicy) (bool, error)
+	getTrustQualificationsFn            func(context.Context, []string, readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error)
+	isTrustedAuthorFn                   func(context.Context, string, readmodel.TrustQualificationPolicy) (bool, error)
 }
 
 type curatedReaderWithPublicStats struct {
 	fakeReader
-	getPublicNetworkStatsFn func(context.Context, int) (PublicDiscoveryNetworkStats, error)
+	getPublicNetworkStatsFn func(context.Context, int) (storeread.PublicDiscoveryNetworkStats, error)
 }
 
 func (r curatedReaderWithPublicStats) GetEventSeenOn(context.Context, string) ([]model.EventRelay, error) {
 	return []model.EventRelay{}, nil
 }
 
-func (r curatedReaderWithPublicStats) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (PublicDiscoveryNetworkStats, error) {
+func (r curatedReaderWithPublicStats) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
 	if r.getPublicNetworkStatsFn == nil {
-		return PublicDiscoveryNetworkStats{}, nil
+		return storeread.PublicDiscoveryNetworkStats{}, nil
 	}
 	return r.getPublicNetworkStatsFn(ctx, hashtagLimit)
 }
@@ -549,10 +550,10 @@ func (r curatedLegacyReader) GetTrustQualifiedTrendingProfiles(
 func (r curatedLegacyReader) GetTrustQualifications(
 	ctx context.Context,
 	pubkeys []string,
-	policy TrustQualificationPolicy,
-) (map[string]TrustQualification, error) {
+	policy readmodel.TrustQualificationPolicy,
+) (map[string]readmodel.TrustQualification, error) {
 	if r.getTrustQualificationsFn == nil {
-		return map[string]TrustQualification{}, nil
+		return map[string]readmodel.TrustQualification{}, nil
 	}
 	return r.getTrustQualificationsFn(ctx, pubkeys, policy)
 }
@@ -560,7 +561,7 @@ func (r curatedLegacyReader) GetTrustQualifications(
 func (r curatedLegacyReader) IsTrustedAuthor(
 	ctx context.Context,
 	pubkey string,
-	policy TrustQualificationPolicy,
+	policy readmodel.TrustQualificationPolicy,
 ) (bool, error) {
 	if r.isTrustedAuthorFn == nil {
 		return false, nil

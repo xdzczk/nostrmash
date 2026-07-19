@@ -190,7 +190,7 @@ func NewServiceFromStore(store FullStoreReader, options ServiceOptions) (Service
 	options.NotePage = store
 	// probeSource is unused because every group is explicit, but pass the store
 	// anyway so the secondary author-analytics/advanced-search adapters resolve.
-	return buildService(legacyReaderAdapter{legacy: store}, store, options)
+	return buildService(readModelReaderAdapter{readModel: store}, store, options)
 }
 
 // NewServiceFromStoreReader builds a Service from a readmodel-shaped core store
@@ -205,7 +205,7 @@ func NewServiceFromStoreReader(reader StoreReader, options ServiceOptions) (Serv
 	if full, ok := reader.(FullStoreReader); ok {
 		return NewServiceFromStore(full, options)
 	}
-	return buildService(legacyReaderAdapter{legacy: reader}, reader, options)
+	return buildService(readModelReaderAdapter{readModel: reader}, reader, options)
 }
 
 func NewService(reader Reader) (Service, error) {

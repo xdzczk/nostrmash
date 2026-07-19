@@ -4,24 +4,26 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 type trustQualificationReader struct {
 	fakeReader
-	getTrustStateFn          func(context.Context, string) (TrustState, error)
-	getTrustStatesFn         func(context.Context, []string) (map[string]TrustState, error)
-	getTrustQualificationsFn func(context.Context, []string, TrustQualificationPolicy) (map[string]TrustQualification, error)
-	isTrustedAuthorFn        func(context.Context, string, TrustQualificationPolicy) (bool, error)
+	getTrustStateFn          func(context.Context, string) (readmodel.TrustState, error)
+	getTrustStatesFn         func(context.Context, []string) (map[string]readmodel.TrustState, error)
+	getTrustQualificationsFn func(context.Context, []string, readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error)
+	isTrustedAuthorFn        func(context.Context, string, readmodel.TrustQualificationPolicy) (bool, error)
 }
 
-func (r trustQualificationReader) GetTrustState(ctx context.Context, pubkey string) (TrustState, error) {
+func (r trustQualificationReader) GetTrustState(ctx context.Context, pubkey string) (readmodel.TrustState, error) {
 	if r.getTrustStateFn == nil {
-		return TrustState{}, unsupportedCapabilityError("trust state")
+		return readmodel.TrustState{}, unsupportedCapabilityError("trust state")
 	}
 	return r.getTrustStateFn(ctx, pubkey)
 }
 
-func (r trustQualificationReader) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]TrustState, error) {
+func (r trustQualificationReader) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]readmodel.TrustState, error) {
 	if r.getTrustStatesFn == nil {
 		return nil, unsupportedCapabilityError("trust state")
 	}
@@ -31,10 +33,10 @@ func (r trustQualificationReader) GetTrustStates(ctx context.Context, pubkeys []
 func (r trustQualificationReader) GetTrustQualifications(
 	ctx context.Context,
 	pubkeys []string,
-	policy TrustQualificationPolicy,
-) (map[string]TrustQualification, error) {
+	policy readmodel.TrustQualificationPolicy,
+) (map[string]readmodel.TrustQualification, error) {
 	if r.getTrustQualificationsFn == nil {
-		return map[string]TrustQualification{}, nil
+		return map[string]readmodel.TrustQualification{}, nil
 	}
 	return r.getTrustQualificationsFn(ctx, pubkeys, policy)
 }
@@ -42,7 +44,7 @@ func (r trustQualificationReader) GetTrustQualifications(
 func (r trustQualificationReader) IsTrustedAuthor(
 	ctx context.Context,
 	pubkey string,
-	policy TrustQualificationPolicy,
+	policy readmodel.TrustQualificationPolicy,
 ) (bool, error) {
 	if r.isTrustedAuthorFn == nil {
 		return false, nil
@@ -54,20 +56,20 @@ func TestTrustQualificationService_BatchAndUnknownPubkeys(t *testing.T) {
 	t.Parallel()
 	svc := mustNewService(t, trustQualificationReader{
 		fakeReader: fakeReader{},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, policy TrustQualificationPolicy) (map[string]TrustQualification, error) {
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, policy readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
 			if policy.MaxHops != 2 {
 				t.Fatalf("expected policy max hops 2, got %d", policy.MaxHops)
 			}
-			out := make(map[string]TrustQualification, len(pubkeys))
+			out := make(map[string]readmodel.TrustQualification, len(pubkeys))
 			for _, pubkey := range pubkeys {
 				switch pubkey {
 				case "trusted":
 					hops := 1
-					out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: true, DistanceHops: &hops}
+					out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: true, DistanceHops: &hops}
 				case "unknown":
 					// Deliberately omitted to exercise query-service defaulting for missing keys.
 				default:
-					out[pubkey] = TrustQualification{Pubkey: pubkey}
+					out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey}
 				}
 			}
 			return out, nil
@@ -106,12 +108,12 @@ func TestTrustStateService_BatchLookupAndPolicyQualification(t *testing.T) {
 	gen := int64(44)
 	svc := mustNewService(t, trustQualificationReader{
 		fakeReader: fakeReader{},
-		getTrustStatesFn: func(_ context.Context, pubkeys []string) (map[string]TrustState, error) {
-			out := make(map[string]TrustState, len(pubkeys))
+		getTrustStatesFn: func(_ context.Context, pubkeys []string) (map[string]readmodel.TrustState, error) {
+			out := make(map[string]readmodel.TrustState, len(pubkeys))
 			for _, pubkey := range pubkeys {
 				switch pubkey {
 				case "trusted":
-					out[pubkey] = TrustState{
+					out[pubkey] = readmodel.TrustState{
 						Pubkey:       pubkey,
 						Score:        &scoreHigh,
 						Qualified:    true,
@@ -123,7 +125,7 @@ func TestTrustStateService_BatchLookupAndPolicyQualification(t *testing.T) {
 						GenerationID: &gen,
 					}
 				case "low_score":
-					out[pubkey] = TrustState{
+					out[pubkey] = readmodel.TrustState{
 						Pubkey:       pubkey,
 						Score:        &scoreLow,
 						Qualified:    true,
@@ -179,7 +181,7 @@ func TestTrustQualificationService_IsTrustedAuthor(t *testing.T) {
 	t.Parallel()
 	svc := mustNewService(t, trustQualificationReader{
 		fakeReader: fakeReader{},
-		isTrustedAuthorFn: func(_ context.Context, pubkey string, policy TrustQualificationPolicy) (bool, error) {
+		isTrustedAuthorFn: func(_ context.Context, pubkey string, policy readmodel.TrustQualificationPolicy) (bool, error) {
 			if policy.MinimumScore != 0.5 {
 				t.Fatalf("expected minimum score 0.5, got %f", policy.MinimumScore)
 			}

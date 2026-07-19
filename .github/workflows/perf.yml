@@ -42,6 +42,19 @@ on:
 env:
   PROTECTED_BASELINE_DIR: benchmarks/history/protection/main-latest
   PROTECTED_THRESHOLD_PCT: "15"
+  # The committed WS+API load-harness baseline lives at a fixed path so PRs
+  # always know where to compare. It is regenerated and committed by the
+  # loadtest-baseline job on every push to main, keeping it on the same runner
+  # architecture as PR comparisons.
+  LOADTEST_BASELINE_DIR: loadtest/baseline/main-latest
+  # Seeding + harness knobs shared by the baseline and compare jobs so the two
+  # runs are byte-for-byte identical in shape.
+  LOADTEST_FIXTURE_SOURCE: internal/replay/testdata/relay_payloads/basic_flow.ndjson
+  LOADTEST_FIXTURE_REPEAT: "300"
+  LOADTEST_WS_CLIENTS: "32"
+  LOADTEST_API_CLIENTS: "32"
+  LOADTEST_WARMUP: "3s"
+  LOADTEST_DURATION: "30s"
 
 jobs:
   baseline:
@@ -319,6 +332,178 @@ jobs:
         with:
           name: loadtest-ws-api-${{ github.run_number }}
           path: |
+            loadtest/results/
+            api-server.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  loadtest-baseline:
+    name: Refresh committed load-harness baseline (main)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: nostrmash
+          POSTGRES_PASSWORD: nostrmash
+          POSTGRES_DB: nostrmash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nostrmash -d nostrmash"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+      HTTP_ADDR: ":8080"
+      # Size the pool above total client count so the harness measures backend
+      # latency rather than pool-acquire queueing (matches the manual job).
+      DATABASE_MAX_CONNS: "64"
+      PRIMAL_WS_MAX_REQ_PER_MINUTE: "1000000"
+      HTTP_RATE_LIMIT_RPM: "1000000"
+      HTTP_RATE_LIMIT_BURST: "100000"
+      HTTP_DISCOVERY_RATE_LIMIT_RPM: "1000000"
+      HTTP_SEARCH_RATE_LIMIT_RPM: "1000000"
+      HTTP_BATCH_RATE_LIMIT_RPM: "1000000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.5"
+          cache: true
+
+      - name: Wait for Postgres
+        run: bash ./scripts/loadtest_ci_seed.sh wait
+
+      - name: Seed Postgres via replay
+        run: bash ./scripts/loadtest_ci_seed.sh seed
+
+      - name: Start API server
+        run: bash ./scripts/loadtest_ci_seed.sh start-api
+
+      - name: Run WS + API load harness
+        run: |
+          mkdir -p "${LOADTEST_BASELINE_DIR}"
+          go run ./loadtest/harness \
+            -base-url http://localhost:8080 \
+            -ws-clients "${LOADTEST_WS_CLIENTS}" -api-clients "${LOADTEST_API_CLIENTS}" \
+            -warmup "${LOADTEST_WARMUP}" -duration "${LOADTEST_DURATION}" \
+            -out "${LOADTEST_BASELINE_DIR}/summary.json"
+
+      - name: Stop API server
+        if: always()
+        run: bash ./scripts/loadtest_ci_seed.sh stop-api
+
+      - name: Commit updated baseline
+        run: |
+          if git diff --quiet -- "${LOADTEST_BASELINE_DIR}/summary.json"; then
+            echo "No load-harness baseline changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${LOADTEST_BASELINE_DIR}/summary.json"
+          git commit -m "chore(loadtest): refresh WS+API harness baseline [skip ci]"
+          git push
+
+      - name: Upload baseline artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-baseline-${{ github.run_number }}
+          path: |
+            loadtest/baseline/
+            api-server.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  loadtest-compare:
+    name: Compare WS + API load harness (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: nostrmash
+          POSTGRES_PASSWORD: nostrmash
+          POSTGRES_DB: nostrmash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nostrmash -d nostrmash"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+      HTTP_ADDR: ":8080"
+      DATABASE_MAX_CONNS: "64"
+      PRIMAL_WS_MAX_REQ_PER_MINUTE: "1000000"
+      HTTP_RATE_LIMIT_RPM: "1000000"
+      HTTP_RATE_LIMIT_BURST: "100000"
+      HTTP_DISCOVERY_RATE_LIMIT_RPM: "1000000"
+      HTTP_SEARCH_RATE_LIMIT_RPM: "1000000"
+      HTTP_BATCH_RATE_LIMIT_RPM: "1000000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.5"
+          cache: true
+
+      - name: Wait for Postgres
+        run: bash ./scripts/loadtest_ci_seed.sh wait
+
+      - name: Seed Postgres via replay
+        run: bash ./scripts/loadtest_ci_seed.sh seed
+
+      - name: Start API server
+        run: bash ./scripts/loadtest_ci_seed.sh start-api
+
+      - name: Run WS + API load harness
+        run: |
+          mkdir -p loadtest/results
+          go run ./loadtest/harness \
+            -base-url http://localhost:8080 \
+            -ws-clients "${LOADTEST_WS_CLIENTS}" -api-clients "${LOADTEST_API_CLIENTS}" \
+            -warmup "${LOADTEST_WARMUP}" -duration "${LOADTEST_DURATION}" \
+            -out loadtest/results/ws-api-summary.json
+
+      - name: Stop API server
+        if: always()
+        run: bash ./scripts/loadtest_ci_seed.sh stop-api
+
+      - name: Compare against committed baseline
+        run: |
+          set -euo pipefail
+          if [ ! -f "${LOADTEST_BASELINE_DIR}/summary.json" ]; then
+            echo "No committed load-harness baseline yet (${LOADTEST_BASELINE_DIR}/summary.json); running advisory only."
+            echo "The baseline is created by the first push to main after this workflow lands."
+          fi
+          FAIL_ON_REGRESSION=1 \
+          bash ./scripts/loadtest_compare.sh \
+            "${LOADTEST_BASELINE_DIR}/summary.json" \
+            loadtest/results/ws-api-summary.json \
+            loadtest/compare >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-compare-${{ github.run_number }}
+          path: |
+            loadtest/compare/
             loadtest/results/
             api-server.log
           retention-days: 30

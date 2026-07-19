@@ -106,7 +106,7 @@ type notePageCapabilities struct {
 // adaptServiceCapabilities builds the internal capability slots. Each group is
 // populated either from an explicit typed group on ServiceOptions (the typed
 // production path, wired whole) or, when no group is supplied, by asserting the
-// native/legacy capability interfaces on the reader (the partial-fake path used
+// readmodel-shaped capability interfaces on the reader (the partial-fake path used
 // by tests). Neither path uses an untyped `any` value.
 func adaptServiceCapabilities(reader any, options ServiceOptions) serviceCapabilities {
 	caps := serviceCapabilities{}

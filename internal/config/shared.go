@@ -21,13 +21,14 @@ type SharedConfig struct {
 
 // DatabaseConfig owns database connectivity settings.
 //
-// MaxConns, when > 0, overrides the pool_max_conns value parsed from
-// the DATABASE_URL DSN (and the pgx default of 4 when the DSN omits
-// it). It is sourced from DATABASE_MAX_CONNS. The default of 4 is
-// dangerously low for the worker process, which runs the bundle pool
-// plus several background sweeper goroutines (author_analytics,
-// profile_stats, meilisearch); see store.OpenPool for the failure mode
-// that an undersized pool produces.
+// MaxConns is resolved by resolveDatabaseMaxConns with precedence
+// DATABASE_MAX_CONNS (env) > DSN pool_max_conns > per-service default
+// (see databaseMaxConnsDefaults). A resolved value of 0 means "do not
+// override" and lets store.OpenPool honor the DSN/pgx value. The bare
+// pgx default of 4 is dangerously low: the API deadlocks under mixed
+// WS+API load, and worker sweepers (author_analytics, profile_stats,
+// meilisearch) starve bundle workers; the per-service defaults exist to
+// prevent that whenever the operator expresses no explicit preference.
 type DatabaseConfig struct {
 	URL      string
 	MaxConns int32
@@ -52,12 +53,13 @@ func loadSharedConfig(serviceName string) (SharedConfig, error) {
 	if err != nil {
 		return SharedConfig{}, err
 	}
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	cfg := SharedConfig{
 		ServiceName: strings.TrimSpace(serviceName),
 		Environment: getEnv("ENVIRONMENT", "development"),
 		Database: DatabaseConfig{
-			URL:      strings.TrimSpace(os.Getenv("DATABASE_URL")),
-			MaxConns: int32(maxConns),
+			URL:      databaseURL,
+			MaxConns: resolveDatabaseMaxConns(serviceName, int32(maxConns), databaseURL),
 		},
 		Observability: ObservabilityConfig{
 			MetricsAddr: strings.TrimSpace(getEnv("METRICS_ADDR", ":9090")),
@@ -73,6 +75,48 @@ func loadSharedConfig(serviceName string) (SharedConfig, error) {
 		return SharedConfig{}, err
 	}
 	return cfg, nil
+}
+
+// databaseMaxConnsDefaults holds the safe per-service pool sizes applied when
+// neither DATABASE_MAX_CONNS nor the DSN's pool_max_conns is set. The pgx
+// default of 4 is dangerously low: the API deadlocks under mixed WS+API load
+// and worker sweepers starve bundle workers. These defaults exceed the
+// concurrency each binary actually drives.
+var databaseMaxConnsDefaults = map[string]int32{
+	"api":          32,
+	"worker":       16,
+	"ingestor":     8,
+	"trust_worker": 8,
+}
+
+// databaseMaxConnsFallbackDefault is used for any service name not in the map
+// (kept above the pgx default of 4 so no binary silently runs undersized).
+const databaseMaxConnsFallbackDefault int32 = 16
+
+// resolveDatabaseMaxConns applies precedence env > DSN > per-service default.
+// A value of 0 means "do not override" and is passed through to store.OpenPool,
+// which then honors whatever pool_max_conns the DSN carries (or the pgx
+// default). We only fall back to a service default when the operator has
+// expressed no preference at all (env unset/zero AND DSN silent).
+func resolveDatabaseMaxConns(serviceName string, envMaxConns int32, databaseURL string) int32 {
+	if envMaxConns > 0 {
+		return envMaxConns
+	}
+	if dsnSpecifiesPoolMaxConns(databaseURL) {
+		return 0
+	}
+	if def, ok := databaseMaxConnsDefaults[strings.TrimSpace(serviceName)]; ok {
+		return def
+	}
+	return databaseMaxConnsFallbackDefault
+}
+
+// dsnSpecifiesPoolMaxConns reports whether the DSN carries an explicit
+// pool_max_conns setting (URL query form or keyword/value form). pgx sets the
+// same default of 4 whether the key is present or absent, so the parsed config
+// cannot distinguish the two; a textual check is the reliable signal.
+func dsnSpecifiesPoolMaxConns(databaseURL string) bool {
+	return strings.Contains(databaseURL, "pool_max_conns")
 }
 
 func validateSharedConfig(cfg SharedConfig) error {

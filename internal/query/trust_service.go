@@ -15,7 +15,11 @@ func (s Service) GetTrustState(ctx context.Context, pubkey string) (TrustState, 
 	if reader == nil {
 		return TrustState{}, unsupportedCapabilityError("trust state")
 	}
-	return reader.GetTrustState(ctx, pubkey)
+	row, err := reader.GetTrustState(ctx, pubkey)
+	if err != nil {
+		return TrustState{}, err
+	}
+	return trustStateFromStore(row), nil
 }
 
 func (s Service) GetTrustStates(ctx context.Context, pubkeys []string) (map[string]TrustState, error) {
@@ -35,13 +39,14 @@ func (s Service) GetTrustStates(ctx context.Context, pubkeys []string) (map[stri
 	for _, pubkey := range normalized {
 		row, ok := rows[pubkey]
 		if !ok {
-			row = TrustState{
+			out[pubkey] = TrustState{
 				Pubkey:    pubkey,
 				Tier:      "unknown",
 				HopBucket: "unknown",
 			}
+			continue
 		}
-		out[pubkey] = row
+		out[pubkey] = trustStateFromStore(row)
 	}
 	return out, nil
 }
@@ -59,7 +64,7 @@ func (s Service) GetTrustScore(ctx context.Context, pubkey string) (TrustScore, 
 	if err != nil {
 		return TrustScore{}, err
 	}
-	return score, nil
+	return trustScoreFromStore(score), nil
 }
 
 func (s Service) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustScore, error) {
@@ -74,7 +79,7 @@ func (s Service) ListTopTrustedPubkeys(ctx context.Context, limit int) ([]TrustS
 	if err != nil {
 		return nil, err
 	}
-	return rows, nil
+	return mapSlice(rows, trustScoreFromStore), nil
 }
 
 func (s Service) GetTrustRun(ctx context.Context, runID int64) (TrustRun, error) {
@@ -89,7 +94,7 @@ func (s Service) GetTrustRun(ctx context.Context, runID int64) (TrustRun, error)
 	if err != nil {
 		return TrustRun{}, err
 	}
-	return row, nil
+	return trustRunFromStore(row), nil
 }
 
 func (s Service) ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, error) {
@@ -104,7 +109,7 @@ func (s Service) ListTrustRuns(ctx context.Context, limit int) ([]TrustRun, erro
 	if err != nil {
 		return nil, err
 	}
-	return rows, nil
+	return mapSlice(rows, trustRunFromStore), nil
 }
 
 func (s Service) IsTrustedAuthor(ctx context.Context, pubkey string, policy TrustQualificationPolicy) (bool, error) {
@@ -116,7 +121,7 @@ func (s Service) IsTrustedAuthor(ctx context.Context, pubkey string, policy Trus
 	if reader == nil {
 		return false, unsupportedCapabilityError("trust qualification")
 	}
-	return reader.IsTrustedAuthor(ctx, pubkey, policy)
+	return reader.IsTrustedAuthor(ctx, pubkey, trustQualificationPolicyToStore(policy))
 }
 
 func (s Service) GetTrustQualification(
@@ -135,13 +140,14 @@ func (s Service) GetTrustQualification(
 			for _, pubkey := range normalized {
 				state, ok := states[pubkey]
 				if !ok {
-					state = TrustState{
+					out[pubkey] = trustQualificationFromState(TrustState{
 						Pubkey:    pubkey,
 						Tier:      "unknown",
 						HopBucket: "unknown",
-					}
+					}, policy)
+					continue
 				}
-				out[pubkey] = trustQualificationFromState(state, policy)
+				out[pubkey] = trustQualificationFromState(trustStateFromStore(state), policy)
 			}
 			return out, nil
 		}
@@ -150,14 +156,14 @@ func (s Service) GetTrustQualification(
 	if reader == nil {
 		return nil, unsupportedCapabilityError("trust qualification")
 	}
-	rows, err := reader.GetTrustQualifications(ctx, normalized, policy)
+	rows, err := reader.GetTrustQualifications(ctx, normalized, trustQualificationPolicyToStore(policy))
 	if err != nil {
 		return nil, err
 	}
 	out := make(map[string]TrustQualification, len(normalized))
 	for _, pubkey := range normalized {
 		if row, ok := rows[pubkey]; ok {
-			out[pubkey] = row
+			out[pubkey] = trustQualificationFromStore(row)
 			continue
 		}
 		out[pubkey] = TrustQualification{Pubkey: pubkey}

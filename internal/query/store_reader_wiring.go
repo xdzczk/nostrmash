@@ -11,46 +11,45 @@ func wireCuratedGroup(g CuratedReads, caps *serviceCapabilities) {
 	if g == nil {
 		return
 	}
-	caps.curated.networkStats = legacyNetworkStatsAdapter{legacy: g}
-	caps.curated.publicNetworkStats = legacyPublicDiscoveryNetworkStatsAdapter{legacy: g}
+	caps.curated.networkStats = g
+	caps.curated.publicNetworkStats = g
 	caps.curated.values = g
-	caps.curated.recommendedReads = legacyCuratedRecommendedReadsAdapter{legacy: g}
-	caps.curated.readsTopics = legacyCuratedReadsTopicsAdapter{legacy: g}
-	caps.curated.trendingHashtags = legacyTrendingHashtagsAdapter{legacy: g}
-	caps.curated.hashtagSummary = legacyHashtagSummaryAdapter{legacy: g}
-	caps.curated.hashtagNotes = legacyHashtagNotesAdapter{legacy: g}
-	caps.curated.relatedHashtags = legacyRelatedHashtagsAdapter{legacy: g}
-	caps.curated.eventLinkedDomains = legacyEventLinkedDomainsAdapter{legacy: g}
-	caps.curated.topDomains = legacyTopDomainsAdapter{legacy: g}
-	caps.curated.topDomainsByAuthor = legacyTopDomainsByAuthorAdapter{legacy: g}
-	caps.curated.trendingDomains = legacyTrendingDomainsAdapter{legacy: g}
-	caps.curated.domainSummary = legacyDomainSummaryAdapter{legacy: g}
-	caps.curated.domainNotes = legacyDomainNotesAdapter{legacy: g}
-	caps.curated.trendingNotes = legacyTrendingNotesAdapter{legacy: g}
-	caps.curated.trendingLongForm = legacyTrendingLongFormAdapter{legacy: g}
-	caps.curated.hotConversations = legacyHotConversationsAdapter{legacy: g}
-	caps.curated.trustQualifiedNotes = legacyTrustQualifiedTrendingNotesAdapter{legacy: g}
-	caps.curated.trendingProfiles = legacyTrendingProfilesAdapter{legacy: g}
-	caps.curated.relatedProfiles = legacyRelatedProfilesAdapter{legacy: g}
-	caps.curated.trustQualifiedProfiles = legacyTrustQualifiedTrendingProfilesAdapter{legacy: g}
-	caps.curated.risingProfiles = legacyRisingProfilesAdapter{legacy: g}
-	caps.curated.featuredAuthors = legacyCuratedFeaturedAuthorsAdapter{legacy: g}
+	caps.curated.recommendedReads = g
+	caps.curated.readsTopics = g
+	caps.curated.trendingHashtags = g
+	caps.curated.hashtagSummary = g
+	caps.curated.hashtagNotes = g
+	caps.curated.relatedHashtags = g
+	caps.curated.eventLinkedDomains = g
+	caps.curated.topDomains = g
+	caps.curated.topDomainsByAuthor = g
+	caps.curated.trendingDomains = g
+	caps.curated.domainSummary = g
+	caps.curated.domainNotes = g
+	caps.curated.trendingNotes = g
+	caps.curated.trendingLongForm = g
+	caps.curated.hotConversations = g
+	caps.curated.trustQualifiedNotes = g
+	caps.curated.trendingProfiles = g
+	caps.curated.relatedProfiles = g
+	caps.curated.trustQualifiedProfiles = g
+	caps.curated.risingProfiles = g
+	caps.curated.featuredAuthors = g
 	caps.curated.creatorPaidTiers = g
 	caps.curated.pubkeyByLNAddress = g
-	caps.curated.groupedNoteAnalytics = legacyGroupedNoteAnalyticsAdapter{legacy: g}
+	caps.curated.groupedNoteAnalytics = g
 }
 
 func wireTrustGroup(g TrustReads, caps *serviceCapabilities) {
 	if g == nil {
 		return
 	}
-	trust := legacyTrustAdapter{legacy: g}
-	caps.trust.state = trust
-	caps.trust.score = trust
-	caps.trust.topPubkeys = trust
-	caps.trust.run = trust
-	caps.trust.runs = trust
-	caps.trust.qualification = legacyTrustQualificationAdapter{legacy: g}
+	caps.trust.state = g
+	caps.trust.score = g
+	caps.trust.topPubkeys = g
+	caps.trust.run = g
+	caps.trust.runs = g
+	caps.trust.qualification = g
 }
 
 func wireDMGroup(g DMReads, caps *serviceCapabilities) {
@@ -113,15 +112,15 @@ func wireThreadGroup(g ThreadReads, caps *serviceCapabilities) {
 	if g == nil {
 		return
 	}
-	caps.thread.summary = legacyThreadSummaryAdapter{legacy: g}
+	caps.thread.summary = g
 }
 
 func wireNotePageGroup(g NotePageReads, caps *serviceCapabilities) {
 	if g == nil {
 		return
 	}
-	caps.notePage.noteStats = legacyNoteStatsAdapter{legacy: g}
-	caps.notePage.conversationVelocity = legacyNoteConversationVelocityAdapter{legacy: g}
-	caps.notePage.relatedNotes = legacyRelatedNotesAdapter{legacy: g}
-	caps.notePage.quoteRepostLinkage = legacyNoteQuoteRepostLinkageAdapter{legacy: g}
+	caps.notePage.noteStats = g
+	caps.notePage.conversationVelocity = g
+	caps.notePage.relatedNotes = g
+	caps.notePage.quoteRepostLinkage = g
 }

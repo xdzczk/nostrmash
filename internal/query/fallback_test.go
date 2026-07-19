@@ -14,6 +14,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
@@ -278,10 +279,10 @@ func TestGetProfile_TrustedOnlyUntrustedDirectBlockedWhenDisabled(t *testing.T) 
 				return store.ProfileProjection{}, store.ErrNotFound
 			},
 		},
-		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ TrustQualificationPolicy) (map[string]TrustQualification, error) {
-			out := make(map[string]TrustQualification, len(pubkeys))
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := make(map[string]readmodel.TrustQualification, len(pubkeys))
 			for _, pubkey := range pubkeys {
-				out[pubkey] = TrustQualification{Pubkey: pubkey, Trusted: false}
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: false}
 			}
 			return out, nil
 		},
