@@ -11,16 +11,11 @@ Run your own Nostr data plane with durable ingest, rebuildable read models, and 
 [![Docker first](https://img.shields.io/badge/docker-first-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Primal compatibility](https://img.shields.io/badge/primal-cache_compatibility-8B5CF6)](docs/primal_compatibility_matrix.md)
 [![Self-hostable](https://img.shields.io/badge/self--hostable-0F766E)](docs/coolify.md)
+[![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue)](LICENSE)
 
 NostrMash is a Go-based, Docker-native Nostr ingestion and indexing platform for teams that want to own their Nostr backend instead of renting a black box. It connects to relays, stores canonical raw events durably in Postgres, then builds higher-level read models asynchronously for profiles, replies, threads, counts, trust outputs, and product-facing query surfaces.
 
-The design goal is simple: keep raw Nostr truth durable, inspectable, and replayable, while keeping product-facing state rebuildable, versioned, and operationally calm.
-
-It is built for the boundary that usually gets messy: durable ingest on one side, product-shaped reads on the other, with explicit rebuild and operational control in between.
-
-It is also built to be easy to run yourself and easy to adopt incrementally: Docker-first for low-friction self-hosting, and Primal-compatible at the boundary so systems already shaped around Primal Cache can plug NostrMash in with far less rewrite pressure.
-
-If you want durable local ownership, operational visibility, and a realistic migration path from incumbent cache-shaped clients, this is what NostrMash is for.
+The design goal is simple: keep raw Nostr truth durable, inspectable, and replayable, while keeping product-facing state rebuildable and versioned. It is Docker-first so self-hosting stays low-friction, and Primal-compatible at the boundary so clients already shaped around Primal Cache can adopt it without an all-at-once rewrite.
 
 ## At a glance
 
@@ -31,9 +26,11 @@ If you want durable local ownership, operational visibility, and a realistic mig
 | Trust working state | Redis |
 | Deployment posture | Docker-first, self-hostable |
 | Services | `api`, `ingestor`, `worker`, `trust_worker` |
+| Search backend | Meilisearch (optional), Postgres fallback |
 | Default API address | `http://localhost:8080` |
 | Ingest runtime modes | `live`, `replay` |
 | Bootstrap options | optional `backfill` |
+| License | [Unlicense](LICENSE) (public domain) |
 
 ## Why this exists
 
@@ -46,12 +43,6 @@ Most ingest systems get into trouble when they collapse durable truth and read-t
 
 The result is a system that can ingest like infrastructure, evolve like an application, and recover like an operated platform.
 
-What that means in practice:
-
-- you can self-host it quickly instead of assembling a bespoke ingest stack from scratch
-- you can keep canonical event truth durable while changing product-facing views over time
-- you can adopt it behind existing Primal Cache-style clients without forcing an all-at-once rewrite
-
 Three design choices follow from that:
 
 - **run your own instance easily**: Docker compatibility is a first-class choice, not an afterthought, so local boot and self-hosted deployment stay low-friction
@@ -60,7 +51,7 @@ Three design choices follow from that:
 
 ## System model
 
-NostrMash runs as six cooperating pieces:
+NostrMash runs as six cooperating pieces, plus an optional search backend:
 
 - `api` serves the native API, the Primal-compatible boundary for Primal Cache-style integration, health/metrics, and operator-facing admin endpoints
 - `ingestor` connects to relays, validates payloads, optionally gates canonical writes by trust (kind-1 author / engagement target), writes canonical rows, records checkpoints, and enqueues derivation work
@@ -68,6 +59,7 @@ NostrMash runs as six cooperating pieces:
 - `trust_worker` reconciles seeds, refreshes `trust_graph_snapshot`, runs trust-specific jobs, and promotes published trust outputs (Redis optional)
 - `postgres` is the canonical store for raw events, checkpoints, queue state, derivation metadata, projections, and published trust outputs
 - `redis` is disposable working state for the trust pipeline
+- `meilisearch` (optional, enabled in the checked-in compose stack) backs full-text search; when disabled or unavailable, search endpoints fall back to the Postgres search path
 
 ![NostrMash system overview](docs/readme-system-overview.svg)
 
@@ -110,6 +102,7 @@ What this starts:
 
 - `postgres`
 - `redis`
+- `meilisearch`
 - `api`
 - `ingestor`
 - `worker`
@@ -177,6 +170,28 @@ curl -H "Authorization: Bearer $ADMIN_BEARER_TOKEN" \
 ```bash
 curl "http://localhost:8080/api/v1/events/<event-id>"
 curl "http://localhost:8080/api/v1/profiles/<pubkey>"
+```
+
+A successful event read returns the canonical event plus relay provenance:
+
+```json
+{
+  "event": {
+    "id": "8f0c1d...",
+    "pubkey": "82341f...",
+    "kind": 1,
+    "created_at": 1721390000,
+    "content": "gm nostr",
+    "tags": [],
+    "sig": "a6b3d2..."
+  },
+  "provenance": {
+    "relays": [
+      { "relay_url": "wss://relay.damus.io", "seen_at": "2026-07-19T12:00:05Z" }
+    ]
+  },
+  "consistency": "strong"
+}
 ```
 
 The first two steps are deterministic and should work on any healthy local boot. The content reads depend on what your configured relays have delivered so far; `not_found` usually means the ingestor has not seen that object locally yet.
@@ -281,3 +296,4 @@ make ci
 - compatibility policy: [docs/compatibility.md](docs/compatibility.md)
 - versioning contract: [VERSIONING.md](VERSIONING.md)
 - changelog policy: [CHANGELOG.md](CHANGELOG.md)
+- license: [LICENSE](LICENSE) (Unlicense, public domain)

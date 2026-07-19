@@ -70,8 +70,13 @@ It serves:
 - kind-scoped user event reads such as `bookmarks`, `highlights`, `long-form`, and `zaps`
 - `mentions` (p-tag reference events)
 - `followers` (derived follower edges from latest kind:3 contact lists)
+- mute-list reads (`mute-list` for who a user mutes, `muted-by` for the inverse)
+- author activity reads (`zaps` and `reactions` sent by an author)
+- author analytics rollups (summary, topics, grouped notes, media mix, activity windows, posting patterns, top notes, performance summary, recycle candidates)
+- note-level summaries and related-note discovery
 - public profile summaries
 - trust score reads for a single pubkey or the current top-ranked set
+- account status and hydration triggers (`/api/v1/accounts/{pubkey}/...`)
 
 Discovery-oriented native reads have an explicit namespace under `/api/v1/discovery/...`.
 
@@ -85,24 +90,46 @@ Representative implemented native routes include:
 - `GET /api/v1/events/{id}`
 - `POST /api/v1/events/batch`
 - `GET /api/v1/events/{id}/seen-on`
+- `GET /api/v1/events/{id}/counts`
+- `GET /api/v1/events/{id}/replies`
 - `GET /api/v1/profiles/{pubkey}`
 - `GET /api/v1/profiles/{pubkey}/topics`
 - `POST /api/v1/profiles/batch`
-- `GET /api/v1/authors/{pubkey}/analytics/topics`
+- `GET /api/v1/authors/{pubkey}/events`
+- `GET /api/v1/authors/{pubkey}/replies`
+- `GET /api/v1/authors/{pubkey}/zaps`
+- `GET /api/v1/authors/{pubkey}/reactions`
+- `GET /api/v1/authors/{pubkey}/analytics/summary` (plus `topics`, `grouped-notes`, `media-mix`, `activity-windows`, `posting-patterns`, `top-notes`, `performance-summary`, `recycle-candidates`)
+- `GET /api/v1/threads/{eventId}`
 - `GET /api/v1/threads/{root_event_id}/summary`
+- `GET /api/v1/threads/{root_event_id}/activity`
+- `GET /api/v1/notes/{event_id}/summary`
+- `GET /api/v1/notes/{event_id}/related`
 - `GET /api/v1/users/{pubkey}/summary`
+- `GET /api/v1/users/{pubkey}/mute-list`
+- `GET /api/v1/users/{pubkey}/muted-by`
 - `GET /api/v1/search`
 - `GET /api/v1/search/notes`
 - `GET /api/v1/search/profiles`
 - `GET /api/v1/search/suggest`
+- `GET /api/v1/discovery/home`
+- `GET /api/v1/discovery/notes/trending`
+- `GET /api/v1/discovery/long-form/trending`
+- `GET /api/v1/discovery/conversations/hot`
+- `GET /api/v1/discovery/profiles/trending` (plus `rising` and `{pubkey}/related`)
+- `GET /api/v1/discovery/hashtags/trending` (plus `{hashtag}`, `{hashtag}/notes`, `{hashtag}/related`)
 - `GET /api/v1/discovery/stats/network`
 - `GET /api/v1/discovery/stats/content`
 - `GET /api/v1/discovery/stats/relays`
 - `GET /api/v1/discovery/domains/trending`
 - `GET /api/v1/discovery/domains/{domain}`
 - `GET /api/v1/discovery/domains/{domain}/notes`
+- `GET /api/v1/trust/scores` and `GET /api/v1/trust/scores/{pubkey}`
+- `GET /api/v1/accounts/{pubkey}/status` and `POST /api/v1/accounts/{pubkey}/hydrate`
 
 Compatibility aliases also exist for `GET /api/v1/discovery/network/stats` and `GET /api/v1/discovery/content/stats`.
+
+The authoritative route inventory is the declared route list in `internal/app/api/routes.go`; contract-owned routes are additionally covered by [openapi.yaml](openapi.yaml) and guarded by the one-way drift test (`make contract-drift`).
 
 This is the surface to extend when NostrMash gains new first-class read capabilities.
 
@@ -217,18 +244,20 @@ The admin surface lives under `/admin/v1` and is for operators, not public clien
 
 It exposes inspection and control for:
 
-- relay state
-- relay suggestion state
-- job backlog and failures
-- invalid events
-- rebuild runs
-- rebuild enqueue operations
-- storage footprint
-- runtime/system status
-- derivation versions
-- trust runs and current trust phase metadata
-- trust run enqueue operations
-- published trust score views
+| Area | Routes |
+| --- | --- |
+| Relay state | `GET /admin/v1/relays`, `GET /admin/v1/relays/suggestions` |
+| Relay registry | `GET /admin/v1/relay-registry`, `GET /admin/v1/relay-registry/desired`, `POST /admin/v1/relay-registry/policy`, `GET /admin/v1/relay-registry/diagnostics`, `GET /admin/v1/relay-registry/admission-dry-run` |
+| Job backlog and failures | `GET /admin/v1/jobs` |
+| Invalid events | `GET /admin/v1/invalid-events` |
+| Projection/discovery/search status | `GET /admin/v1/status/projections`, `GET /admin/v1/status/discovery`, `GET /admin/v1/status/search` |
+| Search sync | `POST /admin/v1/search/meilisearch/sync` |
+| Rebuilds | `GET /admin/v1/rebuilds`, `POST /admin/v1/rebuilds` |
+| Storage footprint | `GET /admin/v1/storage`, `GET /admin/v1/storage/indexes` |
+| Account control | `POST /admin/v1/accounts/{pubkey}/state`, `POST /admin/v1/accounts/{pubkey}/hydrate` |
+| Runtime/system status | `GET /admin/v1/system` |
+| Derivation versions | `GET /admin/v1/derivation-versions` |
+| Trust runs and scores | `GET /admin/v1/trust/runs`, `GET /admin/v1/trust/runs/{runID}`, `POST /admin/v1/trust/runs`, `GET /admin/v1/trust/scores` |
 
 Admin endpoints require `ADMIN_BEARER_TOKEN`. If the token is unset, the admin surface is unavailable by design.
 

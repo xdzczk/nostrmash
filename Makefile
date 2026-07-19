@@ -54,7 +54,7 @@ verify-docker:
 	docker compose -p nostrmash-verify -f docker-compose.verify.yml up --build --abort-on-container-exit --exit-code-from verify verify
 
 contract-drift:
-	go test ./cmd/api -run TestOpenAPIContainsAllContractOwnedRoutes_OneWayPolicy -count=1
+	go test ./internal/app/api -run TestOpenAPIContainsAllContractOwnedRoutes_OneWayPolicy -count=1
 
 rules-check:
 	go run ./cmd/rulecheck

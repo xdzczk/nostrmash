@@ -93,6 +93,10 @@ Do not hand-edit this file.
 | `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` | `ingestor` | optional | `2m` | Interval between refreshes of the in-memory trusted-author set loaded from trust_graph_snapshot. |
 | `INGESTOR_TRUST_PRIORITIZATION_ENABLED` | `ingestor` | optional | `true` | Enable trust-driven relay ordering for ingestor startup ordering. |
 | `INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS` | `ingestor` | optional | `2000` | Maximum top trust pubkeys considered for relay ordering. |
+| `MEILI_ENABLED` | `api, worker` | optional | `false` | Enable the optional Meilisearch search backend. When false or when Meilisearch is unavailable, search endpoints fall back to the Postgres search path. Requires MEILI_URL when true. |
+| `MEILI_MASTER_KEY` | `api, worker` | optional | `-` | Meilisearch master key used for index management and write operations. |
+| `MEILI_SEARCH_API_KEY` | `api, worker` | optional | `-` | Optional search-only Meilisearch API key. Falls back to MEILI_MASTER_KEY when omitted. |
+| `MEILI_URL` | `api, worker` | optional | `-` | Meilisearch endpoint URL (http or https). Required when MEILI_ENABLED=true; for the checked-in Docker Compose stack use http://meilisearch:7700. |
 | `METRICS_ADDR` | `ingestor, trust_worker, worker` | optional | `:9090` | Prometheus metrics listen address for ingestor, worker, and trust_worker. API exposes /metrics on HTTP_ADDR. |
 | `PRIMAL_WS_ALLOWED_ORIGINS` | `api` | optional | `-` | CSV allowlist of browser origins for Primal WS. |
 | `PRIMAL_WS_ALLOW_ANY_ORIGIN` | `api` | optional | `false` | Allow all WS origins, bypassing PRIMAL_WS_ALLOWED_ORIGINS validation. |
