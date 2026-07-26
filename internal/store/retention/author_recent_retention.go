@@ -42,12 +42,15 @@ func (s *Retention) PruneAuthorRecentEvents(
 		return 0, fmt.Errorf("perAuthorCap, authorBatchLimit and deleteBatchLimit must be > 0")
 	}
 
-	q := s.queries()
-
 	ageStarted := time.Now()
-	ageDeleted, err := q.PruneAuthorRecentEventsByAge(ctx, retentiondb.PruneAuthorRecentEventsByAgeParams{
-		CreatedBeforeUnix: olderThan.UTC().Unix(),
-		DeleteBatchLimit:  int32(deleteBatchLimit),
+	var ageDeleted int64
+	err := s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		ageDeleted, err = q.PruneAuthorRecentEventsByAge(ctx, retentiondb.PruneAuthorRecentEventsByAgeParams{
+			CreatedBeforeUnix: olderThan.UTC().Unix(),
+			DeleteBatchLimit:  int32(deleteBatchLimit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("prune_author_recent_events_age", dbResultFromErr(err), time.Since(ageStarted))
 	if err != nil {
@@ -55,10 +58,15 @@ func (s *Retention) PruneAuthorRecentEvents(
 	}
 
 	capStarted := time.Now()
-	capDeleted, err := q.PruneAuthorRecentEventsByCap(ctx, retentiondb.PruneAuthorRecentEventsByCapParams{
-		PerAuthorCap:     int64(perAuthorCap),
-		AuthorBatchLimit: int32(authorBatchLimit),
-		DeleteBatchLimit: int32(deleteBatchLimit),
+	var capDeleted int64
+	err = s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		capDeleted, err = q.PruneAuthorRecentEventsByCap(ctx, retentiondb.PruneAuthorRecentEventsByCapParams{
+			PerAuthorCap:     int64(perAuthorCap),
+			AuthorBatchLimit: int32(authorBatchLimit),
+			DeleteBatchLimit: int32(deleteBatchLimit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("prune_author_recent_events_cap", dbResultFromErr(err), time.Since(capStarted))
 	if err != nil {

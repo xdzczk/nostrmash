@@ -34,9 +34,14 @@ func (s *Retention) PurgeStaleEventRelays(
 	}
 
 	started := time.Now()
-	rows, err := s.queries().PurgeStaleEventRelays(ctx, retentiondb.PurgeStaleEventRelaysParams{
-		SeenBefore: tsz(seenBefore.UTC()),
-		RowLimit:   int32(limit),
+	var rows int64
+	err := s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		rows, err = q.PurgeStaleEventRelays(ctx, retentiondb.PurgeStaleEventRelaysParams{
+			SeenBefore: tsz(seenBefore.UTC()),
+			RowLimit:   int32(limit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("purge_stale_event_relays", dbResultFromErr(err), time.Since(started))
 	if err != nil {

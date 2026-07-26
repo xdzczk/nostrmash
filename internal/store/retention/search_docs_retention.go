@@ -38,13 +38,15 @@ func (s *Retention) GroomSearchDocuments(
 		return 0, 0, fmt.Errorf("maxBodyChars and batchLimit must be > 0")
 	}
 
-	q := s.queries()
-
 	trimStarted := time.Now()
-	trimmed, err = q.GroomSearchDocumentsTrim(ctx, retentiondb.GroomSearchDocumentsTrimParams{
-		MaxBodyChars:    int32(maxBodyChars),
-		FreshnessBefore: tsz(freshnessBefore.UTC()),
-		RowLimit:        int32(batchLimit),
+	err = s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		trimmed, err = q.GroomSearchDocumentsTrim(ctx, retentiondb.GroomSearchDocumentsTrimParams{
+			MaxBodyChars:    int32(maxBodyChars),
+			FreshnessBefore: tsz(freshnessBefore.UTC()),
+			RowLimit:        int32(batchLimit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("groom_search_documents_trim", dbResultFromErr(err), time.Since(trimStarted))
 	if err != nil {
@@ -52,7 +54,11 @@ func (s *Retention) GroomSearchDocuments(
 	}
 
 	pruneStarted := time.Now()
-	pruned, err = q.GroomSearchDocumentsPrune(ctx, int32(batchLimit))
+	err = s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		pruned, err = q.GroomSearchDocumentsPrune(ctx, int32(batchLimit))
+		return err
+	})
 	metrics.ObserveDBOperation("groom_search_documents_prune", dbResultFromErr(err), time.Since(pruneStarted))
 	if err != nil {
 		return trimmed, 0, fmt.Errorf("prune orphaned search documents: %w", err)

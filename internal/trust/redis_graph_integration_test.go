@@ -103,4 +103,49 @@ func TestSyncGraphToRedis_RoundTrip(t *testing.T) {
 			t.Fatalf("node set missing %q: %v", node, nodeSet)
 		}
 	}
+
+	// Every per-run key must carry a TTL: a key without an expiry is a leak
+	// (the failure mode that grew the production keyspace unboundedly).
+	runKeys := scanKeys(t, rc, prefix+":trust:run:*")
+	if len(runKeys) == 0 {
+		t.Fatal("expected per-run keys after sync")
+	}
+	for _, key := range runKeys {
+		ttl, err := rc.TTL(ctx, key).Result()
+		if err != nil {
+			t.Fatalf("ttl for %s: %v", key, err)
+		}
+		if ttl <= 0 {
+			t.Fatalf("key %s has no TTL (ttl=%v); per-run keys must always expire", key, ttl)
+		}
+	}
+
+	// A subsequent successful sync must reap the previous run's keys so
+	// keysets never accumulate across runs.
+	const nextRunID = runID + 1
+	nextResult, err := rt.syncGraphToRedis(ctx, nextRunID)
+	if err != nil {
+		t.Fatalf("second sync graph to redis: %v", err)
+	}
+	staleRunPattern := fmt.Sprintf("%s:trust:run:%d:*", prefix, runID)
+	if stale := scanKeys(t, rc, staleRunPattern); len(stale) != 0 {
+		t.Fatalf("expected previous run keys to be reaped after next sync, still present: %v", stale)
+	}
+	if _, _, err := rt.loadAdjacencyFromRedis(ctx, nextRunID, nextResult.SnapshotRef); err != nil {
+		t.Fatalf("load adjacency for second run: %v", err)
+	}
+}
+
+// scanKeys collects every key matching pattern via cursor-based SCAN.
+func scanKeys(t *testing.T, rc *redis.Client, pattern string) []string {
+	t.Helper()
+	var keys []string
+	iter := rc.Scan(context.Background(), 0, pattern, 0).Iterator()
+	for iter.Next(context.Background()) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		t.Fatalf("scan %s: %v", pattern, err)
+	}
+	return keys
 }

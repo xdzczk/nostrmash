@@ -44,10 +44,15 @@ func (s *Retention) PurgeExpiredEngagementEvents(
 	}
 
 	started := time.Now()
-	rows, err := s.queries().PurgeExpiredEngagementEvents(ctx, retentiondb.PurgeExpiredEngagementEventsParams{
-		CreatedBeforeUnix: createdBefore.UTC().Unix(),
-		DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
-		RowLimit:          int32(limit),
+	var rows int64
+	err := s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		rows, err = q.PurgeExpiredEngagementEvents(ctx, retentiondb.PurgeExpiredEngagementEventsParams{
+			CreatedBeforeUnix: createdBefore.UTC().Unix(),
+			DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
+			RowLimit:          int32(limit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("purge_expired_engagement_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {

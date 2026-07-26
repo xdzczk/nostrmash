@@ -41,8 +41,14 @@ func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (Tru
 		sourceRunID = nil
 	}
 
-	if _, err := tx.Exec(ctx, `TRUNCATE trust_graph_snapshot`); err != nil {
-		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("truncate trust graph snapshot: %w", err)
+	// DELETE, not TRUNCATE: TRUNCATE takes an AccessExclusiveLock that is held
+	// until commit, blocking every trust_graph_snapshot reader (ingest gate,
+	// discovery queries) for the whole rebuild. DELETE takes only a row lock;
+	// under MVCC concurrent readers keep seeing the previous snapshot until
+	// this transaction commits. The table is small enough (one row per
+	// reachable pubkey) that the vacuum churn is negligible.
+	if _, err := tx.Exec(ctx, `DELETE FROM trust_graph_snapshot`); err != nil {
+		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("clear trust graph snapshot: %w", err)
 	}
 
 	tag, err := tx.Exec(ctx, `
@@ -71,18 +77,49 @@ func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (Tru
 	if err != nil {
 		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("rebuild trust graph snapshot: %w", err)
 	}
-	if err := refreshTrustedNoteDiscoveryProjectionTx(ctx, tx, 1); err != nil {
-		return TrustGraphSnapshotRefreshResult{}, err
-	}
-	if err := refreshTrustedProfileDiscoveryProjectionTx(ctx, tx, 1); err != nil {
-		return TrustGraphSnapshotRefreshResult{}, err
-	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("commit trust graph snapshot refresh: %w", err)
 	}
+
+	// The discovery projections refresh in their own transactions, after the
+	// snapshot has committed. They bulk-delete and upsert candidate tables
+	// that can take a long time on large datasets; folding them into the
+	// snapshot transaction meant one multi-hour transaction whose locks
+	// blocked the retention pipeline (observed in production). If a
+	// projection refresh fails, the snapshot is already live and the next
+	// loop iteration retries the projections.
+	if err := s.runProjectionRefresh(ctx, "trusted note discovery", refreshTrustedNoteDiscoveryProjectionTx); err != nil {
+		return TrustGraphSnapshotRefreshResult{}, err
+	}
+	if err := s.runProjectionRefresh(ctx, "trusted profile discovery", refreshTrustedProfileDiscoveryProjectionTx); err != nil {
+		return TrustGraphSnapshotRefreshResult{}, err
+	}
+
 	return TrustGraphSnapshotRefreshResult{
 		RowsUpserted: int(tag.RowsAffected()),
 		SourceRunID:  sourceRunID,
 	}, nil
+}
+
+// runProjectionRefresh wraps one trusted-discovery projection rebuild in its
+// own transaction so its runtime and locks never extend the snapshot rebuild
+// transaction.
+func (s *Trust) runProjectionRefresh(
+	ctx context.Context,
+	name string,
+	refresh func(context.Context, pgx.Tx, int) error,
+) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin %s projection refresh: %w", name, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := refresh(ctx, tx, 1); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit %s projection refresh: %w", name, err)
+	}
+	return nil
 }

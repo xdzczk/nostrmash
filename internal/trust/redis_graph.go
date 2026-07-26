@@ -14,6 +14,8 @@ type redisClient interface {
 	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
 	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
 	SMembers(ctx context.Context, key string) *redis.StringSliceCmd
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
+	Unlink(ctx context.Context, keys ...string) *redis.IntCmd
 }
 
 type redisKeyspace struct {
@@ -56,6 +58,12 @@ func (k redisKeyspace) activeSnapshotKey() string {
 	return fmt.Sprintf("%s:trust:active_snapshot", k.prefix)
 }
 
+// runScanPattern matches every per-run key across all runs and snapshot refs,
+// used by the stale-run reaper.
+func (k redisKeyspace) runScanPattern() string {
+	return fmt.Sprintf("%s:trust:run:*", k.prefix)
+}
+
 func sanitizeSnapshotRef(ref string) string {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -71,17 +79,60 @@ type redisSyncResult struct {
 	NodeCount   int64
 }
 
+// redisRunKeyTTL bounds the lifetime of every per-run key so that even if
+// cleanup and reaping both fail, no key outlives the run by more than a day.
+const redisRunKeyTTL = 24 * time.Hour
+
+// redisCleanupTimeout bounds the best-effort SCAN+UNLINK passes that run
+// outside the job's own context (which may already be cancelled on failure).
+const redisCleanupTimeout = 5 * time.Minute
+
 func (r *Runtime) syncGraphToRedis(ctx context.Context, runID int64) (redisSyncResult, error) {
 	if r.redis == nil {
 		return redisSyncResult{}, fmt.Errorf("redis is not configured for trust runtime")
 	}
 	snapshotRef := fmt.Sprintf("sync-%d", time.Now().UTC().UnixNano())
 	keys := newRedisKeyspace(r.redisKeyPrefix)
-	ttl := 24 * time.Hour
 
+	result, err := r.writeGraphSnapshot(ctx, runID, snapshotRef, keys)
+	if err != nil {
+		// Best-effort: delete whatever this attempt managed to write so a
+		// retry (which uses a fresh snapshotRef) does not stack another full
+		// keyset on top of the partial one. Every key already carries a TTL,
+		// so a failed cleanup only delays reclamation, it cannot leak.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), redisCleanupTimeout)
+		_ = r.unlinkMatching(cleanupCtx, keys.runPrefix(runID, snapshotRef)+":*", "")
+		cancel()
+		return redisSyncResult{}, err
+	}
+
+	if err := r.redis.Set(ctx, keys.activeSnapshotKey(), snapshotRef, redisRunKeyTTL).Err(); err != nil {
+		return redisSyncResult{}, fmt.Errorf("set active redis trust snapshot: %w", err)
+	}
+
+	// Best-effort reap of keys from earlier runs and failed attempts. The run
+	// scheduler guarantees a single active run, so once this sync has become
+	// the active snapshot every other trust:run:* keyset is dead weight.
+	// This also removes historical TTL-less keys leaked by older versions.
+	reapCtx, cancel := context.WithTimeout(context.Background(), redisCleanupTimeout)
+	_ = r.unlinkMatching(reapCtx, keys.runScanPattern(), keys.runPrefix(runID, snapshotRef)+":")
+	cancel()
+
+	return result, nil
+}
+
+// writeGraphSnapshot streams follower edges into per-run Redis keys. Every key
+// receives its TTL in the same MULTI/EXEC batch as its first write, so a key
+// can only exist with an expiry attached: a partially failed sync can never
+// leave immortal keys behind (the pre-existing failure mode that grew the
+// production keyspace unboundedly).
+func (r *Runtime) writeGraphSnapshot(ctx context.Context, runID int64, snapshotRef string, keys redisKeyspace) (redisSyncResult, error) {
 	pipe := r.redis.TxPipeline()
 	var edgeCount int64
 	nodeSet := make(map[string]struct{})
+	adjTouched := make(map[string]struct{})
+	revTouched := make(map[string]struct{})
+	nodesKeyTouched := false
 	flushEvery := int64(1000)
 	pending := int64(0)
 
@@ -104,16 +155,40 @@ func (r *Runtime) syncGraphToRedis(ctx context.Context, runID int64) (redisSyncR
 		if follower == "" || followed == "" {
 			continue
 		}
-		pipe.SAdd(ctx, keys.runAdjKey(runID, snapshotRef, follower), followed)
-		pipe.SAdd(ctx, keys.runRevAdjKey(runID, snapshotRef, followed), follower)
-		pipe.SAdd(ctx, keys.runNodesKey(runID, snapshotRef), follower, followed)
+
+		adjKey := keys.runAdjKey(runID, snapshotRef, follower)
+		pipe.SAdd(ctx, adjKey, followed)
+		pending++
+		if _, ok := adjTouched[follower]; !ok {
+			adjTouched[follower] = struct{}{}
+			pipe.Expire(ctx, adjKey, redisRunKeyTTL)
+			pending++
+		}
+
+		revKey := keys.runRevAdjKey(runID, snapshotRef, followed)
+		pipe.SAdd(ctx, revKey, follower)
+		pending++
+		if _, ok := revTouched[followed]; !ok {
+			revTouched[followed] = struct{}{}
+			pipe.Expire(ctx, revKey, redisRunKeyTTL)
+			pending++
+		}
+
+		nodesKey := keys.runNodesKey(runID, snapshotRef)
+		pipe.SAdd(ctx, nodesKey, follower, followed)
+		pending++
+		if !nodesKeyTouched {
+			nodesKeyTouched = true
+			pipe.Expire(ctx, nodesKey, redisRunKeyTTL)
+			pending++
+		}
+
 		nodeSet[follower] = struct{}{}
 		nodeSet[followed] = struct{}{}
 		edgeCount++
-		pending += 3
 		if pending >= flushEvery {
-			if _, err := pipe.Exec(ctx); err != nil {
-				return redisSyncResult{}, fmt.Errorf("flush redis graph edge sync pipeline: %w", err)
+			if err := execRedisPipe(ctx, pipe, "flush redis graph edge sync pipeline"); err != nil {
+				return redisSyncResult{}, err
 			}
 			pending = 0
 		}
@@ -131,33 +206,26 @@ func (r *Runtime) syncGraphToRedis(ctx context.Context, runID int64) (redisSyncR
 		seedVals = append(seedVals, pubkey)
 	}
 	if len(seedVals) > 0 {
-		pipe.SAdd(ctx, keys.runSeedsKey(runID, snapshotRef), stringSliceToAny(seedVals)...)
-		pending++
+		seedsKey := keys.runSeedsKey(runID, snapshotRef)
+		pipe.SAdd(ctx, seedsKey, stringSliceToAny(seedVals)...)
+		pipe.Expire(ctx, seedsKey, redisRunKeyTTL)
+		pending += 2
 	}
 
-	pipe.HSet(ctx, keys.runMetaKey(runID, snapshotRef),
+	metaKey := keys.runMetaKey(runID, snapshotRef)
+	pipe.HSet(ctx, metaKey,
 		"run_id", runID,
 		"snapshot_ref", snapshotRef,
 		"edge_count", edgeCount,
 		"seed_count", len(seedVals),
 		"synced_at", time.Now().UTC().Format(time.RFC3339Nano),
 	)
-	pipe.Expire(ctx, keys.runNodesKey(runID, snapshotRef), ttl)
-	pipe.Expire(ctx, keys.runSeedsKey(runID, snapshotRef), ttl)
-	pipe.Expire(ctx, keys.runMetaKey(runID, snapshotRef), ttl)
-	for node := range nodeSet {
-		pipe.Expire(ctx, keys.runAdjKey(runID, snapshotRef, node), ttl)
-		pipe.Expire(ctx, keys.runRevAdjKey(runID, snapshotRef, node), ttl)
-	}
-	pending += 4
+	pipe.Expire(ctx, metaKey, redisRunKeyTTL)
+	pending += 2
 	if pending > 0 {
-		if _, err := pipe.Exec(ctx); err != nil {
-			return redisSyncResult{}, fmt.Errorf("flush redis graph final pipeline: %w", err)
+		if err := execRedisPipe(ctx, pipe, "flush redis graph final pipeline"); err != nil {
+			return redisSyncResult{}, err
 		}
-	}
-
-	if err := r.redis.Set(ctx, keys.activeSnapshotKey(), snapshotRef, ttl).Err(); err != nil {
-		return redisSyncResult{}, fmt.Errorf("set active redis trust snapshot: %w", err)
 	}
 
 	return redisSyncResult{
@@ -166,6 +234,65 @@ func (r *Runtime) syncGraphToRedis(ctx context.Context, runID int64) (redisSyncR
 		SeedCount:   int64(len(seedVals)),
 		NodeCount:   int64(len(nodeSet)),
 	}, nil
+}
+
+// execRedisPipe executes a pipeline batch and, on failure, surfaces the first
+// per-command error. With MULTI/EXEC the top-level error is often a bare
+// EXECABORT that hides which command actually failed, which made the
+// production sync failures undiagnosable from logs.
+func execRedisPipe(ctx context.Context, pipe redis.Pipeliner, stage string) error {
+	cmds, err := pipe.Exec(ctx)
+	if err == nil {
+		return nil
+	}
+	for _, cmd := range cmds {
+		if cmdErr := cmd.Err(); cmdErr != nil && cmdErr != redis.Nil && cmdErr.Error() != err.Error() {
+			return fmt.Errorf("%s: %w (first failing command %s: %v)", stage, err, cmd.Name(), cmdErr)
+		}
+	}
+	return fmt.Errorf("%s: %w", stage, err)
+}
+
+// unlinkMatching scans keys matching pattern and UNLINKs them in batches,
+// skipping keys that start with keepPrefix (pass "" to delete every match).
+// SCAN is cursor-based and UNLINK reclaims memory asynchronously, so this is
+// safe to run against a large production keyspace.
+func (r *Runtime) unlinkMatching(ctx context.Context, pattern string, keepPrefix string) error {
+	const unlinkBatch = 512
+	var cursor uint64
+	batch := make([]string, 0, unlinkBatch)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := r.redis.Unlink(ctx, batch...).Err(); err != nil {
+			return fmt.Errorf("unlink stale trust run keys: %w", err)
+		}
+		batch = batch[:0]
+		return nil
+	}
+	for {
+		found, next, err := r.redis.Scan(ctx, cursor, pattern, 1000).Result()
+		if err != nil {
+			return fmt.Errorf("scan trust run keys: %w", err)
+		}
+		for _, key := range found {
+			if keepPrefix != "" && strings.HasPrefix(key, keepPrefix) {
+				continue
+			}
+			batch = append(batch, key)
+			if len(batch) >= unlinkBatch {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	return flush()
 }
 
 func stringSliceToAny(values []string) []any {

@@ -52,11 +52,16 @@ func (s *Retention) PurgeUntrustedAuthorEvents(
 	}
 
 	started := time.Now()
-	rows, err := s.queries().PurgeUntrustedAuthorEvents(ctx, retentiondb.PurgeUntrustedAuthorEventsParams{
-		CreatedBeforeUnix: olderThan.UTC().Unix(),
-		FirstSeenBefore:   tsz(olderThan.UTC()),
-		DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
-		RowLimit:          int32(limit),
+	var rows int64
+	err := s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		rows, err = q.PurgeUntrustedAuthorEvents(ctx, retentiondb.PurgeUntrustedAuthorEventsParams{
+			CreatedBeforeUnix: olderThan.UTC().Unix(),
+			FirstSeenBefore:   tsz(olderThan.UTC()),
+			DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
+			RowLimit:          int32(limit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("purge_untrusted_author_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {

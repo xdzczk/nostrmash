@@ -32,14 +32,17 @@ func (s *Retention) PurgeStaleTrustedDiscoveryCandidates(
 		return 0, fmt.Errorf("limit must be > 0")
 	}
 
-	q := s.queries()
-
 	var total int64
 	noteStarted := time.Now()
-	noteDeleted, err := q.PurgeStaleTrustedNoteDiscoveryCandidates(ctx, retentiondb.PurgeStaleTrustedNoteDiscoveryCandidatesParams{
-		TrustedBefore:   tsz(trustedBefore.UTC()),
-		UntrustedBefore: tsz(untrustedBefore.UTC()),
-		RowLimit:        int32(limit),
+	var noteDeleted int64
+	err := s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		noteDeleted, err = q.PurgeStaleTrustedNoteDiscoveryCandidates(ctx, retentiondb.PurgeStaleTrustedNoteDiscoveryCandidatesParams{
+			TrustedBefore:   tsz(trustedBefore.UTC()),
+			UntrustedBefore: tsz(untrustedBefore.UTC()),
+			RowLimit:        int32(limit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("purge_stale_trusted_note_discovery_candidates", dbResultFromErr(err), time.Since(noteStarted))
 	if err != nil {
@@ -48,10 +51,15 @@ func (s *Retention) PurgeStaleTrustedDiscoveryCandidates(
 	total += noteDeleted
 
 	profileStarted := time.Now()
-	profileDeleted, err := q.PurgeStaleTrustedProfileDiscoveryCandidates(ctx, retentiondb.PurgeStaleTrustedProfileDiscoveryCandidatesParams{
-		TrustedBefore:   tsz(trustedBefore.UTC()),
-		UntrustedBefore: tsz(untrustedBefore.UTC()),
-		RowLimit:        int32(limit),
+	var profileDeleted int64
+	err = s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		profileDeleted, err = q.PurgeStaleTrustedProfileDiscoveryCandidates(ctx, retentiondb.PurgeStaleTrustedProfileDiscoveryCandidatesParams{
+			TrustedBefore:   tsz(trustedBefore.UTC()),
+			UntrustedBefore: tsz(untrustedBefore.UTC()),
+			RowLimit:        int32(limit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("purge_stale_trusted_profile_discovery_candidates", dbResultFromErr(err), time.Since(profileStarted))
 	if err != nil {
@@ -85,10 +93,15 @@ func (s *Retention) PurgeIdleAccountStates(
 	}
 
 	started := time.Now()
-	rows, err := s.queries().PurgeIdleAccountStates(ctx, retentiondb.PurgeIdleAccountStatesParams{
-		TrustedBefore:   tsz(trustedBefore.UTC()),
-		UntrustedBefore: tsz(untrustedBefore.UTC()),
-		RowLimit:        int32(limit),
+	var rows int64
+	err := s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		rows, err = q.PurgeIdleAccountStates(ctx, retentiondb.PurgeIdleAccountStatesParams{
+			TrustedBefore:   tsz(trustedBefore.UTC()),
+			UntrustedBefore: tsz(untrustedBefore.UTC()),
+			RowLimit:        int32(limit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("purge_idle_account_states", dbResultFromErr(err), time.Since(started))
 	if err != nil {

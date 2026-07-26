@@ -71,11 +71,16 @@ func (s *Retention) PurgeSupersededReplaceableEvents(
 	}
 
 	started := time.Now()
-	rows, err := s.queries().PurgeSupersededReplaceableEvents(ctx, retentiondb.PurgeSupersededReplaceableEventsParams{
-		Kinds:            int32Kinds(supersededReplaceableKinds),
-		SupersededBefore: tsz(supersededBefore.UTC()),
-		DeadGraceBefore:  tsz(deadGraceBefore.UTC()),
-		RowLimit:         int32(limit),
+	var rows int64
+	err := s.guarded(ctx, func(q *retentiondb.Queries) error {
+		var err error
+		rows, err = q.PurgeSupersededReplaceableEvents(ctx, retentiondb.PurgeSupersededReplaceableEventsParams{
+			Kinds:            int32Kinds(supersededReplaceableKinds),
+			SupersededBefore: tsz(supersededBefore.UTC()),
+			DeadGraceBefore:  tsz(deadGraceBefore.UTC()),
+			RowLimit:         int32(limit),
+		})
+		return err
 	})
 	metrics.ObserveDBOperation("purge_superseded_replaceable_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {

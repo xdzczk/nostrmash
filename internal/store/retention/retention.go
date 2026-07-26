@@ -5,7 +5,9 @@
 package retention
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -25,12 +27,45 @@ func New(pool *pgxpool.Pool) *Retention {
 	return &Retention{pool: pool}
 }
 
-// queries binds the sqlc-generated retention statements to the shared pool.
-// Kept unexported so the generated layer never leaks past the package edge:
-// callers still see only the hand-written methods that own validation and
-// metrics.
-func (s *Retention) queries() *retentiondb.Queries {
-	return retentiondb.New(s.pool)
+// Statement guards for retention purges. Every purge is a bounded batch that
+// should finish in seconds; these caps exist so a pathological plan or lock
+// queue can never turn one batch into a multi-day transaction that pins the
+// vacuum horizon and serializes the rest of the retention pipeline (observed
+// in production: purge statements running for 1-3 days while holding locks
+// that blocked every other retention loop).
+//
+//   - retentionStatementTimeout aborts a single purge statement that runs too
+//     long. The loop logs the failure and retries on its next tick.
+//   - retentionLockTimeout aborts a purge that queues behind a conflicting
+//     lock (e.g. an exclusive lock from a projection rebuild) instead of
+//     waiting indefinitely.
+const (
+	retentionStatementTimeout = 15 * time.Minute
+	retentionLockTimeout      = time.Minute
+)
+
+// guarded runs fn inside a transaction with SET LOCAL statement/lock timeouts
+// applied, so the timeouts scope to this batch only and never leak onto other
+// work sharing the pool connection.
+func (s *Retention) guarded(ctx context.Context, fn func(q *retentiondb.Queries) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin retention tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", retentionStatementTimeout.Milliseconds())); err != nil {
+		return fmt.Errorf("set retention statement_timeout: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = %d", retentionLockTimeout.Milliseconds())); err != nil {
+		return fmt.Errorf("set retention lock_timeout: %w", err)
+	}
+	if err := fn(retentiondb.New(tx)); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit retention tx: %w", err)
+	}
+	return nil
 }
 
 // tsz converts a domain time.Time into the pgtype.Timestamptz the generated
