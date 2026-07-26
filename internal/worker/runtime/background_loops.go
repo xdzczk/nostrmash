@@ -107,25 +107,27 @@ func refreshRelayWindowSnapshotsOnce(ctx context.Context, log Logger, handlers *
 // lifecycle: with hundreds of thousands of notes/profiles a full reindex can
 // take many minutes, and during that time we still want claim loops, stale
 // recovery, and the metrics endpoint to be running.
+//
+// Coordinates with the api service (which runs the same check on its own
+// startup) via a Postgres advisory lock inside
+// RunStartupFullSyncIfNeeded: when both restart together, only the
+// instance that wins the lock actually streams the corpus into
+// Meilisearch, so the two no longer double the load on an already
+// resource-constrained Meilisearch instance.
 func RunMeilisearchStartupSync(ctx context.Context, log Logger, client *meili.Client, pool *pgxpool.Pool) {
 	if client == nil || !client.Enabled() || pool == nil {
 		return
 	}
-	needsSync, syncCheckErr := client.NeedsSync(ctx, pool)
-	if syncCheckErr != nil {
-		log.Error("meilisearch_sync_check", "error", syncCheckErr)
-		return
-	}
-	if !needsSync {
-		return
-	}
-	log.Info("meilisearch_indexes_stale", "action", "starting_full_sync")
 	started := time.Now()
-	stats, syncErr := client.FullSync(ctx, pool, 1000)
+	stats, ran, syncErr := client.RunStartupFullSyncIfNeeded(ctx, pool, 1000)
 	if syncErr != nil {
 		log.Error("meilisearch_startup_sync_failed", "error", syncErr, "duration_s", time.Since(started).Seconds())
 		return
 	}
+	if !ran {
+		return
+	}
+	log.Info("meilisearch_indexes_stale", "action", "starting_full_sync")
 	log.Info(
 		"meilisearch_startup_sync_complete",
 		"profiles", stats.Profiles,

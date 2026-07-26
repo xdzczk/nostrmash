@@ -101,26 +101,29 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		} else {
 			log.Info("meilisearch_ready", "healthy", stats.Healthy, "index_count", len(stats.Indexes))
 		}
-		needsSync, syncCheckErr := meiliClient.NeedsSync(ctx, pool)
-		if syncCheckErr != nil {
-			log.Error("meilisearch_sync_check", "error", syncCheckErr)
-		} else if needsSync {
+		go func() {
+			// RunStartupFullSyncIfNeeded re-checks NeedsSync itself and
+			// coordinates via a Postgres advisory lock so that when api and
+			// worker restart together (e.g. a full redeploy) only one of
+			// them actually streams the corpus into Meilisearch instead of
+			// both doing it concurrently.
+			syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+			syncStats, ran, syncErr := meiliClient.RunStartupFullSyncIfNeeded(syncCtx, pool, 1000)
+			if syncErr != nil {
+				log.Error("meilisearch_startup_sync_failed", "error", syncErr)
+				return
+			}
+			if !ran {
+				return
+			}
 			log.Info("meilisearch_indexes_stale", "action", "starting_full_sync")
-			go func() {
-				syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-				defer cancel()
-				syncStats, syncErr := meiliClient.FullSync(syncCtx, pool, 1000)
-				if syncErr != nil {
-					log.Error("meilisearch_startup_sync_failed", "error", syncErr)
-				} else {
-					log.Info("meilisearch_startup_sync_complete",
-						"profiles", syncStats.Profiles,
-						"notes", syncStats.Notes,
-						"documents", syncStats.Documents,
-					)
-				}
-			}()
-		}
+			log.Info("meilisearch_startup_sync_complete",
+				"profiles", syncStats.Profiles,
+				"notes", syncStats.Notes,
+				"documents", syncStats.Documents,
+			)
+		}()
 	}
 	meiliSearcher := meili.NewSearcher(meiliClient, queryStore)
 	var fallbackReader query.FallbackStoreReader

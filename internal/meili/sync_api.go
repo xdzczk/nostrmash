@@ -83,11 +83,20 @@ func (c *Client) SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID stri
 }
 
 // syncEventsBatchTimeout bounds the entire batched sync. With ~hundreds
-// of events per batch and three Meilisearch tasks per batch (one per
-// index), the call should complete in a few seconds even on slow
-// Meilisearch instances. The timeout protects against pathological
-// stalls without unnecessarily aborting a healthy batch.
-const syncEventsBatchTimeout = 2 * time.Minute
+// of events per batch and three sequential Meilisearch tasks per batch
+// (notes, profiles, documents — each individually waited on), the call
+// normally completes in a few seconds. But each waitForTask shares
+// Meilisearch's per-index FIFO task queue with any other traffic hitting
+// the same indexes (notably a concurrent FullSync), so under host
+// contention or a concurrent full reindex a single task can take tens of
+// seconds; three of those in sequence can exceed a couple of minutes even
+// though Meilisearch itself is healthy and making progress. Production
+// observed batches of ~500-1000 documents repeatedly timing out at 2
+// minutes and being fully re-queued (net zero drain) even though the
+// underlying Meilisearch tasks went on to succeed seconds later. 8 minutes
+// gives enough headroom to ride out that contention while still bounding
+// a genuinely stuck/unreachable Meilisearch.
+const syncEventsBatchTimeout = 8 * time.Minute
 
 // SyncEventsBatch is the bulk equivalent of SyncEvent: it loads notes,
 // profiles and search_documents for an arbitrary list of event IDs and
@@ -176,6 +185,51 @@ func (c *Client) SyncEventsBatch(ctx context.Context, pool *pgxpool.Pool, eventI
 		}
 	}
 	return nil
+}
+
+// fullSyncAdvisoryLockKey is an arbitrary, globally unique advisory lock
+// key used to ensure at most one full sync runs across the fleet at a
+// time. The api and worker services each independently check NeedsSync
+// and trigger a full sync on startup; without coordination, a restart of
+// both services at once (e.g. a Coolify redeploy) makes each stream the
+// entire notes/profiles/documents corpus into Meilisearch concurrently,
+// doubling load on an already resource-constrained instance and starving
+// the incremental sweeper's batches of task-queue time.
+const fullSyncAdvisoryLockKey = 872913460318
+
+// RunStartupFullSyncIfNeeded checks whether Meilisearch's indexes are
+// stale relative to Postgres and, if so, runs FullSync — but only if no
+// other instance in the fleet already holds the full-sync advisory lock.
+// Instances that lose the race return (stats, false, nil) and rely on the
+// winner's sync (or a future NeedsSync check) to catch up.
+func (c *Client) RunStartupFullSyncIfNeeded(ctx context.Context, pool *pgxpool.Pool, batchSize int) (SyncStats, bool, error) {
+	if !c.Enabled() || pool == nil {
+		return SyncStats{}, false, nil
+	}
+	needsSync, err := c.NeedsSync(ctx, pool)
+	if err != nil || !needsSync {
+		return SyncStats{}, false, err
+	}
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return SyncStats{}, false, fmt.Errorf("acquire connection for full sync lock: %w", err)
+	}
+	defer conn.Release()
+
+	var acquired bool
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, int64(fullSyncAdvisoryLockKey)).Scan(&acquired); err != nil {
+		return SyncStats{}, false, fmt.Errorf("acquire meilisearch full sync advisory lock: %w", err)
+	}
+	if !acquired {
+		return SyncStats{}, false, nil
+	}
+	defer func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, int64(fullSyncAdvisoryLockKey))
+	}()
+
+	stats, err := c.FullSync(ctx, pool, batchSize)
+	return stats, true, err
 }
 
 func (c *Client) FullSync(ctx context.Context, pool *pgxpool.Pool, batchSize int) (SyncStats, error) {
