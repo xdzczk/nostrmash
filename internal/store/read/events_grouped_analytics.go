@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 func (s *Read) GetGroupedNoteAnalytics(
@@ -250,10 +252,11 @@ func (s *Read) GetGroupedNoteAnalytics(
 			COUNT(DISTINCT to_timestamp(eh.created_at)::date)::int AS active_days
 		FROM event_hashtags eh
 		JOIN notes n ON n.id = eh.event_id
+		WHERE eh.created_at <= %d
 		GROUP BY eh.hashtag
 		ORDER BY usage_count DESC, eh.hashtag ASC
 		LIMIT $%d
-	`, len(args)+1)
+	`, nostr.MaxUnixCreatedAt, len(args)+1)
 	topicsArgs := append(append([]any{}, args...), query.TopicsLimit)
 	topicRows, err := s.pool.Query(ctx, topicsSQL, topicsArgs...)
 	if err != nil {

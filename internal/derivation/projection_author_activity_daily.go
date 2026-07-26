@@ -415,6 +415,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			FROM events e
 			WHERE e.pubkey = $1
 			  AND e.kind = 1
+			  AND e.created_at <= $3
 			GROUP BY to_timestamp(e.created_at)::date
 		),
 		received_sources AS (
@@ -425,6 +426,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			WHERE er.relation = 'reply'
 			  AND target.pubkey = $1
 			  AND e.pubkey <> $1
+			  AND e.created_at <= $3
 			GROUP BY to_timestamp(e.created_at)::date
 			UNION ALL
 			SELECT to_timestamp(re.created_at)::date AS activity_date, COUNT(*) AS count_value
@@ -432,6 +434,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE target.pubkey = $1
 			  AND re.reactor_pubkey <> $1
+			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date
 			UNION ALL
 			SELECT to_timestamp(re.created_at)::date AS activity_date, COUNT(*) AS count_value
@@ -439,6 +442,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE target.pubkey = $1
 			  AND re.reposter_pubkey <> $1
+			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date
 			UNION ALL
 			SELECT to_timestamp(zr.created_at)::date AS activity_date, COUNT(*) AS count_value
@@ -446,6 +450,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			WHERE zr.receiver_pubkey = $1
 			  AND zr.sender_pubkey IS NOT NULL
 			  AND zr.sender_pubkey <> $1
+			  AND zr.created_at <= $3
 			GROUP BY to_timestamp(zr.created_at)::date
 		),
 		received_daily AS (
@@ -461,6 +466,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			WHERE er.relation = 'reply'
 			  AND e.pubkey = $1
 			  AND target.pubkey <> $1
+			  AND e.created_at <= $3
 			GROUP BY to_timestamp(e.created_at)::date
 			UNION ALL
 			SELECT to_timestamp(re.created_at)::date AS activity_date, COUNT(*) AS count_value
@@ -468,6 +474,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE re.reactor_pubkey = $1
 			  AND target.pubkey <> $1
+			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date
 			UNION ALL
 			SELECT to_timestamp(re.created_at)::date AS activity_date, COUNT(*) AS count_value
@@ -475,12 +482,14 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE re.reposter_pubkey = $1
 			  AND target.pubkey <> $1
+			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date
 			UNION ALL
 			SELECT to_timestamp(zr.created_at)::date AS activity_date, COUNT(*) AS count_value
 			FROM zap_receipts zr
 			WHERE zr.sender_pubkey = $1
 			  AND zr.receiver_pubkey <> $1
+			  AND zr.created_at <= $3
 			GROUP BY to_timestamp(zr.created_at)::date
 		),
 		given_daily AS (
@@ -526,7 +535,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 		    engagement_given = EXCLUDED.engagement_given,
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
-	`, pubkey, version)
+	`, pubkey, version, maxSaneUnixCreatedAt)
 	if err != nil {
 		return fmt.Errorf("rebuild author activity daily for %s: %w", pubkey, err)
 	}

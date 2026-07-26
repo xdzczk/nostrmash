@@ -280,7 +280,8 @@ func loadProfileWindowMetricsTx(
 		FROM events
 		WHERE pubkey = $1
 		  AND created_at >= $2
-	`, pubkey, cutoff)
+		  AND created_at <= $3
+	`, pubkey, cutoff, maxSaneUnixCreatedAt)
 	if err != nil {
 		return 0, 0, 0, 0, 0, 0, fmt.Errorf("load profile windowed active days: %w", err)
 	}

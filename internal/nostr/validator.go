@@ -154,6 +154,12 @@ func parseCanonical(fields map[string]json.RawMessage) (*Event, *ValidationError
 			Message: "created_at must be a non-negative unix timestamp",
 			Stage:   StageCanonical,
 		}
+	case createdAt > MaxUnixCreatedAt:
+		return nil, &ValidationError{
+			Code:    ErrCreatedAtInvalid,
+			Message: "created_at is out of range for a unix timestamp",
+			Stage:   StageCanonical,
+		}
 	case kind < 0:
 		return nil, &ValidationError{
 			Code:    ErrKindInvalid,

@@ -101,6 +101,31 @@ func TestParseAndValidate_InvalidFixtures(t *testing.T) {
 	}
 }
 
+func TestParseAndValidate_RejectsOutOfRangeCreatedAt(t *testing.T) {
+	payload := readFixture(t, "valid/basic_text_note.json")
+	var envelope map[string]any
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	envelope["created_at"] = MaxUnixCreatedAt + 1
+	// Keep id/sig mismatched; canonical stage should fail on created_at first.
+	mutated, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal mutated fixture: %v", err)
+	}
+
+	result := ParseAndValidate(mutated, Options{})
+	if result.Err == nil {
+		t.Fatal("expected created_at_invalid error")
+	}
+	if result.Err.Code != ErrCreatedAtInvalid {
+		t.Fatalf("unexpected code: got %s, want %s", result.Err.Code, ErrCreatedAtInvalid)
+	}
+	if result.Err.Stage != StageCanonical {
+		t.Fatalf("unexpected stage: got %s, want %s", result.Err.Stage, StageCanonical)
+	}
+}
+
 func TestParseAndValidate_ContentTooLargeOption(t *testing.T) {
 	payload := readFixture(t, "valid/basic_text_note.json")
 

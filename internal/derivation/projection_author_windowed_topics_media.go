@@ -41,13 +41,14 @@ func (h *Handlers) upsertAuthorTopicWindowTx(
 		FROM event_hashtags eh
 		WHERE eh.author_pubkey = $1
 		  AND eh.created_at >= $4
+		  AND eh.created_at <= $5
 		GROUP BY eh.hashtag
 		ON CONFLICT (pubkey, window_days, hashtag) DO UPDATE
 		SET usage_count = EXCLUDED.usage_count,
 		    active_days = EXCLUDED.active_days,
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
-	`, pubkey, windowDays, version, cutoff); err != nil {
+	`, pubkey, windowDays, version, cutoff, maxSaneUnixCreatedAt); err != nil {
 		return fmt.Errorf("upsert author topic stats for %s window=%dd: %w", pubkey, windowDays, err)
 	}
 	return nil

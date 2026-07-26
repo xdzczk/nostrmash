@@ -36,6 +36,7 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 			  AND target.kind = 1
 			  AND e.pubkey <> $1
 			  AND e.created_at >= $2
+			  AND e.created_at <= $5
 			UNION ALL
 			SELECT
 				to_timestamp(re.created_at) AT TIME ZONE 'UTC' AS engaged_at,
@@ -46,6 +47,7 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 			  AND target.kind = 1
 			  AND re.reactor_pubkey <> $1
 			  AND re.created_at >= $2
+			  AND re.created_at <= $5
 			UNION ALL
 			SELECT
 				to_timestamp(re.created_at) AT TIME ZONE 'UTC' AS engaged_at,
@@ -56,6 +58,7 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 			  AND target.kind = 1
 			  AND re.reposter_pubkey <> $1
 			  AND re.created_at >= $2
+			  AND re.created_at <= $5
 			UNION ALL
 			SELECT
 				to_timestamp(zr.created_at) AT TIME ZONE 'UTC' AS engaged_at,
@@ -67,6 +70,7 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 			  AND zr.sender_pubkey IS NOT NULL
 			  AND zr.sender_pubkey <> $1
 			  AND zr.created_at >= $2
+			  AND zr.created_at <= $5
 		)
 		INSERT INTO author_activity_windows (
 			pubkey,
@@ -103,7 +107,7 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 		    zap_received = EXCLUDED.zap_received,
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
-	`, pubkey, cutoff, windowDays, version)
+	`, pubkey, cutoff, windowDays, version, maxSaneUnixCreatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert author activity windows for %s window=%dd: %w", pubkey, windowDays, err)
 	}
@@ -140,6 +144,7 @@ func (h *Handlers) upsertAuthorPostingPatternsTx(
 			WHERE e.pubkey = $1
 			  AND e.kind = 1
 			  AND e.created_at >= $2
+			  AND e.created_at <= $5
 		)
 		INSERT INTO author_posting_patterns (
 			pubkey,
@@ -170,7 +175,7 @@ func (h *Handlers) upsertAuthorPostingPatternsTx(
 		    reply_count = EXCLUDED.reply_count,
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
-	`, pubkey, cutoff, windowDays, version)
+	`, pubkey, cutoff, windowDays, version, maxSaneUnixCreatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert author posting patterns for %s window=%dd: %w", pubkey, windowDays, err)
 	}
