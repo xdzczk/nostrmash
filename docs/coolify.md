@@ -33,6 +33,21 @@ Keep both internal-only:
 - do not expose public ports
 - enable persistent storage
 
+### Redis memory bounds
+
+Coolify's **Maximum Memory Limit** is a Docker/cgroup OOM kill cap. It is not Redis `maxmemory`. Set both:
+
+1. Coolify resource limit (example): `4g`
+2. Coolify **Redis Conf** (Configuration → Redis Conf):
+
+```conf
+appendonly yes
+maxmemory 3gb
+maxmemory-policy allkeys-lru
+```
+
+Keep Redis `maxmemory` below the Coolify memory limit so Redis evicts before the kernel kills the container. After saving Redis Conf, restart the Redis resource so Coolify regenerates compose with the `redis.conf` bind-mount.
+
 ## Coolify application
 
 Create a Docker Compose application from this repository and point Coolify at:
