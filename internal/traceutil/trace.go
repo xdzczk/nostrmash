@@ -21,7 +21,7 @@ import (
 
 var (
 	initMu      sync.Mutex
-	tracer                                  = otel.Tracer("nostrmash")
+	tracer      = otel.Tracer("nostrmash")
 	shutdownFn  = func(context.Context) error { return nil }
 	initialized bool
 )
