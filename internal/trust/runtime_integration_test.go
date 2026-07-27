@@ -163,12 +163,19 @@ func TestRuntime_ComputePhaseFailureAfterSuccessfulSyncMarksRunFailedWithoutPubl
 		t.Fatalf("expected compute job to match run metadata, got job=%d run=%+v", computeJob.ID, run)
 	}
 
-	if _, err := pool.Exec(ctx, `DROP TABLE trust_scores_global_stage`); err != nil {
-		t.Fatalf("drop trust_scores_global_stage to force compute failure: %v", err)
+	// Force the compute-phase CopyFrom to fail. A CHECK constraint is more
+	// reliable than DROP TABLE here because test pools use search_path
+	// "<schema>,public"; if public still has the relation, DROP only removes
+	// the schema-local copy and compute can keep writing.
+	if _, err := pool.Exec(ctx, `
+		ALTER TABLE trust_scores_global_stage
+		ADD CONSTRAINT trust_stage_force_fail CHECK (score < 0)
+	`); err != nil {
+		t.Fatalf("add failing check constraint to force compute failure: %v", err)
 	}
 
 	err = runtime.ProcessJob(ctx, computeJob)
-	if err == nil || !strings.Contains(err.Error(), "clear previous trust score staging rows") {
+	if err == nil || !strings.Contains(err.Error(), "write trust score staging rows by copy") {
 		t.Fatalf("expected compute-phase query failure, got %v", err)
 	}
 	failResult, failErr := queue.FailJob(ctx, computeJob.ID, workerID, err.Error(), time.Minute)
@@ -178,7 +185,7 @@ func TestRuntime_ComputePhaseFailureAfterSuccessfulSyncMarksRunFailedWithoutPubl
 	if failResult.Status != jobs.StatusPending {
 		t.Fatalf("expected failed compute job to be scheduled for retry, got %+v", failResult)
 	}
-	assertStoredJobStateContainsError(t, ctx, queue, computeJob.ID, jobs.StatusPending, "clear previous trust score staging rows")
+	assertStoredJobStateContainsError(t, ctx, queue, computeJob.ID, jobs.StatusPending, "write trust score staging rows by copy")
 
 	run, err = runtime.GetRun(ctx, run.ID)
 	if err != nil {
@@ -190,8 +197,16 @@ func TestRuntime_ComputePhaseFailureAfterSuccessfulSyncMarksRunFailedWithoutPubl
 	if run.CurrentPhase == nil || *run.CurrentPhase != RunPhaseCompute {
 		t.Fatalf("expected compute phase to be recorded on failure, got %+v", run.CurrentPhase)
 	}
-	if !strings.Contains(*run.LastError, "clear previous trust score staging rows") || !strings.Contains(*run.PhaseLastError, "clear previous trust score staging rows") {
+	if !strings.Contains(*run.LastError, "write trust score staging rows by copy") || !strings.Contains(*run.PhaseLastError, "write trust score staging rows by copy") {
 		t.Fatalf("expected compute failure details to be stored, got %+v", run)
+	}
+
+	var stagedRows int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM trust_scores_global_stage WHERE run_id = $1`, run.ID).Scan(&stagedRows); err != nil {
+		t.Fatalf("count staged trust scores after compute failure: %v", err)
+	}
+	if stagedRows != 0 {
+		t.Fatalf("expected no staged trust scores after compute failure, got %d", stagedRows)
 	}
 
 	var publishedRows int

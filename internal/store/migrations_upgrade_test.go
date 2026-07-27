@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/xdzczk/nostrmash/internal/dbmigrate"
 	"github.com/xdzczk/nostrmash/migrations"
 )
 
@@ -115,7 +116,7 @@ func applyMigrationsForTest(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	if err := tx.QueryRow(ctx, `SELECT current_schema()`).Scan(&currentSchema); err != nil {
 		t.Fatalf("resolve current schema: %v", err)
 	}
-	if _, err := tx.Exec(ctx, bootstrapAuditSQL); err != nil {
+	if _, err := tx.Exec(ctx, dbmigrate.BootstrapAuditSQL); err != nil {
 		t.Fatalf("bootstrap audit table: %v", err)
 	}
 
@@ -125,7 +126,7 @@ func applyMigrationsForTest(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 			t.Fatalf("read migration %s: %v", name, err)
 		}
 		includePublic := name == "000016_search_hardening.sql"
-		if err := setMigrationSearchPath(ctx, tx, currentSchema, includePublic); err != nil {
+		if err := dbmigrate.SetMigrationSearchPath(ctx, tx, currentSchema, includePublic); err != nil {
 			t.Fatalf("set search_path for %s: %v", name, err)
 		}
 		if _, err := tx.Exec(ctx, string(data)); err != nil {
