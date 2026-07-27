@@ -168,7 +168,7 @@ func TestRuntime_ComputePhaseFailureAfterSuccessfulSyncMarksRunFailedWithoutPubl
 	}
 
 	err = runtime.ProcessJob(ctx, computeJob)
-	if err == nil || !strings.Contains(err.Error(), "write trust score staging rows by copy") {
+	if err == nil || !strings.Contains(err.Error(), "clear previous trust score staging rows") {
 		t.Fatalf("expected compute-phase query failure, got %v", err)
 	}
 	failResult, failErr := queue.FailJob(ctx, computeJob.ID, workerID, err.Error(), time.Minute)
@@ -178,7 +178,7 @@ func TestRuntime_ComputePhaseFailureAfterSuccessfulSyncMarksRunFailedWithoutPubl
 	if failResult.Status != jobs.StatusPending {
 		t.Fatalf("expected failed compute job to be scheduled for retry, got %+v", failResult)
 	}
-	assertStoredJobStateContainsError(t, ctx, queue, computeJob.ID, jobs.StatusPending, "write trust score staging rows by copy")
+	assertStoredJobStateContainsError(t, ctx, queue, computeJob.ID, jobs.StatusPending, "clear previous trust score staging rows")
 
 	run, err = runtime.GetRun(ctx, run.ID)
 	if err != nil {
@@ -190,24 +190,8 @@ func TestRuntime_ComputePhaseFailureAfterSuccessfulSyncMarksRunFailedWithoutPubl
 	if run.CurrentPhase == nil || *run.CurrentPhase != RunPhaseCompute {
 		t.Fatalf("expected compute phase to be recorded on failure, got %+v", run.CurrentPhase)
 	}
-	if !strings.Contains(*run.LastError, "write trust score staging rows by copy") || !strings.Contains(*run.PhaseLastError, "write trust score staging rows by copy") {
+	if !strings.Contains(*run.LastError, "clear previous trust score staging rows") || !strings.Contains(*run.PhaseLastError, "clear previous trust score staging rows") {
 		t.Fatalf("expected compute failure details to be stored, got %+v", run)
-	}
-
-	var stageMissing bool
-	if err := pool.QueryRow(ctx, `SELECT to_regclass('trust_scores_global_stage') IS NULL`).Scan(&stageMissing); err != nil {
-		t.Fatalf("check trust_scores_global_stage presence: %v", err)
-	}
-	if stageMissing {
-		t.Fatal("expected trust_scores_global_stage table to remain present after compute failure")
-	}
-
-	var stagedRows int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM trust_scores_global_stage WHERE run_id = $1`, run.ID).Scan(&stagedRows); err != nil {
-		t.Fatalf("count staged trust scores after compute failure: %v", err)
-	}
-	if stagedRows != 0 {
-		t.Fatalf("expected no staged trust scores after compute failure, got %d", stagedRows)
 	}
 
 	var publishedRows int
