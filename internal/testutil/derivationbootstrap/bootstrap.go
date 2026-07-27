@@ -1,5 +1,5 @@
 // Package derivationbootstrap seeds derivation version metadata for integration tests.
-// Production binaries register derivations at worker startup; tests that only call
+// Production binaries register derivations at worker/ingestor startup; tests that only call
 // store.Migrate must also run derivation.EnsureRegisteredDerivations.
 package derivationbootstrap
 
@@ -13,7 +13,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
-// MustMigrate runs store migrations then registers all derivations (same as worker startup).
+// MustMigrate runs store migrations then registers all derivations (same as worker/ingestor startup).
 func MustMigrate(t testing.TB, ctx context.Context, pool *pgxpool.Pool, appVersion string) {
 	t.Helper()
 	if err := store.Migrate(ctx, pool, appVersion); err != nil {

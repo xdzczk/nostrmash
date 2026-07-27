@@ -19,7 +19,7 @@ type RegisteredDerivation struct {
 	Description string
 }
 
-// RegisteredDerivations lists every derivation that the worker may run. Adding
+// RegisteredDerivations lists every derivation that worker/ingestor may run. Adding
 // a new derivation requires appending it here so that EnsureRegisteredDerivations
 // can pre-create the rows that resolveDerivationWriteVersion expects to read.
 var RegisteredDerivations = []RegisteredDerivation{

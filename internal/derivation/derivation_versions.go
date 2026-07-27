@@ -59,7 +59,7 @@ func upsertDerivationVersion(
 //
 // Per-job hot path (versionOverride == nil): a pure SELECT against
 // derivation_active_versions. The row is guaranteed to exist because
-// EnsureRegisteredDerivations runs once at worker startup. We deliberately
+// EnsureRegisteredDerivations runs once at worker/ingestor startup. We deliberately
 // avoid UPSERTing here: the underlying rows are keyed by a small fixed set of
 // projection names, so doing a write per job creates pathological row-lock
 // contention when many workers run in parallel and effectively serializes the

@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/config"
+	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/ingestor/backfill"
 	"github.com/xdzczk/nostrmash/internal/ingestor/live"
 	"github.com/xdzczk/nostrmash/internal/ingestor/relay"
@@ -91,6 +92,13 @@ func BootstrapRuntime(
 		pool.Close()
 		return nil, func() {}, fmt.Errorf("migrate: %w", err)
 	}
+	if err := derivation.EnsureRegisteredDerivations(ctx, pool); err != nil {
+		log.Error("ensure_registered_derivations", "error", err)
+		runtimebootstrap.ShutdownTracing(log)
+		pool.Close()
+		return nil, func() {}, fmt.Errorf("ensure registered derivations: %w", err)
+	}
+	log.Info("registered_derivations_ready", "count", len(derivation.RegisteredDerivations))
 	shutdown := func() {
 		runtimebootstrap.ShutdownTracing(log)
 		pool.Close()
