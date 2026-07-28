@@ -356,7 +356,12 @@ func loadAuthorAnalyticsSweeperConfig() (WorkerAuthorAnalyticsSweeperConfig, err
 	if err != nil {
 		return WorkerAuthorAnalyticsSweeperConfig{}, err
 	}
-	rebuildTimeout, err := getEnvPositiveDurationStrict("WORKER_AUTHOR_ANALYTICS_REBUILD_TIMEOUT", 90*time.Second)
+	// 300s: after VACUUM ANALYZE restored index-friendly plans, typical
+	// pubkeys finish well under 90s, but whale authors (tens of thousands of
+	// events) still need 2–4 minutes for the all-history daily rebuild. The
+	// previous 90s default caused perpetual timeout→retry loops that wasted
+	// disk I/O without draining pending_author_analytics_recomputes.
+	rebuildTimeout, err := getEnvPositiveDurationStrict("WORKER_AUTHOR_ANALYTICS_REBUILD_TIMEOUT", 300*time.Second)
 	if err != nil {
 		return WorkerAuthorAnalyticsSweeperConfig{}, err
 	}
