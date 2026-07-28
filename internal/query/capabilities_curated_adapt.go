@@ -10,6 +10,9 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(publicDiscoveryNetworkStatsCapability); ok {
 		caps.curated.publicNetworkStats = r
 	}
+	if r, ok := reader.(discoveryStatsSeriesCapability); ok {
+		caps.curated.statsSeries = r
+	}
 	if r, ok := reader.(curatedValuesCapability); ok {
 		caps.curated.values = r
 	}

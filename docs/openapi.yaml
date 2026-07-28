@@ -1024,6 +1024,23 @@ paths:
       responses:
         '200':
           description: Public relay count snapshot
+  /api/v1/discovery/stats/series:
+    get:
+      tags: [public]
+      summary: Hourly history of rolling 24-hour discovery metrics
+      parameters:
+        - in: query
+          name: metric
+          required: true
+          schema: { type: string, enum: [note_volume, active_authors, relay_events] }
+        - in: query
+          name: window
+          schema: { type: string, enum: [7d, 30d], default: 7d }
+      responses:
+        '200':
+          description: Eventual-consistency series with Unix-second points (`{ metric, window, computed_at, points: [{ t, v }], consistency }`)
+        '400':
+          $ref: '#/components/responses/Error'
   /api/v1/discovery/network/stats:
     get:
       tags: [public]

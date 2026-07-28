@@ -14,6 +14,7 @@ func publicDiscoveryNetworkStatsFromStore(row readmodel.PublicDiscoveryNetworkSt
 	out := PublicDiscoveryNetworkStats{
 		EventsIngested:    row.EventsIngested,
 		ProjectedProfiles: row.ProjectedProfiles,
+		ComputedAt:        row.ComputedAt,
 		Relays:            row.Relays,
 		RelaySummary: RelaySummaryStats{
 			Total:     row.RelaySummary.Total,
@@ -69,6 +70,19 @@ func publicDiscoveryNetworkStatsFromStore(row readmodel.PublicDiscoveryNetworkSt
 		topHashtags.Last7d = append(topHashtags.Last7d, trendingHashtagFromStore(hashtag))
 	}
 	out.TopHashtags = topHashtags
+	return out
+}
+
+func discoveryStatsSeriesFromStore(row readmodel.DiscoveryStatsSeries) DiscoveryStatsSeries {
+	out := DiscoveryStatsSeries{
+		Metric:     row.Metric,
+		Window:     row.Window,
+		ComputedAt: row.ComputedAt,
+		Points:     make([]DiscoveryStatsSeriesPoint, 0, len(row.Points)),
+	}
+	for _, point := range row.Points {
+		out.Points = append(out.Points, DiscoveryStatsSeriesPoint{T: point.T, V: point.V})
+	}
 	return out
 }
 

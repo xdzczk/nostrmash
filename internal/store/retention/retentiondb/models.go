@@ -593,6 +593,15 @@ type SearchDocument struct {
 	SearchTsv      interface{}
 }
 
+// Hourly append-only history of rolling 24-hour public discovery metrics, written by RefreshRelayWindowSnapshots.
+type StatsSnapshotHistory struct {
+	BucketStart   pgtype.Timestamptz
+	ComputedAt    pgtype.Timestamptz
+	NoteVolume    int64
+	ActiveAuthors int64
+	RelayEvents   int64
+}
+
 type StoragePressureState struct {
 	ID            bool
 	Level         int32

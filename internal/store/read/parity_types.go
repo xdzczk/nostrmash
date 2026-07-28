@@ -16,6 +16,10 @@ type TrendingHashtagWindows = readmodel.TrendingHashtagWindows
 
 type PublicDiscoveryNetworkStats = readmodel.PublicDiscoveryNetworkStats
 
+type DiscoveryStatsSeriesPoint = readmodel.DiscoveryStatsSeriesPoint
+
+type DiscoveryStatsSeries = readmodel.DiscoveryStatsSeries
+
 type CuratedRecommendedRead = readmodel.CuratedRecommendedRead
 
 type CuratedReadsTopic = readmodel.CuratedReadsTopic

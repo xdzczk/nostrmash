@@ -83,6 +83,22 @@ func TestRefreshRelayWindowSnapshots_PopulatesAndIsIdempotent(t *testing.T) {
 	if home.ActiveAuthors < 3 {
 		t.Fatalf("expected active_authors >=3, got %d", home.ActiveAuthors)
 	}
+	var history struct {
+		NoteVolume    int64
+		ActiveAuthors int64
+		RelayEvents   int64
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT note_volume, active_authors, relay_events
+		FROM stats_snapshot_history
+		ORDER BY bucket_start DESC
+		LIMIT 1
+	`).Scan(&history.NoteVolume, &history.ActiveAuthors, &history.RelayEvents); err != nil {
+		t.Fatalf("read stats snapshot history: %v", err)
+	}
+	if history.NoteVolume < 3 || history.ActiveAuthors < 3 || history.RelayEvents < 3 {
+		t.Fatalf("unexpected stats snapshot history: %+v", history)
+	}
 
 	firstComputedAt := snapshotComputedAt(t, ctx, pool, "summary")
 
@@ -99,6 +115,13 @@ func TestRefreshRelayWindowSnapshots_PopulatesAndIsIdempotent(t *testing.T) {
 	secondComputedAt := snapshotComputedAt(t, ctx, pool, "summary")
 	if !secondComputedAt.After(firstComputedAt) {
 		t.Fatalf("expected computed_at to advance: first=%s second=%s", firstComputedAt, secondComputedAt)
+	}
+	var historyCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM stats_snapshot_history`).Scan(&historyCount); err != nil {
+		t.Fatalf("count stats snapshot history: %v", err)
+	}
+	if historyCount != 1 {
+		t.Fatalf("expected one current-hour history row, got %d", historyCount)
 	}
 }
 

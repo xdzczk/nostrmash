@@ -2,6 +2,7 @@ package query
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
@@ -78,6 +79,7 @@ type TrendingHashtagWindows struct {
 type PublicDiscoveryNetworkStats struct {
 	EventsIngested    int64                   `json:"events_ingested"`
 	ProjectedProfiles int64                   `json:"projected_profiles"`
+	ComputedAt        *time.Time              `json:"computed_at,omitempty"`
 	Relays            int64                   `json:"relays"`
 	RelaySummary      RelaySummaryStats       `json:"relay_summary"`
 	TopRelays         []RelayUsageSummary     `json:"top_relays,omitempty"`
@@ -86,6 +88,18 @@ type PublicDiscoveryNetworkStats struct {
 	TopHashtags       *TrendingHashtagWindows `json:"top_hashtags,omitempty"`
 	TopLanguages24h   []LanguageSummary       `json:"top_languages_24h,omitempty"`
 	TopLanguages7d    []LanguageSummary       `json:"top_languages_7d,omitempty"`
+}
+
+type DiscoveryStatsSeriesPoint struct {
+	T time.Time
+	V int64
+}
+
+type DiscoveryStatsSeries struct {
+	Metric     string
+	Window     string
+	ComputedAt *time.Time
+	Points     []DiscoveryStatsSeriesPoint
 }
 
 type CuratedRecommendedRead struct {

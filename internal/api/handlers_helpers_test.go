@@ -77,6 +77,7 @@ type fakeEventReader struct {
 	listTrustRunsFn                  func(context.Context, int) ([]storetrust.TrustRun, error)
 	getNetworkStatsFn                func(context.Context) (storeread.NetworkStats, error)
 	getPublicNetworkStatsFn          func(context.Context, int) (storeread.PublicDiscoveryNetworkStats, error)
+	getDiscoveryStatsSeriesFn        func(context.Context, string, time.Duration) (storeread.DiscoveryStatsSeries, error)
 	getCuratedReadsFn                func(context.Context, int) ([]storeread.CuratedRecommendedRead, error)
 	getCuratedTopicsFn               func(context.Context, int) ([]storeread.CuratedReadsTopic, error)
 	getTrendingNotesFn               func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error)
@@ -509,6 +510,13 @@ func (f fakeEventReader) GetPublicDiscoveryNetworkStats(ctx context.Context, has
 		return storeread.PublicDiscoveryNetworkStats{}, errors.New("not implemented")
 	}
 	return f.getPublicNetworkStatsFn(ctx, hashtagLimit)
+}
+
+func (f fakeEventReader) GetDiscoveryStatsSeries(ctx context.Context, metric string, window time.Duration) (storeread.DiscoveryStatsSeries, error) {
+	if f.getDiscoveryStatsSeriesFn == nil {
+		return storeread.DiscoveryStatsSeries{}, errors.New("not implemented")
+	}
+	return f.getDiscoveryStatsSeriesFn(ctx, metric, window)
 }
 
 func (f fakeEventReader) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]storeread.CuratedRecommendedRead, error) {

@@ -123,6 +123,7 @@ func buildRouteDefinitions(
 		newPublicRoute("GET /api/v1/discovery/stats/network", true, http.HandlerFunc(handlers.GetNetworkStats)),
 		newPublicRoute("GET /api/v1/discovery/stats/content", true, http.HandlerFunc(handlers.GetContentStats)),
 		newPublicRoute("GET /api/v1/discovery/stats/relays", true, http.HandlerFunc(handlers.GetRelayStats)),
+		newPublicRoute("GET /api/v1/discovery/stats/series", true, http.HandlerFunc(handlers.GetDiscoveryStatsSeries)),
 		newPublicRoute("GET /api/v1/discovery/network/stats", true, http.HandlerFunc(handlers.GetNetworkStats)),
 		newPublicRoute("GET /api/v1/discovery/content/stats", true, http.HandlerFunc(handlers.GetContentStats)),
 		newPublicRoute("GET /api/v1/users/{pubkey}/bookmarks", true, http.HandlerFunc(handlers.GetBookmarks)),

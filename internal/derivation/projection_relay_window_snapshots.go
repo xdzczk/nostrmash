@@ -94,6 +94,9 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow24h, homeWindow24h); err != nil {
 			return err
 		}
+		if err := insertStatsSnapshotHistory(ctx, tx, now, homeWindow24h, summary); err != nil {
+			return err
+		}
 		homeWindow7d, err := computeHomeWindowSnapshot(ctx, tx, cutoff7d)
 		if err != nil {
 			return fmt.Errorf("compute home window 7d snapshot: %w", err)
@@ -173,6 +176,29 @@ func upsertSnapshotPayload(ctx context.Context, tx pgx.Tx, label string, payload
 		    computed_at = EXCLUDED.computed_at
 	`, label, encoded); err != nil {
 		return fmt.Errorf("upsert snapshot payload %q: %w", label, err)
+	}
+	return nil
+}
+
+// insertStatsSnapshotHistory records at most one rolling-24-hour metric point
+// per UTC hour. The worker refreshes every five minutes and may run on more
+// than one replica, so the bucket primary key makes this append-only write
+// bounded and idempotent.
+func insertStatsSnapshotHistory(
+	ctx context.Context,
+	tx pgx.Tx,
+	computedAt time.Time,
+	home homeWindowSnapshotPayload,
+	relay relaySummarySnapshotPayload,
+) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO stats_snapshot_history (
+			bucket_start, computed_at, note_volume, active_authors, relay_events
+		)
+		VALUES (date_trunc('hour', $1::timestamptz), $1, $2, $3, $4)
+		ON CONFLICT (bucket_start) DO NOTHING
+	`, computedAt, home.NoteVolume, home.ActiveAuthors, relay.Events24h); err != nil {
+		return fmt.Errorf("insert stats snapshot history: %w", err)
 	}
 	return nil
 }

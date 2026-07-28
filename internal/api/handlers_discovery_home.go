@@ -277,8 +277,9 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		}
 
 		payload := map[string]any{
-			"surface": "home",
-			"window":  windowLabel,
+			"surface":     "home",
+			"window":      windowLabel,
+			"computed_at": networkStats.ComputedAt,
 			"sections": map[string]any{
 				"trending_notes":    noteItems,
 				"trending_hashtags": hashtagItems,

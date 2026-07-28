@@ -88,6 +88,7 @@ func TestContractOwnedRoutes_DeclareDiscoveryNamespace(t *testing.T) {
 		"GET /api/v1/discovery/stats/network",
 		"GET /api/v1/discovery/stats/content",
 		"GET /api/v1/discovery/stats/relays",
+		"GET /api/v1/discovery/stats/series",
 		"GET /api/v1/discovery/network/stats",
 		"GET /api/v1/discovery/content/stats",
 	}

@@ -13,6 +13,7 @@ func wireCuratedGroup(g CuratedReads, caps *serviceCapabilities) {
 	}
 	caps.curated.networkStats = g
 	caps.curated.publicNetworkStats = g
+	caps.curated.statsSeries = g
 	caps.curated.values = g
 	caps.curated.recommendedReads = g
 	caps.curated.readsTopics = g

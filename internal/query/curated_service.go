@@ -30,6 +30,32 @@ func (s Service) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimi
 	return PublicDiscoveryNetworkStats{}, unsupportedCapabilityError("public discovery network stats")
 }
 
+func (s Service) GetDiscoveryStatsSeries(ctx context.Context, metric, window string) (DiscoveryStatsSeries, error) {
+	var duration time.Duration
+	switch window {
+	case "7d":
+		duration = 7 * 24 * time.Hour
+	case "30d":
+		duration = 30 * 24 * time.Hour
+	default:
+		return DiscoveryStatsSeries{}, fmt.Errorf("unsupported stats window %q", window)
+	}
+	switch metric {
+	case "note_volume", "active_authors", "relay_events":
+	default:
+		return DiscoveryStatsSeries{}, fmt.Errorf("unsupported stats metric %q", metric)
+	}
+	if r := s.capabilities.curated.statsSeries; r != nil {
+		row, err := r.GetDiscoveryStatsSeries(ctx, metric, duration)
+		if err != nil {
+			return DiscoveryStatsSeries{}, err
+		}
+		row.Window = window
+		return discoveryStatsSeriesFromStore(row), nil
+	}
+	return DiscoveryStatsSeries{}, unsupportedCapabilityError("discovery stats series")
+}
+
 func (s Service) GetCuratedValues(ctx context.Context, tableName string, valueColumn string, limit int) ([]string, error) {
 	if r := s.capabilities.curated.values; r != nil {
 		return r.GetCuratedValues(ctx, tableName, valueColumn, limit)

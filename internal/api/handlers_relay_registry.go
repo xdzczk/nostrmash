@@ -136,6 +136,9 @@ func (h Handlers) GetPopularRelays(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetRelayProbeHealth(w http.ResponseWriter, r *http.Request) {
+	// This endpoint intentionally remains a current-health summary; probe
+	// history is deferred so the discovery metrics series stays the bounded
+	// history surface for this change.
 	if h.pool == nil {
 		writeError(r.Context(), w, http.StatusServiceUnavailable, "not_available", "relay registry data is not available")
 		return

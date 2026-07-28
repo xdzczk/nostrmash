@@ -21,6 +21,10 @@ type publicDiscoveryNetworkStatsCapability interface {
 	GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (readmodel.PublicDiscoveryNetworkStats, error)
 }
 
+type discoveryStatsSeriesCapability interface {
+	GetDiscoveryStatsSeries(ctx context.Context, metric string, window time.Duration) (readmodel.DiscoveryStatsSeries, error)
+}
+
 type curatedValuesCapability interface {
 	GetCuratedValues(ctx context.Context, tableName string, valueColumn string, limit int) ([]string, error)
 }

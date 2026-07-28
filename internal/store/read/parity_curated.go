@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -114,6 +115,9 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	out.ActiveAuthors = WindowedCount{
 		Last24h: homeWindow24h.ActiveAuthors,
 		Last7d:  homeWindow7d.ActiveAuthors,
+	}
+	if !homeWindow24h.ComputedAt.IsZero() {
+		out.ComputedAt = &homeWindow24h.ComputedAt
 	}
 
 	topLanguages24h, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages24h, 8)
@@ -303,15 +307,17 @@ func (s *Read) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, err
 type homeWindowSnapshotPayload struct {
 	NoteVolume    int64 `json:"note_volume"`
 	ActiveAuthors int64 `json:"active_authors"`
+	ComputedAt    time.Time
 }
 
 func (s *Read) getHomeWindowSnapshot(ctx context.Context, label string) (homeWindowSnapshotPayload, error) {
 	var payload []byte
+	var out homeWindowSnapshotPayload
 	err := s.pool.QueryRow(ctx, `
-		SELECT payload
+		SELECT payload, computed_at
 		FROM relay_window_snapshots
 		WHERE snapshot_label = $1
-	`, label).Scan(&payload)
+	`, label).Scan(&payload, &out.ComputedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || isUndefinedRelationError(err) {
 			// Pre-000048 or freshly-truncated environments: serve
@@ -321,9 +327,60 @@ func (s *Read) getHomeWindowSnapshot(ctx context.Context, label string) (homeWin
 		}
 		return homeWindowSnapshotPayload{}, fmt.Errorf("read home window snapshot %q: %w", label, err)
 	}
-	var out homeWindowSnapshotPayload
 	if err := json.Unmarshal(payload, &out); err != nil {
 		return homeWindowSnapshotPayload{}, fmt.Errorf("decode home window snapshot %q: %w", label, err)
+	}
+	return out, nil
+}
+
+// GetDiscoveryStatsSeries returns hourly snapshots of rolling 24-hour public
+// metrics. The table is intentionally queried directly rather than falling
+// back to live aggregates so this endpoint stays safe at production scale.
+func (s *Read) GetDiscoveryStatsSeries(ctx context.Context, metric string, window time.Duration) (DiscoveryStatsSeries, error) {
+	out := DiscoveryStatsSeries{
+		Metric: metric,
+		Points: []DiscoveryStatsSeriesPoint{},
+	}
+	if s == nil || s.pool == nil {
+		return out, fmt.Errorf("store is not initialized")
+	}
+	if window <= 0 {
+		return out, fmt.Errorf("window must be positive")
+	}
+	column, ok := map[string]string{
+		"note_volume":    "note_volume",
+		"active_authors": "active_authors",
+		"relay_events":   "relay_events",
+	}[metric]
+	if !ok {
+		return out, fmt.Errorf("unsupported stats metric %q", metric)
+	}
+
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT bucket_start, computed_at, %s
+		FROM stats_snapshot_history
+		WHERE bucket_start >= $1
+		ORDER BY bucket_start ASC
+	`, column), time.Now().UTC().Add(-window))
+	if err != nil {
+		if isUndefinedRelationError(err) {
+			return out, nil
+		}
+		return out, fmt.Errorf("read discovery stats series: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var point DiscoveryStatsSeriesPoint
+		var computedAt time.Time
+		if err := rows.Scan(&point.T, &computedAt, &point.V); err != nil {
+			return out, fmt.Errorf("scan discovery stats series point: %w", err)
+		}
+		out.ComputedAt = &computedAt
+		out.Points = append(out.Points, point)
+	}
+	if err := rows.Err(); err != nil {
+		return out, fmt.Errorf("read discovery stats series rows: %w", err)
 	}
 	return out, nil
 }

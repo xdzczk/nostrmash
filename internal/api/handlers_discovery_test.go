@@ -482,6 +482,7 @@ func TestDiscoveryHomeRoute_RendersSparseSectionWithoutDroppingBundle(t *testing
 }
 
 func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
+	computedAt := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	h := mustNewHandlers(t, fakeEventReader{
 		getPublicNetworkStatsFn: func(_ context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
 			if hashtagLimit != 10 && hashtagLimit != 1 {
@@ -490,6 +491,7 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 			return storeread.PublicDiscoveryNetworkStats{
 				EventsIngested:    11,
 				ProjectedProfiles: 7,
+				ComputedAt:        &computedAt,
 				Relays:            3,
 				RelaySummary: storeread.RelaySummaryStats{
 					Total:         3,
@@ -526,7 +528,8 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 		t.Fatalf("unexpected status for network stats: got %d want %d", rec.Code, http.StatusOK)
 	}
 	var networkResp struct {
-		Network struct {
+		ComputedAt string `json:"computed_at"`
+		Network    struct {
 			Totals struct {
 				EventsIngested    int64 `json:"events_ingested"`
 				ProjectedProfiles int64 `json:"projected_profiles"`
@@ -557,6 +560,9 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 	if networkResp.Network.Totals.EventsIngested != 11 || networkResp.Network.Totals.ProjectedProfiles != 7 {
 		t.Fatalf("unexpected network totals payload: %#v", networkResp.Network.Totals)
 	}
+	if networkResp.ComputedAt == "" {
+		t.Fatal("expected network stats computed_at")
+	}
 	if networkResp.Network.Activity.ActiveAuthors.Last24h != 5 || networkResp.Network.Activity.NoteVolume.Last7d != 44 {
 		t.Fatalf("unexpected activity payload: %#v", networkResp.Network.Activity)
 	}
@@ -579,6 +585,15 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 	if contentRec.Code != http.StatusOK {
 		t.Fatalf("unexpected status for content stats: got %d want %d", contentRec.Code, http.StatusOK)
 	}
+	var contentResp struct {
+		ComputedAt string `json:"computed_at"`
+	}
+	if err := json.Unmarshal(contentRec.Body.Bytes(), &contentResp); err != nil {
+		t.Fatalf("decode content response: %v", err)
+	}
+	if contentResp.ComputedAt == "" {
+		t.Fatal("expected content stats computed_at")
+	}
 
 	relayReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/stats/relays", nil)
 	relayRec := httptest.NewRecorder()
@@ -587,7 +602,8 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 		t.Fatalf("unexpected status for relays stats: got %d want %d", relayRec.Code, http.StatusOK)
 	}
 	var relayResp struct {
-		Relays struct {
+		ComputedAt string `json:"computed_at"`
+		Relays     struct {
 			Total    int64 `json:"total"`
 			Active7d int64 `json:"active_7d"`
 			Top      []struct {
@@ -600,6 +616,71 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 	}
 	if relayResp.Relays.Total != 3 || relayResp.Relays.Active7d != 3 || len(relayResp.Relays.Top) != 2 {
 		t.Fatalf("unexpected relay stats payload: %#v", relayResp.Relays)
+	}
+	if relayResp.ComputedAt == "" {
+		t.Fatal("expected relay stats computed_at")
+	}
+}
+
+func TestDiscoveryStatsSeriesRoute_ReturnsHourlyPoints(t *testing.T) {
+	computedAt := time.Date(2026, time.July, 28, 12, 5, 0, 0, time.UTC)
+	firstBucket := computedAt.Add(-time.Hour)
+	h := mustNewHandlers(t, fakeEventReader{
+		getDiscoveryStatsSeriesFn: func(_ context.Context, metric string, window time.Duration) (storeread.DiscoveryStatsSeries, error) {
+			if metric != "note_volume" {
+				t.Fatalf("unexpected metric: %q", metric)
+			}
+			if window != 7*24*time.Hour {
+				t.Fatalf("unexpected window: %s", window)
+			}
+			return storeread.DiscoveryStatsSeries{
+				Metric:     metric,
+				ComputedAt: &computedAt,
+				Points: []storeread.DiscoveryStatsSeriesPoint{
+					{T: firstBucket, V: 12},
+					{T: computedAt, V: 18},
+				},
+			}, nil
+		},
+	}, 200)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/stats/series", h.GetDiscoveryStatsSeries)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/discovery/stats/series?metric=note_volume", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+	var response struct {
+		Metric     string `json:"metric"`
+		Window     string `json:"window"`
+		ComputedAt string `json:"computed_at"`
+		Points     []struct {
+			T int64 `json:"t"`
+			V int64 `json:"v"`
+		} `json:"points"`
+		Consistency string `json:"consistency"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Metric != "note_volume" || response.Window != "7d" || response.ComputedAt == "" || response.Consistency != "eventual" {
+		t.Fatalf("unexpected response metadata: %#v", response)
+	}
+	if len(response.Points) != 2 || response.Points[0].T != firstBucket.Unix() || response.Points[1].V != 18 {
+		t.Fatalf("unexpected response points: %#v", response.Points)
+	}
+
+	for _, rawURL := range []string{
+		"/api/v1/discovery/stats/series",
+		"/api/v1/discovery/stats/series?metric=unknown",
+		"/api/v1/discovery/stats/series?metric=relay_events&window=24h",
+	} {
+		badRec := httptest.NewRecorder()
+		mux.ServeHTTP(badRec, httptest.NewRequest(http.MethodGet, rawURL, nil))
+		if badRec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: got %d want %d", rawURL, badRec.Code, http.StatusBadRequest)
+		}
 	}
 }
 

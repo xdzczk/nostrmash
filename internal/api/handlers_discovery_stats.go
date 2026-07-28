@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 )
@@ -42,6 +43,7 @@ func (h Handlers) GetNetworkStats(w http.ResponseWriter, r *http.Request) {
 		}
 		return map[string]any{
 			"network":     network,
+			"computed_at": stats.ComputedAt,
 			"consistency": "eventual",
 		}, nil
 	}); err != nil {
@@ -86,6 +88,7 @@ func (h Handlers) GetContentStats(w http.ResponseWriter, r *http.Request) {
 		}
 		return map[string]any{
 			"content":     content,
+			"computed_at": stats.ComputedAt,
 			"consistency": "eventual",
 		}, nil
 	}); err != nil {
@@ -107,11 +110,66 @@ func (h Handlers) GetRelayStats(w http.ResponseWriter, r *http.Request) {
 		}
 		return map[string]any{
 			"relays":      buildRelayStatsPayload(stats),
+			"computed_at": stats.ComputedAt,
 			"consistency": "eventual",
 		}, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
 			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "relay stats are not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+}
+
+func (h Handlers) GetDiscoveryStatsSeries(w http.ResponseWriter, r *http.Request) {
+	metric := strings.TrimSpace(r.URL.Query().Get("metric"))
+	switch metric {
+	case "note_volume", "active_authors", "relay_events":
+	case "":
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "metric is required")
+		return
+	default:
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "metric must be one of note_volume, active_authors, relay_events")
+		return
+	}
+	window := strings.TrimSpace(r.URL.Query().Get("window"))
+	if window == "" {
+		window = "7d"
+	}
+	if window != "7d" && window != "30d" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "window must be one of 7d, 30d")
+		return
+	}
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyStats, "discovery_stats_series", map[string]any{
+		"metric": metric,
+		"window": window,
+	})
+	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
+		series, seriesErr := h.service.GetDiscoveryStatsSeries(r.Context(), metric, window)
+		if seriesErr != nil {
+			return nil, seriesErr
+		}
+		points := make([]map[string]any, 0, len(series.Points))
+		for _, point := range series.Points {
+			points = append(points, map[string]any{
+				"t": point.T.Unix(),
+				"v": point.V,
+			})
+		}
+		payload := map[string]any{
+			"metric":      series.Metric,
+			"window":      series.Window,
+			"computed_at": series.ComputedAt,
+			"points":      points,
+			"consistency": "eventual",
+		}
+		h.addDiscoveryTrustMetadata(payload)
+		return payload, nil
+	}); err != nil {
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "discovery stats series are not available on this deployment")
 			return
 		}
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")

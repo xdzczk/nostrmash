@@ -33,6 +33,7 @@ type moderationCapabilities struct {
 type curatedCapabilities struct {
 	networkStats           networkStatsCapability
 	publicNetworkStats     publicDiscoveryNetworkStatsCapability
+	statsSeries            discoveryStatsSeriesCapability
 	values                 curatedValuesCapability
 	recommendedReads       curatedRecommendedReadsCapability
 	readsTopics            curatedReadsTopicsCapability

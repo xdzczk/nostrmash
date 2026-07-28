@@ -29,6 +29,7 @@ type StoreReader = readModelReader
 type CuratedReads interface {
 	networkStatsCapability
 	publicDiscoveryNetworkStatsCapability
+	discoveryStatsSeriesCapability
 	curatedValuesCapability
 	curatedRecommendedReadsCapability
 	curatedReadsTopicsCapability
