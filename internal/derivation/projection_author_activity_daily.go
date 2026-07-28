@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -63,6 +64,22 @@ func (h *Handlers) authorAnalyticsWindowList() []int {
 		return h.authorAnalyticsWindows
 	}
 	return defaultAuthorAnalyticsWindows
+}
+
+// maxAuthorAnalyticsWindowDays returns the largest configured window_days
+// value (default 30). Live sweeper incremental daily rebuilds use this as
+// the retain/rebuild horizon so author_engagement_stats windows stay correct.
+func maxAuthorAnalyticsWindowDays(windows []int) int {
+	maxDays := 0
+	for _, w := range windows {
+		if w > maxDays {
+			maxDays = w
+		}
+	}
+	if maxDays <= 0 {
+		return 30
+	}
+	return maxDays
 }
 
 func (h *Handlers) ProjectAuthorAnalytics(ctx context.Context, eventID string) error {
@@ -286,7 +303,7 @@ func (h *Handlers) projectAuthorAnalyticsForPubkey(ctx context.Context, pubkey s
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := h.projectAuthorAnalyticsForPubkeyTx(ctx, tx, pubkey, versionOverride); err != nil {
+	if err := h.projectAuthorAnalyticsForPubkeyTx(ctx, tx, pubkey, versionOverride, false); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -300,6 +317,7 @@ func (h *Handlers) projectAuthorAnalyticsForPubkeyTx(
 	tx pgx.Tx,
 	pubkey string,
 	versionOverride *int,
+	incrementalDaily bool,
 ) error {
 	if err := lockPubkeyForWriteTx(ctx, tx, pubkey, pubkeyLockNamespaceAuthorAnalytics); err != nil {
 		return err
@@ -371,7 +389,17 @@ func (h *Handlers) projectAuthorAnalyticsForPubkeyTx(
 		return err
 	}
 
-	if err := h.rebuildAuthorActivityDailyTx(ctx, tx, pubkey, activityVersion); err != nil {
+	// Live sweeper: rebuild only the recent horizon covering configured
+	// window_days and retain older daily rows (durable engagement history
+	// that engagement retention can no longer recompute from source).
+	// Explicit rebuild/backfill paths pass incrementalDaily=false for a
+	// full DELETE+rebuild.
+	lowerBoundUnix := int64(0)
+	if incrementalDaily {
+		days := maxAuthorAnalyticsWindowDays(h.authorAnalyticsWindowList())
+		lowerBoundUnix = time.Now().UTC().AddDate(0, 0, -days).Unix()
+	}
+	if err := h.rebuildAuthorActivityDailyTx(ctx, tx, pubkey, activityVersion, lowerBoundUnix); err != nil {
 		return err
 	}
 	return h.rebuildAuthorWindowedStatsTx(
@@ -386,9 +414,25 @@ func (h *Handlers) projectAuthorAnalyticsForPubkeyTx(
 	)
 }
 
-func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, pubkey string, version int) error {
-	if _, err := tx.Exec(ctx, `DELETE FROM author_activity_daily WHERE pubkey = $1`, pubkey); err != nil {
-		return fmt.Errorf("delete prior author activity daily rows for %s: %w", pubkey, err)
+func (h *Handlers) rebuildAuthorActivityDailyTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	pubkey string,
+	version int,
+	lowerBoundUnix int64,
+) error {
+	if lowerBoundUnix > 0 {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM author_activity_daily
+			WHERE pubkey = $1
+			  AND activity_date >= to_timestamp($2)::date
+		`, pubkey, lowerBoundUnix); err != nil {
+			return fmt.Errorf("delete recent author activity daily rows for %s: %w", pubkey, err)
+		}
+	} else {
+		if _, err := tx.Exec(ctx, `DELETE FROM author_activity_daily WHERE pubkey = $1`, pubkey); err != nil {
+			return fmt.Errorf("delete prior author activity daily rows for %s: %w", pubkey, err)
+		}
 	}
 
 	_, err := tx.Exec(ctx, `
@@ -415,6 +459,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			FROM events e
 			WHERE e.pubkey = $1
 			  AND e.kind = 1
+			  AND e.created_at >= $4
 			  AND e.created_at <= $3
 			GROUP BY to_timestamp(e.created_at)::date
 		),
@@ -426,6 +471,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			WHERE er.relation = 'reply'
 			  AND target.pubkey = $1
 			  AND e.pubkey <> $1
+			  AND e.created_at >= $4
 			  AND e.created_at <= $3
 			GROUP BY to_timestamp(e.created_at)::date
 			UNION ALL
@@ -434,6 +480,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE target.pubkey = $1
 			  AND re.reactor_pubkey <> $1
+			  AND re.created_at >= $4
 			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date
 			UNION ALL
@@ -442,6 +489,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE target.pubkey = $1
 			  AND re.reposter_pubkey <> $1
+			  AND re.created_at >= $4
 			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date
 			UNION ALL
@@ -450,6 +498,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			WHERE zr.receiver_pubkey = $1
 			  AND zr.sender_pubkey IS NOT NULL
 			  AND zr.sender_pubkey <> $1
+			  AND zr.created_at >= $4
 			  AND zr.created_at <= $3
 			GROUP BY to_timestamp(zr.created_at)::date
 		),
@@ -466,6 +515,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			WHERE er.relation = 'reply'
 			  AND e.pubkey = $1
 			  AND target.pubkey <> $1
+			  AND e.created_at >= $4
 			  AND e.created_at <= $3
 			GROUP BY to_timestamp(e.created_at)::date
 			UNION ALL
@@ -474,6 +524,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE re.reactor_pubkey = $1
 			  AND target.pubkey <> $1
+			  AND re.created_at >= $4
 			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date
 			UNION ALL
@@ -482,6 +533,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE re.reposter_pubkey = $1
 			  AND target.pubkey <> $1
+			  AND re.created_at >= $4
 			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date
 			UNION ALL
@@ -489,6 +541,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 			FROM zap_receipts zr
 			WHERE zr.sender_pubkey = $1
 			  AND zr.receiver_pubkey <> $1
+			  AND zr.created_at >= $4
 			  AND zr.created_at <= $3
 			GROUP BY to_timestamp(zr.created_at)::date
 		),
@@ -535,7 +588,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(ctx context.Context, tx pgx.Tx, 
 		    engagement_given = EXCLUDED.engagement_given,
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
-	`, pubkey, version, maxSaneUnixCreatedAt)
+	`, pubkey, version, maxSaneUnixCreatedAt, lowerBoundUnix)
 	if err != nil {
 		return fmt.Errorf("rebuild author activity daily for %s: %w", pubkey, err)
 	}

@@ -319,7 +319,7 @@ func (h *Handlers) rebuildClaimedAuthorAnalyticsPubkey(ctx context.Context, pubk
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := h.projectAuthorAnalyticsForPubkeyTx(ctx, tx, pubkey, nil); err != nil {
+	if err := h.projectAuthorAnalyticsForPubkeyTx(ctx, tx, pubkey, nil, true); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

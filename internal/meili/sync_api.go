@@ -242,6 +242,14 @@ func (c *Client) FullSync(ctx context.Context, pool *pgxpool.Pool, batchSize int
 	if err := c.EnsureIndexes(ctx); err != nil {
 		return SyncStats{}, err
 	}
+	// Capture Postgres now() (not Go wall clock) so the post-success prune
+	// compares against the same clock that writes pending_meilisearch_syncs.marked_at.
+	// Rows marked after this instant may cover events the OFFSET streams
+	// skipped or documents that changed mid-sync, so they must survive.
+	var syncStartedAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT now()`).Scan(&syncStartedAt); err != nil {
+		return SyncStats{}, fmt.Errorf("capture meilisearch full sync start time: %w", err)
+	}
 	stats := SyncStats{}
 	if err := streamNotes(ctx, pool, batchSize, func(rows []NoteDocument) error {
 		if err := c.UpsertNotes(ctx, rows); err != nil {
@@ -270,5 +278,29 @@ func (c *Client) FullSync(ctx context.Context, pool *pgxpool.Pool, batchSize int
 	}); err != nil {
 		return stats, err
 	}
+	// FullSync already upserted every note/profile/document that was in
+	// Postgres at syncStartedAt. Drop the redundant sweeper backlog so we
+	// don't re-HTTP the same events. Partial failures above return early
+	// without pruning — the pending queue remains the recovery path.
+	if _, err := prunePendingMeilisearchSyncs(ctx, pool, syncStartedAt); err != nil {
+		return stats, err
+	}
 	return stats, nil
+}
+
+// prunePendingMeilisearchSyncs deletes pending sweeper rows whose marked_at
+// is at or before syncStartedAt. Extracted for unit testing without a live
+// Meilisearch instance.
+func prunePendingMeilisearchSyncs(ctx context.Context, pool *pgxpool.Pool, syncStartedAt time.Time) (int64, error) {
+	if pool == nil {
+		return 0, nil
+	}
+	tag, err := pool.Exec(ctx, `
+		DELETE FROM pending_meilisearch_syncs
+		WHERE marked_at <= $1
+	`, syncStartedAt)
+	if err != nil {
+		return 0, fmt.Errorf("prune pending meilisearch syncs after full sync: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }

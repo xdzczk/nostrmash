@@ -62,10 +62,13 @@ func (h *Handlers) MarkMeilisearchDirty(ctx context.Context, eventID string) err
 		return nil
 	}
 
+	// Bump marked_at on conflict so a re-mark during an in-flight FullSync
+	// survives the post-sync prune (which only deletes marked_at <= sync start).
 	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO pending_meilisearch_syncs (event_id)
 		VALUES ($1)
-		ON CONFLICT (event_id) DO NOTHING
+		ON CONFLICT (event_id) DO UPDATE
+		SET marked_at = now()
 	`, eventID); err != nil {
 		return fmt.Errorf("mark meilisearch dirty: %w", err)
 	}
