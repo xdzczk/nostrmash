@@ -17,6 +17,8 @@ var (
 )
 
 // Search returns a best-effort combined event/profile search.
+// Opt-in `include=suggest` folds suggestion profiles/hashtags into the same
+// response so clients can avoid a separate /search/suggest round-trip.
 func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	queryText := strings.TrimSpace(r.URL.Query().Get("q"))
 	if queryText == "" {
@@ -28,6 +30,7 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	includeSuggest := searchIncludeSuggest(r.URL.Query().Get("include"))
 	result, err := h.service.Search(r.Context(), queryText, limit)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
@@ -38,15 +41,20 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{
 		"query":         queryText,
 		"events":        result.Events,
+		"notes":         result.Events,
 		"profiles":      projectedProfiles,
 		"search_engine": result.SearchEngine,
 		"consistency":   "eventual",
+		"section_totals": map[string]any{
+			"notes":    len(result.Events),
+			"profiles": len(projectedProfiles),
+		},
 	}
 	if len(result.Highlights) > 0 {
 		response["highlights"] = result.Highlights
 	}
+	hashtags := make([]map[string]any, 0, len(result.Hashtags))
 	if len(result.Hashtags) > 0 {
-		hashtags := make([]map[string]any, 0, len(result.Hashtags))
 		for _, hashtag := range result.Hashtags {
 			hashtags = append(hashtags, map[string]any{
 				"hashtag":        hashtag.Hashtag,
@@ -62,8 +70,55 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	if len(result.Identities) > 0 {
 		response["identities"] = result.Identities
 	}
+
+	if includeSuggest {
+		suggestLimit := limit
+		if suggestLimit > 20 {
+			suggestLimit = 20
+		}
+		if suggestLimit < 1 {
+			suggestLimit = 8
+		}
+		suggestQuery := normalizeSuggestionQuery(queryText)
+		if len(suggestQuery) >= 2 {
+			if suggestions, suggestErr := h.service.SearchSuggestions(r.Context(), suggestQuery, suggestLimit); suggestErr == nil {
+				suggestedProfiles := projectProfiles(suggestions.Profiles)
+				response["suggested_profiles"] = suggestedProfiles
+				response["profile_suggestions"] = suggestedProfiles
+				suggestedHashtags := make([]map[string]any, 0, len(suggestions.Hashtags))
+				for _, hashtag := range suggestions.Hashtags {
+					suggestedHashtags = append(suggestedHashtags, map[string]any{
+						"hashtag":        hashtag.Hashtag,
+						"event_count":    hashtag.EventCount,
+						"unique_authors": hashtag.UniqueAuthors,
+					})
+				}
+				if len(suggestedHashtags) > 0 {
+					response["suggested_hashtags"] = suggestedHashtags
+					if len(hashtags) == 0 {
+						response["hashtags"] = suggestedHashtags
+						hashtags = suggestedHashtags
+					}
+				}
+				sectionTotals := response["section_totals"].(map[string]any)
+				sectionTotals["suggestions"] = len(suggestedProfiles)
+				sectionTotals["hashtags"] = len(hashtags)
+			}
+		}
+		response["include"] = []string{"suggest"}
+	}
+
 	h.addSearchTrustMetadata(response)
 	writeJSON(w, http.StatusOK, response)
+}
+
+func searchIncludeSuggest(raw string) bool {
+	for _, part := range strings.Split(strings.ToLower(strings.TrimSpace(raw)), ",") {
+		if strings.TrimSpace(part) == "suggest" {
+			return true
+		}
+	}
+	return false
 }
 
 // SearchNotes returns note-only search results with pagination and minimal filtering options.

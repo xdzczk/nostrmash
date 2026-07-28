@@ -642,9 +642,13 @@ paths:
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: include
+          description: Optional comma-separated extras. `suggest` folds suggestion profiles/hashtags into the response.
+          schema: { type: string, enum: [suggest] }
       responses:
         '200':
-          description: Search results with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Search results with trust metadata (`trust_mode`, `trust_applied`, `result_scope`). When `include=suggest`, also returns `suggested_profiles`, `suggested_hashtags`, and `section_totals`.
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/search/notes:

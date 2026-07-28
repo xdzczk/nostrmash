@@ -277,6 +277,59 @@ func TestSearchCombinedRoute_RemainsIntact(t *testing.T) {
 	if body["trust_mode"] != "prefer_trusted" || body["trust_applied"] != true || body["result_scope"] != "prefer_trusted" {
 		t.Fatalf("unexpected combined trust metadata: %#v", body)
 	}
+	if _, ok := body["suggested_profiles"]; ok {
+		t.Fatalf("did not expect suggested_profiles without include=suggest: %#v", body)
+	}
+}
+
+func TestSearchCombinedRoute_IncludeSuggest(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		searchEventsFn: func(_ context.Context, q string, limit int) ([]json.RawMessage, error) {
+			return []json.RawMessage{json.RawMessage(`{"id":"evt_1"}`)}, nil
+		},
+		searchProfilesFn: func(_ context.Context, q string, limit int) ([]store.ProfileProjection, error) {
+			return []store.ProfileProjection{
+				{Pubkey: "pk_1", ProfileJSON: json.RawMessage(`{"name":"one"}`)},
+			}, nil
+		},
+		suggestProfilesFn: func(_ context.Context, q string, limit int) ([]store.ProfileProjection, error) {
+			if q != "nostr" {
+				t.Fatalf("unexpected suggest query: %q", q)
+			}
+			return []store.ProfileProjection{
+				{Pubkey: "pk_suggest", ProfileJSON: json.RawMessage(`{"name":"suggested"}`)},
+			}, nil
+		},
+		suggestHashtagsFn: func(_ context.Context, q string, limit int) ([]storeread.TrendingHashtag, error) {
+			return []storeread.TrendingHashtag{
+				{Hashtag: "nostr", EventCount: 3, UniqueAuthors: 2},
+			}, nil
+		},
+	}, 200)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search?q=nostr&limit=5&include=suggest", nil)
+	rec := httptest.NewRecorder()
+	http.HandlerFunc(h.Search).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode combined response: %v", err)
+	}
+	if _, ok := body["suggested_profiles"]; !ok {
+		t.Fatalf("expected suggested_profiles with include=suggest: %#v", body)
+	}
+	if _, ok := body["suggested_hashtags"]; !ok {
+		t.Fatalf("expected suggested_hashtags with include=suggest: %#v", body)
+	}
+	if _, ok := body["section_totals"]; !ok {
+		t.Fatalf("expected section_totals with include=suggest: %#v", body)
+	}
+	include, _ := body["include"].([]any)
+	if len(include) != 1 || include[0] != "suggest" {
+		t.Fatalf("unexpected include echo: %#v", body["include"])
+	}
 }
 
 func TestSearchProfiles_TrustMetadataByMode(t *testing.T) {
