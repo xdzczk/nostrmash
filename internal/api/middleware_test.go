@@ -98,6 +98,101 @@ func TestRequestPathTemplate_UsesServeMuxPattern(t *testing.T) {
 	}
 }
 
+func TestRequestClientIP_PrefersProxyHeaders(t *testing.T) {
+	cases := []struct {
+		name       string
+		remoteAddr string
+		realIP     string
+		forwarded  string
+		want       string
+	}{
+		{
+			name:       "remote_addr_only",
+			remoteAddr: "10.0.1.6:4321",
+			want:       "10.0.1.6",
+		},
+		{
+			name:       "x_real_ip_beats_remote_addr",
+			remoteAddr: "10.0.1.6:4321",
+			realIP:     "203.0.113.10",
+			want:       "203.0.113.10",
+		},
+		{
+			name:       "x_forwarded_for_leftmost",
+			remoteAddr: "10.0.1.6:4321",
+			forwarded:  "198.51.100.7, 10.0.1.6",
+			want:       "198.51.100.7",
+		},
+		{
+			name:       "x_real_ip_beats_x_forwarded_for",
+			remoteAddr: "10.0.1.6:4321",
+			realIP:     "203.0.113.10",
+			forwarded:  "198.51.100.7, 10.0.1.6",
+			want:       "203.0.113.10",
+		},
+		{
+			name:       "invalid_header_falls_back_to_remote_addr",
+			remoteAddr: "10.0.1.6:4321",
+			realIP:     "not-an-ip",
+			forwarded:  "also-bad, still-bad",
+			want:       "10.0.1.6",
+		},
+		{
+			name:       "ipv6_x_real_ip",
+			remoteAddr: "10.0.1.6:4321",
+			realIP:     "2001:db8::1",
+			want:       "2001:db8::1",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/events/1", nil)
+			req.RemoteAddr = tc.remoteAddr
+			if tc.realIP != "" {
+				req.Header.Set("X-Real-IP", tc.realIP)
+			}
+			if tc.forwarded != "" {
+				req.Header.Set("X-Forwarded-For", tc.forwarded)
+			}
+			if got := requestClientIP(req); got != tc.want {
+				t.Fatalf("requestClientIP() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWithHTTPRateLimit_ProxyHeadersSeparateClients(t *testing.T) {
+	limited := WithHTTPRateLimit(HTTPRateLimitOptions{
+		DefaultRPM:   1,
+		DefaultBurst: 1,
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	// Same proxy RemoteAddr, two distinct forwarded clients — each gets its own
+	// burst token instead of sharing one global bucket.
+	for _, clientIP := range []string{"203.0.113.10", "198.51.100.20"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/events/abc", nil)
+		req.RemoteAddr = "10.0.1.6:1234"
+		req.Header.Set("X-Forwarded-For", clientIP)
+		rec := httptest.NewRecorder()
+		limited.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("client %s unexpectedly limited: status %d", clientIP, rec.Code)
+		}
+	}
+
+	// A repeat from the first client should now be limited.
+	repeat := httptest.NewRequest(http.MethodGet, "/api/v1/events/abc", nil)
+	repeat.RemoteAddr = "10.0.1.6:1234"
+	repeat.Header.Set("X-Forwarded-For", "203.0.113.10")
+	repeatRec := httptest.NewRecorder()
+	limited.ServeHTTP(repeatRec, repeat)
+	if repeatRec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected repeat client to be rate limited, got %d", repeatRec.Code)
+	}
+}
+
 func TestWithHTTPRateLimit_ExemptsHealthAndLimitsSearch(t *testing.T) {
 	limited := WithHTTPRateLimit(HTTPRateLimitOptions{
 		DefaultRPM:   1,

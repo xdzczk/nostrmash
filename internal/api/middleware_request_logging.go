@@ -119,14 +119,45 @@ func requestPathTemplate(r *http.Request) string {
 	return pattern
 }
 
+// requestClientIP returns the best-effort originating client address.
+//
+// Behind Coolify/Traefik the API's RemoteAddr is always the proxy, so a
+// RemoteAddr-only lookup collapses every user into one shared rate-limit
+// bucket. Prefer proxy-set headers when present:
+//  1. X-Real-IP (Traefik sets this to the connecting client)
+//  2. left-most X-Forwarded-For hop (original client)
+//  3. RemoteAddr host
+//
+// Only syntactically valid IPs are accepted from headers so a garbage or
+// spoofed value cannot create unbounded limiter keys.
 func requestClientIP(r *http.Request) string {
-	hostPort := strings.TrimSpace(r.RemoteAddr)
-	if hostPort == "" {
+	if ip := parseClientIP(r.Header.Get("X-Real-IP")); ip != "" {
+		return ip
+	}
+	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+		for _, part := range strings.Split(xff, ",") {
+			if ip := parseClientIP(part); ip != "" {
+				return ip
+			}
+		}
+	}
+	return parseClientIP(r.RemoteAddr)
+}
+
+func parseClientIP(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return ""
 	}
-	host, _, err := net.SplitHostPort(hostPort)
-	if err != nil {
-		return hostPort
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
 	}
-	return host
+	// net.ParseIP rejects bracketed IPv6; strip brackets if present.
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = strings.TrimSuffix(strings.TrimPrefix(value, "["), "]")
+	}
+	if net.ParseIP(value) == nil {
+		return ""
+	}
+	return value
 }
