@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 )
@@ -33,20 +34,15 @@ func (h Handlers) GetTrendingHashtags(w http.ResponseWriter, r *http.Request) {
 		if topicsErr != nil {
 			return nil, topicsErr
 		}
-		hashtags := make([]map[string]any, 0, len(topics))
-		for _, topic := range topics {
-			hashtags = append(hashtags, map[string]any{
-				"hashtag":        topic.Hashtag,
-				"event_count":    topic.EventCount,
-				"unique_authors": topic.UniqueAuthors,
-			})
-		}
+		hashtags := buildDiscoveryHashtagItems(topics)
 		payloadResponse := map[string]any{
 			"surface":     "trending",
 			"hashtags":    hashtags,
 			"window":      windowLabel,
 			"consistency": "eventual",
 		}
+		computedAt := time.Now().UTC()
+		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(hashtags))
 		h.addDiscoveryTrustMetadata(payloadResponse)
 		return payloadResponse, nil
 	}); err != nil {

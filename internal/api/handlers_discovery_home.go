@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 )
@@ -47,6 +48,8 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 			"notes":       payload,
 			"consistency": "eventual",
 		}
+		computedAt := time.Now().UTC()
+		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
 		h.addDiscoveryTrustMetadata(payloadResponse)
 		return payloadResponse, nil
 	}); err != nil {
@@ -100,6 +103,8 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 			"articles":    payload,
 			"consistency": "eventual",
 		}
+		computedAt := time.Now().UTC()
+		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
 		h.addDiscoveryTrustMetadata(payloadResponse)
 		return payloadResponse, nil
 	}); err != nil {
@@ -139,7 +144,7 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 			return nil, conversationsErr
 		}
 		items := make([]map[string]any, 0, len(conversations))
-		for _, conversation := range conversations {
+		for index, conversation := range conversations {
 			item := map[string]any{
 				"root_event_id":     conversation.RootEventID,
 				"author_pubkey":     conversation.AuthorPubkey,
@@ -153,6 +158,7 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 					"replies_7d":  conversation.Replies7d,
 				},
 				"velocity_score": conversation.VelocityScore,
+				"ranking":        buildConversationRanking(conversation, index+1),
 			}
 			item["preview"] = buildNotePreviewPayload(conversation.RootEventID, conversation.Content)
 			items = append(items, item)
@@ -163,6 +169,8 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 			"conversations": items,
 			"consistency":   "eventual",
 		}
+		computedAt := time.Now().UTC()
+		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(items))
 		h.addDiscoveryTrustMetadata(payloadResponse)
 		return payloadResponse, nil
 	}); err != nil {
@@ -196,6 +204,11 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	domainsLimit, err := parseBoundedPositiveInt(r, "domains_limit", 10, 20)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	hashtagStatLimit, err := parseBoundedPositiveInt(r, "hashtag_stat_limit", 10, 50)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -206,6 +219,7 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		"notes_limit":        notesLimit,
 		"hashtags_limit":     hashtagsLimit,
 		"profiles_limit":     profilesLimit,
+		"domains_limit":      domainsLimit,
 		"hashtag_stat_limit": hashtagStatLimit,
 	})
 	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
@@ -224,6 +238,13 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		risingProfiles, risingErr := h.service.GetRisingProfiles(r.Context(), window, profilesLimit, 0)
 		if risingErr != nil {
 			return nil, risingErr
+		}
+		domains, domainsErr := h.service.GetTrendingDomains(r.Context(), window, domainsLimit, 0)
+		if domainsErr != nil {
+			// Domains were added to the home bundle after the original contract.
+			// Keep older/partial deployments backward compatible and let clients
+			// use the standalone domains endpoint as a fallback.
+			domains = nil
 		}
 		networkStats, statsErr := h.service.GetPublicDiscoveryNetworkStats(r.Context(), hashtagStatLimit)
 		if statsErr != nil {
@@ -245,14 +266,8 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		}
 
 		noteItems := buildDiscoveryNoteItems(notes, profileIdentities)
-		hashtagItems := make([]map[string]any, 0, len(hashtags))
-		for _, hashtag := range hashtags {
-			hashtagItems = append(hashtagItems, map[string]any{
-				"hashtag":        hashtag.Hashtag,
-				"event_count":    hashtag.EventCount,
-				"unique_authors": hashtag.UniqueAuthors,
-			})
-		}
+		hashtagItems := buildDiscoveryHashtagItems(hashtags)
+		domainItems := buildDiscoveryDomainItems(domains, windowLabel)
 		trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities)
 		risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities)
 		network := map[string]any{
@@ -283,6 +298,7 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 			"sections": map[string]any{
 				"trending_notes":    noteItems,
 				"trending_hashtags": hashtagItems,
+				"trending_domains":  domainItems,
 				"profiles": map[string]any{
 					"trending": trendingProfileItems,
 					"rising":   risingProfileItems,
@@ -291,6 +307,12 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 			},
 			"consistency": "eventual",
 		}
+		computedAt := networkStats.ComputedAt
+		if computedAt == nil {
+			now := time.Now().UTC()
+			computedAt = &now
+		}
+		addDiscoveryListMeta(payload, windowLabel, computedAt, len(noteItems)+len(hashtagItems)+len(trendingProfileItems)+len(domainItems))
 		h.addDiscoveryTrustMetadata(payload)
 		return payload, nil
 	}); err != nil {

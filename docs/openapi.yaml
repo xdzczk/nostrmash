@@ -734,6 +734,9 @@ paths:
       responses:
         '200':
           description: Ranked trending notes (kind 1 only) with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/long-form/trending:
@@ -753,6 +756,9 @@ paths:
       responses:
         '200':
           description: Ranked trending long-form articles with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
         '400':
           $ref: '#/components/responses/Error'
         '501':
@@ -774,6 +780,9 @@ paths:
       responses:
         '200':
           description: Active conversation hotspots ranked by velocity score and recency
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/home:
@@ -794,11 +803,17 @@ paths:
           name: profiles_limit
           schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
         - in: query
+          name: domains_limit
+          schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
+        - in: query
           name: hashtag_stat_limit
           schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
       responses:
         '200':
-          description: Homepage discovery bundle with bounded notes, hashtags, network summary, and inline-hydrated profile ranking sections
+          description: Homepage discovery bundle with bounded notes, hashtags, domains, network summary, and inline-hydrated profile ranking sections
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryHomeResponse' }
         '400':
           $ref: '#/components/responses/Error'
         '501':
@@ -820,6 +835,9 @@ paths:
       responses:
         '200':
           description: Ranked trending profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) and profile discovery metrics (`recent_post_count`, `recent_reply_count`, `recent_engagement_received`, `recent_new_followers`, `recent_zap_volume_msats`, `recent_active_days`, `recent_activity_at`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/profiles/rising:
@@ -839,6 +857,9 @@ paths:
       responses:
         '200':
           description: Ranked rising profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) and profile discovery metrics (`recent_post_count`, `recent_reply_count`, `recent_engagement_received`, `recent_new_followers`, `recent_zap_volume_msats`, `recent_active_days`, `recent_activity_at`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/profiles/{pubkey}/related:
@@ -877,6 +898,9 @@ paths:
       responses:
         '200':
           description: Ranked trending hashtags with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/hashtags/{hashtag}:
@@ -957,6 +981,9 @@ paths:
       responses:
         '200':
           description: Ranked trending domains with bounded trend windows and trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/domains/{domain}:
@@ -1038,7 +1065,7 @@ paths:
           schema: { type: string, enum: [7d, 30d], default: 7d }
       responses:
         '200':
-          description: Eventual-consistency series with Unix-second points (`{ metric, window, computed_at, points: [{ t, v }], consistency }`)
+          description: "Eventual-consistency series with Unix-second points (`{ metric, window, computed_at, points: [{ t, v }], consistency }`)"
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/network/stats:
@@ -1772,6 +1799,107 @@ components:
       type: http
       scheme: bearer
       bearerFormat: OpaqueToken
+  schemas:
+    DiscoveryEvidence:
+      type: object
+      properties:
+        metric: { type: string }
+        value: { type: number }
+        unit: { type: string }
+      required: [metric, value]
+    DiscoveryReason:
+      type: object
+      properties:
+        code: { type: string }
+        evidence:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveryEvidence' }
+      required: [code]
+    DiscoveryItemRanking:
+      type: object
+      properties:
+        rank: { type: integer, minimum: 1 }
+        score: { type: number }
+        previous_rank: { type: integer, minimum: 1 }
+        rank_delta: { type: integer }
+        reasons:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveryReason' }
+        source_breadth: { type: integer, minimum: 0 }
+        confidence: { type: string, enum: [low, medium, high] }
+      required: [rank, score]
+    DiscoveryListMeta:
+      type: object
+      properties:
+        window: { type: string, enum: [24h, 7d] }
+        computed_at: { type: string, format: date-time }
+        ranking_version: { type: string }
+        confidence: { type: string, enum: [low, medium, high] }
+      required: [window, ranking_version, confidence]
+    DiscoveryRankedItem:
+      type: object
+      additionalProperties: true
+      properties:
+        ranking: { $ref: '#/components/schemas/DiscoveryItemRanking' }
+    DiscoveryListResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        surface: { type: string }
+        window: { type: string, enum: [24h, 7d] }
+        computed_at: { type: string, format: date-time }
+        ranking_version: { type: string }
+        meta: { $ref: '#/components/schemas/DiscoveryListMeta' }
+        notes:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+        articles:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+        profiles:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+        hashtags:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+        domains:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+        conversations:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+    DiscoveryHomeResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        surface: { type: string, const: home }
+        window: { type: string, enum: [24h, 7d] }
+        computed_at: { type: string, format: date-time }
+        ranking_version: { type: string }
+        meta: { $ref: '#/components/schemas/DiscoveryListMeta' }
+        sections:
+          type: object
+          additionalProperties: true
+          properties:
+            trending_notes:
+              type: array
+              items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+            trending_hashtags:
+              type: array
+              items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+            trending_domains:
+              type: array
+              items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+            profiles:
+              type: object
+              additionalProperties: true
+              properties:
+                trending:
+                  type: array
+                  items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+                rising:
+                  type: array
+                  items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
   responses:
     Error:
       description: Structured API error

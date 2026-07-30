@@ -373,6 +373,18 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 			}
 			return []storeread.TrendingProfile{{Pubkey: "pk_b", Score: 7.4}}, nil
 		},
+		getTrendingDomainsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.DomainSummaryProjection, error) {
+			if window != 24*time.Hour || limit != 2 || offset != 0 {
+				t.Fatalf("unexpected domains args: window=%s limit=%d offset=%d", window, limit, offset)
+			}
+			return []store.DomainSummaryProjection{{
+				Domain: "example.com",
+				Activity: store.DomainActivityStatsProjection{
+					Last24h: store.DomainActivityProjection{LinkCount: 3, NoteCount: 2, UniqueAuthors: 2},
+					Last7d:  store.DomainActivityProjection{LinkCount: 7, NoteCount: 5, UniqueAuthors: 4},
+				},
+			}}, nil
+		},
 		getPublicNetworkStatsFn: func(_ context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
 			if hashtagLimit != 7 {
 				t.Fatalf("unexpected hashtag stat limit: %d", hashtagLimit)
@@ -390,7 +402,7 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/discovery/home", h.GetDiscoveryHome)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/home?window=24h&notes_limit=3&hashtags_limit=2&profiles_limit=2&hashtag_stat_limit=7", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/home?window=24h&notes_limit=3&hashtags_limit=2&profiles_limit=2&domains_limit=2&hashtag_stat_limit=7", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -413,6 +425,10 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 	if _, ok := sections["trending_hashtags"].([]any); !ok {
 		t.Fatalf("missing trending_hashtags section: %#v", sections)
 	}
+	domains, ok := sections["trending_domains"].([]any)
+	if !ok || len(domains) != 1 {
+		t.Fatalf("missing trending_domains section: %#v", sections)
+	}
 	profiles, ok := sections["profiles"].(map[string]any)
 	if !ok {
 		t.Fatalf("missing profiles section: %#v", sections)
@@ -425,6 +441,15 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 	}
 	if _, ok := sections["network_summary"].(map[string]any); !ok {
 		t.Fatalf("missing network_summary section: %#v", sections)
+	}
+	meta, ok := body["meta"].(map[string]any)
+	if !ok || meta["ranking_version"] != discoveryRankingVersion {
+		t.Fatalf("missing discovery metadata: %#v", body)
+	}
+	notes := sections["trending_notes"].([]any)
+	firstNote := notes[0].(map[string]any)
+	if _, ok := firstNote["ranking"].(map[string]any); !ok {
+		t.Fatalf("missing note ranking metadata: %#v", firstNote)
 	}
 }
 

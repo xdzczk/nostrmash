@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 )
@@ -134,6 +135,8 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 			"profiles":    profiles,
 			"consistency": "eventual",
 		}
+		computedAt := time.Now().UTC()
+		addDiscoveryListMeta(payload, windowLabel, &computedAt, len(profiles))
 		h.addDiscoveryTrustMetadata(payload)
 		return payload, nil
 	}); err != nil {

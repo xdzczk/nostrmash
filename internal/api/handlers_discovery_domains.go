@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 )
@@ -34,34 +35,15 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		if rowsErr != nil {
 			return nil, rowsErr
 		}
-		domains := make([]map[string]any, 0, len(rows))
-		for _, row := range rows {
-			domains = append(domains, map[string]any{
-				"domain":          row.Domain,
-				"latest_event_at": row.LatestEventAt,
-				"link_count":      row.Activity.Last7d.LinkCount,
-				"note_count":      row.Activity.Last7d.NoteCount,
-				"unique_authors":  row.Activity.Last7d.UniqueAuthors,
-				"trend_windows": map[string]any{
-					"24h": map[string]any{
-						"link_count":     row.Activity.Last24h.LinkCount,
-						"note_count":     row.Activity.Last24h.NoteCount,
-						"unique_authors": row.Activity.Last24h.UniqueAuthors,
-					},
-					"7d": map[string]any{
-						"link_count":     row.Activity.Last7d.LinkCount,
-						"note_count":     row.Activity.Last7d.NoteCount,
-						"unique_authors": row.Activity.Last7d.UniqueAuthors,
-					},
-				},
-			})
-		}
+		domains := buildDiscoveryDomainItems(rows, windowLabel)
 		payload := map[string]any{
 			"surface":     "trending",
 			"window":      windowLabel,
 			"domains":     domains,
 			"consistency": "eventual",
 		}
+		computedAt := time.Now().UTC()
+		addDiscoveryListMeta(payload, windowLabel, &computedAt, len(domains))
 		h.addDiscoveryTrustMetadata(payload)
 		return payload, nil
 	}); err != nil {

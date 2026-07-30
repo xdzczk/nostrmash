@@ -197,6 +197,34 @@ type TrendingNote struct {
 	Score         float64 `json:"score"`
 }
 
+type DiscoveryEvidence struct {
+	Metric string  `json:"metric"`
+	Value  float64 `json:"value"`
+	Unit   string  `json:"unit,omitempty"`
+}
+
+type DiscoveryReason struct {
+	Code     string              `json:"code"`
+	Evidence []DiscoveryEvidence `json:"evidence,omitempty"`
+}
+
+type DiscoveryItemRanking struct {
+	Rank          int               `json:"rank"`
+	Score         float64           `json:"score"`
+	PreviousRank  *int              `json:"previous_rank,omitempty"`
+	RankDelta     *int              `json:"rank_delta,omitempty"`
+	Reasons       []DiscoveryReason `json:"reasons,omitempty"`
+	SourceBreadth *int64            `json:"source_breadth,omitempty"`
+	Confidence    string            `json:"confidence,omitempty"`
+}
+
+type DiscoveryListMeta struct {
+	Window         string     `json:"window"`
+	ComputedAt     *time.Time `json:"computed_at,omitempty"`
+	RankingVersion string     `json:"ranking_version"`
+	Confidence     string     `json:"confidence"`
+}
+
 type HotConversation struct {
 	RootEventID      string  `json:"root_event_id"`
 	AuthorPubkey     string  `json:"author_pubkey"`
