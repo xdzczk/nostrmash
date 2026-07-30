@@ -9,6 +9,10 @@ import (
 
 var domainLabelPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
+var discoveryProductAliases = map[string]string{
+	"youtu.be": "youtube.com",
+}
+
 // NormalizeHost normalizes a host/domain token into canonical lowercase form.
 func NormalizeHost(value string) string {
 	host := strings.ToLower(strings.TrimSpace(value))
@@ -49,4 +53,21 @@ func NormalizeLookupValue(value string) string {
 		}
 	}
 	return NormalizeHost(trimmed)
+}
+
+// CanonicalizeDiscoveryDomain maps an observed host or URL-like value to the
+// backend-owned identity used by discovery rankings and domain lookups. It
+// intentionally does not collapse arbitrary subdomains or registrable domains.
+func CanonicalizeDiscoveryDomain(value string) string {
+	host := NormalizeLookupValue(value)
+	if host == "" {
+		return ""
+	}
+	if strings.HasPrefix(host, "www.") {
+		host = strings.TrimPrefix(host, "www.")
+	}
+	if canonical, ok := discoveryProductAliases[host]; ok {
+		return canonical
+	}
+	return host
 }

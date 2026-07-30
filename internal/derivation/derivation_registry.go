@@ -37,7 +37,7 @@ var RegisteredDerivations = []RegisteredDerivation{
 	{Name: DerivationFollowerEdges, Version: FollowerEdgesVersion, Description: "Project follower edges from latest contact_lists_latest state"},
 	{Name: DerivationRelayListsLatest, Version: RelayListsLatestVersion, Description: "Project relay_lists_latest from kind=10002 replaceables"},
 	{Name: DerivationEventHashtags, Version: EventHashtagsVersion, Description: "Project normalized hashtags from note-like events"},
-	{Name: DerivationEventURLs, Version: EventURLsVersion, Description: "Project normalized URLs/domains from note-like events"},
+	{Name: DerivationEventURLs, Version: EventURLsVersion, Description: "Project normalized URLs with observed and canonical domains from note-like events"},
 	{Name: DerivationNoteDiscoveryStats, Version: NoteDiscoveryStatsVersion, Description: "Project per-note discovery counters and rolling scores"},
 	{Name: DerivationProfileDiscoveryStats, Version: ProfileDiscoveryStatsVersion, Description: "Project per-profile discovery counters and rolling scores"},
 	{Name: DerivationTrustedNoteDiscovery, Version: TrustedNoteDiscoveryVersion, Description: "Project trust-qualified discovery metadata for note candidates"},

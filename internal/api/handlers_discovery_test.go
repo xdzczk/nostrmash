@@ -1320,7 +1320,7 @@ func TestDomainPageRoutes_TrendingSummaryAndNotes(t *testing.T) {
 func TestDomainPageRoutes_NormalizationMissingAndValidation(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
 		getDomainSummaryFn: func(_ context.Context, domain string, _, _ int) (store.DomainSummaryProjection, error) {
-			if domain == "example.com" {
+			if domain == "example.com" || domain == "youtube.com" {
 				return store.DomainSummaryProjection{
 					Domain:   domain,
 					Activity: store.DomainActivityStatsProjection{All: store.DomainActivityProjection{LinkCount: 1, NoteCount: 1, UniqueAuthors: 1}},
@@ -1344,6 +1344,22 @@ func TestDomainPageRoutes_NormalizationMissingAndValidation(t *testing.T) {
 	mux.ServeHTTP(okRec, okReq)
 	if okRec.Code != http.StatusOK {
 		t.Fatalf("unexpected status for normalized domain: got %d want %d", okRec.Code, http.StatusOK)
+	}
+
+	aliasReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/domains/www.youtu.be", nil)
+	aliasRec := httptest.NewRecorder()
+	mux.ServeHTTP(aliasRec, aliasReq)
+	if aliasRec.Code != http.StatusOK {
+		t.Fatalf("unexpected status for canonical domain alias: got %d want %d", aliasRec.Code, http.StatusOK)
+	}
+	var aliasBody struct {
+		Domain string `json:"domain"`
+	}
+	if err := json.Unmarshal(aliasRec.Body.Bytes(), &aliasBody); err != nil {
+		t.Fatalf("decode canonical domain alias response: %v", err)
+	}
+	if aliasBody.Domain != "youtube.com" {
+		t.Fatalf("unexpected canonical domain alias response: got=%q want=youtube.com", aliasBody.Domain)
 	}
 
 	missingReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/domains/missing.example", nil)

@@ -77,7 +77,7 @@ const (
 	FollowerEdgesVersion           = 1
 	RelayListsLatestVersion        = 1
 	EventHashtagsVersion           = 1
-	EventURLsVersion               = 1
+	EventURLsVersion               = 2
 	NoteDiscoveryStatsVersion      = 3
 	ProfileDiscoveryStatsVersion   = 1
 	TrustedNoteDiscoveryVersion    = 1

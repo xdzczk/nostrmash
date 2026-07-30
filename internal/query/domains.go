@@ -157,7 +157,7 @@ func (s Service) GetDomainNotes(
 }
 
 func normalizeDomainToken(value string) (string, error) {
-	normalized := domainnorm.NormalizeLookupValue(value)
+	normalized := domainnorm.CanonicalizeDiscoveryDomain(value)
 	if normalized == "" {
 		return "", fmt.Errorf("domain is invalid: %w", ErrInvalidDomain)
 	}

@@ -133,6 +133,81 @@ func TestDomainSummaryAndNotesQueryBehavior(t *testing.T) {
 	}
 }
 
+func TestDomainQueries_AggregateAndResolveCanonicalAliases(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+	events := []model.Event{
+		newDomainEvent("dom_alias_1", "author_a", now.Add(-2*time.Hour), "https://youtu.be/one"),
+		newDomainEvent("dom_alias_2", "author_b", now.Add(-time.Hour), "https://www.youtube.com/watch?v=two"),
+	}
+	for _, event := range events {
+		tags := extractTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+		if err := handlers.ProjectNoteDiscoveryStats(ctx, event.ID); err != nil {
+			t.Fatalf("project note stats %s: %v", event.ID, err)
+		}
+	}
+
+	links, err := pgStore.GetEventLinkedDomains(ctx, "dom_alias_1", 10)
+	if err != nil {
+		t.Fatalf("GetEventLinkedDomains: %v", err)
+	}
+	if len(links) != 1 || links[0].Domain != "youtu.be" {
+		t.Fatalf("expected observed event-level domain, got %#v", links)
+	}
+
+	top, err := pgStore.GetTopDomains(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTopDomains: %v", err)
+	}
+	if len(top) != 1 || top[0].Domain != "youtube.com" || top[0].NoteCount != 2 || top[0].UniqueAuthors != 2 {
+		t.Fatalf("expected one canonical aggregate, got %#v", top)
+	}
+
+	authorTop, err := pgStore.GetTopDomainsByAuthor(ctx, "author_a", 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTopDomainsByAuthor: %v", err)
+	}
+	if len(authorTop) != 1 || authorTop[0].Domain != "youtube.com" {
+		t.Fatalf("expected canonical author aggregate, got %#v", authorTop)
+	}
+
+	trending, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingDomains: %v", err)
+	}
+	if len(trending) != 1 || trending[0].Domain != "youtube.com" {
+		t.Fatalf("expected one canonical trending domain, got %#v", trending)
+	}
+
+	summary, err := pgStore.GetDomainSummary(ctx, "https://www.youtu.be/anything", 5, 5)
+	if err != nil {
+		t.Fatalf("GetDomainSummary by alias: %v", err)
+	}
+	if summary.Domain != "youtube.com" || summary.Activity.All.NoteCount != 2 {
+		t.Fatalf("unexpected canonical summary: %#v", summary)
+	}
+
+	notes, err := pgStore.GetDomainNotes(ctx, "www.youtube.com", "latest", "24h", 10, 0)
+	if err != nil {
+		t.Fatalf("GetDomainNotes by alias: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("expected notes from both aliases, got %#v", notes)
+	}
+}
+
 func TestGetTrendingDomains_PrioritizesUniqueAuthorsAndDiversity(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

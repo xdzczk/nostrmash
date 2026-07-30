@@ -114,6 +114,85 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 	if secondRunCount != firstRunCount {
 		t.Fatalf("expected audit row count to stay %d, got %d", firstRunCount, secondRunCount)
 	}
+
+	var canonicalDomainNullable string
+	if err := pool.QueryRow(ctx, `
+		SELECT is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'event_urls'
+		  AND column_name = 'canonical_domain'
+	`).Scan(&canonicalDomainNullable); err != nil {
+		t.Fatalf("query event_urls canonical_domain column: %v", err)
+	}
+	if canonicalDomainNullable != "NO" {
+		t.Fatalf("expected event_urls.canonical_domain to be NOT NULL, got is_nullable=%q", canonicalDomainNullable)
+	}
+
+	var canonicalDomainIndexExists bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('idx_event_urls_canonical_domain_created_at') IS NOT NULL`).Scan(&canonicalDomainIndexExists); err != nil {
+		t.Fatalf("check canonical domain index: %v", err)
+	}
+	if !canonicalDomainIndexExists {
+		t.Fatal("expected canonical domain index to exist")
+	}
+}
+
+func TestCanonicalDomainMigrationBackfillsExistingAliases(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+
+	if _, err := pool.Exec(ctx, `
+		ALTER TABLE event_urls ALTER COLUMN canonical_domain DROP NOT NULL;
+		INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json)
+		VALUES
+			('migration_alias_1', 'author_a', 1, 1, 'sig', '', '{}'),
+			('migration_alias_2', 'author_b', 2, 1, 'sig', '', '{}');
+		INSERT INTO event_urls (
+			event_id, author_pubkey, created_at, url, domain, canonical_domain, derivation_version
+		)
+		VALUES
+			('migration_alias_1', 'author_a', 1, 'https://youtu.be/a', 'youtu.be', NULL, 1),
+			('migration_alias_2', 'author_b', 2, 'https://www.example.com/b', 'www.example.com', NULL, 1);
+	`); err != nil {
+		t.Fatalf("seed pre-canonical event URLs: %v", err)
+	}
+
+	migrationSQL, err := migrations.Files.ReadFile("000060_event_urls_canonical_domain.sql")
+	if err != nil {
+		t.Fatalf("read canonical-domain migration: %v", err)
+	}
+	if _, err := pool.Exec(ctx, string(migrationSQL)); err != nil {
+		t.Fatalf("rerun canonical-domain migration: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT canonical_domain
+		FROM event_urls
+		WHERE event_id LIKE 'migration_alias_%'
+		ORDER BY event_id
+	`)
+	if err != nil {
+		t.Fatalf("query canonical-domain backfill: %v", err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var domain string
+		if err := rows.Scan(&domain); err != nil {
+			t.Fatalf("scan canonical-domain backfill: %v", err)
+		}
+		got = append(got, domain)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read canonical-domain backfill: %v", err)
+	}
+	want := []string{"youtube.com", "example.com"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("unexpected canonical-domain backfill: got=%v want=%v", got, want)
+	}
 }
 
 func TestMigrateDetectsChecksumDrift(t *testing.T) {

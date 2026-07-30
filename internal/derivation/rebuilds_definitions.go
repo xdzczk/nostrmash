@@ -103,7 +103,7 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 		return projectionDefinition{
 			name:           DerivationEventURLs,
 			compiled:       EventURLsVersion,
-			description:    "Project normalized URLs/domains from note-like events",
+			description:    "Project normalized URLs with observed and canonical domains from note-like events",
 			rebuildProject: h.projectEventURLsWithVersion,
 		}, nil
 	case DerivationNoteDiscoveryStats:

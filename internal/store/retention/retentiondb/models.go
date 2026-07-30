@@ -247,13 +247,16 @@ type EventTag struct {
 }
 
 type EventUrl struct {
-	EventID           string
-	AuthorPubkey      string
-	CreatedAt         int64
-	Url               string
+	EventID      string
+	AuthorPubkey string
+	CreatedAt    int64
+	Url          string
+	// Normalized hostname observed in the event URL, retained for event-level provenance.
 	Domain            string
 	DerivationVersion int32
 	ProjectedAt       pgtype.Timestamptz
+	// Backend-owned discovery identity used for domain aggregation and lookup.
+	CanonicalDomain string
 }
 
 type FollowerEdge struct {

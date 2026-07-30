@@ -19,8 +19,9 @@ var (
 )
 
 type normalizedEventURL struct {
-	URL    string
-	Domain string
+	URL             string
+	Domain          string
+	CanonicalDomain string
 }
 
 func (h *Handlers) ProjectEventURLs(ctx context.Context, eventID string) error {
@@ -60,7 +61,7 @@ func (h *Handlers) projectEventURLsWithVersion(ctx context.Context, eventID stri
 		tx,
 		DerivationEventURLs,
 		EventURLsVersion,
-		"Project normalized URLs/domains from note-like events",
+		"Project normalized URLs with observed and canonical domains from note-like events",
 		versionOverride,
 	)
 	if err != nil {
@@ -80,16 +81,17 @@ func (h *Handlers) projectEventURLsWithVersion(ctx context.Context, eventID stri
 	for _, row := range urls {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO event_urls (
-				event_id, author_pubkey, created_at, url, domain, derivation_version
+				event_id, author_pubkey, created_at, url, domain, canonical_domain, derivation_version
 			)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (event_id, url) DO UPDATE
 			SET author_pubkey = EXCLUDED.author_pubkey,
 			    created_at = EXCLUDED.created_at,
 			    domain = EXCLUDED.domain,
+			    canonical_domain = EXCLUDED.canonical_domain,
 			    derivation_version = EXCLUDED.derivation_version,
 			    projected_at = now()
-		`, eventID, authorPubkey, createdAt, row.URL, row.Domain, writeVersion); err != nil {
+		`, eventID, authorPubkey, createdAt, row.URL, row.Domain, row.CanonicalDomain, writeVersion); err != nil {
 			return fmt.Errorf("upsert event url: %w", err)
 		}
 	}
@@ -122,8 +124,9 @@ func extractNormalizedEventURLs(content string, maxLinks int) []normalizedEventU
 		}
 		seen[normalized] = struct{}{}
 		out = append(out, normalizedEventURL{
-			URL:    normalized,
-			Domain: domain,
+			URL:             normalized,
+			Domain:          domain,
+			CanonicalDomain: domainnorm.CanonicalizeDiscoveryDomain(domain),
 		})
 	}
 	slices.SortFunc(out, func(a, b normalizedEventURL) int {

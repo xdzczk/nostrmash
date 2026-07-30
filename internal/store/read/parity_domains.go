@@ -108,20 +108,20 @@ func (s *Read) getTopDomains(
 	if pubkey == nil {
 		query := fmt.Sprintf(`
 			SELECT
-				domain,
+				canonical_domain,
 				COUNT(*)::bigint AS link_count,
 				COUNT(DISTINCT event_id)::bigint AS note_count,
 				COUNT(DISTINCT author_pubkey)::bigint AS unique_authors
 			FROM event_urls
 			WHERE created_at >= $1
 			  AND %s
-			GROUP BY domain
+			GROUP BY canonical_domain
 			ORDER BY
 				unique_authors DESC,
 				(COUNT(DISTINCT author_pubkey))::double precision / GREATEST(COUNT(DISTINCT event_id), 1) DESC,
 				note_count DESC,
 				link_count DESC,
-				domain ASC
+				canonical_domain ASC
 			LIMIT $2 OFFSET $3
 		`, domainMediaURLFilterClause)
 		rows, err := s.pool.Query(ctx, query, minCreatedAt, limit, offset)
@@ -133,7 +133,7 @@ func (s *Read) getTopDomains(
 	}
 	query := fmt.Sprintf(`
 		SELECT
-			domain,
+			canonical_domain,
 			COUNT(*)::bigint AS link_count,
 			COUNT(DISTINCT event_id)::bigint AS note_count,
 			COUNT(DISTINCT author_pubkey)::bigint AS unique_authors
@@ -141,11 +141,11 @@ func (s *Read) getTopDomains(
 		WHERE author_pubkey = $1
 		  AND created_at >= $2
 		  AND %s
-		GROUP BY domain
+		GROUP BY canonical_domain
 		ORDER BY
 			note_count DESC,
 			link_count DESC,
-			domain ASC
+			canonical_domain ASC
 		LIMIT $3 OFFSET $4
 	`, domainMediaURLFilterClause)
 	rows, err := s.pool.Query(ctx, query, *pubkey, minCreatedAt, limit, offset)
@@ -183,7 +183,7 @@ func (s *Read) GetTrendingDomains(
 	windowFloor := nowUnix - int64(window/time.Second)
 	query := fmt.Sprintf(`
 		SELECT
-			domain,
+			canonical_domain,
 			MAX(created_at),
 			COUNT(*) FILTER (WHERE created_at >= $1),
 			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $1),
@@ -194,14 +194,14 @@ func (s *Read) GetTrendingDomains(
 		FROM event_urls
 		WHERE created_at >= $3
 		  AND %s
-		GROUP BY domain
+		GROUP BY canonical_domain
 		ORDER BY
 			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3) DESC,
 			(COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3))::double precision /
 				GREATEST(COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3), 1) DESC,
 			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3) DESC,
 			COUNT(*) FILTER (WHERE created_at >= $3) DESC,
-			domain ASC
+			canonical_domain ASC
 		LIMIT $4 OFFSET $5
 	`, domainMediaURLFilterClause)
 	rows, err := s.pool.Query(ctx, query, nowUnix-day, nowUnix-(7*day), windowFloor, limit, offset)
@@ -242,7 +242,7 @@ func (s *Read) GetDomainSummary(
 	if s == nil || s.pool == nil {
 		return DomainSummaryProjection{}, fmt.Errorf("store is not initialized")
 	}
-	normalized := domainnorm.NormalizeLookupValue(domain)
+	normalized := domainnorm.CanonicalizeDiscoveryDomain(domain)
 	if normalized == "" {
 		return DomainSummaryProjection{}, ErrNotFound
 	}
@@ -278,7 +278,7 @@ func (s *Read) GetDomainSummary(
 			COUNT(DISTINCT event_id),
 			COUNT(DISTINCT author_pubkey)
 		FROM event_urls
-		WHERE domain = $1
+		WHERE canonical_domain = $1
 		  AND %s
 	`, domainMediaURLFilterClause)
 	if err := s.pool.QueryRow(ctx, query, normalized, nowUnix-day, nowUnix-(7*day), nowUnix-(30*day)).Scan(
@@ -327,7 +327,7 @@ func (s *Read) GetDomainNotes(
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
-	normalized := domainnorm.NormalizeLookupValue(domain)
+	normalized := domainnorm.CanonicalizeDiscoveryDomain(domain)
 	if normalized == "" {
 		return nil, ErrNotFound
 	}
@@ -383,7 +383,7 @@ func (s *Read) GetDomainNotes(
 		FROM (
 			SELECT DISTINCT event_id
 			FROM event_urls
-			WHERE domain = $1
+			WHERE canonical_domain = $1
 			  AND %s
 		) d
 		JOIN note_discovery_stats s ON s.event_id = d.event_id
@@ -426,7 +426,7 @@ func (s *Read) GetDomainNotes(
 
 func (s *Read) hasDomain(ctx context.Context, domain string) (bool, error) {
 	var exists bool
-	query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM event_urls WHERE domain = $1 AND %s)`, domainMediaURLFilterClause)
+	query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM event_urls WHERE canonical_domain = $1 AND %s)`, domainMediaURLFilterClause)
 	if err := s.pool.QueryRow(ctx, query, domain).Scan(&exists); err != nil {
 		return false, fmt.Errorf("check domain existence: %w", err)
 	}
