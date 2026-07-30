@@ -244,7 +244,7 @@ func (c *Client) FullSync(ctx context.Context, pool *pgxpool.Pool, batchSize int
 	}
 	// Capture Postgres now() (not Go wall clock) so the post-success prune
 	// compares against the same clock that writes pending_meilisearch_syncs.marked_at.
-	// Rows marked after this instant may cover events the OFFSET streams
+	// Rows marked after this instant may cover events the keyset streams
 	// skipped or documents that changed mid-sync, so they must survive.
 	var syncStartedAt time.Time
 	if err := pool.QueryRow(ctx, `SELECT now()`).Scan(&syncStartedAt); err != nil {

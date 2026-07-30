@@ -6,18 +6,37 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func streamNotes(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume func([]NoteDocument) error) error {
-	offset := 0
+	// Keyset on (created_at DESC, id DESC). OFFSET pagination was timing out
+	// FullSync in production: deep pages were multi-minute sequential scans.
+	var (
+		haveCursor bool
+		cursorAt   int64
+		cursorID   string
+	)
 	for {
-		rows, err := pool.Query(ctx, noteDocumentSelect+`
-			WHERE e.kind IN (1, 30023)
-			ORDER BY e.created_at DESC, e.id DESC
-			LIMIT $1
-			OFFSET $2
-		`, batchSize, offset)
+		var (
+			rows pgx.Rows
+			err  error
+		)
+		if !haveCursor {
+			rows, err = pool.Query(ctx, noteDocumentSelect+`
+				WHERE e.kind IN (1, 30023)
+				ORDER BY e.created_at DESC, e.id DESC
+				LIMIT $1
+			`, batchSize)
+		} else {
+			rows, err = pool.Query(ctx, noteDocumentSelect+`
+				WHERE e.kind IN (1, 30023)
+				  AND (e.created_at, e.id) < ($2::bigint, $3::text)
+				ORDER BY e.created_at DESC, e.id DESC
+				LIMIT $1
+			`, batchSize, cursorAt, cursorID)
+		}
 		if err != nil {
 			return fmt.Errorf("query notes for meilisearch sync: %w", err)
 		}
@@ -41,14 +60,22 @@ func streamNotes(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume
 		if err := consume(batch); err != nil {
 			return err
 		}
-		offset += len(batch)
+		last := batch[len(batch)-1]
+		haveCursor = true
+		cursorAt = last.CreatedAt
+		cursorID = last.ID
 	}
 }
 
 func streamProfiles(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume func([]ProfileDocument) error) error {
-	offset := 0
-	for {
-		rows, err := pool.Query(ctx, `
+	// Keyset on (metadata_created_at DESC, pubkey ASC). Mixed sort directions
+	// mean the continue predicate is not a single row comparison.
+	var (
+		haveCursor bool
+		cursorAt   int64
+		cursorPK   string
+	)
+	const profileSelect = `
 			SELECT
 				p.pubkey,
 				p.metadata_event_id,
@@ -61,10 +88,25 @@ func streamProfiles(ctx context.Context, pool *pgxpool.Pool, batchSize int, cons
 				coalesce(stats.follower_count, 0) + coalesce(stats.note_count, 0)
 			FROM profiles_latest p
 			LEFT JOIN profile_public_stats stats ON stats.pubkey = p.pubkey
-			ORDER BY p.metadata_created_at DESC, p.pubkey ASC
-			LIMIT $1
-			OFFSET $2
-		`, batchSize, offset)
+	`
+	for {
+		var (
+			rows pgx.Rows
+			err  error
+		)
+		if !haveCursor {
+			rows, err = pool.Query(ctx, profileSelect+`
+				ORDER BY p.metadata_created_at DESC, p.pubkey ASC
+				LIMIT $1
+			`, batchSize)
+		} else {
+			rows, err = pool.Query(ctx, profileSelect+`
+				WHERE p.metadata_created_at < $2::bigint
+				   OR (p.metadata_created_at = $2::bigint AND p.pubkey > $3::text)
+				ORDER BY p.metadata_created_at DESC, p.pubkey ASC
+				LIMIT $1
+			`, batchSize, cursorAt, cursorPK)
+		}
 		if err != nil {
 			return fmt.Errorf("query profiles for meilisearch sync: %w", err)
 		}
@@ -104,29 +146,59 @@ func streamProfiles(ctx context.Context, pool *pgxpool.Pool, batchSize int, cons
 		if err := consume(batch); err != nil {
 			return err
 		}
-		offset += len(batch)
+		last := batch[len(batch)-1]
+		haveCursor = true
+		cursorAt = last.MetadataCreatedAt
+		cursorPK = last.Pubkey
 	}
 }
 
 func streamSearchDocuments(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume func([]SearchDocument) error) error {
-	offset := 0
+	// Keyset on (entity_type ASC, entity_id ASC).
+	var (
+		haveCursor   bool
+		cursorType   string
+		cursorEntity string
+	)
 	for {
-		rows, err := pool.Query(ctx, `
-			SELECT
-				entity_type,
-				entity_id,
-				coalesce(title, ''),
-				coalesce(body, ''),
-				aliases,
-				identity_tokens,
-				freshness,
-				popularity,
-				trust_score
-			FROM search_documents
-			ORDER BY entity_type ASC, entity_id ASC
-			LIMIT $1
-			OFFSET $2
-		`, batchSize, offset)
+		var (
+			rows pgx.Rows
+			err  error
+		)
+		if !haveCursor {
+			rows, err = pool.Query(ctx, `
+				SELECT
+					entity_type,
+					entity_id,
+					coalesce(title, ''),
+					coalesce(body, ''),
+					aliases,
+					identity_tokens,
+					freshness,
+					popularity,
+					trust_score
+				FROM search_documents
+				ORDER BY entity_type ASC, entity_id ASC
+				LIMIT $1
+			`, batchSize)
+		} else {
+			rows, err = pool.Query(ctx, `
+				SELECT
+					entity_type,
+					entity_id,
+					coalesce(title, ''),
+					coalesce(body, ''),
+					aliases,
+					identity_tokens,
+					freshness,
+					popularity,
+					trust_score
+				FROM search_documents
+				WHERE (entity_type, entity_id) > ($2::text, $3::text)
+				ORDER BY entity_type ASC, entity_id ASC
+				LIMIT $1
+			`, batchSize, cursorType, cursorEntity)
+		}
 		if err != nil {
 			return fmt.Errorf("query search_documents for meilisearch sync: %w", err)
 		}
@@ -165,6 +237,9 @@ func streamSearchDocuments(ctx context.Context, pool *pgxpool.Pool, batchSize in
 		if err := consume(batch); err != nil {
 			return err
 		}
-		offset += len(batch)
+		last := batch[len(batch)-1]
+		haveCursor = true
+		cursorType = last.EntityType
+		cursorEntity = last.EntityID
 	}
 }
