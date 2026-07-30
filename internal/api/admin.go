@@ -231,7 +231,10 @@ func (h AdminHandlers) TriggerMeilisearchSync(w http.ResponseWriter, r *http.Req
 	if !wait {
 		startedAt := time.Now().UTC()
 		go func(batch int) {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			// Full corpus sync streams notes + profiles + search_documents and
+			// can run for several hours on a large production index. 30m was
+			// cancelling mid-stream and leaving Meilisearch only partially filled.
+			bgCtx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
 			defer cancel()
 			if _, syncErr := h.service.TriggerMeilisearchSync(bgCtx, batch); syncErr != nil {
 				log.Printf("admin_meilisearch_sync_async_failed: batch_size=%d err=%v", batch, syncErr)

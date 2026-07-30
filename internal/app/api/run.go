@@ -107,7 +107,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 			// worker restart together (e.g. a full redeploy) only one of
 			// them actually streams the corpus into Meilisearch instead of
 			// both doing it concurrently.
-			syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			syncCtx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
 			defer cancel()
 			syncStats, ran, syncErr := meiliClient.RunStartupFullSyncIfNeeded(syncCtx, pool, 1000)
 			if syncErr != nil {
