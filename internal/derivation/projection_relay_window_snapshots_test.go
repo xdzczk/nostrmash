@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/derivation"
+	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/testutil/derivationbootstrap"
 )
@@ -81,9 +82,9 @@ func TestRefreshRelayWindowSnapshots_PopulatesAndIsIdempotent(t *testing.T) {
 		hashtag string
 		content string
 	}{
-		{"note_a", "author_1", "wss://relay.one", "nostr", "the quick brown fox jumps over the lazy dog and you"},
-		{"note_b", "author_2", "wss://relay.one", "nostr", "have that from your window when there was this thing"},
-		{"note_c", "author_3", "wss://relay.two", "bitcoin", "what will you do about this and that for the people"},
+		{"note_a", "author_1", "wss://relay.one", "nostr", "the quick brown fox jumps over the lazy dog and you https://alpha.example/1"},
+		{"note_b", "author_2", "wss://relay.one", "nostr", "have that from your window when there was this thing https://alpha.example/2"},
+		{"note_c", "author_3", "wss://relay.two", "bitcoin", "what will you do about this and that for the people https://beta.example/1"},
 	}
 	for i, n := range notes {
 		tags := [][]string{{"t", n.hashtag}}
@@ -94,6 +95,16 @@ func TestRefreshRelayWindowSnapshots_PopulatesAndIsIdempotent(t *testing.T) {
 		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
 			t.Fatalf("derive event bundle %s: %v", n.id, err)
 		}
+		// The trending hashtags/domains snapshots are Web-of-Trust scoped
+		// (see trustedAuthorJoinClause); seed every author as trusted so
+		// this test still exercises those snapshots being populated.
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed)
+			VALUES ($1, 0, false)
+			ON CONFLICT (pubkey) DO NOTHING
+		`, n.pubkey); err != nil {
+			t.Fatalf("seed trust_graph_snapshot for %s: %v", n.pubkey, err)
+		}
 	}
 
 	if err := handlers.RefreshRelayWindowSnapshots(ctx); err != nil {
@@ -103,6 +114,7 @@ func TestRefreshRelayWindowSnapshots_PopulatesAndIsIdempotent(t *testing.T) {
 	labels := []string{
 		"summary", "top_relays_7d", "home_window_24h", "home_window_7d",
 		"top_languages_24h", "top_languages_7d", "top_hashtags_24h", "top_hashtags_7d",
+		"top_domains_24h", "top_domains_7d",
 	}
 	for _, label := range labels {
 		if !snapshotExists(t, ctx, pool, label) {
@@ -168,6 +180,127 @@ func TestRefreshRelayWindowSnapshots_PopulatesAndIsIdempotent(t *testing.T) {
 	if historyCount != 1 {
 		t.Fatalf("expected one current-hour history row, got %d", historyCount)
 	}
+}
+
+// TestRefreshTrendingLinksSnapshots_ExcludesUntrustedAuthors verifies the
+// product/perf fix from 2026-08-01: the homepage's trending hashtags and
+// trending domains snapshots only include links/tags authored by pubkeys
+// inside the Web of Trust (trust_graph_snapshot). An untrusted author's
+// hashtag or link must never surface in these snapshots, even though the
+// live, non-homepage /discovery/hashtags and /discovery/domains endpoints
+// remain network-wide.
+func TestRefreshTrendingLinksSnapshots_ExcludesUntrustedAuthors(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	trustedEvent := newEventForTest(
+		"trust_note_trusted", "trusted_author", now.Unix(), 1,
+		[][]string{{"t", "trustedtag"}},
+		"sharing a link https://trusted.example/post",
+		now,
+	)
+	untrustedEvent := newEventForTest(
+		"trust_note_untrusted", "untrusted_author", now.Unix()-5, 1,
+		[][]string{{"t", "untrustedtag"}},
+		"sharing a link https://untrusted.example/post",
+		now,
+	)
+	events := []struct {
+		event model.Event
+		tags  [][]string
+	}{
+		{trustedEvent, [][]string{{"t", "trustedtag"}}},
+		{untrustedEvent, [][]string{{"t", "untrustedtag"}}},
+	}
+	for _, e := range events {
+		if err := pgStore.InsertCanonicalEvent(ctx, e.event, e.tags, "wss://relay.one", now); err != nil {
+			t.Fatalf("insert canonical event %s: %v", e.event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, e.event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", e.event.ID, err)
+		}
+	}
+
+	// Only the trusted author is in the Web of Trust.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed)
+		VALUES ($1, 0, true)
+	`, trustedEvent.Pubkey); err != nil {
+		t.Fatalf("seed trust_graph_snapshot: %v", err)
+	}
+
+	if err := handlers.RefreshRelayWindowSnapshots(ctx); err != nil {
+		t.Fatalf("refresh relay window snapshots: %v", err)
+	}
+
+	hashtags := readHashtagLabels(t, ctx, pool, "top_hashtags_24h")
+	if !containsString(hashtags, "trustedtag") {
+		t.Fatalf("expected trusted author's hashtag in snapshot, got %#v", hashtags)
+	}
+	if containsString(hashtags, "untrustedtag") {
+		t.Fatalf("expected untrusted author's hashtag to be excluded, got %#v", hashtags)
+	}
+
+	domains := readDomainLabels(t, ctx, pool, "top_domains_24h")
+	if !containsString(domains, "trusted.example") {
+		t.Fatalf("expected trusted author's domain in snapshot, got %#v", domains)
+	}
+	if containsString(domains, "untrusted.example") {
+		t.Fatalf("expected untrusted author's domain to be excluded, got %#v", domains)
+	}
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, v := range haystack {
+		if v == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func readHashtagLabels(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label string) []string {
+	t.Helper()
+	var raw []byte
+	if err := pool.QueryRow(ctx, `SELECT payload FROM relay_window_snapshots WHERE snapshot_label = $1`, label).Scan(&raw); err != nil {
+		t.Fatalf("read hashtag payload %q: %v", label, err)
+	}
+	var rows []struct {
+		Hashtag string `json:"hashtag"`
+	}
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatalf("decode hashtag payload %q: %v", label, err)
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.Hashtag)
+	}
+	return out
+}
+
+func readDomainLabels(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label string) []string {
+	t.Helper()
+	var raw []byte
+	if err := pool.QueryRow(ctx, `SELECT payload FROM relay_window_snapshots WHERE snapshot_label = $1`, label).Scan(&raw); err != nil {
+		t.Fatalf("read domain payload %q: %v", label, err)
+	}
+	var rows []struct {
+		Domain string `json:"domain"`
+	}
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatalf("decode domain payload %q: %v", label, err)
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.Domain)
+	}
+	return out
 }
 
 func snapshotExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label string) bool {

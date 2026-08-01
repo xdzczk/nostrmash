@@ -16,6 +16,18 @@ import (
 // so the snapshot ranks the same candidate set.
 const domainMediaURLFilterClause = `NOT (url ~* '\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|heic|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|ogg|m4a|flac|aac|opus)(\?|#|$)')`
 
+// trustedAuthorJoinClause restricts the trending hashtags and domains
+// snapshots to links/tags authored by pubkeys inside the Web of Trust
+// (trust_graph_snapshot: seeded npubs plus everyone reachable within the
+// trust worker's configured hop bound). This is a deliberate product
+// choice, not just an optimization: the homepage's "trending" surfaces
+// should reflect what the trusted network is sharing, not whatever an
+// unmoderated firehose of every pubkey on connected relays happens to
+// post. It also shrinks the candidate set the COUNT(DISTINCT) aggregates
+// below have to chew through, which helps with the timeout described in
+// RefreshRelayWindowSnapshots's doc comment.
+const trustedAuthorJoinClause = `INNER JOIN trust_graph_snapshot trusted ON trusted.pubkey = %s.author_pubkey`
+
 // RefreshRelayWindowSnapshots recomputes every homepage-bundle
 // snapshot stored in relay_window_snapshots:
 //
@@ -53,20 +65,48 @@ const domainMediaURLFilterClause = `NOT (url ~* '\.(png|jpe?g|gif|webp|svg|bmp|i
 //
 // Failure handling
 // ----------------
-// On any error the entire transaction rolls back, leaving the
-// previous snapshot rows in place. Callers (the worker loop) log
-// the error but do not block — the homepage keeps serving the last
-// good snapshot until the next refresh succeeds.
+// This is split into two independently-committed phases, each its
+// own transaction:
 //
-// We deliberately do not partition the refresh into per-label
-// transactions: keeping all snapshots under one tx means a partial
-// failure never publishes an inconsistent mix of "fresh relay
-// summary, stale active authors". Either everything advances or
-// nothing does.
+//  1. refreshCoreRelayWindowSnapshots — relay summary, top relays,
+//     home window (note volume / active authors), top languages.
+//     These are cheap, reliable aggregates and drive the "Updated Xd
+//     ago" freshness label everyone sees on the homepage, so they
+//     must keep advancing even if phase 2 below is having a bad day.
+//  2. refreshTrendingLinksSnapshots — top hashtags and top domains,
+//     scoped to the Web of Trust (see trustedAuthorJoinClause). These
+//     used to live in the same transaction as phase 1. On 2026-08-01
+//     the 7d domains aggregate started reliably exceeding the (then)
+//     60s worker timeout, and because everything shared one
+//     transaction, that single query's timeout rolled back home
+//     window / language / relay-summary snapshots too — the homepage
+//     served 3-day-old numbers even though only the domains query was
+//     actually broken. Splitting these into their own transaction
+//     means a slow or failing hashtags/domains computation only
+//     staleness-affects those two snapshot labels, not the whole
+//     bundle.
+//
+// Within each phase, a failure still rolls back that phase's own
+// upserts, leaving its previous snapshot rows in place — callers
+// (the worker loop) log the error but do not block. RefreshRelayWindowSnapshots
+// runs both phases regardless of whether the first one failed, and
+// joins their errors so callers see everything that went wrong in a
+// single tick.
 func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
 	}
+	coreErr := h.refreshCoreRelayWindowSnapshots(ctx)
+	trendingErr := h.refreshTrendingLinksSnapshots(ctx)
+	return errors.Join(coreErr, trendingErr)
+}
+
+// refreshCoreRelayWindowSnapshots recomputes the relay summary, top
+// relays, home window (note volume / active authors), and top
+// languages snapshots in a single transaction. See
+// RefreshRelayWindowSnapshots for why this is split from the
+// hashtags/domains phase.
+func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
 		// Default work_mem (4MB) forces the COUNT(DISTINCT) hashtables
 		// to spill ~100-200MB to disk for the 7d windows. 128MB keeps
@@ -125,9 +165,26 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("compute top languages 7d snapshot: %w", err)
 		}
-		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopLanguages7d, jsonArray(topLanguages7d)); err != nil {
-			return err
+		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopLanguages7d, jsonArray(topLanguages7d))
+	})
+}
+
+// refreshTrendingLinksSnapshots recomputes the top hashtags and top
+// domains snapshots in their own transaction, isolated from
+// refreshCoreRelayWindowSnapshots (see RefreshRelayWindowSnapshots).
+// Both aggregates are scoped to authors inside the Web of Trust
+// (trust_graph_snapshot) — see trustedAuthorJoinClause — so the
+// homepage's "trending" hashtags/domains reflect the trusted network
+// rather than every pubkey ingest has ever seen a link or tag from.
+func (h *Handlers) refreshTrendingLinksSnapshots(ctx context.Context) error {
+	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET LOCAL work_mem = '128MB'`); err != nil {
+			return fmt.Errorf("set work_mem: %w", err)
 		}
+
+		now := time.Now().UTC()
+		cutoff24h := now.Add(-24 * time.Hour).Unix()
+		cutoff7d := now.Add(-7 * 24 * time.Hour).Unix()
 
 		// Hashtags are snapshotted at the API max (50) so the store
 		// layer can serve any caller-requested limit ≤50 from one row.
@@ -150,9 +207,9 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 		// the homepage only ever requests the 24h or 7d window, and each
 		// snapshot is ranked and filtered exactly like the live
 		// GetTrendingDomains query for that window (see
-		// internal/store/read/parity_domains.go), just precomputed. Top 50
-		// (the API max) so the store layer can serve any caller-requested
-		// limit ≤50 from one row.
+		// internal/store/read/parity_domains.go), just precomputed and
+		// WoT-scoped. Top 50 (the API max) so the store layer can serve
+		// any caller-requested limit ≤50 from one row.
 		topDomains24h, err := computeTopDomainsSnapshot(ctx, tx, cutoff24h, cutoff24h, cutoff7d, 50)
 		if err != nil {
 			return fmt.Errorf("compute top domains 24h snapshot: %w", err)
@@ -422,25 +479,34 @@ func computeTopLanguagesSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt in
 // DESC, then by hashtag ASC. The store layer will slice this list
 // down to the per-request limit, so we always materialize up to the
 // API max.
+//
+// The candidate set is restricted to authors inside the Web of Trust
+// via trustedAuthorJoinClause — see refreshTrendingLinksSnapshots for
+// why. This means "trending hashtags" on the homepage is a trusted-
+// network view, not a network-wide one; the live
+// /api/v1/discovery/hashtags/trending endpoint (store.GetTrendingHashtags)
+// is unaffected and remains network-wide.
 func computeTopHashtagsSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int64, limit int) ([]hashtagRow, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := tx.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT
-			hashtag,
+			h.hashtag,
 			COUNT(*)::bigint                       AS event_count,
-			COUNT(DISTINCT author_pubkey)::bigint  AS unique_authors
-		FROM event_hashtags
-		WHERE created_at >= $1
-		GROUP BY hashtag
+			COUNT(DISTINCT h.author_pubkey)::bigint AS unique_authors
+		FROM event_hashtags h
+		%s
+		WHERE h.created_at >= $1
+		GROUP BY h.hashtag
 		ORDER BY
 			unique_authors DESC,
-			(COUNT(DISTINCT author_pubkey))::double precision / GREATEST(COUNT(*), 1) DESC,
+			(COUNT(DISTINCT h.author_pubkey))::double precision / GREATEST(COUNT(*), 1) DESC,
 			event_count DESC,
-			hashtag ASC
+			h.hashtag ASC
 		LIMIT $2
-	`, minCreatedAt, limit)
+	`, fmt.Sprintf(trustedAuthorJoinClause, "h"))
+	rows, err := tx.Query(ctx, query, minCreatedAt, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query top hashtags: %w", err)
 	}
@@ -486,6 +552,11 @@ type domainRow struct {
 // cutoff7d additionally populate the 24h/7d activity sub-objects the
 // response exposes regardless of which window is being ranked (matching the
 // live query's two FILTER clauses).
+//
+// The candidate set is further restricted to authors inside the Web of
+// Trust via trustedAuthorJoinClause — see refreshTrendingLinksSnapshots.
+// The live /api/v1/discovery/domains/trending endpoint
+// (store.GetTrendingDomains) is unaffected and remains network-wide.
 func computeTopDomainsSnapshot(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -499,27 +570,28 @@ func computeTopDomainsSnapshot(
 	}
 	query := fmt.Sprintf(`
 		SELECT
-			canonical_domain,
-			MAX(created_at),
-			COUNT(*) FILTER (WHERE created_at >= $1),
-			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $1),
-			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $1),
-			COUNT(*) FILTER (WHERE created_at >= $2),
-			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $2),
-			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $2)
-		FROM event_urls
-		WHERE created_at >= $3
+			u.canonical_domain,
+			MAX(u.created_at),
+			COUNT(*) FILTER (WHERE u.created_at >= $1),
+			COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $1),
+			COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $1),
+			COUNT(*) FILTER (WHERE u.created_at >= $2),
+			COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $2),
+			COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $2)
+		FROM event_urls u
+		%s
+		WHERE u.created_at >= $3
 		  AND %s
-		GROUP BY canonical_domain
+		GROUP BY u.canonical_domain
 		ORDER BY
-			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3) DESC,
-			(COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3))::double precision /
-				GREATEST(COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3), 1) DESC,
-			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3) DESC,
-			COUNT(*) FILTER (WHERE created_at >= $3) DESC,
-			canonical_domain ASC
+			COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $3) DESC,
+			(COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $3))::double precision /
+				GREATEST(COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $3), 1) DESC,
+			COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $3) DESC,
+			COUNT(*) FILTER (WHERE u.created_at >= $3) DESC,
+			u.canonical_domain ASC
 		LIMIT $4
-	`, domainMediaURLFilterClause)
+	`, fmt.Sprintf(trustedAuthorJoinClause, "u"), domainMediaURLFilterClause)
 	rows, err := tx.Query(ctx, query, cutoff24h, cutoff7d, windowFloor, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query top domains: %w", err)

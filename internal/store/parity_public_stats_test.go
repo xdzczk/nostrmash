@@ -77,6 +77,20 @@ func TestGetPublicDiscoveryNetworkStats_ComputesWindowedCounts(t *testing.T) {
 		}
 	}
 
+	// The top hashtags snapshot is Web-of-Trust scoped (see
+	// trustedAuthorJoinClause in projection_relay_window_snapshots.go), so
+	// seed every note author as trusted before refreshing — this test is
+	// about the windowed-count math, not the trust filter itself.
+	for _, pubkey := range []string{"author_a", "author_b", "author_c", "author_d", "author_e"} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed)
+			VALUES ($1, 0, false)
+			ON CONFLICT (pubkey) DO NOTHING
+		`, pubkey); err != nil {
+			t.Fatalf("seed trust_graph_snapshot for %s: %v", pubkey, err)
+		}
+	}
+
 	// Relay summary stats are served from the relay_window_snapshots
 	// projection (see internal/derivation/projection_relay_window_snapshots.go);
 	// the migration seed runs at schema bootstrap before any test

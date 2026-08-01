@@ -413,6 +413,22 @@ func TestGetHomeTrendingDomains_MatchesLiveOrdering(t *testing.T) {
 		}
 	}
 
+	// The homepage domains snapshot is scoped to the Web of Trust, but
+	// GetTrendingDomains (the live query it's compared against here) is
+	// not. Seed every author used above into trust_graph_snapshot so the
+	// two stay comparable — this test is about ranking/activity parity,
+	// not about the trust filter itself (see
+	// TestRefreshTrendingLinksSnapshots_ExcludesUntrustedAuthors for that).
+	for _, event := range events {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed)
+			VALUES ($1, 0, false)
+			ON CONFLICT (pubkey) DO NOTHING
+		`, event.Pubkey); err != nil {
+			t.Fatalf("seed trust_graph_snapshot for %s: %v", event.Pubkey, err)
+		}
+	}
+
 	live, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingDomains: %v", err)
