@@ -82,6 +82,14 @@ func (h *Handlers) MarkProfileStatsDirty(ctx context.Context, eventID string) er
 		}
 		return fmt.Errorf("load event for profile stats dirty marking: %w", err)
 	}
+	// kind=3 contact-list rewrites are already dirty-marked inside
+	// ProjectContactListsLatest (author + previous followed + new
+	// contacts) in the same derive bundle. Re-marking here would only
+	// bump marked_at again — amplifying pending-table UPDATE churn and
+	// autovacuum pressure — without expanding the affected set.
+	if kind == 3 {
+		return nil
+	}
 	tags, err := h.loadEventTags(ctx, eventID)
 	if err != nil {
 		return err

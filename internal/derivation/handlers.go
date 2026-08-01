@@ -76,7 +76,8 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		// worker stacked on top of 19-30s aggregate queries. The bundle
 		// now records the affected pubkeys as dirty; the profile-stats
 		// sweeper recomputes both projections per dirty pubkey
-		// out-of-band, coalescing bursts.
+		// out-of-band, coalescing bursts. kind=3 is skipped here because
+		// ProjectContactListsLatest already marks the same affected set.
 		h.MarkProfileStatsDirty,
 		// Heavy per-author analytics rebuild (author_activity_daily +
 		// 5 windowed projections × 3 windows) runs out-of-band via the
