@@ -50,6 +50,8 @@ type (
 	EventDomainLinkProjection            = readmodel.EventDomainLinkProjection
 	DomainStatProjection                 = readmodel.DomainStatProjection
 	DomainSummaryProjection              = readmodel.DomainSummaryProjection
+	DomainActivityProjection             = readmodel.DomainActivityProjection
+	DomainActivityStatsProjection        = readmodel.DomainActivityStatsProjection
 	GroupedNoteAnalyticsQuery            = readmodel.GroupedNoteAnalyticsQuery
 	GroupedNoteAnalyticsProjection       = readmodel.GroupedNoteAnalyticsProjection
 	GroupedTopNoteProjection             = readmodel.GroupedTopNoteProjection

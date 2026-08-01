@@ -1,11 +1,23 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/xdzczk/nostrmash/internal/query"
 )
+
+// discoveryHomeBuildTimeout bounds the total time a cache-miss /home build
+// may take, independent of how many sub-calls it fans out to. Every
+// individual aggregate behind this handler is now either a sub-millisecond
+// snapshot lookup or a normal indexed query, so 5s is generous headroom for
+// worst-case DB latency while still failing fast (and freeing the
+// singleflight lock for the next attempt) instead of hanging for the full
+// client-side fetch timeout the way the pre-snapshot live aggregates did.
+const discoveryHomeBuildTimeout = 5 * time.Second
 
 func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 	window, windowLabel, err := parseTrendingWindow(r)
@@ -28,8 +40,8 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		notes, notesErr := h.service.GetTrendingNotes(r.Context(), window, limit, offset)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		notes, notesErr := h.service.GetTrendingNotes(ctx, window, limit, offset)
 		if notesErr != nil {
 			return nil, notesErr
 		}
@@ -37,7 +49,7 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		for _, note := range notes {
 			noteAuthorPubkeys = append(noteAuthorPubkeys, note.AuthorPubkey)
 		}
-		noteAuthorIdentities, identitiesErr := h.resolveProfileIdentities(r.Context(), noteAuthorPubkeys)
+		noteAuthorIdentities, identitiesErr := h.resolveProfileIdentities(ctx, noteAuthorPubkeys)
 		if identitiesErr != nil {
 			return nil, identitiesErr
 		}
@@ -83,8 +95,8 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		articles, articlesErr := h.service.GetTrendingLongForm(r.Context(), window, limit, offset)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		articles, articlesErr := h.service.GetTrendingLongForm(ctx, window, limit, offset)
 		if articlesErr != nil {
 			return nil, articlesErr
 		}
@@ -92,7 +104,7 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		for _, article := range articles {
 			authorPubkeys = append(authorPubkeys, article.AuthorPubkey)
 		}
-		authorIdentities, identitiesErr := h.resolveProfileIdentities(r.Context(), authorPubkeys)
+		authorIdentities, identitiesErr := h.resolveProfileIdentities(ctx, authorPubkeys)
 		if identitiesErr != nil {
 			return nil, identitiesErr
 		}
@@ -138,8 +150,8 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		conversations, conversationsErr := h.service.GetHotConversations(r.Context(), window, limit, offset)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		conversations, conversationsErr := h.service.GetHotConversations(ctx, window, limit, offset)
 		if conversationsErr != nil {
 			return nil, conversationsErr
 		}
@@ -222,34 +234,93 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		"domains_limit":      domainsLimit,
 		"hashtag_stat_limit": hashtagStatLimit,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		notes, notesErr := h.service.GetTrendingNotes(r.Context(), window, notesLimit, 0)
-		if notesErr != nil {
-			return nil, notesErr
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(reqCtx context.Context) (map[string]any, error) {
+		// Bound the whole fan-out below by a fixed wall-clock budget,
+		// independent of the incoming context's deadline (which, for a
+		// background stale-while-revalidate refresh, is already detached
+		// from any client). Every call this handler makes is now a
+		// snapshot lookup or a normal indexed query, so a build that still
+		// exceeds this is a genuine anomaly (e.g. a starved connection
+		// pool) — better to fail this one request fast and release the
+		// singleflight lock than to hang for the client's full fetch
+		// timeout the way the pre-snapshot live aggregates did.
+		buildCtx, cancel := context.WithTimeout(reqCtx, discoveryHomeBuildTimeout)
+		defer cancel()
+
+		// The five aggregates below are mutually independent — none of
+		// them depends on another's result — so fan them out concurrently
+		// instead of paying their latencies serially. errgroup cancels
+		// buildCtx (and therefore every in-flight call) as soon as any one
+		// of them fails.
+		var (
+			notes            []query.TrendingNote
+			trendingProfiles []query.TrendingProfile
+			risingProfiles   []query.TrendingProfile
+			domains          []query.DomainSummary
+			networkStats     query.PublicDiscoveryNetworkStats
+		)
+		group, groupCtx := errgroup.WithContext(buildCtx)
+		group.Go(func() error {
+			rows, err := h.service.GetTrendingNotes(groupCtx, window, notesLimit, 0)
+			if err != nil {
+				return err
+			}
+			notes = rows
+			return nil
+		})
+		group.Go(func() error {
+			rows, err := h.service.GetTrendingProfiles(groupCtx, window, profilesLimit, 0)
+			if err != nil {
+				return err
+			}
+			trendingProfiles = rows
+			return nil
+		})
+		group.Go(func() error {
+			rows, err := h.service.GetRisingProfiles(groupCtx, window, profilesLimit, 0)
+			if err != nil {
+				return err
+			}
+			risingProfiles = rows
+			return nil
+		})
+		group.Go(func() error {
+			// Trending domains are served from the top_domains_24h/7d
+			// snapshot (see internal/derivation/projection_relay_window_snapshots.go)
+			// instead of the live COUNT(DISTINCT) aggregate behind the
+			// standalone /discovery/domains/trending endpoint. Domains were
+			// added to the home bundle after the original contract; keep
+			// older/partial deployments (or a still-empty snapshot) backward
+			// compatible by never failing the whole bundle on a domains
+			// error — clients fall back to the standalone domains endpoint
+			// in that case.
+			rows, err := h.service.GetHomeTrendingDomains(groupCtx, window, domainsLimit)
+			if err != nil {
+				domains = nil
+				return nil
+			}
+			domains = rows
+			return nil
+		})
+		group.Go(func() error {
+			// Trending hashtags are served from the same top_hashtags_24h/7d
+			// snapshot that backs network_summary.top_hashtags below, rather
+			// than a second live GetTrendingHashtags aggregate. Fetch enough
+			// rows to satisfy whichever of hashtagsLimit / hashtagStatLimit
+			// is larger so both sections can slice down from one call.
+			stats, err := h.service.GetPublicDiscoveryNetworkStats(groupCtx, max(hashtagsLimit, hashtagStatLimit))
+			if err != nil {
+				return err
+			}
+			networkStats = stats
+			return nil
+		})
+		if err := group.Wait(); err != nil {
+			return nil, err
 		}
-		hashtags, hashtagsErr := h.service.GetTrendingHashtags(r.Context(), window, hashtagsLimit, 0)
-		if hashtagsErr != nil {
-			return nil, hashtagsErr
-		}
-		trendingProfiles, trendingErr := h.service.GetTrendingProfiles(r.Context(), window, profilesLimit, 0)
-		if trendingErr != nil {
-			return nil, trendingErr
-		}
-		risingProfiles, risingErr := h.service.GetRisingProfiles(r.Context(), window, profilesLimit, 0)
-		if risingErr != nil {
-			return nil, risingErr
-		}
-		domains, domainsErr := h.service.GetTrendingDomains(r.Context(), window, domainsLimit, 0)
-		if domainsErr != nil {
-			// Domains were added to the home bundle after the original contract.
-			// Keep older/partial deployments backward compatible and let clients
-			// use the standalone domains endpoint as a fallback.
-			domains = nil
-		}
-		networkStats, statsErr := h.service.GetPublicDiscoveryNetworkStats(r.Context(), hashtagStatLimit)
-		if statsErr != nil {
-			return nil, statsErr
-		}
+
+		hashtagItems := buildDiscoveryHashtagItems(sliceHashtags(pickHashtagWindow(networkStats.TopHashtags, windowLabel), hashtagsLimit))
+
 		identityPubkeys := make([]string, 0, len(notes)+len(trendingProfiles)+len(risingProfiles))
 		for _, note := range notes {
 			identityPubkeys = append(identityPubkeys, note.AuthorPubkey)
@@ -260,13 +331,12 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		for _, profile := range risingProfiles {
 			identityPubkeys = append(identityPubkeys, profile.Pubkey)
 		}
-		profileIdentities, identitiesErr := h.resolveProfileIdentities(r.Context(), identityPubkeys)
+		profileIdentities, identitiesErr := h.resolveProfileIdentities(buildCtx, identityPubkeys)
 		if identitiesErr != nil {
 			return nil, identitiesErr
 		}
 
 		noteItems := buildDiscoveryNoteItems(notes, profileIdentities)
-		hashtagItems := buildDiscoveryHashtagItems(hashtags)
 		domainItems := buildDiscoveryDomainItems(domains, windowLabel)
 		trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities)
 		risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities)
@@ -282,7 +352,15 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 			"relays": buildRelayStatsPayload(networkStats),
 		}
 		if networkStats.TopHashtags != nil {
-			network["top_hashtags"] = networkStats.TopHashtags
+			// networkStats was fetched with max(hashtagsLimit, hashtagStatLimit)
+			// rows so the trending_hashtags section above could slice down to
+			// hashtagsLimit; re-slice here to the caller's requested
+			// hashtag_stat_limit so network_summary.top_hashtags honors its
+			// own independent limit.
+			network["top_hashtags"] = &query.TrendingHashtagWindows{
+				Last24h: sliceHashtags(networkStats.TopHashtags.Last24h, hashtagStatLimit),
+				Last7d:  sliceHashtags(networkStats.TopHashtags.Last7d, hashtagStatLimit),
+			}
 		}
 		if len(networkStats.TopLanguages24h) > 0 || len(networkStats.TopLanguages7d) > 0 {
 			network["top_languages"] = map[string]any{

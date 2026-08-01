@@ -176,6 +176,8 @@ const (
 	relaySnapshotLabelTopLanguages7d  = "top_languages_7d"
 	relaySnapshotLabelTopHashtags24h  = "top_hashtags_24h"
 	relaySnapshotLabelTopHashtags7d   = "top_hashtags_7d"
+	relaySnapshotLabelTopDomains24h   = "top_domains_24h"
+	relaySnapshotLabelTopDomains7d    = "top_domains_7d"
 )
 
 // relaySummarySnapshotPayload mirrors the JSONB shape stored under

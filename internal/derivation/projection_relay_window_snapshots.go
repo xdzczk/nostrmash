@@ -9,6 +9,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// domainMediaURLFilterClause excludes obvious inline media/attachment links
+// from domain aggregation. Kept in sync with the identical constant in
+// internal/store/read/parity_domains.go (the live GetTrendingDomains query)
+// so the snapshot ranks the same candidate set.
+const domainMediaURLFilterClause = `NOT (url ~* '\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|heic|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|ogg|m4a|flac|aac|opus)(\?|#|$)')`
+
 // RefreshRelayWindowSnapshots recomputes every homepage-bundle
 // snapshot stored in relay_window_snapshots:
 //
@@ -20,6 +26,8 @@ import (
 //   - top_languages_7d    — top 8 languages (7d)
 //   - top_hashtags_24h    — top 50 hashtags (24h)
 //   - top_hashtags_7d     — top 50 hashtags (7d)
+//   - top_domains_24h     — top 50 domains (24h)
+//   - top_domains_7d      — top 50 domains (7d)
 //
 // Why this is a projection, not an inline query
 // ---------------------------------------------
@@ -133,7 +141,29 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("compute top hashtags 7d snapshot: %w", err)
 		}
-		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags7d, jsonArray(topHashtags7d))
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags7d, jsonArray(topHashtags7d)); err != nil {
+			return err
+		}
+
+		// Domains follow the same fixed-window snapshot shape as hashtags:
+		// the homepage only ever requests the 24h or 7d window, and each
+		// snapshot is ranked and filtered exactly like the live
+		// GetTrendingDomains query for that window (see
+		// internal/store/read/parity_domains.go), just precomputed. Top 50
+		// (the API max) so the store layer can serve any caller-requested
+		// limit ≤50 from one row.
+		topDomains24h, err := computeTopDomainsSnapshot(ctx, tx, cutoff24h, cutoff24h, cutoff7d, 50)
+		if err != nil {
+			return fmt.Errorf("compute top domains 24h snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopDomains24h, jsonArray(topDomains24h)); err != nil {
+			return err
+		}
+		topDomains7d, err := computeTopDomainsSnapshot(ctx, tx, cutoff7d, cutoff24h, cutoff7d, 50)
+		if err != nil {
+			return fmt.Errorf("compute top domains 7d snapshot: %w", err)
+		}
+		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopDomains7d, jsonArray(topDomains7d))
 	})
 }
 
@@ -150,6 +180,8 @@ const (
 	relaySnapshotLabelTopLanguages7d  = "top_languages_7d"
 	relaySnapshotLabelTopHashtags24h  = "top_hashtags_24h"
 	relaySnapshotLabelTopHashtags7d   = "top_hashtags_7d"
+	relaySnapshotLabelTopDomains24h   = "top_domains_24h"
+	relaySnapshotLabelTopDomains7d    = "top_domains_7d"
 )
 
 // jsonArray normalizes a nil slice to an empty slice so json.Marshal
@@ -387,6 +419,95 @@ func computeTopHashtagsSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read top hashtag rows: %w", err)
+	}
+	return out, nil
+}
+
+// domainActivityRow mirrors one 24h/7d activity sub-object inside a
+// top_domains_24h / top_domains_7d snapshot entry.
+type domainActivityRow struct {
+	LinkCount     int64 `json:"link_count"`
+	NoteCount     int64 `json:"note_count"`
+	UniqueAuthors int64 `json:"unique_authors"`
+}
+
+// domainRow mirrors one entry inside the top_domains_24h / top_domains_7d
+// snapshot payload — the same shape store.GetTrendingDomains scans from a
+// live query, just precomputed.
+type domainRow struct {
+	Domain        string            `json:"domain"`
+	LatestEventAt *int64            `json:"latest_event_at"`
+	Activity24h   domainActivityRow `json:"activity_24h"`
+	Activity7d    domainActivityRow `json:"activity_7d"`
+}
+
+// computeTopDomainsSnapshot mirrors the ranking used by
+// store.GetTrendingDomains for a fixed window: the candidate set is
+// restricted to event_urls rows created after windowFloor (24h-ago for the
+// "24h" snapshot, 7d-ago for the "7d" snapshot), ranked by unique-author
+// breadth within that same window, then diversity, note count, and link
+// count, all computed within the restricted candidate set. cutoff24h and
+// cutoff7d additionally populate the 24h/7d activity sub-objects the
+// response exposes regardless of which window is being ranked (matching the
+// live query's two FILTER clauses).
+func computeTopDomainsSnapshot(
+	ctx context.Context,
+	tx pgx.Tx,
+	windowFloor int64,
+	cutoff24h int64,
+	cutoff7d int64,
+	limit int,
+) ([]domainRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := fmt.Sprintf(`
+		SELECT
+			canonical_domain,
+			MAX(created_at),
+			COUNT(*) FILTER (WHERE created_at >= $1),
+			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $1),
+			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $1),
+			COUNT(*) FILTER (WHERE created_at >= $2),
+			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $2),
+			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $2)
+		FROM event_urls
+		WHERE created_at >= $3
+		  AND %s
+		GROUP BY canonical_domain
+		ORDER BY
+			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3) DESC,
+			(COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3))::double precision /
+				GREATEST(COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3), 1) DESC,
+			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3) DESC,
+			COUNT(*) FILTER (WHERE created_at >= $3) DESC,
+			canonical_domain ASC
+		LIMIT $4
+	`, domainMediaURLFilterClause)
+	rows, err := tx.Query(ctx, query, cutoff24h, cutoff7d, windowFloor, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query top domains: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domainRow, 0, limit)
+	for rows.Next() {
+		var row domainRow
+		if err := rows.Scan(
+			&row.Domain,
+			&row.LatestEventAt,
+			&row.Activity24h.LinkCount,
+			&row.Activity24h.NoteCount,
+			&row.Activity24h.UniqueAuthors,
+			&row.Activity7d.LinkCount,
+			&row.Activity7d.NoteCount,
+			&row.Activity7d.UniqueAuthors,
+		); err != nil {
+			return nil, fmt.Errorf("scan top domain row: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read top domain rows: %w", err)
 	}
 	return out, nil
 }

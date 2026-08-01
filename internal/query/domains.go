@@ -119,6 +119,35 @@ func (s Service) GetTrendingDomains(
 	return nil, unsupportedCapabilityError("trending domains")
 }
 
+// GetHomeTrendingDomains serves the homepage's trending-domains section from
+// a precomputed snapshot (see internal/derivation/projection_relay_window_snapshots.go)
+// instead of the live COUNT(DISTINCT) aggregate behind GetTrendingDomains.
+// Only the fixed (24h, 7d) windows used by the homepage are snapshotted;
+// arbitrary windows/pagination still go through GetTrendingDomains.
+func (s Service) GetHomeTrendingDomains(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+) ([]DomainSummary, error) {
+	if window <= 0 {
+		return nil, fmt.Errorf("window must be positive")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if r := s.capabilities.curated.homeTrendingDomains; r != nil {
+		rows, err := r.GetHomeTrendingDomains(ctx, window, limit)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, domainSummaryFromStore), nil
+	}
+	return nil, unsupportedCapabilityError("home trending domains")
+}
+
 func (s Service) GetDomainSummary(ctx context.Context, domain string) (DomainSummary, error) {
 	normalized, err := normalizeDomainToken(domain)
 	if err != nil {

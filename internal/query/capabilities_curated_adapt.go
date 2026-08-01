@@ -46,6 +46,9 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(trendingDomainsCapability); ok {
 		caps.curated.trendingDomains = r
 	}
+	if r, ok := reader.(homeTrendingDomainsCapability); ok {
+		caps.curated.homeTrendingDomains = r
+	}
 	if r, ok := reader.(domainSummaryCapability); ok {
 		caps.curated.domainSummary = r
 	}

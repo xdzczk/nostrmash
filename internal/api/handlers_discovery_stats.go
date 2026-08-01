@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -16,8 +17,8 @@ func (h Handlers) GetNetworkStats(w http.ResponseWriter, r *http.Request) {
 	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyStats, "network_stats", map[string]any{
 		"hashtag_limit": hashtagLimit,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		stats, statsErr := h.service.GetPublicDiscoveryNetworkStats(r.Context(), hashtagLimit)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		stats, statsErr := h.service.GetPublicDiscoveryNetworkStats(ctx, hashtagLimit)
 		if statsErr != nil {
 			return nil, statsErr
 		}
@@ -65,8 +66,8 @@ func (h Handlers) GetContentStats(w http.ResponseWriter, r *http.Request) {
 	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyStats, "content_stats", map[string]any{
 		"hashtag_limit": hashtagLimit,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		stats, statsErr := h.service.GetPublicDiscoveryNetworkStats(r.Context(), hashtagLimit)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		stats, statsErr := h.service.GetPublicDiscoveryNetworkStats(ctx, hashtagLimit)
 		if statsErr != nil {
 			return nil, statsErr
 		}
@@ -103,8 +104,8 @@ func (h Handlers) GetContentStats(w http.ResponseWriter, r *http.Request) {
 
 func (h Handlers) GetRelayStats(w http.ResponseWriter, r *http.Request) {
 	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyStats, "relay_stats", nil)
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		stats, statsErr := h.service.GetPublicDiscoveryNetworkStats(r.Context(), 1)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		stats, statsErr := h.service.GetPublicDiscoveryNetworkStats(ctx, 1)
 		if statsErr != nil {
 			return nil, statsErr
 		}
@@ -146,8 +147,8 @@ func (h Handlers) GetDiscoveryStatsSeries(w http.ResponseWriter, r *http.Request
 		"metric": metric,
 		"window": window,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		series, seriesErr := h.service.GetDiscoveryStatsSeries(r.Context(), metric, window)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		series, seriesErr := h.service.GetDiscoveryStatsSeries(ctx, metric, window)
 		if seriesErr != nil {
 			return nil, seriesErr
 		}

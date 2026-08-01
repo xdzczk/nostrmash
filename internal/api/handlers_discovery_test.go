@@ -353,14 +353,6 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 				{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hello", Score: 2.5},
 			}, nil
 		},
-		getTrendingTagsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingHashtag, error) {
-			if window != 24*time.Hour || limit != 2 || offset != 0 {
-				t.Fatalf("unexpected hashtags args: window=%s limit=%d offset=%d", window, limit, offset)
-			}
-			return []storeread.TrendingHashtag{
-				{Hashtag: "nostr", EventCount: 5, UniqueAuthors: 4},
-			}, nil
-		},
 		getTrendingProfilesFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingProfile, error) {
 			if window != 24*time.Hour || limit != 2 || offset != 0 {
 				t.Fatalf("unexpected trending profiles args: window=%s limit=%d offset=%d", window, limit, offset)
@@ -373,9 +365,9 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 			}
 			return []storeread.TrendingProfile{{Pubkey: "pk_b", Score: 7.4}}, nil
 		},
-		getTrendingDomainsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.DomainSummaryProjection, error) {
-			if window != 24*time.Hour || limit != 2 || offset != 0 {
-				t.Fatalf("unexpected domains args: window=%s limit=%d offset=%d", window, limit, offset)
+		getHomeTrendingDomainsFn: func(_ context.Context, window time.Duration, limit int) ([]store.DomainSummaryProjection, error) {
+			if window != 24*time.Hour || limit != 2 {
+				t.Fatalf("unexpected home domains args: window=%s limit=%d", window, limit)
 			}
 			return []store.DomainSummaryProjection{{
 				Domain: "example.com",
@@ -386,6 +378,9 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 			}}, nil
 		},
 		getPublicNetworkStatsFn: func(_ context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
+			// Home requests max(hashtags_limit, hashtag_stat_limit) rows so
+			// the trending_hashtags section and network_summary.top_hashtags
+			// can each slice down from the one snapshot call.
 			if hashtagLimit != 7 {
 				t.Fatalf("unexpected hashtag stat limit: %d", hashtagLimit)
 			}
@@ -395,6 +390,11 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 				Relays:            3,
 				ActiveAuthors:     storeread.WindowedCount{Last24h: 4, Last7d: 8},
 				NoteVolume:        storeread.WindowedCount{Last24h: 12, Last7d: 40},
+				TopHashtags: &storeread.TrendingHashtagWindows{
+					Last24h: []storeread.TrendingHashtag{
+						{Hashtag: "nostr", EventCount: 5, UniqueAuthors: 4},
+					},
+				},
 			}, nil
 		},
 	}, 200)
@@ -422,7 +422,8 @@ func TestDiscoveryHomeRoute_ComposesBoundedSections(t *testing.T) {
 	if _, ok := sections["trending_notes"].([]any); !ok {
 		t.Fatalf("missing trending_notes section: %#v", sections)
 	}
-	if _, ok := sections["trending_hashtags"].([]any); !ok {
+	hashtags, ok := sections["trending_hashtags"].([]any)
+	if !ok || len(hashtags) != 1 {
 		t.Fatalf("missing trending_hashtags section: %#v", sections)
 	}
 	domains, ok := sections["trending_domains"].([]any)

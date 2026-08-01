@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -30,8 +31,8 @@ func (h Handlers) GetRelatedProfiles(w http.ResponseWriter, r *http.Request) {
 		"pubkey": pubkey,
 		"limit":  limit,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		related, relatedErr := h.service.GetRelatedProfiles(r.Context(), pubkey, limit)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		related, relatedErr := h.service.GetRelatedProfiles(ctx, pubkey, limit)
 		if relatedErr != nil {
 			return nil, relatedErr
 		}
@@ -39,7 +40,7 @@ func (h Handlers) GetRelatedProfiles(w http.ResponseWriter, r *http.Request) {
 		for _, profile := range related {
 			relatedPubkeys = append(relatedPubkeys, profile.Pubkey)
 		}
-		identities, identitiesErr := h.resolveProfileIdentities(r.Context(), relatedPubkeys)
+		identities, identitiesErr := h.resolveProfileIdentities(ctx, relatedPubkeys)
 		if identitiesErr != nil {
 			return nil, identitiesErr
 		}
@@ -108,14 +109,14 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		"limit":  limit,
 		"offset": offset,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
 		var profilesRows []query.TrendingProfile
 		var rowsErr error
 		switch surface {
 		case "rising":
-			profilesRows, rowsErr = h.service.GetRisingProfiles(r.Context(), window, limit, offset)
+			profilesRows, rowsErr = h.service.GetRisingProfiles(ctx, window, limit, offset)
 		default:
-			profilesRows, rowsErr = h.service.GetTrendingProfiles(r.Context(), window, limit, offset)
+			profilesRows, rowsErr = h.service.GetTrendingProfiles(ctx, window, limit, offset)
 		}
 		if rowsErr != nil {
 			return nil, rowsErr
@@ -124,7 +125,7 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		for _, profile := range profilesRows {
 			pubkeys = append(pubkeys, profile.Pubkey)
 		}
-		identities, identitiesErr := h.resolveProfileIdentities(r.Context(), pubkeys)
+		identities, identitiesErr := h.resolveProfileIdentities(ctx, pubkeys)
 		if identitiesErr != nil {
 			return nil, identitiesErr
 		}

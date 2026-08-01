@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,6 +23,20 @@ const (
 	defaultDiscoverySuggestionTTL      = 60 * time.Second
 	discoveryCacheContentTypeJSONName  = "application/json"
 	publicCacheValueNormalizeMaxLength = 512
+
+	// discoveryCacheMaxStaleGrace caps how long an expired entry stays
+	// servable while a background refresh is in flight (stale-while-
+	// revalidate). Without a cap, a family with a long TTL (e.g. the
+	// 10-minute PublicStatsTTL) combined with a stuck refresh could serve
+	// arbitrarily stale data forever.
+	discoveryCacheMaxStaleGrace = 5 * time.Minute
+
+	// discoveryStaleRefreshTimeout bounds a single background
+	// stale-while-revalidate rebuild. It runs detached from the request
+	// that triggered it (see refreshStaleAsync), so it needs its own
+	// deadline rather than inheriting one from a (likely already-canceled)
+	// request context.
+	discoveryStaleRefreshTimeout = 10 * time.Second
 )
 
 type DiscoveryCacheOptions struct {
@@ -124,9 +139,28 @@ type discoveryResponseCache struct {
 }
 
 type discoveryCacheEntry struct {
-	payload   []byte
+	payload []byte
+	// expiresAt is the freshness boundary: hits before this time are
+	// served with no further action.
 	expiresAt time.Time
-	createdAt uint64
+	// staleUntil is the hard removal boundary: hits between expiresAt and
+	// staleUntil are still served (stale-while-revalidate) while a
+	// background rebuild is kicked off. Entries are only actually deleted
+	// once staleUntil has passed.
+	staleUntil time.Time
+	createdAt  uint64
+}
+
+// staleGraceFor returns how long past ttl an entry stays servable-but-stale,
+// capped at discoveryCacheMaxStaleGrace.
+func staleGraceFor(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return 0
+	}
+	if ttl > discoveryCacheMaxStaleGrace {
+		return discoveryCacheMaxStaleGrace
+	}
+	return ttl
 }
 
 type cacheLookupObserver func(family, endpoint string, hit bool)
@@ -148,22 +182,28 @@ func newDiscoveryResponseCache(maxEntries int) *discoveryResponseCache {
 	}
 }
 
-func (c *discoveryResponseCache) get(key string) ([]byte, bool) {
+// get looks up key and reports whether servable data exists (ok) and, if so,
+// whether it is still within its freshness window (fresh). An entry that has
+// passed expiresAt but not yet staleUntil is returned with fresh=false so
+// callers can serve it immediately while triggering a background refresh
+// (stale-while-revalidate). Entries past staleUntil are evicted and treated
+// as a miss.
+func (c *discoveryResponseCache) get(key string) (payload []byte, fresh bool, ok bool) {
 	if c == nil {
-		return nil, false
+		return nil, false, false
 	}
 	now := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	entry, ok := c.entries[key]
-	if !ok {
-		return nil, false
+	entry, exists := c.entries[key]
+	if !exists {
+		return nil, false, false
 	}
-	if !entry.expiresAt.After(now) {
+	if !entry.staleUntil.After(now) {
 		delete(c.entries, key)
-		return nil, false
+		return nil, false, false
 	}
-	return append([]byte(nil), entry.payload...), true
+	return append([]byte(nil), entry.payload...), entry.expiresAt.After(now), true
 }
 
 func (c *discoveryResponseCache) set(key string, payload []byte, ttl time.Duration) {
@@ -179,15 +219,16 @@ func (c *discoveryResponseCache) set(key string, payload []byte, ttl time.Durati
 	}
 	c.seq++
 	c.entries[key] = discoveryCacheEntry{
-		payload:   append([]byte(nil), payload...),
-		expiresAt: now.Add(ttl),
-		createdAt: c.seq,
+		payload:    append([]byte(nil), payload...),
+		expiresAt:  now.Add(ttl),
+		staleUntil: now.Add(ttl + staleGraceFor(ttl)),
+		createdAt:  c.seq,
 	}
 }
 
 func (c *discoveryResponseCache) deleteExpiredLocked(now time.Time) {
 	for key, entry := range c.entries {
-		if !entry.expiresAt.After(now) {
+		if !entry.staleUntil.After(now) {
 			delete(c.entries, key)
 		}
 	}
@@ -217,18 +258,25 @@ func (c *discoveryResponseCache) evictOldestLocked() {
 // recompute stampede. On a build error nothing is written and the error is
 // returned so the caller can map it to the appropriate status code, preserving
 // each handler's existing error semantics (not-found, unsupported-capability).
-func (h Handlers) servePublicCached(w http.ResponseWriter, policy publicResponseCachePolicy, build func() (map[string]any, error)) error {
+//
+// Entries past their freshness window but within their stale grace period are
+// served immediately (stale-while-revalidate) while a background rebuild is
+// kicked off asynchronously; see refreshStaleAsync.
+func (h Handlers) servePublicCached(ctx context.Context, w http.ResponseWriter, policy publicResponseCachePolicy, build func(ctx context.Context) (map[string]any, error)) error {
 	if h.discoveryCache == nil {
-		payload, err := build()
+		payload, err := build(ctx)
 		if err != nil {
 			return err
 		}
 		writeJSON(w, http.StatusOK, payload)
 		return nil
 	}
-	if payload, ok := h.discoveryCache.get(policy.key); ok {
+	if payload, fresh, ok := h.discoveryCache.get(policy.key); ok {
 		if h.cacheLookupObserver != nil {
 			h.cacheLookupObserver(string(policy.family), policy.endpoint, true)
+		}
+		if !fresh {
+			h.refreshStaleAsync(policy, build)
 		}
 		h.writeCachedPayload(w, payload)
 		return nil
@@ -236,7 +284,7 @@ func (h Handlers) servePublicCached(w http.ResponseWriter, policy publicResponse
 	if h.cacheLookupObserver != nil {
 		h.cacheLookupObserver(string(policy.family), policy.endpoint, false)
 	}
-	encoded, err := h.buildAndCachePayload(policy, build)
+	encoded, err := h.buildAndCachePayload(ctx, policy, build)
 	if err != nil {
 		return err
 	}
@@ -244,17 +292,37 @@ func (h Handlers) servePublicCached(w http.ResponseWriter, policy publicResponse
 	return nil
 }
 
+// refreshStaleAsync kicks off a background rebuild for a stale-but-servable
+// cache entry so servePublicCached can return the stale payload immediately
+// (stale-while-revalidate). It runs with a context detached from the
+// request that triggered it: by the time this goroutine executes, the
+// triggering request may already have completed and had its context
+// canceled, which would otherwise abort the refresh before the query even
+// started. Concurrent stale hits for the same key collapse onto a single
+// rebuild via the cache's singleflight group, so a burst of requests during
+// the stale window still only triggers one recompute.
+func (h Handlers) refreshStaleAsync(policy publicResponseCachePolicy, build func(ctx context.Context) (map[string]any, error)) {
+	if h.discoveryCache == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), discoveryStaleRefreshTimeout)
+		defer cancel()
+		_, _ = h.buildAndCachePayload(ctx, policy, build)
+	}()
+}
+
 // buildAndCachePayload runs build under singleflight keyed by the cache key,
 // marshals and stores the result, and returns the encoded bytes. A follower
-// that arrives after the leader has already populated the cache serves the
-// freshly-cached bytes without rebuilding.
-func (h Handlers) buildAndCachePayload(policy publicResponseCachePolicy, build func() (map[string]any, error)) ([]byte, error) {
+// that arrives after the leader has already populated a fresh cache entry
+// serves the freshly-cached bytes without rebuilding.
+func (h Handlers) buildAndCachePayload(ctx context.Context, policy publicResponseCachePolicy, build func(ctx context.Context) (map[string]any, error)) ([]byte, error) {
 	ttl := h.cacheConfig.ttlForFamily(policy.family)
 	encoded, err, _ := h.discoveryCache.builds.Do(policy.key, func() (any, error) {
-		if payload, ok := h.discoveryCache.get(policy.key); ok {
+		if payload, fresh, ok := h.discoveryCache.get(policy.key); ok && fresh {
 			return payload, nil
 		}
-		payload, buildErr := build()
+		payload, buildErr := build(ctx)
 		if buildErr != nil {
 			return nil, buildErr
 		}

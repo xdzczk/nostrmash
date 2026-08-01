@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -29,8 +30,8 @@ func (h Handlers) GetTrendingHashtags(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		topics, topicsErr := h.service.GetTrendingHashtags(r.Context(), window, limit, offset)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		topics, topicsErr := h.service.GetTrendingHashtags(ctx, window, limit, offset)
 		if topicsErr != nil {
 			return nil, topicsErr
 		}
@@ -60,8 +61,8 @@ func (h Handlers) GetHashtagSummary(w http.ResponseWriter, r *http.Request) {
 	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "hashtag_summary", map[string]any{
 		"hashtag": normalizeCacheHashtag(rawHashtag),
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		summary, summaryErr := h.service.GetHashtagSummary(r.Context(), rawHashtag)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		summary, summaryErr := h.service.GetHashtagSummary(ctx, rawHashtag)
 		if summaryErr != nil {
 			return nil, summaryErr
 		}
@@ -137,8 +138,8 @@ func (h Handlers) GetHashtagNotes(w http.ResponseWriter, r *http.Request) {
 		"limit":   limit,
 		"offset":  offset,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		notes, notesErr := h.service.GetHashtagNotes(r.Context(), rawHashtag, sort, window, limit, offset)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		notes, notesErr := h.service.GetHashtagNotes(ctx, rawHashtag, sort, window, limit, offset)
 		if notesErr != nil {
 			return nil, notesErr
 		}
@@ -184,8 +185,8 @@ func (h Handlers) GetRelatedHashtags(w http.ResponseWriter, r *http.Request) {
 		"hashtag": normalizeCacheHashtag(rawHashtag),
 		"limit":   limit,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		related, relatedErr := h.service.GetRelatedHashtags(r.Context(), rawHashtag, limit)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		related, relatedErr := h.service.GetRelatedHashtags(ctx, rawHashtag, limit)
 		if relatedErr != nil {
 			return nil, relatedErr
 		}

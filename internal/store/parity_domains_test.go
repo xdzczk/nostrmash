@@ -378,6 +378,83 @@ func TestDomainQueries_NormalizationAndMissingBehavior(t *testing.T) {
 	}
 }
 
+// TestGetHomeTrendingDomains_MatchesLiveOrdering verifies that the
+// precomputed top_domains_24h/7d snapshot (populated by
+// derivation.RefreshRelayWindowSnapshots) produces the same ranking and
+// activity figures as the live GetTrendingDomains aggregate it replaces on
+// the homepage request path.
+func TestGetHomeTrendingDomains_MatchesLiveOrdering(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+	events := []model.Event{
+		newDomainEvent("home_dom_1", "author_a", now.Add(-1*time.Hour), "https://lowdiv.example/1"),
+		newDomainEvent("home_dom_2", "author_a", now.Add(-2*time.Hour), "https://lowdiv.example/2"),
+		newDomainEvent("home_dom_3", "author_a", now.Add(-3*time.Hour), "https://lowdiv.example/3"),
+		newDomainEvent("home_dom_4", "author_b", now.Add(-4*time.Hour), "https://lowdiv.example/4"),
+		newDomainEvent("home_dom_5", "author_c", now.Add(-1*time.Hour), "https://highdiv.example/1"),
+		newDomainEvent("home_dom_6", "author_d", now.Add(-2*time.Hour), "https://highdiv.example/2"),
+		newDomainEvent("home_dom_7", "author_e", now.Add(-1*time.Hour), "https://moreauthors.example/1"),
+		newDomainEvent("home_dom_8", "author_f", now.Add(-2*time.Hour), "https://moreauthors.example/2"),
+		newDomainEvent("home_dom_9", "author_g", now.Add(-3*time.Hour), "https://moreauthors.example/3"),
+	}
+	for _, event := range events {
+		tags := extractTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+
+	live, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingDomains: %v", err)
+	}
+	if len(live) == 0 {
+		t.Fatalf("expected non-empty live trending domains")
+	}
+
+	if err := handlers.RefreshRelayWindowSnapshots(ctx); err != nil {
+		t.Fatalf("RefreshRelayWindowSnapshots: %v", err)
+	}
+
+	snapshot, err := pgStore.GetHomeTrendingDomains(ctx, 24*time.Hour, 10)
+	if err != nil {
+		t.Fatalf("GetHomeTrendingDomains: %v", err)
+	}
+	if len(snapshot) != len(live) {
+		t.Fatalf("unexpected snapshot length: got=%d want=%d", len(snapshot), len(live))
+	}
+	for i := range live {
+		if snapshot[i].Domain != live[i].Domain {
+			t.Fatalf("unexpected snapshot ordering at %d: got=%s want=%s", i, snapshot[i].Domain, live[i].Domain)
+		}
+		if snapshot[i].Activity.Last24h != live[i].Activity.Last24h {
+			t.Fatalf("unexpected 24h activity for %s: got=%#v want=%#v", snapshot[i].Domain, snapshot[i].Activity.Last24h, live[i].Activity.Last24h)
+		}
+		if snapshot[i].Activity.Last7d != live[i].Activity.Last7d {
+			t.Fatalf("unexpected 7d activity for %s: got=%#v want=%#v", snapshot[i].Domain, snapshot[i].Activity.Last7d, live[i].Activity.Last7d)
+		}
+	}
+
+	// The 7d snapshot label is refreshed independently and should also be
+	// populated and directly queryable.
+	snapshot7d, err := pgStore.GetHomeTrendingDomains(ctx, 7*24*time.Hour, 10)
+	if err != nil {
+		t.Fatalf("GetHomeTrendingDomains (7d): %v", err)
+	}
+	if len(snapshot7d) == 0 {
+		t.Fatalf("expected non-empty 7d domains snapshot")
+	}
+}
+
 func newDomainEvent(id, pubkey string, ts time.Time, content string) model.Event {
 	createdAt := ts.Unix()
 	raw, _ := json.Marshal(map[string]any{

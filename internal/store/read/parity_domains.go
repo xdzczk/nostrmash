@@ -2,6 +2,8 @@ package read
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -229,6 +231,107 @@ func (s *Read) GetTrendingDomains(
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read trending domain rows: %w", err)
+	}
+	return out, nil
+}
+
+// domainSnapshotActivityRow mirrors one 24h/7d activity sub-object inside
+// the top_domains_24h / top_domains_7d snapshot payload.
+type domainSnapshotActivityRow struct {
+	LinkCount     int64 `json:"link_count"`
+	NoteCount     int64 `json:"note_count"`
+	UniqueAuthors int64 `json:"unique_authors"`
+}
+
+// domainSnapshotRow mirrors one entry inside the top_domains_24h /
+// top_domains_7d snapshot payload — the same shape GetTrendingDomains scans
+// from a live query, just precomputed.
+type domainSnapshotRow struct {
+	Domain        string                    `json:"domain"`
+	LatestEventAt *int64                    `json:"latest_event_at"`
+	Activity24h   domainSnapshotActivityRow `json:"activity_24h"`
+	Activity7d    domainSnapshotActivityRow `json:"activity_7d"`
+}
+
+// resolveHomeDomainsSnapshotLabel maps the homepage's fixed trending window
+// to the matching precomputed snapshot label. Only 24h/7d are snapshotted —
+// the same fixed shape RefreshRelayWindowSnapshots computes — because those
+// are the only windows the homepage bundle ever requests.
+func resolveHomeDomainsSnapshotLabel(window time.Duration) (string, error) {
+	switch window {
+	case 24 * time.Hour:
+		return relaySnapshotLabelTopDomains24h, nil
+	case 7 * 24 * time.Hour:
+		return relaySnapshotLabelTopDomains7d, nil
+	default:
+		return "", fmt.Errorf("unsupported home trending domains window: %s", window)
+	}
+}
+
+// GetHomeTrendingDomains reads the precomputed top-domains list from
+// relay_window_snapshots. The live GetTrendingDomains aggregate (a
+// COUNT(DISTINCT) over event_urls) is CPU-bound at production scale; the
+// homepage's fixed (24h, 7d, top-N) shape is snapshotted out-of-band by
+// internal/derivation/projection_relay_window_snapshots.go on the same
+// cadence as the relay/hashtag/language snapshots. As with those, there is
+// intentionally no live-query fallback if the snapshot row is missing: we
+// serve an empty list and rely on the worker to populate it, rather than
+// reintroduce the multi-second aggregate onto the request path.
+func (s *Read) GetHomeTrendingDomains(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+) ([]DomainSummaryProjection, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	label, err := resolveHomeDomainsSnapshotLabel(window)
+	if err != nil {
+		return nil, err
+	}
+	var payload []byte
+	err = s.pool.QueryRow(ctx, `
+		SELECT payload
+		FROM relay_window_snapshots
+		WHERE snapshot_label = $1
+	`, label).Scan(&payload)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || isUndefinedRelationError(err) {
+			return []DomainSummaryProjection{}, nil
+		}
+		return nil, fmt.Errorf("read top domains snapshot %q: %w", label, err)
+	}
+	var rows []domainSnapshotRow
+	if err := json.Unmarshal(payload, &rows); err != nil {
+		return nil, fmt.Errorf("decode top domains snapshot %q: %w", label, err)
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]DomainSummaryProjection, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, DomainSummaryProjection{
+			Domain:        row.Domain,
+			LatestEventAt: row.LatestEventAt,
+			Activity: DomainActivityStatsProjection{
+				Last24h: DomainActivityProjection{
+					LinkCount:     row.Activity24h.LinkCount,
+					NoteCount:     row.Activity24h.NoteCount,
+					UniqueAuthors: row.Activity24h.UniqueAuthors,
+				},
+				Last7d: DomainActivityProjection{
+					LinkCount:     row.Activity7d.LinkCount,
+					NoteCount:     row.Activity7d.NoteCount,
+					UniqueAuthors: row.Activity7d.UniqueAuthors,
+				},
+			},
+		})
 	}
 	return out, nil
 }

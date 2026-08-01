@@ -123,6 +123,29 @@ func buildDomainRanking(row query.DomainSummary, rank int, window string) query.
 	}
 }
 
+// pickHashtagWindow selects the 24h or 7d list out of a snapshot's
+// TrendingHashtagWindows for the given window label ("24h" or "7d"),
+// returning nil if windows is nil (capability unavailable / snapshot empty).
+func pickHashtagWindow(windows *query.TrendingHashtagWindows, window string) []query.TrendingHashtag {
+	if windows == nil {
+		return nil
+	}
+	if window == "7d" {
+		return windows.Last7d
+	}
+	return windows.Last24h
+}
+
+// sliceHashtags bounds rows to at most limit entries. Snapshots are
+// materialized at the API max (50) so callers can request any smaller limit
+// from the same precomputed list.
+func sliceHashtags(rows []query.TrendingHashtag, limit int) []query.TrendingHashtag {
+	if limit <= 0 || len(rows) <= limit {
+		return rows
+	}
+	return rows[:limit]
+}
+
 func buildDiscoveryHashtagItems(rows []query.TrendingHashtag) []map[string]any {
 	items := make([]map[string]any, 0, len(rows))
 	for index, topic := range rows {

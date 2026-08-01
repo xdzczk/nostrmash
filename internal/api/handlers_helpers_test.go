@@ -87,6 +87,7 @@ type fakeEventReader struct {
 	getHashtagNotesFn                func(context.Context, string, string, string, int, int) ([]storeread.TrendingNote, error)
 	getRelatedHashtagsFn             func(context.Context, string, int) ([]storeread.RelatedHashtag, error)
 	getTrendingDomainsFn             func(context.Context, time.Duration, int, int) ([]store.DomainSummaryProjection, error)
+	getHomeTrendingDomainsFn         func(context.Context, time.Duration, int) ([]store.DomainSummaryProjection, error)
 	getDomainSummaryFn               func(context.Context, string, int, int) (store.DomainSummaryProjection, error)
 	getDomainNotesFn                 func(context.Context, string, string, string, int, int) ([]storeread.TrendingNote, error)
 	getTrendingProfilesFn            func(context.Context, time.Duration, int, int) ([]storeread.TrendingProfile, error)
@@ -607,6 +608,17 @@ func (f fakeEventReader) GetTrendingDomains(
 		return nil, errors.New("not implemented")
 	}
 	return f.getTrendingDomainsFn(ctx, window, limit, offset)
+}
+
+func (f fakeEventReader) GetHomeTrendingDomains(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+) ([]store.DomainSummaryProjection, error) {
+	if f.getHomeTrendingDomainsFn == nil {
+		return nil, errors.New("not implemented")
+	}
+	return f.getHomeTrendingDomainsFn(ctx, window, limit)
 }
 
 func (f fakeEventReader) GetDomainSummary(

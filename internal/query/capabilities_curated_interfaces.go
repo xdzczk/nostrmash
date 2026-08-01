@@ -69,6 +69,15 @@ type trendingDomainsCapability interface {
 	GetTrendingDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.DomainSummaryProjection, error)
 }
 
+// homeTrendingDomainsCapability serves the homepage's fixed (24h/7d, top-N)
+// trending-domains shape from a precomputed snapshot instead of running the
+// live COUNT(DISTINCT) aggregate behind trendingDomainsCapability on every
+// request. See internal/derivation/projection_relay_window_snapshots.go and
+// internal/store/read/parity_domains.go for the snapshot writer/reader.
+type homeTrendingDomainsCapability interface {
+	GetHomeTrendingDomains(ctx context.Context, window time.Duration, limit int) ([]readmodel.DomainSummaryProjection, error)
+}
+
 type domainSummaryCapability interface {
 	GetDomainSummary(ctx context.Context, domain string, recentLimit int, topLimit int) (readmodel.DomainSummaryProjection, error)
 }

@@ -25,6 +25,7 @@ func wireCuratedGroup(g CuratedReads, caps *serviceCapabilities) {
 	caps.curated.topDomains = g
 	caps.curated.topDomainsByAuthor = g
 	caps.curated.trendingDomains = g
+	caps.curated.homeTrendingDomains = g
 	caps.curated.domainSummary = g
 	caps.curated.domainNotes = g
 	caps.curated.trendingNotes = g

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -30,8 +31,8 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		rows, rowsErr := h.service.GetTrendingDomains(r.Context(), window, limit, offset)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		rows, rowsErr := h.service.GetTrendingDomains(ctx, window, limit, offset)
 		if rowsErr != nil {
 			return nil, rowsErr
 		}
@@ -61,8 +62,8 @@ func (h Handlers) GetDomainSummary(w http.ResponseWriter, r *http.Request) {
 	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "domain_summary", map[string]any{
 		"domain": strings.ToLower(strings.TrimSpace(rawDomain)),
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		summary, summaryErr := h.service.GetDomainSummary(r.Context(), rawDomain)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		summary, summaryErr := h.service.GetDomainSummary(ctx, rawDomain)
 		if summaryErr != nil {
 			return nil, summaryErr
 		}
@@ -154,8 +155,8 @@ func (h Handlers) GetDomainNotes(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		notes, notesErr := h.service.GetDomainNotes(r.Context(), rawDomain, sort, window, limit, offset)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		notes, notesErr := h.service.GetDomainNotes(ctx, rawDomain, sort, window, limit, offset)
 		if notesErr != nil {
 			return nil, notesErr
 		}

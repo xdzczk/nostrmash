@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -254,8 +255,8 @@ func (h Handlers) SearchSuggest(w http.ResponseWriter, r *http.Request) {
 		"q":     normalizeCacheFolded(queryText),
 		"limit": limit,
 	})
-	if err := h.servePublicCached(w, cachePolicy, func() (map[string]any, error) {
-		result, resultErr := h.service.SearchSuggestions(r.Context(), queryText, limit)
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		result, resultErr := h.service.SearchSuggestions(ctx, queryText, limit)
 		if resultErr != nil {
 			return nil, resultErr
 		}

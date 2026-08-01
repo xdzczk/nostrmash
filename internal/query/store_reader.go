@@ -41,6 +41,7 @@ type CuratedReads interface {
 	topDomainsCapability
 	topDomainsByAuthorCapability
 	trendingDomainsCapability
+	homeTrendingDomainsCapability
 	domainSummaryCapability
 	domainNotesCapability
 	trendingNotesCapability

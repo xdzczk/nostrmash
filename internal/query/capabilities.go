@@ -49,6 +49,7 @@ type curatedCapabilities struct {
 	topDomains             topDomainsCapability
 	topDomainsByAuthor     topDomainsByAuthorCapability
 	trendingDomains        trendingDomainsCapability
+	homeTrendingDomains    homeTrendingDomainsCapability
 	domainSummary          domainSummaryCapability
 	domainNotes            domainNotesCapability
 	trendingProfiles       trendingProfilesCapability
