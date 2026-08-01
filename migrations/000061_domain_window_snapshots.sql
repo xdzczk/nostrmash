@@ -9,7 +9,7 @@
 -- computes COUNT(DISTINCT event_id) / COUNT(DISTINCT author_pubkey) per
 -- domain — the same COUNT(DISTINCT) shape and cost class as the hashtag
 -- aggregate snapshotted in 000048 (~1M+ row scan, hashed into per-domain
-    10|-- distinct-author sets). After 000048 snapshotted the relay, note-volume,
+-- distinct-author sets). After 000048 snapshotted the relay, note-volume,
 -- language, and hashtag aggregates, trending domains was the one
 -- remaining live COUNT(DISTINCT) aggregate left on the homepage request
 -- path, still capable of turning a cache-miss request into a multi-second
@@ -19,7 +19,7 @@
 -- cardinalities — see the rationale in 000047 and 000048. The fix is the
 -- same: compute this out-of-band on a fixed cadence
 -- (derivation.RefreshRelayWindowSnapshots, every 5 minutes) and serve the
-    20|-- homepage from a sub-millisecond row lookup.
+-- homepage from a sub-millisecond row lookup.
 --
 -- Snapshot labels added by this migration
 -- ----------------------------------------
@@ -29,7 +29,7 @@
 --                         ... ]  (top 50, candidate set restricted to the
 --                         last 24h and ranked by unique-author breadth
 --                         within that set)
-    30|--   top_domains_7d  -> same shape, candidate set restricted to the last
+--   top_domains_7d  -> same shape, candidate set restricted to the last
 --                         7 days and ranked by unique-author breadth
 --                         within that set
 --
@@ -39,7 +39,7 @@
 -- sub-aggregates populate both activity windows in the response
 -- regardless of which one is being ranked. The store layer
 -- (GetHomeTrendingDomains) slices this list down to the per-request
-   40|-- limit, so we always materialize the API max (50) here.
+-- limit, so we always materialize the API max (50) here.
 --
 -- Same SET LOCAL work_mem hack as 000047/000048 — the default 4MB would
 -- force the COUNT(DISTINCT) hashtables built per canonical_domain to
@@ -49,7 +49,7 @@ SET LOCAL work_mem = '128MB';
 
 INSERT INTO relay_window_snapshots (snapshot_label, payload, computed_at)
 SELECT
-    50|    'top_domains_24h',
+    'top_domains_24h',
     COALESCE(jsonb_agg(
         jsonb_build_object(
             'domain', canonical_domain,
@@ -59,7 +59,7 @@ SELECT
                 'note_count', note_count_24h,
                 'unique_authors', unique_authors_24h
             ),
-    60|            'activity_7d', jsonb_build_object(
+            'activity_7d', jsonb_build_object(
                 'link_count', link_count_7d,
                 'note_count', note_count_7d,
                 'unique_authors', unique_authors_7d
@@ -69,7 +69,7 @@ SELECT
     ), '[]'::jsonb),
     now()
 FROM (
-   70|    SELECT
+    SELECT
         canonical_domain,
         latest_event_at,
         link_count_24h, note_count_24h, unique_authors_24h,
@@ -79,7 +79,7 @@ FROM (
                 unique_authors_24h DESC,
                 unique_authors_24h::double precision / GREATEST(note_count_24h, 1) DESC,
                 note_count_24h DESC,
-    80|                link_count_24h DESC,
+                link_count_24h DESC,
                 canonical_domain ASC
         ) AS rank
     FROM (
@@ -89,13 +89,13 @@ FROM (
             COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '24 hours')::bigint) AS link_count_24h,
             COUNT(DISTINCT event_id) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '24 hours')::bigint) AS note_count_24h,
             COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '24 hours')::bigint) AS unique_authors_24h,
-    90|            COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '7 days')::bigint) AS link_count_7d,
+            COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '7 days')::bigint) AS link_count_7d,
             COUNT(DISTINCT event_id) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '7 days')::bigint) AS note_count_7d,
             COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '7 days')::bigint) AS unique_authors_7d
         FROM event_urls
         WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '24 hours')::bigint
           AND NOT (url ~* '\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|heic|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|ogg|m4a|flac|aac|opus)(\?|#|$)')
-   100|        GROUP BY canonical_domain
+        GROUP BY canonical_domain
     ) agg
 ) ranked
 WHERE rank <= 50
@@ -106,7 +106,7 @@ SET payload     = EXCLUDED.payload,
 INSERT INTO relay_window_snapshots (snapshot_label, payload, computed_at)
 SELECT
     'top_domains_7d',
-   110|    COALESCE(jsonb_agg(
+    COALESCE(jsonb_agg(
         jsonb_build_object(
             'domain', canonical_domain,
             'latest_event_at', latest_event_at,
@@ -116,7 +116,7 @@ SELECT
                 'unique_authors', unique_authors_24h
             ),
             'activity_7d', jsonb_build_object(
-   120|                'link_count', link_count_7d,
+                'link_count', link_count_7d,
                 'note_count', note_count_7d,
                 'unique_authors', unique_authors_7d
             )
@@ -126,7 +126,7 @@ SELECT
     now()
 FROM (
     SELECT
-   130|        canonical_domain,
+        canonical_domain,
         latest_event_at,
         link_count_24h, note_count_24h, unique_authors_24h,
         link_count_7d, note_count_7d, unique_authors_7d,
@@ -136,7 +136,7 @@ FROM (
                 unique_authors_7d::double precision / GREATEST(note_count_7d, 1) DESC,
                 note_count_7d DESC,
                 link_count_7d DESC,
-   140|                canonical_domain ASC
+                canonical_domain ASC
         ) AS rank
     FROM (
         SELECT
@@ -145,13 +145,13 @@ FROM (
             COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '24 hours')::bigint) AS link_count_24h,
             COUNT(DISTINCT event_id) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '24 hours')::bigint) AS note_count_24h,
             COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '24 hours')::bigint) AS unique_authors_24h,
-   150|            COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '7 days')::bigint) AS link_count_7d,
+            COUNT(*) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '7 days')::bigint) AS link_count_7d,
             COUNT(DISTINCT event_id) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '7 days')::bigint) AS note_count_7d,
             COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '7 days')::bigint) AS unique_authors_7d
         FROM event_urls
         WHERE created_at >= EXTRACT(EPOCH FROM now() - INTERVAL '7 days')::bigint
           AND NOT (url ~* '\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|heic|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|ogg|m4a|flac|aac|opus)(\?|#|$)')
-   160|        GROUP BY canonical_domain
+        GROUP BY canonical_domain
     ) agg
 ) ranked
 WHERE rank <= 50
