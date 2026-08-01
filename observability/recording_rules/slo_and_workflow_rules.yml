@@ -62,6 +62,9 @@ groups:
       - record: nostrmash:trust:active_snapshot_age_seconds
         expr: max(nostrmash_trust_active_snapshot_age_seconds)
 
+      - record: nostrmash:discovery:relay_window_snapshot_age_seconds
+        expr: max(nostrmash_relay_window_snapshot_age_seconds)
+
       - record: nostrmash:trust:phase_retry_ratio15m
         expr: sum(increase(nostrmash_worker_jobs_total{job_type=~"trust_.*",outcome="retry"}[15m])) / clamp_min(sum(increase(nostrmash_worker_jobs_total{job_type=~"trust_.*",outcome=~"succeeded|dead|retry"}[15m])), 1)
 

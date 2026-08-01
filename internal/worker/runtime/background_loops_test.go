@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/config"
+	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/jobs"
 )
 
@@ -51,6 +52,32 @@ func TestRunRelayWindowSnapshotsLoop_NilHandlers(t *testing.T) {
 	RunRelayWindowSnapshotsLoop(context.Background(), log, nil)
 	if !log.sawError("relay_window_snapshots_no_handlers") {
 		t.Fatal("expected no-handlers error log")
+	}
+}
+
+// TestRefreshRelayWindowSnapshotsOnce_UninitializedHandlersDoesNotPanic
+// covers the failure path that left the homepage silently serving a 3-day-
+// old snapshot: refreshRelayWindowSnapshotsOnce must always log a clear
+// error and return — never panic and take the rest of the worker's
+// background loops down with it — regardless of whether the failure comes
+// from the refresh itself or from the staleness-metric query that runs
+// afterward.
+func TestRefreshRelayWindowSnapshotsOnce_UninitializedHandlersDoesNotPanic(t *testing.T) {
+	log := &recordingLogger{}
+	handlers := derivation.NewHandlers(nil)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("refreshRelayWindowSnapshotsOnce panicked: %v", r)
+		}
+	}()
+	refreshRelayWindowSnapshotsOnce(context.Background(), log, handlers)
+
+	if !log.sawError("relay_window_snapshots_refresh_failed") {
+		t.Fatal("expected refresh-failed error log")
+	}
+	if !log.sawError("relay_window_snapshots_age_query_failed") {
+		t.Fatal("expected age-query-failed error log")
 	}
 }
 

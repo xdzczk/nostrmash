@@ -3,6 +3,7 @@ package derivation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -165,6 +166,41 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 		}
 		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopDomains7d, jsonArray(topDomains7d))
 	})
+}
+
+// RelayWindowSnapshotAge reports how long ago the "home_window_24h" row was
+// last successfully computed — the same row backing the note-volume /
+// active-authors numbers and the "Updated Xd ago" freshness label callers
+// see on / and /api/v1/discovery/home. Unlike tracking a timestamp in
+// process memory, this reads the actual database row, so it reports the
+// true staleness of what users see even across worker restarts (e.g. an
+// immediate refresh-on-start that itself fails would otherwise look
+// "fresh" to an in-memory tracker). ok is false only when the row does not
+// exist yet (a brand-new environment before the first successful refresh),
+// so callers don't have to treat "never computed" as an alarming age.
+//
+// This exists specifically so RunRelayWindowSnapshotsLoop can feed
+// metrics.SetRelayWindowSnapshotAge, which backs the
+// NostrMashRelayWindowSnapshotStale alert (see
+// observability/alerts/core_workflow_alerts.yml). Before this metric
+// existed, a stuck/failing refresh loop had no signal beyond an old
+// computed_at value nobody was watching — see the incident where the
+// homepage silently served 3-day-old numbers.
+func (h *Handlers) RelayWindowSnapshotAge(ctx context.Context) (time.Duration, bool, error) {
+	if h == nil || h.pool == nil {
+		return 0, false, fmt.Errorf("handlers are not initialized")
+	}
+	var computedAt time.Time
+	err := h.pool.QueryRow(ctx, `
+		SELECT computed_at FROM relay_window_snapshots WHERE snapshot_label = $1
+	`, relaySnapshotLabelHomeWindow24h).Scan(&computedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("read relay window snapshot age: %w", err)
+	}
+	return time.Since(computedAt), true, nil
 }
 
 // Snapshot label constants — also referenced by the API store

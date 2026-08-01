@@ -19,6 +19,51 @@ func TestRefreshRelayWindowSnapshots_NilHandlers(t *testing.T) {
 	}
 }
 
+func TestRelayWindowSnapshotAge_NilHandlers(t *testing.T) {
+	var h *derivation.Handlers
+	if _, _, err := h.RelayWindowSnapshotAge(context.Background()); err == nil {
+		t.Fatal("expected error when handlers are not initialized")
+	}
+}
+
+func TestRelayWindowSnapshotAge_NilPool(t *testing.T) {
+	h := derivation.NewHandlers(nil)
+	if _, _, err := h.RelayWindowSnapshotAge(context.Background()); err == nil {
+		t.Fatal("expected error when pool is nil")
+	}
+}
+
+func TestRelayWindowSnapshotAge_ReflectsRefresh(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+	handlers := derivation.NewHandlers(pool)
+
+	// Before the first refresh the row doesn't exist yet: ok must be
+	// false rather than reporting a misleading "age zero" or an error.
+	if age, ok, err := handlers.RelayWindowSnapshotAge(ctx); err != nil {
+		t.Fatalf("RelayWindowSnapshotAge before refresh: %v", err)
+	} else if ok {
+		t.Fatalf("expected ok=false before any refresh, got age=%s", age)
+	}
+
+	if err := handlers.RefreshRelayWindowSnapshots(ctx); err != nil {
+		t.Fatalf("refresh relay window snapshots: %v", err)
+	}
+
+	age, ok, err := handlers.RelayWindowSnapshotAge(ctx)
+	if err != nil {
+		t.Fatalf("RelayWindowSnapshotAge after refresh: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ok=true after a successful refresh")
+	}
+	if age < 0 || age > 30*time.Second {
+		t.Fatalf("expected a near-zero age right after refresh, got %s", age)
+	}
+}
+
 func TestRefreshRelayWindowSnapshots_PopulatesAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

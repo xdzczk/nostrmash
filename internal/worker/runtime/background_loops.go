@@ -28,9 +28,13 @@ const relayWindowSnapshotsRefreshInterval = 5 * time.Minute
 // relayWindowSnapshotsRefreshTimeout caps how long a single refresh
 // may run. The seed in migration 000047 takes ~12s on production,
 // and pathological cases (e.g. autovacuum holding locks during a
-// table bloat) could push it higher; 60s gives generous headroom
-// without ever permanently wedging the loop on a single bad run.
-const relayWindowSnapshotsRefreshTimeout = 60 * time.Second
+// table bloat) could push it higher. Bumped from the original 60s to
+// 120s after 000061_domain_window_snapshots.sql added two more
+// COUNT(DISTINCT)-shaped aggregates (top_domains_24h/7d) into this
+// same single-transaction budget alongside relays/languages/hashtags;
+// 60s was calibrated before that work existed and left little
+// headroom for the extra queries under load.
+const relayWindowSnapshotsRefreshTimeout = 120 * time.Second
 
 // RunRelayWindowSnapshotsLoop periodically refreshes the homepage
 // relay summary snapshot. The homepage handler reads
@@ -53,7 +57,14 @@ const relayWindowSnapshotsRefreshTimeout = 60 * time.Second
 // loop simply waits for the next tick. This means a transient DB
 // problem causes the homepage to serve slightly older numbers, not
 // to fail. Persistent failures show up as an old computed_at on
-// /api/v1/discovery/home and as repeated error logs here.
+// /api/v1/discovery/home, as repeated error logs here, AND (as of
+// the metrics.SetRelayWindowSnapshotAge call in
+// refreshRelayWindowSnapshotsOnce) as the
+// nostrmash_relay_window_snapshot_age_seconds gauge, which pages via
+// the NostrMashRelayWindowSnapshotStale alert. Before that alert
+// existed, this incident class (a stuck refresh loop, or a worker
+// that stopped running entirely) had no active signal — it silently
+// served 3-day-old homepage numbers until a user noticed.
 func RunRelayWindowSnapshotsLoop(ctx context.Context, log Logger, handlers *derivation.Handlers) {
 	if handlers == nil {
 		log.Error("relay_window_snapshots_no_handlers")
@@ -85,6 +96,19 @@ func RunRelayWindowSnapshotsLoop(ctx context.Context, log Logger, handlers *deri
 }
 
 func refreshRelayWindowSnapshotsOnce(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	// A panic anywhere in this tick (e.g. an unexpected row shape, a nil
+	// pointer from a driver edge case) must not take down the entire
+	// worker process: RunLifecycle spawns ~15 unrelated background loops
+	// (retention, storage governor, meilisearch sync, ...) on the same
+	// goroutine group, none of which should stop just because this one
+	// tick had a bug. Recovering here keeps this loop's ticker alive for
+	// the next interval instead of crashing the whole binary.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("relay_window_snapshots_refresh_panicked", "panic", r)
+		}
+	}()
+
 	runCtx, cancel := context.WithTimeout(ctx, relayWindowSnapshotsRefreshTimeout)
 	defer cancel()
 	started := time.Now()
@@ -94,12 +118,29 @@ func refreshRelayWindowSnapshotsOnce(ctx context.Context, log Logger, handlers *
 			"error", err,
 			"duration_s", time.Since(started).Seconds(),
 		)
+	} else {
+		log.Info(
+			"relay_window_snapshots_refreshed",
+			"duration_s", time.Since(started).Seconds(),
+		)
+	}
+
+	// Report the snapshot's actual staleness regardless of whether this
+	// tick's refresh succeeded — a failing tick is exactly the case the
+	// NostrMashRelayWindowSnapshotStale alert needs to catch, and reading
+	// the DB row (rather than only advancing a metric on success) means
+	// the gauge reflects the truth even across worker restarts.
+	ageCtx, ageCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer ageCancel()
+	age, ok, err := handlers.RelayWindowSnapshotAge(ageCtx)
+	if err != nil {
+		log.Error("relay_window_snapshots_age_query_failed", "error", err)
 		return
 	}
-	log.Info(
-		"relay_window_snapshots_refreshed",
-		"duration_s", time.Since(started).Seconds(),
-	)
+	if !ok {
+		return
+	}
+	metrics.SetRelayWindowSnapshotAge(age.Seconds())
 }
 
 // RunMeilisearchStartupSync performs a one-shot reconciliation between

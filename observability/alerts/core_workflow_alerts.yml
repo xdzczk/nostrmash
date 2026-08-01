@@ -123,6 +123,17 @@ groups:
           description: "Most recent succeeded trust run is older than 6 hours. Trigger a trust run and verify trust_worker health."
           runbook: "docs/operations.md#alert-response-playbook"
 
+      - alert: NostrMashRelayWindowSnapshotStale
+        expr: nostrmash:discovery:relay_window_snapshot_age_seconds > 900
+        for: 15m
+        labels:
+          severity: warning
+          slo: worker-throughput
+        annotations:
+          summary: "Homepage relay-window snapshot is stale"
+          description: "The home_window_24h snapshot backing the homepage's note-volume/active-authors numbers and \"Updated Xd ago\" freshness label is older than 15 minutes (refresh runs every 5m). Check that the worker process is running and inspect relay_window_snapshots_refresh_failed / relay_window_snapshots_refresh_panicked logs."
+          runbook: "docs/operations.md#alert-response-playbook"
+
       - alert: NostrMashTrustRetryStorm
         expr: nostrmash:trust:phase_retry_ratio15m > 0.30 and sum(increase(nostrmash_worker_jobs_total{job_type=~"trust_.*",outcome=~"succeeded|dead|retry"}[15m])) > 20
         for: 15m
