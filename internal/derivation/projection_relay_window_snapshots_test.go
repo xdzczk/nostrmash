@@ -41,8 +41,17 @@ func TestRelayWindowSnapshotAge_ReflectsRefresh(t *testing.T) {
 	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
 	handlers := derivation.NewHandlers(pool)
 
-	// Before the first refresh the row doesn't exist yet: ok must be
-	// false rather than reporting a misleading "age zero" or an error.
+	// Migrations 000047/000048 seed a placeholder home_window_24h row at
+	// apply time so a brand-new environment has a reasonable default
+	// before the first refresh — so the row already exists right after
+	// MustMigrate. Delete it here to exercise the genuinely-never-computed
+	// path this test is actually about: ok must be false rather than
+	// reporting a misleading "age zero" or an error when the row is
+	// absent (e.g. a from-scratch environment before this migration ever
+	// ran, or a row explicitly cleared).
+	if _, err := pool.Exec(ctx, `DELETE FROM relay_window_snapshots WHERE snapshot_label = 'home_window_24h'`); err != nil {
+		t.Fatalf("delete seeded home_window_24h row: %v", err)
+	}
 	if age, ok, err := handlers.RelayWindowSnapshotAge(ctx); err != nil {
 		t.Fatalf("RelayWindowSnapshotAge before refresh: %v", err)
 	} else if ok {
