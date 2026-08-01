@@ -43,10 +43,13 @@ type DeletionRetentionStore interface {
 	PurgeProcessedDeletionEvents(ctx context.Context, createdBefore time.Time, deadGraceBefore time.Time, limit int) (int64, error)
 }
 
-// UntrustedRetentionStore purges author-gated raw events from authors outside
-// trust_graph_snapshot. Satisfied by *store.PostgresStore.
+// UntrustedRetentionStore purges author-gated raw events, plus their derived
+// links/hashtags, from authors outside trust_graph_snapshot. Satisfied by
+// *store.PostgresStore.
 type UntrustedRetentionStore interface {
 	PurgeUntrustedAuthorEvents(ctx context.Context, olderThan time.Time, deadGraceBefore time.Time, limit int) (int64, error)
+	PurgeUntrustedAuthorEventURLs(ctx context.Context, limit int) (int64, error)
+	PurgeUntrustedAuthorEventHashtags(ctx context.Context, limit int) (int64, error)
 }
 
 // AuthorRecentRetentionStore bounds the author_recent_events projection.

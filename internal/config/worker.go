@@ -166,21 +166,31 @@ type WorkerReplaceableRetentionConfig struct {
 	DeleteBatchLimit int
 }
 
-// WorkerUntrustedAuthorRetentionConfig configures the purger that deletes raw
-// author-gated events (kinds 1/4/9802/10000/10003/30023) whose author is
-// absent from trust_graph_snapshot once they are older than MaxAge (enforced
-// on both created_at and first_seen_at). This is the months-scale complement
-// to the ingest trust gate: the gate bounds inflow, this reclaims untrusted
-// residue accepted while the gate was open (shadow mode, pre-gate history).
+// WorkerUntrustedAuthorRetentionConfig configures the purgers that delete
+// author-gated rows whose author is absent from trust_graph_snapshot:
+//
+//   - raw events (kinds 1/4/9802/10000/10003/30023), once older than MaxAge
+//     (enforced on both created_at and first_seen_at). This is the
+//     months-scale complement to the ingest trust gate: the gate bounds
+//     inflow, this reclaims untrusted residue accepted while the gate was
+//     open (shadow mode, pre-gate history).
+//   - derived event_urls / event_hashtags rows (added 2026-08-01), with no
+//     age gating — these are the retroactive complement to the write-time
+//     trust gate in internal/derivation (projection_urls.go /
+//     projection_hashtags.go): that gate stops new rows for untrusted
+//     authors going forward, this reclaims rows written before the gate
+//     existed, or from an author later dropped from the trust graph.
 //
 // The default MaxAge is deliberately short (14 d): with the default
 // INGESTOR_TRUST_GATE_MODE=open a firehose deployment ingests everything, so
 // the untrusted horizon is what actually bounds steady-state disk usage.
 //
-// Fail-safe: the store-side purge deletes nothing while trust_graph_snapshot
-// is empty, so an unbootstrapped trust pipeline never causes mass deletion.
+// Fail-safe: every purge here deletes nothing while trust_graph_snapshot is
+// empty, so an unbootstrapped trust pipeline never causes mass deletion.
 //
-// DeadGrace mirrors the other retention loops (derivation-safety window).
+// DeadGrace mirrors the other retention loops (derivation-safety window) and
+// only applies to the raw-events purge; the link purges have no equivalent
+// in-flight-derivation hazard since they never delete an events row.
 type WorkerUntrustedAuthorRetentionConfig struct {
 	Enabled          bool
 	MaxAge           time.Duration

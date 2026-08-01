@@ -117,6 +117,40 @@ DELETE FROM events e
 USING candidates c
 WHERE e.id = c.id;
 
+-- name: PurgeUntrustedAuthorEventURLs :execrows
+WITH candidates AS (
+    SELECT u.event_id, u.url
+    FROM event_urls u
+    WHERE EXISTS (SELECT 1 FROM trust_graph_snapshot)
+      AND NOT EXISTS (
+        SELECT 1 FROM trust_graph_snapshot s
+        WHERE s.pubkey = u.author_pubkey
+      )
+    ORDER BY u.created_at ASC, u.event_id ASC, u.url ASC
+    LIMIT @row_limit
+)
+DELETE FROM event_urls u
+USING candidates c
+WHERE u.event_id = c.event_id
+  AND u.url = c.url;
+
+-- name: PurgeUntrustedAuthorEventHashtags :execrows
+WITH candidates AS (
+    SELECT h.event_id, h.hashtag
+    FROM event_hashtags h
+    WHERE EXISTS (SELECT 1 FROM trust_graph_snapshot)
+      AND NOT EXISTS (
+        SELECT 1 FROM trust_graph_snapshot s
+        WHERE s.pubkey = h.author_pubkey
+      )
+    ORDER BY h.created_at ASC, h.event_id ASC, h.hashtag ASC
+    LIMIT @row_limit
+)
+DELETE FROM event_hashtags h
+USING candidates c
+WHERE h.event_id = c.event_id
+  AND h.hashtag = c.hashtag;
+
 -- name: PurgeStaleEventRelays :execrows
 WITH candidates AS (
     SELECT er.event_id, er.relay_url

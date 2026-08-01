@@ -469,7 +469,7 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "true",
-			Description:  "Enable retention purge of author-gated raw events (kinds 1/4/9802/10000/10003/30023) whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty.",
+			Description:  "Enable retention purge of author-gated raw events (kinds 1/4/9802/10000/10003/30023) plus their derived event_urls/event_hashtags rows, all whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty.",
 		},
 		{
 			Name:         "WORKER_RETENTION_UNTRUSTED_AUTHOR_MAX_AGE",
@@ -490,14 +490,14 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "1h0m0s",
-			Description:  "How often the untrusted-author retention loop runs.",
+			Description:  "How often the untrusted-author retention loop runs (raw events plus the event_urls/event_hashtags link purges).",
 		},
 		{
 			Name:         "WORKER_RETENTION_UNTRUSTED_AUTHOR_DELETE_BATCH_LIMIT",
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "2000",
-			Description:  "Maximum untrusted-author events deleted per retention purge batch.",
+			Description:  "Maximum rows deleted per retention purge batch, applied independently to each of the raw-events, event_urls, and event_hashtags purges.",
 		},
 		{
 			Name:         "WORKER_RETENTION_AUTHOR_RECENT_ENABLED",

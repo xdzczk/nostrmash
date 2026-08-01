@@ -24,6 +24,8 @@ type Querier interface {
 	PurgeStaleTrustedNoteDiscoveryCandidates(ctx context.Context, arg PurgeStaleTrustedNoteDiscoveryCandidatesParams) (int64, error)
 	PurgeStaleTrustedProfileDiscoveryCandidates(ctx context.Context, arg PurgeStaleTrustedProfileDiscoveryCandidatesParams) (int64, error)
 	PurgeSupersededReplaceableEvents(ctx context.Context, arg PurgeSupersededReplaceableEventsParams) (int64, error)
+	PurgeUntrustedAuthorEventHashtags(ctx context.Context, rowLimit int32) (int64, error)
+	PurgeUntrustedAuthorEventURLs(ctx context.Context, rowLimit int32) (int64, error)
 	PurgeUntrustedAuthorEvents(ctx context.Context, arg PurgeUntrustedAuthorEventsParams) (int64, error)
 }
 

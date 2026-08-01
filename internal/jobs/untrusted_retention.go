@@ -5,15 +5,27 @@ import (
 	"time"
 )
 
-// untrustedRetentionTarget is the bounded metric label for untrusted-author
-// purge runs/rows (shared retention metric vectors in internal/metrics).
-const untrustedRetentionTarget = "untrusted_author_events"
+// Bounded metric labels for untrusted-author purge runs/rows (shared
+// retention metric vectors in internal/metrics).
+const (
+	untrustedRetentionTarget         = "untrusted_author_events"
+	untrustedRetentionURLsTarget     = "untrusted_author_event_urls"
+	untrustedRetentionHashtagsTarget = "untrusted_author_event_hashtags"
+)
 
-// UntrustedAuthorRetentionPurger deletes a bounded batch of author-gated raw
-// events whose author is outside trust_graph_snapshot. Satisfied by
-// *store.PostgresStore.
+// UntrustedAuthorRetentionPurger deletes bounded batches of author-gated
+// rows (raw events, plus their derived links/hashtags) whose author is
+// outside trust_graph_snapshot. Satisfied by *store.PostgresStore.
 type UntrustedAuthorRetentionPurger interface {
 	PurgeUntrustedAuthorEvents(ctx context.Context, olderThan time.Time, deadGraceBefore time.Time, limit int) (int64, error)
+	// PurgeUntrustedAuthorEventURLs and PurgeUntrustedAuthorEventHashtags
+	// are the retroactive complement to the write-time trust gate in
+	// internal/derivation (projection_urls.go / projection_hashtags.go):
+	// that gate stops new rows for untrusted authors going forward, these
+	// reclaim rows written before the gate existed, or from an author
+	// later dropped from the trust graph.
+	PurgeUntrustedAuthorEventURLs(ctx context.Context, limit int) (int64, error)
+	PurgeUntrustedAuthorEventHashtags(ctx context.Context, limit int) (int64, error)
 }
 
 // UntrustedAuthorRetentionConfig is the narrow projection of
@@ -56,7 +68,12 @@ func RunUntrustedAuthorRetentionLoop(ctx context.Context, log RetentionLogger, p
 		"delete_batch_limit", cfg.DeleteBatchLimit,
 	)
 
-	runRetentionTicker(ctx, cfg.RunInterval, untrustedAuthorRetentionDrain(log, purger, cfg))
+	runRetentionTicker(
+		ctx, cfg.RunInterval,
+		untrustedAuthorRetentionDrain(log, purger, cfg),
+		untrustedAuthorEventURLsRetentionDrain(log, purger, cfg),
+		untrustedAuthorEventHashtagsRetentionDrain(log, purger, cfg),
+	)
 }
 
 func untrustedAuthorRetentionDrain(log RetentionLogger, purger UntrustedAuthorRetentionPurger, cfg UntrustedAuthorRetentionConfig) retentionDrain {
@@ -85,4 +102,47 @@ func untrustedAuthorRetentionDrain(log RetentionLogger, purger UntrustedAuthorRe
 
 func runUntrustedAuthorRetentionDrain(ctx context.Context, log RetentionLogger, purger UntrustedAuthorRetentionPurger, cfg UntrustedAuthorRetentionConfig) {
 	untrustedAuthorRetentionDrain(log, purger, cfg).run(ctx)
+}
+
+// untrustedAuthorEventURLsRetentionDrain and
+// untrustedAuthorEventHashtagsRetentionDrain reuse the same
+// Enabled/RunInterval/DeleteBatchLimit knobs as the raw-events drain above
+// (MaxAge/DeadGrace don't apply — see PurgeUntrustedAuthorEventURLs's doc
+// comment for why these two purges have no age gating).
+func untrustedAuthorEventURLsRetentionDrain(log RetentionLogger, purger UntrustedAuthorRetentionPurger, cfg UntrustedAuthorRetentionConfig) retentionDrain {
+	return retentionDrain{
+		log:          log,
+		metricTarget: untrustedRetentionURLsTarget,
+		batchLimit:   cfg.DeleteBatchLimit,
+		purgedEvent:  "untrusted_retention_purged",
+		failedEvent:  "untrusted_retention_purge_failed",
+		catchupEvent: "untrusted_retention_catchup",
+		staticFields: []any{"target", untrustedRetentionURLsTarget},
+		purge: func(ctx context.Context) (int64, []any, error) {
+			deleted, err := purger.PurgeUntrustedAuthorEventURLs(ctx, cfg.DeleteBatchLimit)
+			if err != nil {
+				return 0, nil, err
+			}
+			return deleted, nil, nil
+		},
+	}
+}
+
+func untrustedAuthorEventHashtagsRetentionDrain(log RetentionLogger, purger UntrustedAuthorRetentionPurger, cfg UntrustedAuthorRetentionConfig) retentionDrain {
+	return retentionDrain{
+		log:          log,
+		metricTarget: untrustedRetentionHashtagsTarget,
+		batchLimit:   cfg.DeleteBatchLimit,
+		purgedEvent:  "untrusted_retention_purged",
+		failedEvent:  "untrusted_retention_purge_failed",
+		catchupEvent: "untrusted_retention_catchup",
+		staticFields: []any{"target", untrustedRetentionHashtagsTarget},
+		purge: func(ctx context.Context) (int64, []any, error) {
+			deleted, err := purger.PurgeUntrustedAuthorEventHashtags(ctx, cfg.DeleteBatchLimit)
+			if err != nil {
+				return 0, nil, err
+			}
+			return deleted, nil, nil
+		},
+	}
 }

@@ -396,6 +396,58 @@ func (q *Queries) PurgeSupersededReplaceableEvents(ctx context.Context, arg Purg
 	return result.RowsAffected(), nil
 }
 
+const purgeUntrustedAuthorEventHashtags = `-- name: PurgeUntrustedAuthorEventHashtags :execrows
+WITH candidates AS (
+    SELECT h.event_id, h.hashtag
+    FROM event_hashtags h
+    WHERE EXISTS (SELECT 1 FROM trust_graph_snapshot)
+      AND NOT EXISTS (
+        SELECT 1 FROM trust_graph_snapshot s
+        WHERE s.pubkey = h.author_pubkey
+      )
+    ORDER BY h.created_at ASC, h.event_id ASC, h.hashtag ASC
+    LIMIT $1
+)
+DELETE FROM event_hashtags h
+USING candidates c
+WHERE h.event_id = c.event_id
+  AND h.hashtag = c.hashtag
+`
+
+func (q *Queries) PurgeUntrustedAuthorEventHashtags(ctx context.Context, rowLimit int32) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeUntrustedAuthorEventHashtags, rowLimit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgeUntrustedAuthorEventURLs = `-- name: PurgeUntrustedAuthorEventURLs :execrows
+WITH candidates AS (
+    SELECT u.event_id, u.url
+    FROM event_urls u
+    WHERE EXISTS (SELECT 1 FROM trust_graph_snapshot)
+      AND NOT EXISTS (
+        SELECT 1 FROM trust_graph_snapshot s
+        WHERE s.pubkey = u.author_pubkey
+      )
+    ORDER BY u.created_at ASC, u.event_id ASC, u.url ASC
+    LIMIT $1
+)
+DELETE FROM event_urls u
+USING candidates c
+WHERE u.event_id = c.event_id
+  AND u.url = c.url
+`
+
+func (q *Queries) PurgeUntrustedAuthorEventURLs(ctx context.Context, rowLimit int32) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeUntrustedAuthorEventURLs, rowLimit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const purgeUntrustedAuthorEvents = `-- name: PurgeUntrustedAuthorEvents :execrows
 WITH candidates AS (
     SELECT e.id
