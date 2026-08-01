@@ -62,6 +62,23 @@ func (h *Handlers) projectEventHashtagsWithVersion(ctx context.Context, eventID 
 		return fmt.Errorf("delete prior event hashtags: %w", err)
 	}
 
+	// Hashtags from authors outside the Web of Trust are never recorded
+	// here (as opposed to just being excluded from the homepage trending
+	// snapshot — see trustedAuthorJoinClause in
+	// projection_relay_window_snapshots.go). The DELETE above still runs
+	// unconditionally so re-deriving an event whose author has since
+	// dropped out of the trust graph cleans up any hashtags recorded
+	// while they were still trusted.
+	if isHashtagProjectableKind(kind) && len(hashtags) > 0 {
+		excluded, err := authorOutsideTrustGraph(ctx, tx, authorPubkey)
+		if err != nil {
+			return err
+		}
+		if excluded {
+			hashtags = nil
+		}
+	}
+
 	if !isHashtagProjectableKind(kind) || len(hashtags) == 0 {
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("commit no-op hashtag projection tx: %w", err)

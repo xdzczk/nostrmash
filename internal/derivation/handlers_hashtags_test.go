@@ -83,6 +83,90 @@ func TestDeriveEventBundle_ProjectsEventHashtags(t *testing.T) {
 	}
 }
 
+// TestProjectEventHashtags_ExcludesAuthorsOutsideTrustGraph verifies the
+// 2026-08-01 fix: once trust_graph_snapshot is populated, hashtags are only
+// recorded for authors inside it. Re-deriving an event whose author has
+// since dropped out of the trust graph must also delete any hashtags
+// recorded while they were still trusted.
+func TestProjectEventHashtags_ExcludesAuthorsOutsideTrustGraph(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+
+	trusted := newEventForTest("evt_hashtag_trusted", "trusted_author", 1400, 1, [][]string{{"t", "trustedtag"}}, "a", time.Unix(1400, 0).UTC())
+	untrusted := newEventForTest("evt_hashtag_untrusted", "untrusted_author", 1401, 1, [][]string{{"t", "untrustedtag"}}, "b", time.Unix(1401, 0).UTC())
+	for _, event := range []model.Event{trusted, untrusted} {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+	}
+
+	// A non-empty trust graph containing trusted_author (plus an unrelated
+	// pubkey so the graph stays non-empty — and the fail-safe stays
+	// inactive — once trusted_author is removed below).
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed)
+		VALUES ('trusted_author', 0, true), ('someone_else', 1, false)
+	`); err != nil {
+		t.Fatalf("seed trust_graph_snapshot: %v", err)
+	}
+
+	if err := handlers.ProjectEventHashtags(ctx, trusted.ID); err != nil {
+		t.Fatalf("project hashtags (trusted): %v", err)
+	}
+	if err := handlers.ProjectEventHashtags(ctx, untrusted.ID); err != nil {
+		t.Fatalf("project hashtags (untrusted): %v", err)
+	}
+
+	if rows := readEventHashtagRows(t, ctx, pool, trusted.ID); len(rows) != 1 {
+		t.Fatalf("expected trusted author's hashtag to be recorded, got %#v", rows)
+	}
+	if rows := readEventHashtagRows(t, ctx, pool, untrusted.ID); len(rows) != 0 {
+		t.Fatalf("expected untrusted author's hashtag to be excluded, got %#v", rows)
+	}
+
+	// Re-deriving after the previously-trusted author drops out of the
+	// graph must clean up their existing rows.
+	if _, err := pool.Exec(ctx, `DELETE FROM trust_graph_snapshot WHERE pubkey = 'trusted_author'`); err != nil {
+		t.Fatalf("remove trusted_author from trust graph: %v", err)
+	}
+	if err := handlers.ProjectEventHashtags(ctx, trusted.ID); err != nil {
+		t.Fatalf("re-project hashtags after trust removal: %v", err)
+	}
+	if rows := readEventHashtagRows(t, ctx, pool, trusted.ID); len(rows) != 0 {
+		t.Fatalf("expected hashtags to be purged once author left the trust graph, got %#v", rows)
+	}
+}
+
+// TestProjectEventHashtags_EmptyTrustGraphFailsSafeOpen verifies that when
+// trust_graph_snapshot has never been loaded (e.g. the trust worker isn't
+// running on this deployment), hashtag projection is not silently disabled
+// for every author.
+func TestProjectEventHashtags_EmptyTrustGraphFailsSafeOpen(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+
+	event := newEventForTest("evt_hashtag_no_trust_graph", "any_author", 1410, 1, [][]string{{"t", "nostr"}}, "a", time.Unix(1410, 0).UTC())
+	if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+		t.Fatalf("insert event: %v", err)
+	}
+	if err := handlers.ProjectEventHashtags(ctx, event.ID); err != nil {
+		t.Fatalf("project hashtags: %v", err)
+	}
+	if rows := readEventHashtagRows(t, ctx, pool, event.ID); len(rows) != 1 {
+		t.Fatalf("expected hashtag to be recorded when trust graph is empty (fail-safe open), got %#v", rows)
+	}
+}
+
 func TestProjectionRebuildScopes_EventHashtagsFullRebuild(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
