@@ -206,7 +206,9 @@ func (c *Controller) enforceCaps(ctx context.Context) {
 		case relayregistry.AdmissionPinned:
 			pinnedCount++
 		case relayregistry.AdmissionActive:
-			if r.SourceSeed || r.ManualPolicy == relayregistry.ManualPolicyPinned {
+			// Only real ops pins are protected from cap demotion.
+			// source_seed is a bootstrap flag, not a pin — seeds compete.
+			if r.ManualPolicy == relayregistry.ManualPolicyPinned {
 				pinnedCount++
 			} else {
 				dynamicActiveRelays = append(dynamicActiveRelays, r)

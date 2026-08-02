@@ -126,7 +126,7 @@ Do not hand-edit this file.
 | `RELAY_REGISTRY_RETENTION_PURGE_BATCH_LIMIT` | `worker` | optional | `500` | Maximum rows to delete per probe observation retention purge cycle. |
 | `RELAY_REGISTRY_RETENTION_PURGE_INTERVAL` | `worker` | optional | `1h` | Interval between probe observation retention purge cycles. |
 | `RELAY_REGISTRY_RETENTION_RAW_PROBE_DAYS` | `worker` | optional | `14` | Days to retain raw probe observation rows. |
-| `RELAY_REGISTRY_SEED_RELAYS` | `worker` | optional | `-` | Comma-separated list of seed relay URLs. Authoritative for source_seed pins: configured URLs are upserted as pinned, and former seeds removed from this list are unpinned on each registry refresh. |
+| `RELAY_REGISTRY_SEED_RELAYS` | `worker` | optional | `-` | Comma-separated list of bootstrap seed relay URLs. Authoritative for source_seed membership: configured URLs are upserted as competitive active entries (not permanent pins), and former seeds removed from this list lose the seed flag on each registry refresh. Operator manual pins/blocks are preserved; use admin manual_policy=pinned for permanent overrides. |
 | `STORAGE_PRESSURE_AGGRESSIVE_PERCENT` | `api, ingestor, trust_worker, worker` | optional | `90` | Percent at which the governor immediately drains existing retention loops (level 2). |
 | `STORAGE_PRESSURE_CAPACITY_BYTES` | `api, ingestor, trust_worker, worker` | optional | `0` | Storage governor capacity budget for the Postgres database in bytes. 0 (default) keeps the governor in observe-only mode (reports ratio/level but takes no defensive action). |
 | `STORAGE_PRESSURE_DISABLE_HYDRATION_PERCENT` | `api, ingestor, trust_worker, worker` | optional | `95` | Percent at which new on-demand hydration runs are refused (level 3). |

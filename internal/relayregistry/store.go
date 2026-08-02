@@ -21,14 +21,17 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
-// UpsertSeedRelay inserts or updates a relay as a seed/pinned entry.
-// Re-applying a configured seed restores pinned policy/state unless the
-// operator has blocked or drained the relay.
+// UpsertSeedRelay inserts or updates a configured bootstrap seed.
+// Seeds are competitive floor entries (source_seed=true, active, no pin),
+// not permanent pins — admission scoring and caps may demote them. Operator
+// blocked/drained policies and source_manual pins are preserved. Legacy
+// seed-derived pins (pinned without source_manual) are cleared to active/none
+// so free competition can take over on the next refresh.
 func (s *Store) UpsertSeedRelay(ctx context.Context, urlKey, normalizedURL string) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO relay_registry (
 			url_key, normalized_url, source_seed, manual_policy, admission_state
-		) VALUES ($1, $2, TRUE, 'pinned', 'pinned')
+		) VALUES ($1, $2, TRUE, 'none', 'active')
 		ON CONFLICT (url_key) DO UPDATE
 		SET source_seed = TRUE,
 		    normalized_url = EXCLUDED.normalized_url,
@@ -37,12 +40,20 @@ func (s *Store) UpsertSeedRelay(ctx context.Context, urlKey, normalizedURL strin
 		    manual_policy = CASE
 		        WHEN relay_registry.manual_policy IN ('blocked', 'drained')
 		            THEN relay_registry.manual_policy
-		        ELSE 'pinned'
+		        WHEN relay_registry.source_manual
+		             AND relay_registry.manual_policy = 'pinned'
+		            THEN relay_registry.manual_policy
+		        ELSE 'none'
 		    END,
 		    admission_state = CASE
 		        WHEN relay_registry.manual_policy IN ('blocked', 'drained')
 		            THEN relay_registry.admission_state
-		        ELSE 'pinned'
+		        WHEN relay_registry.source_manual
+		             AND relay_registry.manual_policy = 'pinned'
+		            THEN relay_registry.admission_state
+		        WHEN relay_registry.admission_state = 'pinned'
+		            THEN 'active'
+		        ELSE relay_registry.admission_state
 		    END
 	`, urlKey, normalizedURL)
 	if err != nil {
@@ -53,9 +64,10 @@ func (s *Store) UpsertSeedRelay(ctx context.Context, urlKey, normalizedURL strin
 
 // ClearMissingSeedRelays makes the keep set authoritative for source_seed:
 // any row still marked source_seed whose url_key is not in keepURLKeys loses
-// the seed flag. Seed-derived pins are cleared (manual_policy pinned → none,
-// admission_state pinned → inactive). Operator blocked/drained policies are
-// preserved. An empty keep set clears every source_seed row.
+// the seed flag. Legacy seed-derived pins are cleared (manual_policy pinned →
+// none, admission_state pinned → inactive). Operator blocked/drained policies
+// and source_manual pins are preserved. An empty keep set clears every
+// source_seed row.
 //
 // Returns the number of rows updated.
 func (s *Store) ClearMissingSeedRelays(ctx context.Context, keepURLKeys []string) (int64, error) {
@@ -66,10 +78,12 @@ func (s *Store) ClearMissingSeedRelays(ctx context.Context, keepURLKeys []string
 		UPDATE relay_registry
 		SET source_seed = FALSE,
 		    manual_policy = CASE
+		        WHEN source_manual AND manual_policy = 'pinned' THEN manual_policy
 		        WHEN manual_policy = 'pinned' THEN 'none'
 		        ELSE manual_policy
 		    END,
 		    admission_state = CASE
+		        WHEN source_manual AND manual_policy = 'pinned' THEN admission_state
 		        WHEN admission_state = 'pinned' THEN 'inactive'
 		        ELSE admission_state
 		    END,
@@ -85,7 +99,7 @@ func (s *Store) ClearMissingSeedRelays(ctx context.Context, keepURLKeys []string
 
 // EnsureRelayExists inserts a candidate registry row when missing. It does not
 // mark the relay as a seed or apply a pin; use SetManualPolicy for operator
-// overrides and UpsertSeedRelay for configured seeds.
+// overrides and UpsertSeedRelay for configured bootstrap seeds.
 func (s *Store) EnsureRelayExists(ctx context.Context, urlKey, normalizedURL string) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO relay_registry (
@@ -149,14 +163,18 @@ func (s *Store) UpsertDiscoveredRelay(
 	return nil
 }
 
-// SetManualPolicy applies an operator override to a relay.
+// SetManualPolicy applies an operator override to a relay and marks
+// source_manual so seed reconciliation cannot overwrite a real ops pin.
+// Clearing the policy (none) also clears source_manual.
 func (s *Store) SetManualPolicy(ctx context.Context, urlKey string, policy ManualPolicy) error {
 	if !policy.Valid() {
 		return fmt.Errorf("invalid manual policy: %q", policy)
 	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE relay_registry
-		SET manual_policy = $2, updated_at = now()
+		SET manual_policy = $2,
+		    source_manual = ($2 <> 'none'),
+		    updated_at = now()
 		WHERE url_key = $1
 	`, urlKey, string(policy))
 	if err != nil {

@@ -69,7 +69,13 @@ func TestEnforceCaps_ActiveSpillCountsTowardProbationCap(t *testing.T) {
 	// MaxTotalActive, while a smaller pre-existing probation set is all that the
 	// old code trimmed. After the fix, final probation must be <= MaxProbation.
 	records := []relayregistry.RelayRecord{
-		{URLKey: "pin", NormalizedURL: "wss://pin", AdmissionState: relayregistry.AdmissionPinned, Score: 70, SourceSeed: true},
+		{
+			URLKey:         "pin",
+			NormalizedURL:  "wss://pin",
+			AdmissionState: relayregistry.AdmissionPinned,
+			ManualPolicy:   relayregistry.ManualPolicyPinned,
+			Score:          70,
+		},
 	}
 	for i := 0; i < 15; i++ {
 		records = append(records, relayregistry.RelayRecord{
@@ -96,6 +102,42 @@ func TestEnforceCaps_ActiveSpillCountsTowardProbationCap(t *testing.T) {
 
 	if got := store.countState(relayregistry.AdmissionProbation); got > cfg.MaxProbation {
 		t.Fatalf("probation count %d exceeds MaxProbation %d", got, cfg.MaxProbation)
+	}
+	if got := store.countState(relayregistry.AdmissionActive) + store.countState(relayregistry.AdmissionPinned); got > cfg.MaxTotalActive {
+		t.Fatalf("active+pinned count %d exceeds MaxTotalActive %d", got, cfg.MaxTotalActive)
+	}
+}
+
+func TestEnforceCaps_SourceSeedActiveIsNotPinProtected(t *testing.T) {
+	// Seeds are bootstrap entries, not permanent pins: an active source_seed
+	// relay must count toward the dynamic pool and be demotable under caps.
+	records := []relayregistry.RelayRecord{
+		{
+			URLKey:         "seed-low",
+			NormalizedURL:  "wss://seed-low",
+			AdmissionState: relayregistry.AdmissionActive,
+			SourceSeed:     true,
+			Score:          1,
+		},
+	}
+	for i := 0; i < 15; i++ {
+		records = append(records, relayregistry.RelayRecord{
+			URLKey:         fmt.Sprintf("active-%02d", i),
+			NormalizedURL:  fmt.Sprintf("wss://active-%02d", i),
+			AdmissionState: relayregistry.AdmissionActive,
+			Score:          70,
+		})
+	}
+
+	store := newFakeRegistryStore(records...)
+	cfg := newTestCfg() // MaxTotalActive=15
+	c := NewController(slog.Default(), store, cfg)
+
+	c.enforceCaps(context.Background())
+
+	seed := store.byKey["seed-low"]
+	if seed.AdmissionState != relayregistry.AdmissionProbation {
+		t.Fatalf("low-score source_seed active should be demoted under total cap, got %s", seed.AdmissionState)
 	}
 	if got := store.countState(relayregistry.AdmissionActive) + store.countState(relayregistry.AdmissionPinned); got > cfg.MaxTotalActive {
 		t.Fatalf("active+pinned count %d exceeds MaxTotalActive %d", got, cfg.MaxTotalActive)

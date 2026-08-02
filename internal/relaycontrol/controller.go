@@ -44,8 +44,10 @@ func NewController(log *slog.Logger, store *relayregistry.Store, pool *pgxpool.P
 }
 
 // BootstrapSeeds makes RELAY_REGISTRY_SEED_RELAYS authoritative: configured
-// seeds are upserted as pinned, and any former source_seed relay no longer in
-// the configured set is unpinned (seed flag cleared, pinned → inactive).
+// seeds are upserted as competitive bootstrap entries (active, not pinned),
+// and any former source_seed relay no longer in the configured set loses the
+// seed flag (legacy seed-derived pins → inactive). Operator manual pins /
+// blocked / drained policies are preserved.
 func (c *Controller) BootstrapSeeds(ctx context.Context) error {
 	return reconcileSeedRelays(ctx, c.log, c.store, c.cfg)
 }

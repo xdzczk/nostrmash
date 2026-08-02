@@ -127,7 +127,7 @@ func TestReconcileSeedRelays_KeepsConfiguredSeedsOnUpsertError(t *testing.T) {
 		t.Fatalf("expected 2 upsert attempts, got %d", len(store.upsertCalls))
 	}
 	// Configured seeds must remain in the keep set so a write failure cannot
-	// accidentally unpin them on the subsequent clear.
+	// accidentally drop their source_seed membership on the subsequent clear.
 	if got, want := len(store.clearCalls[0]), 2; got != want {
 		t.Fatalf("keep set size = %d, want %d (%v)", got, want, store.clearCalls[0])
 	}

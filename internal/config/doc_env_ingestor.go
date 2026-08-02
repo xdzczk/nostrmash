@@ -275,7 +275,7 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "",
-			Description:  "Comma-separated list of seed relay URLs. Authoritative for source_seed pins: configured URLs are upserted as pinned, and former seeds removed from this list are unpinned on each registry refresh.",
+			Description:  "Comma-separated list of bootstrap seed relay URLs. Authoritative for source_seed membership: configured URLs are upserted as competitive active entries (not permanent pins), and former seeds removed from this list lose the seed flag on each registry refresh. Operator manual pins/blocks are preserved; use admin manual_policy=pinned for permanent overrides.",
 		},
 		{
 			Name:         "RELAY_REGISTRY_ALLOW_PRIVATE_NETWORK",

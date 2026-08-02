@@ -90,6 +90,17 @@ INGESTOR_RELAY_URLS=wss://relay.primal.net,wss://relay.damus.io,wss://nos.lol
 INGESTOR_RELAY_ALLOWLIST=wss://relay.primal.net,wss://relay.damus.io,wss://nos.lol
 ```
 
+Relay registry seeds (worker) are a cold-start floor, not permanent pins. Prefer a small general-purpose list; specialty/directory relays (e.g. `wss://purplepag.es`) should not be seeds. Use admin `manual_policy=pinned` only for rare ops overrides.
+
+```bash
+# Worker — bootstrap seeds compete for active slots via admission scoring/caps
+RELAY_REGISTRY_SEED_RELAYS=wss://relay.primal.net,wss://nos.lol,wss://relay.damus.io
+
+# Optional: on-demand profile/relay-list lookup (not firehose ingest)
+# API_RELAY_FALLBACK_ENABLED=true
+# API_RELAY_FALLBACK_URLS=wss://purplepag.es
+```
+
 Set this only when Redis sync is enabled:
 
 ```bash
