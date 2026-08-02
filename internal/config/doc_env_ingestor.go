@@ -310,7 +310,7 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "25",
-			Description:  "Maximum new candidate relays to add per discovery run.",
+			Description:  "Maximum brand-new candidate relays to insert per discovery run. Existing registry relays always have their user-ref counts refreshed.",
 		},
 		{
 			Name:         "RELAY_REGISTRY_PROBING_ENABLED",

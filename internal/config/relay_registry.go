@@ -28,8 +28,10 @@ type RelayRegistryReconcileConfig struct {
 
 // RelayRegistryDiscoveryConfig controls relay candidate discovery from user relay lists.
 type RelayRegistryDiscoveryConfig struct {
-	Enabled                bool
-	MinDistinctUserRefs    int
+	Enabled             bool
+	MinDistinctUserRefs int
+	// MaxNewCandidatesPerRun limits brand-new registry inserts only.
+	// Existing relays are always refreshed with current user-ref counts.
 	MaxNewCandidatesPerRun int
 }
 

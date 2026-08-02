@@ -50,6 +50,8 @@ func NewRunner(
 
 // Run executes one discovery pass: read relay_lists_latest, aggregate distinct
 // pubkey references per relay URL, and upsert candidates into the registry.
+// Existing registry rows always get their user-ref counts refreshed; MaxNewCandidatesPerRun
+// only limits brand-new inserts.
 func (r *Runner) Run(ctx context.Context) error {
 	if !r.cfg.Enabled {
 		return nil
@@ -60,19 +62,20 @@ func (r *Runner) Run(ctx context.Context) error {
 		return fmt.Errorf("aggregate relay references: %w", err)
 	}
 
-	var upserted int
+	existing, err := r.registryStore.ListURLKeys(ctx)
+	if err != nil {
+		return fmt.Errorf("list existing registry relays: %w", err)
+	}
+
 	limit := r.cfg.MaxNewCandidatesPerRun
 	if limit <= 0 {
 		limit = 25
 	}
 
-	for _, c := range candidates {
-		if c.DistinctUsers < r.cfg.MinDistinctUserRefs {
-			continue
-		}
-		if upserted >= limit {
-			break
-		}
+	planned := planDiscoveryUpserts(candidates, existing, r.cfg.MinDistinctUserRefs, limit)
+	var refreshed, inserted int
+	for _, c := range planned {
+		_, alreadyTracked := existing[c.URLKey]
 		if err := r.registryStore.UpsertDiscoveredRelay(
 			ctx, c.URLKey, c.NormalizedURL, c.DistinctUsers, c.WeightedScore,
 		); err != nil {
@@ -83,16 +86,57 @@ func (r *Runner) Run(ctx context.Context) error {
 			metrics.IncRelayDiscoveryCandidates("failed")
 			continue
 		}
-		upserted++
-		metrics.IncRelayDiscoveryCandidates("upserted")
+		if alreadyTracked {
+			refreshed++
+			metrics.IncRelayDiscoveryCandidates("refreshed")
+		} else {
+			inserted++
+			existing[c.URLKey] = struct{}{}
+			metrics.IncRelayDiscoveryCandidates("upserted")
+		}
 	}
 
 	r.log.Info("relay_discovery_completed",
 		"total_candidates", len(candidates),
-		"upserted", upserted,
+		"refreshed", refreshed,
+		"inserted", inserted,
 		"min_distinct_user_refs", r.cfg.MinDistinctUserRefs,
+		"max_new_candidates", limit,
 	)
 	return nil
+}
+
+// planDiscoveryUpserts chooses which aggregated candidates to write.
+// Existing registry relays are always refreshed (including below the min-ref
+// threshold, so counts can fall). New inserts must meet minDistinctUserRefs and
+// are capped by maxNewInserts, preferring higher distinct-user counts first.
+func planDiscoveryUpserts(
+	candidates []relayCandidateAgg,
+	existing map[string]struct{},
+	minDistinctUserRefs int,
+	maxNewInserts int,
+) []relayCandidateAgg {
+	if maxNewInserts < 0 {
+		maxNewInserts = 0
+	}
+	out := make([]relayCandidateAgg, 0, len(candidates))
+	newInserts := 0
+	for _, c := range candidates {
+		_, known := existing[c.URLKey]
+		if known {
+			out = append(out, c)
+			continue
+		}
+		if c.DistinctUsers < minDistinctUserRefs {
+			continue
+		}
+		if newInserts >= maxNewInserts {
+			continue
+		}
+		out = append(out, c)
+		newInserts++
+	}
+	return out
 }
 
 func (r *Runner) aggregateRelayReferences(ctx context.Context) ([]relayCandidateAgg, error) {
@@ -158,7 +202,7 @@ func (r *Runner) aggregateRelayReferences(ctx context.Context) ([]relayCandidate
 		})
 	}
 
-	// Sort by distinct user count descending for budget-limited upserts.
+	// Sort by distinct user count descending so new-insert budget prefers popular relays.
 	sortCandidates(candidates)
 	return candidates, nil
 }

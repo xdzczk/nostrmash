@@ -102,6 +102,28 @@ func (s *Store) EnsureRelayExists(ctx context.Context, urlKey, normalizedURL str
 	return nil
 }
 
+// ListURLKeys returns the set of url_key values currently in the registry.
+func (s *Store) ListURLKeys(ctx context.Context) (map[string]struct{}, error) {
+	rows, err := s.pool.Query(ctx, `SELECT url_key FROM relay_registry`)
+	if err != nil {
+		return nil, fmt.Errorf("list relay registry url keys: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]struct{})
+	for rows.Next() {
+		var urlKey string
+		if err := rows.Scan(&urlKey); err != nil {
+			return nil, fmt.Errorf("scan relay registry url key: %w", err)
+		}
+		out[urlKey] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read relay registry url keys: %w", err)
+	}
+	return out, nil
+}
+
 // UpsertDiscoveredRelay inserts or updates a candidate relay discovered from user relay lists.
 func (s *Store) UpsertDiscoveredRelay(
 	ctx context.Context,

@@ -112,7 +112,7 @@ Do not hand-edit this file.
 | `RELAY_REGISTRY_ADMISSION_MIN_SCORE_PROBATION` | `worker` | optional | `10` | Minimum score for a candidate to enter probation. |
 | `RELAY_REGISTRY_ALLOW_PRIVATE_NETWORK` | `ingestor, worker` | optional | `false` | Allow private/local network addresses in relay URLs. |
 | `RELAY_REGISTRY_DISCOVERY_ENABLED` | `worker` | optional | `false` | Enable relay discovery from user relay lists. |
-| `RELAY_REGISTRY_DISCOVERY_MAX_NEW_CANDIDATES` | `worker` | optional | `25` | Maximum new candidate relays to add per discovery run. |
+| `RELAY_REGISTRY_DISCOVERY_MAX_NEW_CANDIDATES` | `worker` | optional | `25` | Maximum brand-new candidate relays to insert per discovery run. Existing registry relays always have their user-ref counts refreshed. |
 | `RELAY_REGISTRY_DISCOVERY_MIN_DISTINCT_USER_REFS` | `worker` | optional | `3` | Minimum distinct user references required to consider a relay candidate. |
 | `RELAY_REGISTRY_ENABLED` | `ingestor, worker` | optional | `false` | Enable the dynamic relay registry subsystem. |
 | `RELAY_REGISTRY_PROBING_ENABLED` | `worker` | optional | `false` | Enable periodic relay health probing. |

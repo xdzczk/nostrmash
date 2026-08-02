@@ -29,7 +29,7 @@ func registerRelayRegistryMetrics() {
 	relayDiscoveryCandidates = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "nostrmash_relay_discovery_candidates_total",
-			Help: "Discovery candidates added per run by outcome.",
+			Help: "Discovery candidate writes per run by outcome (upserted, refreshed, failed).",
 		},
 		[]string{"outcome"},
 	)
