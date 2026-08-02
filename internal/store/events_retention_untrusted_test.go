@@ -62,6 +62,7 @@ func TestPurgeUntrustedAuthorEvents(t *testing.T) {
 	// Purgeable: old author-gated kinds from an untrusted author.
 	insertAuthoredEventRow(t, ctx, pool, "u_old_note", "untrusted_pub", 1, oldUnix, oldSeen)
 	insertAuthoredEventRow(t, ctx, pool, "u_old_article", "untrusted_pub", 30023, oldUnix, oldSeen)
+	insertAuthoredEventRow(t, ctx, pool, "u_old_deletion", "untrusted_pub", 5, oldUnix, oldSeen)
 
 	// Kept: trusted author, open kind, too recent, backfilled recently, or
 	// blocked by an in-flight derivation.
@@ -76,9 +77,10 @@ func TestPurgeUntrustedAuthorEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("purge: %v", err)
 	}
-	// u_failsafe from the first phase is now eligible too.
-	if deleted != 3 {
-		t.Fatalf("expected 3 deletions, got %d", deleted)
+	// u_failsafe from the first phase is now eligible too, plus the
+	// note/article/deletion trio above.
+	if deleted != 4 {
+		t.Fatalf("expected 4 deletions, got %d", deleted)
 	}
 
 	got := remainingEventIDs(t, ctx, pool)

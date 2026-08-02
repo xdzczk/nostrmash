@@ -567,7 +567,7 @@ Trust-driven ingest prioritization:
 
 Trust-bounded ingest gate (storage bounding):
 
-- `INGESTOR_TRUST_GATE_MODE`: `open` (shadow, default) or `trusted_only` (enforce author trust for kinds 1/4/9802/10000/10003/30023 and 6/7/9735 target-exists).
+- `INGESTOR_TRUST_GATE_MODE`: `open` (shadow, default) or `trusted_only` (enforce author trust for kinds 1/4/5/9802/10000/10003/30023 and 6/7/9735 target-exists).
 - `INGESTOR_TRUST_GATE_MAX_HOPS` (default `2`) and `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` (default `2m`) control the in-memory trusted set loaded from `trust_graph_snapshot`.
 - Prerequisites on `trust_worker`: `TRUST_SEED_PUBKEYS`, `TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL`, `TRUST_RUN_INTERVAL`.
 - Rollout guide: [Trust-bounded ingest rollout](#trust-bounded-ingest-rollout).

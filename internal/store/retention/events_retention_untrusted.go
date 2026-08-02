@@ -10,7 +10,7 @@ import (
 )
 
 // PurgeUntrustedAuthorEvents deletes a bounded batch of raw author-gated
-// events (kinds 1/4/9802/10000/10003/30023) whose author is absent from
+// events (kinds 1/4/5/9802/10000/10003/30023) whose author is absent from
 // trust_graph_snapshot and which are older than the operator's horizon. This
 // is the months-scale complement to the ingest trust gate: the gate bounds
 // future writes, this reclaims the untrusted residue the gate let through

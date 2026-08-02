@@ -76,6 +76,7 @@ func TestPurgeUntrustedAuthorEvents(t *testing.T) {
 	}
 
 	insertEvent(t, ctx, pool, "u_old_note", "untrusted_pub", 1, oldUnix, oldSeen)
+	insertEvent(t, ctx, pool, "u_old_deletion", "untrusted_pub", 5, oldUnix, oldSeen)
 	insertEvent(t, ctx, pool, "k_trusted_note", "trusted_pub", 1, oldUnix, oldSeen)
 	insertEvent(t, ctx, pool, "k_open_kind", "untrusted_pub", 0, oldUnix, oldSeen)
 
@@ -83,8 +84,8 @@ func TestPurgeUntrustedAuthorEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("purge: %v", err)
 	}
-	if deleted != 2 {
-		t.Fatalf("expected 2 deletions, got %d", deleted)
+	if deleted != 3 {
+		t.Fatalf("expected 3 deletions, got %d", deleted)
 	}
 
 	got := remainingEventIDs(t, ctx, pool)

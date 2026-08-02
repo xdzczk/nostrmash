@@ -452,7 +452,7 @@ const purgeUntrustedAuthorEvents = `-- name: PurgeUntrustedAuthorEvents :execrow
 WITH candidates AS (
     SELECT e.id
     FROM events e
-    WHERE e.kind IN (1, 4, 9802, 10000, 10003, 30023)
+    WHERE e.kind IN (1, 4, 5, 9802, 10000, 10003, 30023)
       AND e.created_at < $1::bigint
       AND e.first_seen_at < $2
       AND EXISTS (SELECT 1 FROM trust_graph_snapshot)

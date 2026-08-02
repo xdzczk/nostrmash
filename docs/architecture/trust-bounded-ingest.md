@@ -12,9 +12,9 @@ On a fixed disk, subscribing to broad relay filters and storing every kind indef
 
 - Relay subscriptions stay broad (relays cannot filter by author at scale). Enforcement happens locally in the ingest hot path.
 - Kinds `0`, `3`, `10002` remain open so the trust graph can grow and profiles resolve. This is acceptable for the first rollout, not a permanent guarantee against kind-0/3 spam.
-- Authored kinds `1` (notes), `4` (DMs, gated on sender trust), `9802` (highlights), `10000` (mute lists), `10003` (bookmark lists), and `30023` (long-form articles) are hard-gated: persist only when the author is in the trusted set.
+- Authored kinds `1` (notes), `4` (DMs, gated on sender trust), `5` (deletion tombstones), `9802` (highlights), `10000` (mute lists), `10003` (bookmark lists), and `30023` (long-form articles) are hard-gated: persist only when the author is in the trusted set.
 - Kinds `6`, `7`, `9735` are kept only when their target event already exists locally (engagement on already-stored/trusted content). Engagement that arrives before its target is dropped permanently in v1 (no pending buffer).
-- Kind `5` (deletions) is kept when the author is trusted, or when at least one referenced `e`-tag target exists locally (same existence rule as engagement, capped at 100 probed ids per event). Open ingestion of kind 5 previously let tombstone spam dominate the events table.
+- Kind `5` used to also accept deletions whose referenced `e`-tag target existed locally; that path still let untrusted tombstone spam dominate the events table, so deletions are now strictly author-gated like notes.
 - Raw engagement events are purged after a short retention window. Lifetime aggregate counters (`reaction_counts`, `repost_counts`) survive because they have no FK to `events`.
 
 ```mermaid
@@ -22,15 +22,12 @@ flowchart TD
   E["Event from relay"] --> V["ParseAndValidate"]
   V -->|valid| K{"kind?"}
   K -->|"0,3,10002"| Store["InsertCanonicalEvent"]
-  K -->|"1,4,9802,10000,10003,30023"| T{"author in trusted set?"}
+  K -->|"1,4,5,9802,10000,10003,30023"| T{"author in trusted set?"}
   T -->|yes| Store
   T -->|no| Drop["metric only; no invalid_events"]
   K -->|"6,7,9735"| Tgt{"target event exists locally?"}
   Tgt -->|yes| Store
   Tgt -->|no| Drop
-  K -->|"5"| D5{"author trusted OR e-tag target exists locally?"}
-  D5 -->|yes| Store
-  D5 -->|no| Drop
   Store --> J["enqueue derive_event_bundle"]
 ```
 
@@ -54,7 +51,7 @@ On a fresh database the snapshot is seeds-only until kind-3 contact lists arrive
 | --- | --- | --- |
 | `TrustedAuthorSet` | `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` (default `2m`) | Loads pubkeys from `trust_graph_snapshot WHERE min_hops <= INGESTOR_TRUST_GATE_MAX_HOPS` (default `2`). Avoids a per-event DB lookup. |
 | Last-good retention | — | Failed refreshes keep the previous set; staleness is visible via `nostrmash_ingest_trusted_set_age_seconds`. |
-| Fail-closed | `INGESTOR_TRUST_GATE_MODE=trusted_only` | If the set has **never** loaded successfully, author-gated kinds (`1`/`4`/`9802`/`10000`/`10003`/`30023`) are rejected. Open kinds and target-local engagement are unaffected so the graph can bootstrap. |
+| Fail-closed | `INGESTOR_TRUST_GATE_MODE=trusted_only` | If the set has **never** loaded successfully, author-gated kinds (`1`/`4`/`5`/`9802`/`10000`/`10003`/`30023`) are rejected. Open kinds and target-local engagement are unaffected so the graph can bootstrap. |
 
 ### Ingest gate (`ingestor`)
 
@@ -67,9 +64,8 @@ On a fresh database the snapshot is seeds-only until kind-3 contact lists arrive
 Gate decisions per kind:
 
 - `0`, `3`, `10002`: always accept.
-- `1`, `4`, `9802`, `10000`, `10003`, `30023`: accept iff author in trusted set (or shadow-reject in `open` mode). Kind `4` is gated on the sender (author) being trusted.
+- `1`, `4`, `5`, `9802`, `10000`, `10003`, `30023`: accept iff author in trusted set (or shadow-reject in `open` mode). Kind `4` is gated on the sender (author) being trusted. Kind `5` deletions are author-gated only (no target-exists bypass).
 - `6`, `7`, `9735`: accept iff target event exists locally (`EventsExist`). Kind `9735` uses the same first-`e`-tag rule as zap derivation.
-- `5`: accept iff the author is trusted OR any referenced `e`-tag target exists locally (at most 100 ids probed per event). Trusted authors bypass the target check so their deletions of `a`-tag addressable targets and not-yet-hydrated events survive. Unlike the author-gated kinds, kind `5` does not fail closed when the trusted set has never loaded — the target-existence check alone decides.
 
 Rejected events increment metrics only. They are **not** written to `invalid_events` (they are valid Nostr events, just out of scope). The live resume checkpoint still advances so restarts do not re-fetch and re-drop the same span.
 

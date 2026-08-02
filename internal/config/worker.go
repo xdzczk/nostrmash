@@ -169,7 +169,7 @@ type WorkerReplaceableRetentionConfig struct {
 // WorkerUntrustedAuthorRetentionConfig configures the purgers that delete
 // author-gated rows whose author is absent from trust_graph_snapshot:
 //
-//   - raw events (kinds 1/4/9802/10000/10003/30023), once older than MaxAge
+//   - raw events (kinds 1/4/5/9802/10000/10003/30023), once older than MaxAge
 //     (enforced on both created_at and first_seen_at). This is the
 //     months-scale complement to the ingest trust gate: the gate bounds
 //     inflow, this reclaims untrusted residue accepted while the gate was

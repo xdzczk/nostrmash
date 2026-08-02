@@ -89,7 +89,7 @@ Do not hand-edit this file.
 | `INGESTOR_TRUST_FETCH_RETRY_DELAY` | `ingestor` | optional | `10m` | Delay before retrying a pubkey after targeted fetch errors. |
 | `INGESTOR_TRUST_FETCH_STABLE_WINDOW` | `ingestor` | optional | `10m` | Minimum stability window before newly seen trust candidates become active. |
 | `INGESTOR_TRUST_GATE_MAX_HOPS` | `ingestor` | optional | `2` | Maximum trust-graph hop distance from a seed for an author to be considered trusted by the live ingest gate. |
-| `INGESTOR_TRUST_GATE_MODE` | `ingestor` | optional | `open` | Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce author trust for kinds 1/4/9802/10000/10003/30023 and 6/7/9735 target-exists). |
+| `INGESTOR_TRUST_GATE_MODE` | `ingestor` | optional | `open` | Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce author trust for kinds 1/4/5/9802/10000/10003/30023 and 6/7/9735 target-exists). |
 | `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` | `ingestor` | optional | `2m` | Interval between refreshes of the in-memory trusted-author set loaded from trust_graph_snapshot. |
 | `INGESTOR_TRUST_PRIORITIZATION_ENABLED` | `ingestor` | optional | `true` | Enable trust-driven relay ordering for ingestor startup ordering. |
 | `INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS` | `ingestor` | optional | `2000` | Maximum top trust pubkeys considered for relay ordering. |
@@ -241,6 +241,6 @@ Do not hand-edit this file.
 | `WORKER_RETENTION_SEARCH_DOCS_RUN_INTERVAL` | `worker` | optional | `6h0m0s` | How often the search_documents grooming loop runs. |
 | `WORKER_RETENTION_UNTRUSTED_AUTHOR_DEAD_GRACE` | `worker` | optional | `168h0m0s` | Derivation-safety grace window: a dead derive_event_bundle job only blocks purge of its untrusted-author event while updated within this window. |
 | `WORKER_RETENTION_UNTRUSTED_AUTHOR_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum rows deleted per retention purge batch, applied independently to each of the raw-events, event_urls, and event_hashtags purges. |
-| `WORKER_RETENTION_UNTRUSTED_AUTHOR_ENABLED` | `worker` | optional | `true` | Enable retention purge of author-gated raw events (kinds 1/4/9802/10000/10003/30023) plus their derived event_urls/event_hashtags rows, all whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty. |
+| `WORKER_RETENTION_UNTRUSTED_AUTHOR_ENABLED` | `worker` | optional | `true` | Enable retention purge of author-gated raw events (kinds 1/4/5/9802/10000/10003/30023) plus their derived event_urls/event_hashtags rows, all whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty. |
 | `WORKER_RETENTION_UNTRUSTED_AUTHOR_MAX_AGE` | `worker` | optional | `336h0m0s` | Age beyond which untrusted-author events become eligible for purge; enforced on both created_at and first_seen_at so freshly backfilled events are never purged early. Deliberately short (14d) because with the default open ingest gate this horizon is what bounds steady-state disk usage. |
 | `WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | How often the untrusted-author retention loop runs (raw events plus the event_urls/event_hashtags link purges). |

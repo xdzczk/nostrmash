@@ -79,11 +79,19 @@ func gateKindLabel(kind int) string {
 // isAuthorGatedKind reports whether an event kind is persisted only when its
 // author is in the trusted set. This covers kind 1 notes plus the authored
 // product kinds in the live filter group: encrypted DMs (4, gated on sender
-// trust), highlights (9802), mute lists (10000), bookmark lists (10003), and
-// long-form articles (30023).
+// trust), deletion tombstones (5), highlights (9802), mute lists (10000),
+// bookmark lists (10003), and long-form articles (30023).
+//
+// Kind 5 used to be a special case (accept if trusted OR any referenced
+// e-tag target exists locally). That target-exists path still let untrusted
+// tombstone spam dominate the events table in production (~24M kind-5 rows
+// from outside the trust graph). Author-gating deletions means only WoT
+// authors' NIP-09 tombstones are kept; engagement from untrusted authors
+// that we previously stored may no longer be deletable via their own kind-5
+// — an accepted trade-off against unbounded tombstone growth.
 func isAuthorGatedKind(kind int) bool {
 	switch kind {
-	case 1, 4, 9802, 10000, 10003, 30023:
+	case 1, 4, 5, 9802, 10000, 10003, 30023:
 		return true
 	default:
 		return false
@@ -98,15 +106,6 @@ func isEngagementKind(kind int) bool {
 		return false
 	}
 }
-
-// maxDeletionTargetChecks bounds how many e-tag target ids a single kind-5
-// event may probe in the existence check, so a spam deletion carrying
-// thousands of tags cannot turn the gate into an unbounded ANY() query. A
-// genuine deletion whose real target is beyond the cap is rejected exactly
-// like one whose targets are all absent — an acceptable miss, since deletions
-// from untrusted authors can only ever match the engagement/open-kind rows we
-// chose to store.
-const maxDeletionTargetChecks = 100
 
 // evaluateGate decides whether a valid event should be persisted under the
 // configured gate mode. It never rejects in open mode (records shadow_reject
@@ -130,39 +129,6 @@ func (p *Processor) evaluateGate(ctx context.Context, kind int, pubkey string, t
 		}
 		if enforce {
 			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectUntrustedAuthor}
-		}
-		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
-
-	case kind == 5:
-		// Deletion tombstones (NIP-09). A deletion for an event we never
-		// stored is useless to serve, and open ingestion of kind 5 let
-		// tombstone spam grow to ~79% of the events table in production. A
-		// trusted author's deletion is always kept (it may cover an a-tag
-		// addressable target or an event hydrated later); otherwise the
-		// deletion must reference at least one locally-stored event, the same
-		// existence rule the engagement kinds use.
-		if p.trustedAuthors.Loaded() && p.trustedAuthors.Contains(pubkey) {
-			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
-		}
-		ids := allETagValues(tags)
-		if len(ids) > maxDeletionTargetChecks {
-			ids = ids[:maxDeletionTargetChecks]
-		}
-		exists := false
-		if len(ids) > 0 {
-			var err error
-			exists, err = p.targetChecker.EventsExist(ctx, ids)
-			if err != nil {
-				// Transient store error: fail OPEN, same as engagement kinds.
-				p.log.Warn("ingest_gate_target_check_failed", "error", err, "kind", kind)
-				return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
-			}
-		}
-		if exists {
-			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
-		}
-		if enforce {
-			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectMissingTarget}
 		}
 		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
 

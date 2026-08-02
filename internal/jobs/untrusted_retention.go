@@ -39,7 +39,7 @@ type UntrustedAuthorRetentionConfig struct {
 }
 
 // RunUntrustedAuthorRetentionLoop periodically purges author-gated raw events
-// (kinds 1/4/9802/10000/10003/30023) from authors outside the trust graph,
+// (kinds 1/4/5/9802/10000/10003/30023) from authors outside the trust graph,
 // once older than MaxAge. The store-side purge is fail-safe when the trust
 // graph snapshot has never loaded (it deletes nothing), so running this loop
 // on a fresh deployment is harmless. Uses the shared auto-pacing drain: a
