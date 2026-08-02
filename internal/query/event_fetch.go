@@ -37,6 +37,10 @@ func (s Service) GetRelaysHealth(ctx context.Context) ([]model.IngestCheckpoint,
 			eoseSeenAt := checkpoint.EOSESeenAt.UTC()
 			checkpoint.EOSESeenAt = &eoseSeenAt
 		}
+		if checkpoint.LastErrorAt != nil {
+			lastErrorAt := checkpoint.LastErrorAt.UTC()
+			checkpoint.LastErrorAt = &lastErrorAt
+		}
 		out = append(out, checkpoint)
 	}
 	return out, nil

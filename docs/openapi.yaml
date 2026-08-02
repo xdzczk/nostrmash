@@ -580,6 +580,24 @@ paths:
       responses:
         '200':
           description: Relay health rows from checkpoint state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consistency: { type: string }
+                  relays:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        relay_url: { type: string }
+                        mode: { type: string }
+                        filter_group: { type: string }
+                        status: { type: string }
+                        last_error: { type: string, nullable: true }
+                        latest_checkpoint_at: { type: string, format: date-time }
+                        eose_seen_at: { type: string, format: date-time, nullable: true }
   /api/v1/relays/popular:
     get:
       tags: [public]

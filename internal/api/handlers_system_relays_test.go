@@ -35,6 +35,8 @@ func TestReady_UsesErrorEnvelopeWhenDependencyUnavailable(t *testing.T) {
 
 func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 	lastErr := "dial websocket: websocket: bad handshake"
+	healthyAt := time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)
+	erroredAt := time.Date(2026, 4, 4, 12, 1, 0, 0, time.UTC)
 	handlers := mustNewHandlers(t, fakeEventReader{
 		listRelayHealthFn: func(_ context.Context) ([]model.IngestCheckpoint, error) {
 			return []model.IngestCheckpoint{
@@ -43,7 +45,7 @@ func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 					Mode:        "live",
 					FilterGroup: "social_core",
 					Status:      "healthy",
-					UpdatedAt:   time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC),
+					UpdatedAt:   healthyAt,
 				},
 				{
 					RelayURL:    "wss://relay.damus.io",
@@ -51,7 +53,7 @@ func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 					FilterGroup: "default_v1",
 					Status:      "errored",
 					LastError:   &lastErr,
-					UpdatedAt:   time.Date(2026, 4, 4, 12, 1, 0, 0, time.UTC),
+					UpdatedAt:   erroredAt,
 				},
 			}, nil
 		},
@@ -73,10 +75,19 @@ func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 	if len(resp.Relays) != 2 || resp.Relays[0].RelayURL != "wss://relay.one" {
 		t.Fatalf("unexpected relays payload: %+v", resp.Relays)
 	}
+	if !resp.Relays[0].LatestCheckpointAt.Equal(healthyAt) {
+		t.Fatalf("expected healthy latest_checkpoint_at %v, got %v", healthyAt, resp.Relays[0].LatestCheckpointAt)
+	}
+	if resp.Relays[0].LastError != nil {
+		t.Fatalf("expected healthy relay last_error to be omitted, got %+v", resp.Relays[0].LastError)
+	}
 	if resp.Relays[1].Status != "errored" {
 		t.Fatalf("expected errored status, got %+v", resp.Relays[1])
 	}
 	if resp.Relays[1].LastError == nil || *resp.Relays[1].LastError != lastErr {
 		t.Fatalf("expected last_error %q, got %+v", lastErr, resp.Relays[1].LastError)
+	}
+	if !resp.Relays[1].LatestCheckpointAt.Equal(erroredAt) {
+		t.Fatalf("expected errored latest_checkpoint_at %v, got %v", erroredAt, resp.Relays[1].LatestCheckpointAt)
 	}
 }
