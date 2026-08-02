@@ -3,6 +3,7 @@ package derivation_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -265,6 +266,55 @@ func TestRefreshTrendingLinksSnapshots_ExcludesUntrustedAuthors(t *testing.T) {
 	}
 }
 
+// TestRefreshRelayWindowSnapshots_ExcludesFallbackRelay ensures the synthetic
+// API-fallback provenance label never ranks as a real peer in Network stats.
+func TestRefreshRelayWindowSnapshots_ExcludesFallbackRelay(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	real := newEventForTest("real_note", "author_real", now.Unix(), 1, nil, "hello from a real relay", now)
+	if err := pgStore.InsertCanonicalEvent(ctx, real, nil, "wss://relay.one", now); err != nil {
+		t.Fatalf("insert real event: %v", err)
+	}
+	// Flood the synthetic fallback provenance so it would otherwise dominate
+	// top_relays_7d if the snapshot failed to exclude it.
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("fallback_note_%d", i)
+		evt := newEventForTest(id, fmt.Sprintf("author_fb_%d", i), now.Unix()-int64(i), 1, nil, "fallback only", now)
+		if err := pgStore.InsertCanonicalEvent(ctx, evt, nil, model.FallbackRelayURL, now); err != nil {
+			t.Fatalf("insert fallback event %s: %v", id, err)
+		}
+	}
+
+	if err := handlers.RefreshRelayWindowSnapshots(ctx); err != nil {
+		t.Fatalf("refresh relay window snapshots: %v", err)
+	}
+
+	summary := readSummarySnapshot(t, ctx, pool)
+	if summary.Total != 1 {
+		t.Fatalf("expected total=1 real relay, got %d", summary.Total)
+	}
+	if summary.Events24h != 1 {
+		t.Fatalf("expected events_24h=1 (fallback rows excluded), got %d", summary.Events24h)
+	}
+
+	top := readTopRelaysSnapshot(t, ctx, pool)
+	if len(top) != 1 || top[0].RelayURL != "wss://relay.one" {
+		t.Fatalf("expected only wss://relay.one in top relays, got %#v", top)
+	}
+	for _, row := range top {
+		if row.RelayURL == model.FallbackRelayURL {
+			t.Fatalf("fallback sentinel leaked into top_relays_7d: %#v", top)
+		}
+	}
+}
+
 func containsString(haystack []string, needle string) bool {
 	for _, v := range haystack {
 		if v == needle {
@@ -272,6 +322,27 @@ func containsString(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func readTopRelaysSnapshot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []struct {
+	RelayURL      string `json:"relay_url"`
+	EventCount    int64  `json:"event_count"`
+	UniqueAuthors int64  `json:"unique_authors"`
+} {
+	t.Helper()
+	var raw []byte
+	if err := pool.QueryRow(ctx, `SELECT payload FROM relay_window_snapshots WHERE snapshot_label = 'top_relays_7d'`).Scan(&raw); err != nil {
+		t.Fatalf("read top_relays_7d payload: %v", err)
+	}
+	var out []struct {
+		RelayURL      string `json:"relay_url"`
+		EventCount    int64  `json:"event_count"`
+		UniqueAuthors int64  `json:"unique_authors"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("decode top_relays_7d payload: %v", err)
+	}
+	return out
 }
 
 func readHashtagLabels(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label string) []string {

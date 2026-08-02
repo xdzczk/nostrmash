@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/xdzczk/nostrmash/internal/model"
 )
 
 // domainMediaURLFilterClause excludes obvious inline media/attachment links
@@ -375,7 +376,8 @@ func computeRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySn
 		SELECT COALESCE(COUNT(*), 0)::bigint
 		FROM distinct_relays
 		WHERE relay_url IS NOT NULL
-	`).Scan(&out.Total); err != nil {
+		  AND relay_url <> $1
+	`, model.FallbackRelayURL).Scan(&out.Total); err != nil {
 		return out, fmt.Errorf("query relay total: %w", err)
 	}
 
@@ -390,7 +392,8 @@ func computeRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySn
 			COALESCE(COUNT(DISTINCT pubkey), 0)::bigint    AS authors
 		FROM event_relays
 		WHERE seen_at >= $1
-	`, cutoff24h).Scan(&out.Active24h, &out.Events24h, &out.Authors24h); err != nil {
+		  AND relay_url <> $2
+	`, cutoff24h, model.FallbackRelayURL).Scan(&out.Active24h, &out.Events24h, &out.Authors24h); err != nil {
 		return out, fmt.Errorf("query 24h window: %w", err)
 	}
 
@@ -401,7 +404,8 @@ func computeRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySn
 			COALESCE(COUNT(DISTINCT pubkey), 0)::bigint    AS authors
 		FROM event_relays
 		WHERE seen_at >= $1
-	`, cutoff7d).Scan(&out.Active7d, &out.Events7d, &out.Authors7d); err != nil {
+		  AND relay_url <> $2
+	`, cutoff7d, model.FallbackRelayURL).Scan(&out.Active7d, &out.Events7d, &out.Authors7d); err != nil {
 		return out, fmt.Errorf("query 7d window: %w", err)
 	}
 	return out, nil
@@ -632,10 +636,11 @@ func computeTopRelaysSnapshot(ctx context.Context, tx pgx.Tx, limit int) ([]rela
 			COUNT(DISTINCT er.pubkey)::bigint AS unique_authors
 		FROM event_relays er
 		WHERE er.seen_at >= $1
+		  AND er.relay_url <> $2
 		GROUP BY er.relay_url
 		ORDER BY event_count DESC, unique_authors DESC, er.relay_url ASC
-		LIMIT $2
-	`, cutoff7d, limit)
+		LIMIT $3
+	`, cutoff7d, model.FallbackRelayURL, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query top relays: %w", err)
 	}

@@ -35,6 +35,12 @@ type EventRelay struct {
 	SeenAt   time.Time
 }
 
+// FallbackRelayURL is the synthetic provenance written when API relay
+// fallback persists an event that was not observed on a live subscription.
+// It is not a connectable relay and must be excluded from public relay
+// rankings and network stats.
+const FallbackRelayURL = "fallback:relay"
+
 // InvalidEvent is quarantine record.
 type InvalidEvent struct {
 	ID           string

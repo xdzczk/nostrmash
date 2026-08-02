@@ -58,7 +58,7 @@ func (s *PostgresStore) PersistFallbackProfile(ctx context.Context, pp ProfilePr
 		RawJSON:     json.RawMessage(rawEvent),
 		FirstSeenAt: time.Now().UTC(),
 	}
-	if err := s.InsertCanonicalEvent(ctx, evt, nil, "fallback:relay", evt.FirstSeenAt); err != nil {
+	if err := s.InsertCanonicalEvent(ctx, evt, nil, model.FallbackRelayURL, evt.FirstSeenAt); err != nil {
 		return fmt.Errorf("persist fallback kind-0 event: %w", err)
 	}
 

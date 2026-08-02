@@ -43,33 +43,72 @@ func NewController(log *slog.Logger, store *relayregistry.Store, pool *pgxpool.P
 	return c
 }
 
-// BootstrapSeeds upserts configured seed relays into the registry.
+// BootstrapSeeds makes RELAY_REGISTRY_SEED_RELAYS authoritative: configured
+// seeds are upserted as pinned, and any former source_seed relay no longer in
+// the configured set is unpinned (seed flag cleared, pinned → inactive).
 func (c *Controller) BootstrapSeeds(ctx context.Context) error {
-	opts := relayurl.NormalizeOptions{RequireTLS: !c.cfg.AllowPrivateNetwork}
-	validateOpts := relayurl.ValidateOptions{AllowPrivateNetwork: c.cfg.AllowPrivateNetwork}
+	return reconcileSeedRelays(ctx, c.log, c.store, c.cfg)
+}
 
-	var bootstrapped int
-	for _, raw := range c.cfg.SeedRelays {
+type seedRelayStore interface {
+	UpsertSeedRelay(ctx context.Context, urlKey, normalizedURL string) error
+	ClearMissingSeedRelays(ctx context.Context, keepURLKeys []string) (int64, error)
+}
+
+func reconcileSeedRelays(
+	ctx context.Context,
+	log *slog.Logger,
+	store seedRelayStore,
+	cfg config.RelayRegistryConfig,
+) error {
+	opts := relayurl.NormalizeOptions{RequireTLS: !cfg.AllowPrivateNetwork}
+	validateOpts := relayurl.ValidateOptions{AllowPrivateNetwork: cfg.AllowPrivateNetwork}
+
+	type seedRef struct {
+		urlKey     string
+		normalized string
+	}
+	keep := make([]seedRef, 0, len(cfg.SeedRelays))
+	for _, raw := range cfg.SeedRelays {
 		normalized, err := relayurl.Normalize(raw, opts)
 		if err != nil {
-			c.log.Warn("relay_registry_seed_normalize_failed", "relay", raw, "error", err)
+			log.Warn("relay_registry_seed_normalize_failed", "relay", raw, "error", err)
 			continue
 		}
 		if err := relayurl.Validate(normalized, validateOpts); err != nil {
-			c.log.Warn("relay_registry_seed_validate_failed", "relay", normalized, "error", err)
+			log.Warn("relay_registry_seed_validate_failed", "relay", normalized, "error", err)
 			continue
 		}
-		urlKey := relayurl.CanonicalKey(normalized)
-		if err := c.store.UpsertSeedRelay(ctx, urlKey, normalized); err != nil {
-			c.log.Error("relay_registry_seed_upsert_failed", "relay", normalized, "error", err)
+		keep = append(keep, seedRef{
+			urlKey:     relayurl.CanonicalKey(normalized),
+			normalized: normalized,
+		})
+	}
+
+	var bootstrapped int
+	for _, seed := range keep {
+		if err := store.UpsertSeedRelay(ctx, seed.urlKey, seed.normalized); err != nil {
+			// Keep the URL in the keep set even on upsert failure so a
+			// transient write error cannot unpin a still-configured seed.
+			log.Error("relay_registry_seed_upsert_failed", "relay", seed.normalized, "error", err)
 			continue
 		}
 		bootstrapped++
 	}
 
-	c.log.Info("relay_registry_seeds_bootstrapped",
-		"total_configured", len(c.cfg.SeedRelays),
+	keepKeys := make([]string, 0, len(keep))
+	for _, seed := range keep {
+		keepKeys = append(keepKeys, seed.urlKey)
+	}
+	cleared, err := store.ClearMissingSeedRelays(ctx, keepKeys)
+	if err != nil {
+		return fmt.Errorf("clear missing seed relays: %w", err)
+	}
+
+	log.Info("relay_registry_seeds_reconciled",
+		"total_configured", len(cfg.SeedRelays),
 		"bootstrapped", bootstrapped,
+		"cleared", cleared,
 	)
 	return nil
 }

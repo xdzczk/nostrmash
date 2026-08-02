@@ -22,6 +22,8 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 // UpsertSeedRelay inserts or updates a relay as a seed/pinned entry.
+// Re-applying a configured seed restores pinned policy/state unless the
+// operator has blocked or drained the relay.
 func (s *Store) UpsertSeedRelay(ctx context.Context, urlKey, normalizedURL string) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO relay_registry (
@@ -31,10 +33,71 @@ func (s *Store) UpsertSeedRelay(ctx context.Context, urlKey, normalizedURL strin
 		SET source_seed = TRUE,
 		    normalized_url = EXCLUDED.normalized_url,
 		    last_seen_at = now(),
-		    updated_at = now()
+		    updated_at = now(),
+		    manual_policy = CASE
+		        WHEN relay_registry.manual_policy IN ('blocked', 'drained')
+		            THEN relay_registry.manual_policy
+		        ELSE 'pinned'
+		    END,
+		    admission_state = CASE
+		        WHEN relay_registry.manual_policy IN ('blocked', 'drained')
+		            THEN relay_registry.admission_state
+		        ELSE 'pinned'
+		    END
 	`, urlKey, normalizedURL)
 	if err != nil {
 		return fmt.Errorf("upsert seed relay: %w", err)
+	}
+	return nil
+}
+
+// ClearMissingSeedRelays makes the keep set authoritative for source_seed:
+// any row still marked source_seed whose url_key is not in keepURLKeys loses
+// the seed flag. Seed-derived pins are cleared (manual_policy pinned → none,
+// admission_state pinned → inactive). Operator blocked/drained policies are
+// preserved. An empty keep set clears every source_seed row.
+//
+// Returns the number of rows updated.
+func (s *Store) ClearMissingSeedRelays(ctx context.Context, keepURLKeys []string) (int64, error) {
+	if keepURLKeys == nil {
+		keepURLKeys = []string{}
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE relay_registry
+		SET source_seed = FALSE,
+		    manual_policy = CASE
+		        WHEN manual_policy = 'pinned' THEN 'none'
+		        ELSE manual_policy
+		    END,
+		    admission_state = CASE
+		        WHEN admission_state = 'pinned' THEN 'inactive'
+		        ELSE admission_state
+		    END,
+		    updated_at = now()
+		WHERE source_seed = TRUE
+		  AND url_key <> ALL($1::text[])
+	`, keepURLKeys)
+	if err != nil {
+		return 0, fmt.Errorf("clear missing seed relays: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// EnsureRelayExists inserts a candidate registry row when missing. It does not
+// mark the relay as a seed or apply a pin; use SetManualPolicy for operator
+// overrides and UpsertSeedRelay for configured seeds.
+func (s *Store) EnsureRelayExists(ctx context.Context, urlKey, normalizedURL string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO relay_registry (
+			url_key, normalized_url, source_seed, manual_policy, admission_state
+		) VALUES ($1, $2, FALSE, 'none', 'candidate')
+		ON CONFLICT (url_key) DO UPDATE
+		SET normalized_url = EXCLUDED.normalized_url,
+		    last_seen_at = now(),
+		    updated_at = now()
+	`, urlKey, normalizedURL)
+	if err != nil {
+		return fmt.Errorf("ensure relay exists: %w", err)
 	}
 	return nil
 }

@@ -168,7 +168,9 @@ func (s *adminService) SetRelayRegistryPolicy(ctx context.Context, req adminSetP
 
 	_, getErr := registryStore.GetRelay(ctx, urlKey)
 	if getErr != nil {
-		if err := registryStore.UpsertSeedRelay(ctx, urlKey, normalized); err != nil {
+		// Do not mark admin-created relays as source_seed; seed membership is
+		// owned exclusively by RELAY_REGISTRY_SEED_RELAYS reconciliation.
+		if err := registryStore.EnsureRelayExists(ctx, urlKey, normalized); err != nil {
 			return err
 		}
 	}

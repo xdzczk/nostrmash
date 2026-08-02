@@ -48,7 +48,7 @@ func (s *PostgresStore) PersistFallbackEvent(ctx context.Context, eventID string
 		RawJSON:     raw,
 		FirstSeenAt: time.Now().UTC(),
 	}
-	if err := s.InsertCanonicalEvent(ctx, evt, nil, "fallback:relay", evt.FirstSeenAt); err != nil {
+	if err := s.InsertCanonicalEvent(ctx, evt, nil, model.FallbackRelayURL, evt.FirstSeenAt); err != nil {
 		if isIdempotentConflict(err) {
 			return nil
 		}

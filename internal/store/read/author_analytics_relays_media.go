@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/xdzczk/nostrmash/internal/model"
 )
 
 func (s *Read) GetAuthorRelayFootprint(
@@ -38,7 +39,8 @@ func (s *Read) GetAuthorRelayFootprint(
 			COALESCE(COUNT(DISTINCT er.event_id), 0)::bigint AS seen_on_event_count
 		FROM event_relays er
 		WHERE er.pubkey = $1
-	`, pubkey).Scan(&out.RelayCount, &out.SeenOnEventCount); err != nil {
+		  AND er.relay_url <> $2
+	`, pubkey, model.FallbackRelayURL).Scan(&out.RelayCount, &out.SeenOnEventCount); err != nil {
 		return out, fmt.Errorf("get author relay footprint counts: %w", err)
 	}
 
@@ -48,10 +50,11 @@ func (s *Read) GetAuthorRelayFootprint(
 			COUNT(DISTINCT er.event_id)::bigint AS event_count
 		FROM event_relays er
 		WHERE er.pubkey = $1
+		  AND er.relay_url <> $2
 		GROUP BY er.relay_url
 		ORDER BY event_count DESC, er.relay_url ASC
-		LIMIT $2
-	`, pubkey, topRelayLimit)
+		LIMIT $3
+	`, pubkey, model.FallbackRelayURL, topRelayLimit)
 	if err != nil {
 		return out, fmt.Errorf("get author relay footprint top relays: %w", err)
 	}
