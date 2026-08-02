@@ -90,3 +90,21 @@ func TestClassifyNotePreview_NormalizesLinksForDisplay(t *testing.T) {
 		t.Fatalf("display content should include normalized domains: %q", preview.DisplayContent)
 	}
 }
+
+func TestClassifyNotePreview_OmitsMediaURLsFromDisplay(t *testing.T) {
+	t.Parallel()
+
+	preview := classifyNotePreview("GM ☕ https://blossom.primal.net/67abe3541726675f55edbcb2bf134c1d15c23bd1db0ba31b7e2aa4b4ddce7c78.jpg")
+	if preview.Mode != notePreviewModeMediaLed {
+		t.Fatalf("unexpected mode: got %q want %q", preview.Mode, notePreviewModeMediaLed)
+	}
+	if strings.Contains(preview.DisplayContent, "https://") {
+		t.Fatalf("display content should not include media urls: %q", preview.DisplayContent)
+	}
+	if strings.Contains(preview.DisplayContent, "[blossom.primal.net]") {
+		t.Fatalf("display content should not include media host placeholders: %q", preview.DisplayContent)
+	}
+	if !strings.Contains(preview.DisplayContent, "GM") {
+		t.Fatalf("display content should keep surrounding prose: %q", preview.DisplayContent)
+	}
+}

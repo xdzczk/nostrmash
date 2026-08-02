@@ -254,6 +254,10 @@ func normalizeContentForDisplay(content string, maxLen int) string {
 	}
 	replaced := notePreviewURLPattern.ReplaceAllStringFunc(content, func(raw string) string {
 		trimmed := strings.TrimRight(raw, notePreviewURLSchemeTrimRight)
+		// Media URLs are rendered as attachments; never leave them in preview copy.
+		if notePreviewImageURLPattern.MatchString(trimmed) || notePreviewVideoURLPattern.MatchString(trimmed) {
+			return ""
+		}
 		domain := urlDomain(trimmed)
 		if domain == "" {
 			return "[link]"
