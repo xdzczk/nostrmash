@@ -25,6 +25,26 @@ DELETE FROM events e
 USING candidates c
 WHERE e.id = c.id;
 
+-- name: SelectExpiredEngagementEventCandidates :many
+-- Read-only counterpart to PurgeExpiredEngagementEvents' candidates CTE,
+-- used by the Go wrapper to reverse incremental author-stat deltas for each
+-- candidate before deleting it (see internal/store/retention/events_retention.go).
+SELECT e.id
+FROM events e
+WHERE e.kind IN (6, 7, 9735)
+  AND e.created_at < @created_before_unix::bigint
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jobs j
+    WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
+      AND (
+        j.status IN ('pending', 'running')
+        OR (j.status = 'dead' AND j.updated_at > @dead_grace_before)
+      )
+  )
+ORDER BY e.created_at ASC, e.id ASC
+LIMIT @row_limit;
+
 -- name: PurgeSupersededReplaceableEvents :execrows
 WITH candidates AS (
     SELECT e.id
@@ -116,6 +136,42 @@ WITH candidates AS (
 DELETE FROM events e
 USING candidates c
 WHERE e.id = c.id;
+
+-- name: SelectUntrustedAuthorEventCandidates :many
+-- Read-only counterpart to PurgeUntrustedAuthorEvents' candidates CTE, used
+-- by the Go wrapper to reverse incremental author-stat deltas for each
+-- candidate before deleting it (see
+-- internal/store/retention/events_retention_untrusted.go).
+SELECT e.id
+FROM events e
+WHERE e.kind IN (1, 4, 5, 9802, 10000, 10003, 30023)
+  AND e.created_at < @created_before_unix::bigint
+  AND e.first_seen_at < @first_seen_before
+  AND EXISTS (SELECT 1 FROM trust_graph_snapshot)
+  AND NOT EXISTS (
+    SELECT 1 FROM trust_graph_snapshot s
+    WHERE s.pubkey = e.pubkey
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jobs j
+    WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
+      AND (
+        j.status IN ('pending', 'running')
+        OR (j.status = 'dead' AND j.updated_at > @dead_grace_before)
+      )
+  )
+ORDER BY e.created_at ASC, e.id ASC
+LIMIT @row_limit;
+
+-- name: DeleteEventsByID :execrows
+-- Deletes an explicit, already-decided set of event ids. Used after
+-- SelectExpiredEngagementEventCandidates / SelectUntrustedAuthorEventCandidates
+-- so the same candidate set that had its incremental stats reversed is the
+-- exact set deleted (no re-evaluating the candidate predicate a second time
+-- against a possibly-changed table state).
+DELETE FROM events
+WHERE id = ANY(@ids::text[]);
 
 -- name: PurgeUntrustedAuthorEventURLs :execrows
 WITH candidates AS (

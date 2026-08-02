@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
@@ -32,6 +34,12 @@ import (
 // Trade-off (accepted, same as engagement retention): if an author becomes
 // trusted later, their pre-trust history is gone locally and must be
 // re-hydrated from relays.
+//
+// Before deleting, each candidate's incremental author-stat deltas are
+// reversed (see IncrementalStatsReverser), same as
+// PurgeExpiredEngagementEvents — most candidates here are kind=1 notes,
+// which is the primary contributor to note_count / author_activity_daily /
+// topic / media / hourly aggregates.
 func (s *Retention) PurgeUntrustedAuthorEvents(
 	ctx context.Context,
 	olderThan time.Time,
@@ -53,14 +61,17 @@ func (s *Retention) PurgeUntrustedAuthorEvents(
 
 	started := time.Now()
 	var rows int64
-	err := s.guarded(ctx, func(q *retentiondb.Queries) error {
-		var err error
-		rows, err = q.PurgeUntrustedAuthorEvents(ctx, retentiondb.PurgeUntrustedAuthorEventsParams{
+	err := s.guardedWithTx(ctx, func(tx pgx.Tx, q *retentiondb.Queries) error {
+		ids, err := q.SelectUntrustedAuthorEventCandidates(ctx, retentiondb.SelectUntrustedAuthorEventCandidatesParams{
 			CreatedBeforeUnix: olderThan.UTC().Unix(),
 			FirstSeenBefore:   tsz(olderThan.UTC()),
 			DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
 			RowLimit:          int32(limit),
 		})
+		if err != nil {
+			return fmt.Errorf("select untrusted author event candidates: %w", err)
+		}
+		rows, err = s.reverseAndDeleteTx(ctx, tx, q, ids)
 		return err
 	})
 	metrics.ObserveDBOperation("purge_untrusted_author_events", dbResultFromErr(err), time.Since(started))

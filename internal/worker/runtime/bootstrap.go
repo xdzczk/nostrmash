@@ -112,6 +112,13 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		IncrementalAuthorActivityDaily: &incActivity,
 		IncrementalWindowedRollups:     &incRollups,
 	})
+	// Retention purges that hard-delete events (expired engagement,
+	// untrusted-author) must reverse whatever incremental author-stat
+	// deltas those events previously contributed, or profile_public_stats /
+	// author_activity_daily / ... drift upward forever as history ages out.
+	// Wired here (rather than at store.NewPostgresStore) because Handlers
+	// doesn't exist yet at that point.
+	postgresStore.Retention.SetIncrementalStatsReverser(handlers)
 
 	hydrationService, err := buildHydrationService(log, cfg, pool, postgresStore)
 	if err != nil {

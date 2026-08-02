@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
@@ -24,6 +26,14 @@ import (
 // The (kind, created_at) scan is served by idx_events_kind_created_at; the
 // per-candidate jobs lookup is served by the unique index on
 // jobs.idempotency_key.
+//
+// Before deleting, each candidate's incremental author-stat deltas are
+// reversed (see IncrementalStatsReverser) so profile_public_stats /
+// author_activity_daily / author_hashtag_daily / author_media_daily /
+// author_hourly_activity counters don't drift upward as engagement events
+// age out. The candidate selection and the delete happen in the same
+// transaction, so the exact set of ids that was reversed is the exact set
+// deleted.
 func (s *Retention) PurgeExpiredEngagementEvents(
 	ctx context.Context,
 	createdBefore time.Time,
@@ -45,13 +55,16 @@ func (s *Retention) PurgeExpiredEngagementEvents(
 
 	started := time.Now()
 	var rows int64
-	err := s.guarded(ctx, func(q *retentiondb.Queries) error {
-		var err error
-		rows, err = q.PurgeExpiredEngagementEvents(ctx, retentiondb.PurgeExpiredEngagementEventsParams{
+	err := s.guardedWithTx(ctx, func(tx pgx.Tx, q *retentiondb.Queries) error {
+		ids, err := q.SelectExpiredEngagementEventCandidates(ctx, retentiondb.SelectExpiredEngagementEventCandidatesParams{
 			CreatedBeforeUnix: createdBefore.UTC().Unix(),
 			DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
 			RowLimit:          int32(limit),
 		})
+		if err != nil {
+			return fmt.Errorf("select expired engagement event candidates: %w", err)
+		}
+		rows, err = s.reverseAndDeleteTx(ctx, tx, q, ids)
 		return err
 	})
 	metrics.ObserveDBOperation("purge_expired_engagement_events", dbResultFromErr(err), time.Since(started))

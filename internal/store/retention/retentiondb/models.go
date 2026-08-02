@@ -37,6 +37,12 @@ type AccountStateTransition struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type AppliedStatDelta struct {
+	EventID    string
+	Projection string
+	AppliedAt  pgtype.Timestamptz
+}
+
 type AuthorActivityDaily struct {
 	Pubkey             string
 	ActivityDate       pgtype.Date
@@ -77,6 +83,46 @@ type AuthorEngagementStat struct {
 	RecentActivityAt         pgtype.Int8
 	DerivationVersion        int32
 	UpdatedAt                pgtype.Timestamptz
+}
+
+type AuthorHashtagDaily struct {
+	Pubkey            string
+	ActivityDate      pgtype.Date
+	Hashtag           string
+	UsageCount        int64
+	DerivationVersion int32
+	UpdatedAt         pgtype.Timestamptz
+}
+
+type AuthorHourlyActivity struct {
+	Pubkey             string
+	ActivityDate       pgtype.Date
+	DayOfWeek          int16
+	HourOfDay          int16
+	PostCount          int64
+	NoteCount          int64
+	ReplyCount         int64
+	EngagementReceived int64
+	ReplyReceived      int64
+	ReactionReceived   int64
+	RepostReceived     int64
+	ZapReceived        int64
+	DerivationVersion  int32
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type AuthorMediaDaily struct {
+	Pubkey               string
+	ActivityDate         pgtype.Date
+	TotalPosts           int64
+	WithImageCount       int64
+	WithVideoCount       int64
+	WithLinkCount        int64
+	WithArticleCount     int64
+	TextOnlyCount        int64
+	TotalAttachmentCount int64
+	DerivationVersion    int32
+	UpdatedAt            pgtype.Timestamptz
 }
 
 type AuthorMediaMixStat struct {

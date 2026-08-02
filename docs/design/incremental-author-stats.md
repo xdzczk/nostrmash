@@ -25,12 +25,32 @@ Implemented (cutover defaults on):
   - `WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY`
   - `WORKER_INCREMENTAL_WINDOWED_ROLLUPS`
 
+- Migration `000064_backfill_incremental_stat_daily_tables.sql`: one-time
+  bulk backfill of `author_hashtag_daily` / `author_media_daily` /
+  `author_hourly_activity` for the last 90 days (the largest supported
+  `window_days`), so the "any row after cutoff ⇒ use only the daily table"
+  windowed-rollup check doesn't silently drop pre-deploy history for
+  already-active pubkeys. Idempotent (overwrite, not additive), safe to
+  re-run, safe to run after the incremental writer is already live.
+- Retention decrement path: `derivation.Handlers.ReverseIncrementalAuthorStatsTx`
+  undoes the exact deltas `ApplyIncrementalAuthorStats` applied for an event,
+  gated by the same `applied_stat_deltas` ledger (unclaim-then-decrement
+  mirrors claim-then-increment). Wired into the two retention purges that
+  hard-delete events contributing to these counters —
+  `PurgeExpiredEngagementEvents` (kinds 6/7/9735) and
+  `PurgeUntrustedAuthorEvents` (kind 1 notes, primarily) — via a narrow
+  `retention.IncrementalStatsReverser` interface set post-construction in
+  `bootstrap.go` (avoids an `internal/store/retention` → `internal/derivation`
+  import). Deliberately does not roll back `recent_activity_at` (see the
+  doc comment on `ReverseIncrementalAuthorStatsTx`); NIP-09 deletion requests
+  don't hard-delete the target event directly, so this only fires from
+  age-based retention purges.
+
 Still open from this design:
 
 - Periodic reconciliation sampler / drift alerting
-- Explicit NIP-09 / retention decrement path (create-path matches current
-  full-recompute semantics for events that remain in `events`)
-- `applied_stat_deltas` retention pruning job
+- `applied_stat_deltas` retention pruning job (the ledger grows unboundedly
+  today; it's small per row but has no purge yet)
 
 ## Current state (why the sweeper coalescing wasn't enough)
 

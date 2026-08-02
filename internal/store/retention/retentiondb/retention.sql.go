@@ -11,6 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteEventsByID = `-- name: DeleteEventsByID :execrows
+DELETE FROM events
+WHERE id = ANY($1::text[])
+`
+
+// Deletes an explicit, already-decided set of event ids. Used after
+// SelectExpiredEngagementEventCandidates / SelectUntrustedAuthorEventCandidates
+// so the same candidate set that had its incremental stats reversed is the
+// exact set deleted (no re-evaluating the candidate predicate a second time
+// against a possibly-changed table state).
+func (q *Queries) DeleteEventsByID(ctx context.Context, ids []string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEventsByID, ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const groomSearchDocumentsPrune = `-- name: GroomSearchDocumentsPrune :execrows
 WITH candidates AS (
     SELECT entity_type, entity_id
@@ -495,4 +513,111 @@ func (q *Queries) PurgeUntrustedAuthorEvents(ctx context.Context, arg PurgeUntru
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const selectExpiredEngagementEventCandidates = `-- name: SelectExpiredEngagementEventCandidates :many
+SELECT e.id
+FROM events e
+WHERE e.kind IN (6, 7, 9735)
+  AND e.created_at < $1::bigint
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jobs j
+    WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
+      AND (
+        j.status IN ('pending', 'running')
+        OR (j.status = 'dead' AND j.updated_at > $2)
+      )
+  )
+ORDER BY e.created_at ASC, e.id ASC
+LIMIT $3
+`
+
+type SelectExpiredEngagementEventCandidatesParams struct {
+	CreatedBeforeUnix int64
+	DeadGraceBefore   pgtype.Timestamptz
+	RowLimit          int32
+}
+
+// Read-only counterpart to PurgeExpiredEngagementEvents' candidates CTE,
+// used by the Go wrapper to reverse incremental author-stat deltas for each
+// candidate before deleting it (see internal/store/retention/events_retention.go).
+func (q *Queries) SelectExpiredEngagementEventCandidates(ctx context.Context, arg SelectExpiredEngagementEventCandidatesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, selectExpiredEngagementEventCandidates, arg.CreatedBeforeUnix, arg.DeadGraceBefore, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const selectUntrustedAuthorEventCandidates = `-- name: SelectUntrustedAuthorEventCandidates :many
+SELECT e.id
+FROM events e
+WHERE e.kind IN (1, 4, 5, 9802, 10000, 10003, 30023)
+  AND e.created_at < $1::bigint
+  AND e.first_seen_at < $2
+  AND EXISTS (SELECT 1 FROM trust_graph_snapshot)
+  AND NOT EXISTS (
+    SELECT 1 FROM trust_graph_snapshot s
+    WHERE s.pubkey = e.pubkey
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jobs j
+    WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
+      AND (
+        j.status IN ('pending', 'running')
+        OR (j.status = 'dead' AND j.updated_at > $3)
+      )
+  )
+ORDER BY e.created_at ASC, e.id ASC
+LIMIT $4
+`
+
+type SelectUntrustedAuthorEventCandidatesParams struct {
+	CreatedBeforeUnix int64
+	FirstSeenBefore   pgtype.Timestamptz
+	DeadGraceBefore   pgtype.Timestamptz
+	RowLimit          int32
+}
+
+// Read-only counterpart to PurgeUntrustedAuthorEvents' candidates CTE, used
+// by the Go wrapper to reverse incremental author-stat deltas for each
+// candidate before deleting it (see
+// internal/store/retention/events_retention_untrusted.go).
+func (q *Queries) SelectUntrustedAuthorEventCandidates(ctx context.Context, arg SelectUntrustedAuthorEventCandidatesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, selectUntrustedAuthorEventCandidates,
+		arg.CreatedBeforeUnix,
+		arg.FirstSeenBefore,
+		arg.DeadGraceBefore,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

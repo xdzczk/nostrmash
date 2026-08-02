@@ -9,6 +9,12 @@ import (
 )
 
 type Querier interface {
+	// Deletes an explicit, already-decided set of event ids. Used after
+	// SelectExpiredEngagementEventCandidates / SelectUntrustedAuthorEventCandidates
+	// so the same candidate set that had its incremental stats reversed is the
+	// exact set deleted (no re-evaluating the candidate predicate a second time
+	// against a possibly-changed table state).
+	DeleteEventsByID(ctx context.Context, ids []string) (int64, error)
 	GroomSearchDocumentsPrune(ctx context.Context, rowLimit int32) (int64, error)
 	GroomSearchDocumentsTrim(ctx context.Context, arg GroomSearchDocumentsTrimParams) (int64, error)
 	PruneAuthorRecentEventsByAge(ctx context.Context, arg PruneAuthorRecentEventsByAgeParams) (int64, error)
@@ -27,6 +33,15 @@ type Querier interface {
 	PurgeUntrustedAuthorEventHashtags(ctx context.Context, rowLimit int32) (int64, error)
 	PurgeUntrustedAuthorEventURLs(ctx context.Context, rowLimit int32) (int64, error)
 	PurgeUntrustedAuthorEvents(ctx context.Context, arg PurgeUntrustedAuthorEventsParams) (int64, error)
+	// Read-only counterpart to PurgeExpiredEngagementEvents' candidates CTE,
+	// used by the Go wrapper to reverse incremental author-stat deltas for each
+	// candidate before deleting it (see internal/store/retention/events_retention.go).
+	SelectExpiredEngagementEventCandidates(ctx context.Context, arg SelectExpiredEngagementEventCandidatesParams) ([]string, error)
+	// Read-only counterpart to PurgeUntrustedAuthorEvents' candidates CTE, used
+	// by the Go wrapper to reverse incremental author-stat deltas for each
+	// candidate before deleting it (see
+	// internal/store/retention/events_retention_untrusted.go).
+	SelectUntrustedAuthorEventCandidates(ctx context.Context, arg SelectUntrustedAuthorEventCandidatesParams) ([]string, error)
 }
 
 var _ Querier = (*Queries)(nil)
