@@ -110,6 +110,14 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		})
 	})
 	spawn(func(c context.Context) {
+		jobs.RunAppliedStatDeltasRetentionLoop(c, log, bootstrap.AppliedStatDeltasStore, jobs.AppliedStatDeltasRetentionConfig{
+			Enabled:          cfg.AppliedStatDeltasRetention.Enabled,
+			GracePeriod:      cfg.AppliedStatDeltasRetention.GracePeriod,
+			RunInterval:      cfg.AppliedStatDeltasRetention.RunInterval,
+			DeleteBatchLimit: cfg.AppliedStatDeltasRetention.DeleteBatchLimit,
+		})
+	})
+	spawn(func(c context.Context) {
 		jobs.RunTrustRetentionHooksLoop(c, log, bootstrap.TrustRetention, jobs.TrustRetentionHooksLoopConfig{
 			DiscoveryCandidates: jobs.TrustRetentionHookScope{
 				Enabled:          cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.Enabled,
@@ -130,6 +138,9 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	spawn(func(c context.Context) { RunAccountStateRecomputeLoop(c, log, bootstrap.Store, cfg.AccountState) })
 	spawn(func(c context.Context) { RunMeilisearchStartupSync(c, log, bootstrap.MeiliClient, bootstrap.Pool) })
 	spawn(func(c context.Context) { RunRelayWindowSnapshotsLoop(c, log, bootstrap.Handlers) })
+	spawn(func(c context.Context) {
+		RunIncrementalStatsReconciliationLoop(c, log, bootstrap.Handlers, cfg.IncrementalStats.Reconciliation)
+	})
 
 	if cfg.AuthorAnalyticsSweeper.Enabled {
 		// The window list (WORKER_AUTHOR_ANALYTICS_WINDOWS_DAYS) was applied to

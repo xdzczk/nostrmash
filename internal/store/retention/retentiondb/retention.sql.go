@@ -150,6 +150,49 @@ func (q *Queries) PruneAuthorRecentEventsByCap(ctx context.Context, arg PruneAut
 	return result.RowsAffected(), nil
 }
 
+const pruneOrphanedAppliedStatDeltas = `-- name: PruneOrphanedAppliedStatDeltas :execrows
+WITH candidates AS (
+    SELECT d.event_id, d.projection
+    FROM applied_stat_deltas d
+    WHERE d.applied_at < $1
+      AND NOT EXISTS (
+        SELECT 1 FROM events e WHERE e.id = d.event_id
+      )
+    LIMIT $2
+)
+DELETE FROM applied_stat_deltas d
+USING candidates c
+WHERE d.event_id = c.event_id
+  AND d.projection = c.projection
+`
+
+type PruneOrphanedAppliedStatDeltasParams struct {
+	AppliedBefore pgtype.Timestamptz
+	RowLimit      int32
+}
+
+// Deletes applied_stat_deltas ledger rows whose source event no longer
+// exists in events. This is the only condition under which a ledger row is
+// guaranteed to serve no further purpose: as long as the event exists,
+// projection_incremental_stats.go's unclaimStatDeltaTx path may still need
+// the row to gate a future decrement (see reverseAndDeleteTx in retention.go,
+// which atomically reverses deltas and deletes the event together, itself
+// deleting the ledger rows it unclaims). Once the event row is gone — via
+// that reversal-aware path, or via a purge that never touched incremental
+// stats (PurgeSupersededReplaceableEvents, PurgeProcessedDeletionEvents) —
+// any ledger row still referencing that event_id is a pure orphan.
+//
+// applied_before is a conservative grace buffer on top of the orphan check
+// (not itself a correctness requirement) that keeps freshly-inserted rows
+// out of the scan and bounds it via idx_applied_stat_deltas_applied_at.
+func (q *Queries) PruneOrphanedAppliedStatDeltas(ctx context.Context, arg PruneOrphanedAppliedStatDeltasParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneOrphanedAppliedStatDeltas, arg.AppliedBefore, arg.RowLimit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const purgeExpiredEngagementEvents = `-- name: PurgeExpiredEngagementEvents :execrows
 
 WITH candidates AS (

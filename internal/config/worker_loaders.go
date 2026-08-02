@@ -41,15 +41,16 @@ func loadWorkerConcurrency() (workerConcurrency, error) {
 // workerRetentionConfigs bundles every worker retention/purge sub-config so the
 // retention module can be loaded and reasoned about as one unit.
 type workerRetentionConfigs struct {
-	InvalidEvent    WorkerInvalidEventRetentionConfig
-	Engagement      WorkerEngagementRetentionConfig
-	Replaceable     WorkerReplaceableRetentionConfig
-	Deletion        WorkerDeletionRetentionConfig
-	UntrustedAuthor WorkerUntrustedAuthorRetentionConfig
-	AuthorRecent    WorkerAuthorRecentRetentionConfig
-	SearchDocs      WorkerSearchDocsRetentionConfig
-	EventRelays     WorkerEventRelaysRetentionConfig
-	TrustRetention  WorkerTrustRetentionLoopConfig
+	InvalidEvent      WorkerInvalidEventRetentionConfig
+	Engagement        WorkerEngagementRetentionConfig
+	Replaceable       WorkerReplaceableRetentionConfig
+	Deletion          WorkerDeletionRetentionConfig
+	UntrustedAuthor   WorkerUntrustedAuthorRetentionConfig
+	AuthorRecent      WorkerAuthorRecentRetentionConfig
+	SearchDocs        WorkerSearchDocsRetentionConfig
+	EventRelays       WorkerEventRelaysRetentionConfig
+	AppliedStatDeltas WorkerAppliedStatDeltasRetentionConfig
+	TrustRetention    WorkerTrustRetentionLoopConfig
 }
 
 func loadWorkerRetentionConfigs() (workerRetentionConfigs, error) {
@@ -78,6 +79,9 @@ func loadWorkerRetentionConfigs() (workerRetentionConfigs, error) {
 		return workerRetentionConfigs{}, err
 	}
 	if out.EventRelays, err = loadEventRelaysRetentionConfig(); err != nil {
+		return workerRetentionConfigs{}, err
+	}
+	if out.AppliedStatDeltas, err = loadAppliedStatDeltasRetentionConfig(); err != nil {
 		return workerRetentionConfigs{}, err
 	}
 	if out.TrustRetention, err = loadTrustRetentionLoopConfig(); err != nil {
@@ -302,6 +306,33 @@ func loadEventRelaysRetentionConfig() (WorkerEventRelaysRetentionConfig, error) 
 	}, nil
 }
 
+// loadAppliedStatDeltasRetentionConfig reads the
+// WORKER_RETENTION_APPLIED_STAT_DELTAS_* envs. The default grace period
+// (1h) is generous padding on top of the orphan-only pruning condition
+// (see internal/store/retention/applied_stat_deltas_retention.go), not a
+// tuned correctness horizon; run interval matches the other low-priority
+// hygiene loops (event_relays, search_docs, author_recent).
+func loadAppliedStatDeltasRetentionConfig() (WorkerAppliedStatDeltasRetentionConfig, error) {
+	gracePeriod, err := getEnvPositiveDurationStrict("WORKER_RETENTION_APPLIED_STAT_DELTAS_GRACE_PERIOD", 1*time.Hour)
+	if err != nil {
+		return WorkerAppliedStatDeltasRetentionConfig{}, err
+	}
+	runInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_APPLIED_STAT_DELTAS_RUN_INTERVAL", 6*time.Hour)
+	if err != nil {
+		return WorkerAppliedStatDeltasRetentionConfig{}, err
+	}
+	deleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_APPLIED_STAT_DELTAS_DELETE_BATCH_LIMIT", 5000)
+	if err != nil {
+		return WorkerAppliedStatDeltasRetentionConfig{}, err
+	}
+	return WorkerAppliedStatDeltasRetentionConfig{
+		Enabled:          getEnvBool("WORKER_RETENTION_APPLIED_STAT_DELTAS_ENABLED", true),
+		GracePeriod:      gracePeriod,
+		RunInterval:      runInterval,
+		DeleteBatchLimit: deleteBatchLimit,
+	}, nil
+}
+
 func loadTrustRetentionLoopConfig() (WorkerTrustRetentionLoopConfig, error) {
 	runInterval, err := getEnvPositiveDurationStrict("TRUST_RETENTION_RUN_INTERVAL", 1*time.Hour)
 	if err != nil {
@@ -339,12 +370,38 @@ func loadWorkerSweeperConfigs() (workerSweeperConfigs, error) {
 	return out, nil
 }
 
-func loadWorkerIncrementalStatsConfig() WorkerIncrementalStatsConfig {
+func loadWorkerIncrementalStatsConfig() (WorkerIncrementalStatsConfig, error) {
+	reconciliation, err := loadIncrementalStatsReconciliationConfig()
+	if err != nil {
+		return WorkerIncrementalStatsConfig{}, err
+	}
 	return WorkerIncrementalStatsConfig{
 		ProfilePublicStats:  getEnvBool("WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS", true),
 		AuthorActivityDaily: getEnvBool("WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY", true),
 		WindowedRollups:     getEnvBool("WORKER_INCREMENTAL_WINDOWED_ROLLUPS", true),
+		Reconciliation:      reconciliation,
+	}, nil
+}
+
+// loadIncrementalStatsReconciliationConfig reads the
+// WORKER_INCREMENTAL_STATS_RECONCILIATION_* envs. Default interval (1h) and
+// sample size (200) are deliberately modest: this is a low-priority
+// correctness backstop, not the steady-state path, so it should cost
+// negligible DB time even on a busy instance.
+func loadIncrementalStatsReconciliationConfig() (WorkerIncrementalStatsReconciliationConfig, error) {
+	interval, err := getEnvPositiveDurationStrict("WORKER_INCREMENTAL_STATS_RECONCILIATION_INTERVAL", 1*time.Hour)
+	if err != nil {
+		return WorkerIncrementalStatsReconciliationConfig{}, err
 	}
+	sampleSize, err := getEnvPositiveIntStrict("WORKER_INCREMENTAL_STATS_RECONCILIATION_SAMPLE_SIZE", 200)
+	if err != nil {
+		return WorkerIncrementalStatsReconciliationConfig{}, err
+	}
+	return WorkerIncrementalStatsReconciliationConfig{
+		Enabled:    getEnvBool("WORKER_INCREMENTAL_STATS_RECONCILIATION_ENABLED", true),
+		Interval:   interval,
+		SampleSize: sampleSize,
+	}, nil
 }
 
 func loadAuthorAnalyticsSweeperConfig() (WorkerAuthorAnalyticsSweeperConfig, error) {

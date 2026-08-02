@@ -23,22 +23,23 @@ type BuildInfo struct {
 }
 
 type Bootstrap struct {
-	Pool               *pgxpool.Pool
-	Queue              Queue
-	Store              *store.PostgresStore
-	InvalidEventsStore InvalidEventRetentionStore
-	EngagementStore    EngagementRetentionStore
-	ReplaceableStore   ReplaceableRetentionStore
-	DeletionStore      DeletionRetentionStore
-	UntrustedStore     UntrustedRetentionStore
-	AuthorRecentStore  AuthorRecentRetentionStore
-	SearchDocsStore    SearchDocsRetentionStore
-	EventRelaysStore   EventRelaysRetentionStore
-	TrustRetention     TrustRetentionStore
-	ProcessJob         ProcessJobFn
-	Handlers           *derivation.Handlers
-	WorkerID           string
-	MeiliClient        *meili.Client
+	Pool                   *pgxpool.Pool
+	Queue                  Queue
+	Store                  *store.PostgresStore
+	InvalidEventsStore     InvalidEventRetentionStore
+	EngagementStore        EngagementRetentionStore
+	ReplaceableStore       ReplaceableRetentionStore
+	DeletionStore          DeletionRetentionStore
+	UntrustedStore         UntrustedRetentionStore
+	AuthorRecentStore      AuthorRecentRetentionStore
+	SearchDocsStore        SearchDocsRetentionStore
+	EventRelaysStore       EventRelaysRetentionStore
+	AppliedStatDeltasStore AppliedStatDeltasRetentionStore
+	TrustRetention         TrustRetentionStore
+	ProcessJob             ProcessJobFn
+	Handlers               *derivation.Handlers
+	WorkerID               string
+	MeiliClient            *meili.Client
 }
 
 func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, build BuildInfo) (Bootstrap, func(), error) {
@@ -129,18 +130,19 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 	}
 
 	bootstrap := Bootstrap{
-		Pool:               pool,
-		Queue:              queue,
-		Store:              postgresStore,
-		InvalidEventsStore: postgresStore,
-		EngagementStore:    postgresStore,
-		ReplaceableStore:   postgresStore,
-		DeletionStore:      postgresStore,
-		UntrustedStore:     postgresStore,
-		AuthorRecentStore:  postgresStore,
-		SearchDocsStore:    postgresStore,
-		EventRelaysStore:   postgresStore,
-		TrustRetention:     postgresStore,
+		Pool:                   pool,
+		Queue:                  queue,
+		Store:                  postgresStore,
+		InvalidEventsStore:     postgresStore,
+		EngagementStore:        postgresStore,
+		ReplaceableStore:       postgresStore,
+		DeletionStore:          postgresStore,
+		UntrustedStore:         postgresStore,
+		AuthorRecentStore:      postgresStore,
+		SearchDocsStore:        postgresStore,
+		EventRelaysStore:       postgresStore,
+		AppliedStatDeltasStore: postgresStore,
+		TrustRetention:         postgresStore,
 		ProcessJob: func(jobCtx context.Context, job jobs.Job) error {
 			if job.JobType == jobs.JobTypeHydrateAccount {
 				return processHydrateAccountJob(jobCtx, hydrationService, job)

@@ -45,12 +45,30 @@ Implemented (cutover defaults on):
   doc comment on `ReverseIncrementalAuthorStatsTx`); NIP-09 deletion requests
   don't hard-delete the target event directly, so this only fires from
   age-based retention purges.
+- Periodic reconciliation sampler: `derivation.Handlers.ReconcileIncrementalAuthorStatsSample`
+  full-recomputes a sample of pubkeys (half most-recently-active, half
+  uniform-random) read-only and compares against the live
+  `profile_public_stats` / `author_activity_daily` values, logging
+  `incremental_stats_reconciliation_mismatch` and incrementing
+  `nostrmash_worker_incremental_stats_reconciliation_mismatches_total{projection,field}`
+  for every divergence. Run by `RunIncrementalStatsReconciliationLoop`
+  (`WORKER_INCREMENTAL_STATS_RECONCILIATION_*`, default hourly / 200
+  pubkeys). This is exactly the mechanism that would have caught the
+  `profile_public_stats` fan-out gap fixed in
+  `da431a9` (kind-1-only updates vs. full rebuild's all-kinds scope) had it
+  existed at the time.
+- `applied_stat_deltas` retention pruning: `Retention.PruneOrphanedAppliedStatDeltas`
+  (`WORKER_RETENTION_APPLIED_STAT_DELTAS_*`, default every 6h) deletes ledger
+  rows whose source event has already been deleted. Deliberately *not*
+  age-based — a live event's ledger row must survive for the event's entire
+  lifetime, since a future reversal-aware retention purge may still need it
+  to gate a decrement (see the doc comment on `PruneOrphanedAppliedStatDeltas`
+  for why an age-only purge would silently reintroduce the exact upward-drift
+  bug the reversal path exists to prevent). Real orphans come from the two
+  purges that hard-delete events without touching incremental stats
+  (`PurgeSupersededReplaceableEvents`, `PurgeProcessedDeletionEvents`).
 
-Still open from this design:
-
-- Periodic reconciliation sampler / drift alerting
-- `applied_stat_deltas` retention pruning job (the ledger grows unboundedly
-  today; it's small per row but has no purge yet)
+This closes out every item scoped in this design.
 
 ## Current state (why the sweeper coalescing wasn't enough)
 
@@ -210,10 +228,14 @@ application exactly-once regardless of redelivery, at the cost of one small
 PK-indexed insert per event per projection — negligible next to what it
 replaces.
 
-(`applied_stat_deltas` needs its own retention: rows can be pruned once the
-source event is old enough that redelivery is no longer possible — tie this
-to the same horizon as `INGESTOR_LIVE_RESUME_OVERLAP_SECONDS` /
-backfill-overlap windows, with generous headroom.)
+(`applied_stat_deltas` needs its own retention. **Revised from the original
+plan below**: a redelivery-window horizon turned out to be unsafe once the
+decrement path (§6) was added, because a ledger row also gates *that* — an
+event's row must survive for the event's entire lifetime, not just past its
+redelivery window, or a later retention purge would silently skip its
+decrement and reintroduce drift. The implemented rule prunes a row only once
+its source event no longer exists at all; see the "Still open from this
+design" section above.)
 
 ### 6. Deletions and corrections
 
@@ -279,14 +301,16 @@ exists and is well-tested — just stop it from being the steady-state path:
 
 ## Open questions / risks
 
-- Exact retention horizon for `applied_stat_deltas` needs to be picked
-  relative to `INGESTOR_LIVE_RESUME_OVERLAP_SECONDS` and backfill-mode
-  overlap, with margin.
+- ~~Exact retention horizon for `applied_stat_deltas`~~ — resolved: it's
+  orphan-based, not horizon-based (see §5 revision note and "Still open from
+  this design" above).
 - Need to confirm all fan-out paths in `authorAnalyticsAffectedPubkeys` /
   the profile-stats equivalent are exhaustively covered by the new delta
   emission points, or a rare event type will silently stop updating stats
   instead of being slow (a worse failure mode — must be caught by the
-  reconciliation job, not discovered by users).
+  reconciliation job, not discovered by users). One instance of exactly this
+  was already caught and fixed pre-reconciliation-job (`da431a9`); the
+  reconciliation sampler is now live as the ongoing backstop for any others.
 - `author_engagement_stats.cadence_posts_per_day` /
   `cadence_posts_per_active_day` are derived ratios computed at roll-up time,
   not raw counters — these stay as roll-up-time computations from the

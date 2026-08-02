@@ -70,6 +70,13 @@ type EventRelaysRetentionStore interface {
 	PurgeStaleEventRelays(ctx context.Context, seenBefore time.Time, limit int) (int64, error)
 }
 
+// AppliedStatDeltasRetentionStore prunes orphaned applied_stat_deltas ledger
+// rows (see docs/design/incremental-author-stats.md). Satisfied by
+// *store.PostgresStore.
+type AppliedStatDeltasRetentionStore interface {
+	PruneOrphanedAppliedStatDeltas(ctx context.Context, appliedBefore time.Time, limit int) (int64, error)
+}
+
 // TrustRetentionStore performs the durable trust-retention hook deletes.
 // Satisfied by *store.PostgresStore.
 type TrustRetentionStore interface {

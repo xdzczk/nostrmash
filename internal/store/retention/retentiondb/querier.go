@@ -19,6 +19,21 @@ type Querier interface {
 	GroomSearchDocumentsTrim(ctx context.Context, arg GroomSearchDocumentsTrimParams) (int64, error)
 	PruneAuthorRecentEventsByAge(ctx context.Context, arg PruneAuthorRecentEventsByAgeParams) (int64, error)
 	PruneAuthorRecentEventsByCap(ctx context.Context, arg PruneAuthorRecentEventsByCapParams) (int64, error)
+	// Deletes applied_stat_deltas ledger rows whose source event no longer
+	// exists in events. This is the only condition under which a ledger row is
+	// guaranteed to serve no further purpose: as long as the event exists,
+	// projection_incremental_stats.go's unclaimStatDeltaTx path may still need
+	// the row to gate a future decrement (see reverseAndDeleteTx in retention.go,
+	// which atomically reverses deltas and deletes the event together, itself
+	// deleting the ledger rows it unclaims). Once the event row is gone — via
+	// that reversal-aware path, or via a purge that never touched incremental
+	// stats (PurgeSupersededReplaceableEvents, PurgeProcessedDeletionEvents) —
+	// any ledger row still referencing that event_id is a pure orphan.
+	//
+	// applied_before is a conservative grace buffer on top of the orphan check
+	// (not itself a correctness requirement) that keeps freshly-inserted rows
+	// out of the scan and bounds it via idx_applied_stat_deltas_applied_at.
+	PruneOrphanedAppliedStatDeltas(ctx context.Context, arg PruneOrphanedAppliedStatDeltasParams) (int64, error)
 	// Static retention sweeps for the retention bounded context. Every statement
 	// is a bounded DELETE/UPDATE that returns the number of affected rows
 	// (:execrows). The hand-written wrappers in internal/store/retention own

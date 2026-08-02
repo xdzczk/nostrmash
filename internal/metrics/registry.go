@@ -67,6 +67,7 @@ func ensureRegistered() {
 	registerHydrationMetrics()
 	registerAPIMetrics()
 	registerDiscoveryMetrics()
+	registerIncrementalStatsReconciliationMetrics()
 
 	metricsRegistered = true
 }

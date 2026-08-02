@@ -7,31 +7,32 @@ import (
 )
 
 type WorkerConfig struct {
-	Shared                   SharedConfig
-	Concurrency              int
-	LiveConcurrency          int
-	BackfillConcurrency      int
-	ClaimBatchSize           int
-	JobRecovery              WorkerJobRecoveryConfig
-	JobRetention             WorkerJobRetentionConfig
-	InvalidEventRetention    WorkerInvalidEventRetentionConfig
-	EngagementRetention      WorkerEngagementRetentionConfig
-	ReplaceableRetention     WorkerReplaceableRetentionConfig
-	DeletionRetention        WorkerDeletionRetentionConfig
-	UntrustedAuthorRetention WorkerUntrustedAuthorRetentionConfig
-	AuthorRecentRetention    WorkerAuthorRecentRetentionConfig
-	SearchDocsRetention      WorkerSearchDocsRetentionConfig
-	EventRelaysRetention     WorkerEventRelaysRetentionConfig
-	TrustRetentionHooks      TrustRetentionHooksConfig
-	TrustRetentionLoop       WorkerTrustRetentionLoopConfig
-	AuthorAnalyticsSweeper   WorkerAuthorAnalyticsSweeperConfig
-	ProfileStatsSweeper      WorkerProfileStatsSweeperConfig
-	MeilisearchSweeper       WorkerMeilisearchSweeperConfig
-	IncrementalStats         WorkerIncrementalStatsConfig
-	AccountState             WorkerAccountStateConfig
-	Hydration                HydrationConfig
-	Meilisearch              MeilisearchConfig
-	RelayRegistry            RelayRegistryConfig
+	Shared                     SharedConfig
+	Concurrency                int
+	LiveConcurrency            int
+	BackfillConcurrency        int
+	ClaimBatchSize             int
+	JobRecovery                WorkerJobRecoveryConfig
+	JobRetention               WorkerJobRetentionConfig
+	InvalidEventRetention      WorkerInvalidEventRetentionConfig
+	EngagementRetention        WorkerEngagementRetentionConfig
+	ReplaceableRetention       WorkerReplaceableRetentionConfig
+	DeletionRetention          WorkerDeletionRetentionConfig
+	UntrustedAuthorRetention   WorkerUntrustedAuthorRetentionConfig
+	AuthorRecentRetention      WorkerAuthorRecentRetentionConfig
+	SearchDocsRetention        WorkerSearchDocsRetentionConfig
+	EventRelaysRetention       WorkerEventRelaysRetentionConfig
+	AppliedStatDeltasRetention WorkerAppliedStatDeltasRetentionConfig
+	TrustRetentionHooks        TrustRetentionHooksConfig
+	TrustRetentionLoop         WorkerTrustRetentionLoopConfig
+	AuthorAnalyticsSweeper     WorkerAuthorAnalyticsSweeperConfig
+	ProfileStatsSweeper        WorkerProfileStatsSweeperConfig
+	MeilisearchSweeper         WorkerMeilisearchSweeperConfig
+	IncrementalStats           WorkerIncrementalStatsConfig
+	AccountState               WorkerAccountStateConfig
+	Hydration                  HydrationConfig
+	Meilisearch                MeilisearchConfig
+	RelayRegistry              RelayRegistryConfig
 }
 
 // WorkerIncrementalStatsConfig controls the O(1) delta path that replaces
@@ -41,6 +42,19 @@ type WorkerIncrementalStatsConfig struct {
 	ProfilePublicStats  bool
 	AuthorActivityDaily bool
 	WindowedRollups     bool
+	Reconciliation      WorkerIncrementalStatsReconciliationConfig
+}
+
+// WorkerIncrementalStatsReconciliationConfig configures the periodic
+// correctness backstop described in
+// docs/design/incremental-author-stats.md ("Correctness backstop: keep
+// full-recompute, make it rare"). Each run full-recomputes SampleSize
+// pubkeys (read-only) and compares against the incrementally-maintained
+// values, logging/alerting on any mismatch.
+type WorkerIncrementalStatsReconciliationConfig struct {
+	Enabled    bool
+	Interval   time.Duration
+	SampleSize int
 }
 
 // WorkerAccountStateConfig configures the derived account-state recompute loop.
@@ -261,6 +275,20 @@ type WorkerEventRelaysRetentionConfig struct {
 	DeleteBatchLimit int
 }
 
+// WorkerAppliedStatDeltasRetentionConfig configures the pruner that reclaims
+// orphaned applied_stat_deltas ledger rows (see
+// docs/design/incremental-author-stats.md and
+// internal/store/retention/applied_stat_deltas_retention.go). A row is only
+// ever pruned once its source event has been deleted — GracePeriod is a
+// conservative buffer on top of that (not itself a correctness
+// requirement) that keeps freshly-inserted rows out of the scan.
+type WorkerAppliedStatDeltasRetentionConfig struct {
+	Enabled          bool
+	GracePeriod      time.Duration
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
 // WorkerDeletionRetentionConfig configures the purger that deletes raw deletion
 // events (kind 5) older than MaxAge once their derivation has completed. The
 // distilled deletion_events ledger row survives (migration 000050 dropped the
@@ -311,35 +339,40 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	incrementalStats, err := loadWorkerIncrementalStatsConfig()
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	hydrationCfg, err := loadHydrationConfig()
 	if err != nil {
 		return WorkerConfig{}, err
 	}
 	cfg := WorkerConfig{
-		Shared:                   shared,
-		Concurrency:              concurrency.Concurrency,
-		LiveConcurrency:          concurrency.LiveConcurrency,
-		BackfillConcurrency:      concurrency.BackfillConcurrency,
-		ClaimBatchSize:           concurrency.ClaimBatchSize,
-		JobRecovery:              jobRecovery,
-		JobRetention:             jobRetention,
-		InvalidEventRetention:    retention.InvalidEvent,
-		EngagementRetention:      retention.Engagement,
-		ReplaceableRetention:     retention.Replaceable,
-		DeletionRetention:        retention.Deletion,
-		UntrustedAuthorRetention: retention.UntrustedAuthor,
-		AuthorRecentRetention:    retention.AuthorRecent,
-		SearchDocsRetention:      retention.SearchDocs,
-		EventRelaysRetention:     retention.EventRelays,
-		TrustRetentionHooks:      trustRetentionHooks,
-		TrustRetentionLoop:       retention.TrustRetention,
-		AuthorAnalyticsSweeper:   sweepers.AuthorAnalytics,
-		ProfileStatsSweeper:      sweepers.ProfileStats,
-		MeilisearchSweeper:       sweepers.Meilisearch,
-		IncrementalStats:         loadWorkerIncrementalStatsConfig(),
-		AccountState:             accountState,
-		Hydration:                hydrationCfg,
-		Meilisearch:              loadWorkerMeilisearchConfig(),
+		Shared:                     shared,
+		Concurrency:                concurrency.Concurrency,
+		LiveConcurrency:            concurrency.LiveConcurrency,
+		BackfillConcurrency:        concurrency.BackfillConcurrency,
+		ClaimBatchSize:             concurrency.ClaimBatchSize,
+		JobRecovery:                jobRecovery,
+		JobRetention:               jobRetention,
+		InvalidEventRetention:      retention.InvalidEvent,
+		EngagementRetention:        retention.Engagement,
+		ReplaceableRetention:       retention.Replaceable,
+		DeletionRetention:          retention.Deletion,
+		UntrustedAuthorRetention:   retention.UntrustedAuthor,
+		AuthorRecentRetention:      retention.AuthorRecent,
+		SearchDocsRetention:        retention.SearchDocs,
+		EventRelaysRetention:       retention.EventRelays,
+		AppliedStatDeltasRetention: retention.AppliedStatDeltas,
+		TrustRetentionHooks:        trustRetentionHooks,
+		TrustRetentionLoop:         retention.TrustRetention,
+		AuthorAnalyticsSweeper:     sweepers.AuthorAnalytics,
+		ProfileStatsSweeper:        sweepers.ProfileStats,
+		MeilisearchSweeper:         sweepers.Meilisearch,
+		IncrementalStats:           incrementalStats,
+		AccountState:               accountState,
+		Hydration:                  hydrationCfg,
+		Meilisearch:                loadWorkerMeilisearchConfig(),
 	}
 	relayRegistryCfg, err := LoadRelayRegistryConfig()
 	if err != nil {
@@ -538,6 +571,17 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 			return fmt.Errorf("WORKER_RETENTION_EVENT_RELAYS_DELETE_BATCH_LIMIT must be > 0")
 		}
 	}
+	if cfg.AppliedStatDeltasRetention.Enabled {
+		if cfg.AppliedStatDeltasRetention.GracePeriod <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_APPLIED_STAT_DELTAS_GRACE_PERIOD must be > 0")
+		}
+		if cfg.AppliedStatDeltasRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_APPLIED_STAT_DELTAS_RUN_INTERVAL must be > 0")
+		}
+		if cfg.AppliedStatDeltasRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_APPLIED_STAT_DELTAS_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
 	if cfg.AuthorAnalyticsSweeper.Enabled {
 		if cfg.AuthorAnalyticsSweeper.Interval <= 0 {
 			return fmt.Errorf("WORKER_AUTHOR_ANALYTICS_SWEEPER_INTERVAL must be > 0")
@@ -558,6 +602,14 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.ProfileStatsSweeper.Concurrency <= 0 {
 			return fmt.Errorf("WORKER_PROFILE_STATS_SWEEPER_CONCURRENCY must be > 0")
+		}
+	}
+	if cfg.IncrementalStats.Reconciliation.Enabled {
+		if cfg.IncrementalStats.Reconciliation.Interval <= 0 {
+			return fmt.Errorf("WORKER_INCREMENTAL_STATS_RECONCILIATION_INTERVAL must be > 0")
+		}
+		if cfg.IncrementalStats.Reconciliation.SampleSize <= 0 {
+			return fmt.Errorf("WORKER_INCREMENTAL_STATS_RECONCILIATION_SAMPLE_SIZE must be > 0")
 		}
 	}
 	if cfg.MeilisearchSweeper.Enabled {
