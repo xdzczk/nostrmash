@@ -228,6 +228,16 @@ func unclaimStatDeltaTx(ctx context.Context, tx pgx.Tx, eventID, projection stri
 	return tag.RowsAffected() == 1, nil
 }
 
+// applyIncrementalProfilePublicStatsTx upserts profile_public_stats for the
+// event author. Matches the full-rebuild semantics in
+// projectProfilePublicStatsForPubkeysTx:
+//
+//   - every event kind creates/touches a row for its author (rebuild iterates
+//     every event id and recomputes that author's row)
+//   - recent_activity_at tracks MAX(created_at) across all of the author's
+//     events (rebuild uses SELECT MAX(created_at) FROM events WHERE pubkey=$1;
+//     we approximate that with GREATEST against the current event)
+//   - note_count / reply_count only move for kind=1
 func (h *Handlers) applyIncrementalProfilePublicStatsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -236,9 +246,6 @@ func (h *Handlers) applyIncrementalProfilePublicStatsTx(
 	createdAt int64,
 	isReply bool,
 ) error {
-	if kind != 1 {
-		return nil
-	}
 	claimed, err := claimStatDeltaTx(ctx, tx, eventID, statDeltaProfilePublicStats)
 	if err != nil || !claimed {
 		return err
@@ -256,10 +263,12 @@ func (h *Handlers) applyIncrementalProfilePublicStatsTx(
 	}
 	noteDelta := int64(0)
 	replyDelta := int64(0)
-	if isReply {
-		replyDelta = 1
-	} else {
-		noteDelta = 1
+	if kind == 1 {
+		if isReply {
+			replyDelta = 1
+		} else {
+			noteDelta = 1
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO profile_public_stats (
@@ -288,9 +297,11 @@ func (h *Handlers) applyIncrementalProfilePublicStatsTx(
 }
 
 // reverseIncrementalProfilePublicStatsTx undoes the note_count/reply_count
-// delta applyIncrementalProfilePublicStatsTx previously applied. It does
-// not touch recent_activity_at — see the ReverseIncrementalAuthorStatsTx
-// doc comment for why.
+// delta applyIncrementalProfilePublicStatsTx previously applied for kind=1.
+// For every other kind the apply path only touched recent_activity_at (and
+// ensured a row existed); we still unclaim the ledger row so a retry is a
+// no-op, but leave recent_activity_at alone — see the
+// ReverseIncrementalAuthorStatsTx doc comment for why.
 func (h *Handlers) reverseIncrementalProfilePublicStatsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -298,12 +309,12 @@ func (h *Handlers) reverseIncrementalProfilePublicStatsTx(
 	kind int,
 	isReply bool,
 ) error {
-	if kind != 1 {
-		return nil
-	}
 	unclaimed, err := unclaimStatDeltaTx(ctx, tx, eventID, statDeltaProfilePublicStats)
 	if err != nil || !unclaimed {
 		return err
+	}
+	if kind != 1 {
+		return nil
 	}
 	writeVersion, err := resolveDerivationWriteVersion(
 		ctx,

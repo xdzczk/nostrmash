@@ -187,7 +187,9 @@ func TestPurgeExpiredEngagementEvents_ReversesIncrementalStats(t *testing.T) {
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(engagement_given),0) FROM author_activity_daily WHERE pubkey='bob'`, 1)
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(engagement_received),0) FROM author_activity_daily WHERE pubkey='alice'`, 1)
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(reaction_received),0) FROM author_hourly_activity WHERE pubkey='alice'`, 1)
-	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='engage_reaction'`, 2)
+	// profile_public_stats (recent_activity_at for bob) + author_activity_daily
+	// + author_hourly_activity.
+	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='engage_reaction'`, 3)
 
 	deleted, err := s.PurgeExpiredEngagementEvents(ctx, ref, ref.Add(-7*24*time.Hour), 100)
 	if err != nil {
