@@ -31,6 +31,27 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Description:  "Maximum number of jobs claimed per claim-loop iteration for each worker pool.",
 		},
 		{
+			Name:         "WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Maintain profile_public_stats with O(1) idempotent deltas in derive_event_bundle instead of full COUNT(*) recomputes in the profile-stats sweeper.",
+		},
+		{
+			Name:         "WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Maintain author_activity_daily (and fine-grained daily helpers) with O(1) idempotent deltas in derive_event_bundle; the author-analytics sweeper then skips the expensive multi-CTE daily rebuild.",
+		},
+		{
+			Name:         "WORKER_INCREMENTAL_WINDOWED_ROLLUPS",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Roll author topic/media/hourly windowed stats from fine-grained daily tables instead of scanning raw event tables. Falls back to source scans when daily rows are absent for a pubkey/window.",
+		},
+		{
 			Name:         "WORKER_AUTHOR_ANALYTICS_SWEEPER_ENABLED",
 			Runtimes:     []string{"worker"},
 			Required:     false,

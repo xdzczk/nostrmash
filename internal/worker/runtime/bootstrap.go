@@ -99,12 +99,18 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 			return Bootstrap{}, func() {}, fmt.Errorf("ensure meilisearch indexes: %w", err)
 		}
 	}
+	incProfile := cfg.IncrementalStats.ProfilePublicStats
+	incActivity := cfg.IncrementalStats.AuthorActivityDaily
+	incRollups := cfg.IncrementalStats.WindowedRollups
 	handlers := derivation.NewHandlersWithOptions(pool, derivation.HandlersOptions{
 		MeiliClient: meiliClient,
 		// The author-analytics sweeper (spawned below when enabled) reads its
 		// window list from the handlers instance; invalid/empty values fall back
 		// to the derivation package default.
-		AuthorAnalyticsWindows: cfg.AuthorAnalyticsSweeper.WindowsDays,
+		AuthorAnalyticsWindows:         cfg.AuthorAnalyticsSweeper.WindowsDays,
+		IncrementalProfilePublicStats:  &incProfile,
+		IncrementalAuthorActivityDaily: &incActivity,
+		IncrementalWindowedRollups:     &incRollups,
 	})
 
 	hydrationService, err := buildHydrationService(log, cfg, pool, postgresStore)

@@ -271,8 +271,15 @@ func (h *Handlers) rebuildClaimedProfileStatsPubkey(ctx context.Context, pubkey 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := h.projectProfilePublicStatsForPubkeysTx(ctx, tx, []string{pubkey}, nil); err != nil {
-		return fmt.Errorf("rebuild profile public stats: %w", err)
+	// When incremental profile_public_stats is enabled, note/reply/follower
+	// counters are maintained with O(1) deltas in the derive bundle. The
+	// sweeper only needs to refresh discovery stats. Keeping the full
+	// public-stats recompute available when the flag is off preserves the
+	// previous behavior and the rebuild/reconciliation escape hatch.
+	if !h.incrementalProfilePublicStats {
+		if err := h.projectProfilePublicStatsForPubkeysTx(ctx, tx, []string{pubkey}, nil); err != nil {
+			return fmt.Errorf("rebuild profile public stats: %w", err)
+		}
 	}
 
 	writeVersion, err := resolveDerivationWriteVersion(

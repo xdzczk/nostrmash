@@ -22,6 +22,52 @@ func (h *Handlers) upsertAuthorTopicWindowTx(
 	`, pubkey, windowDays); err != nil {
 		return fmt.Errorf("delete prior author topic stats for %s window=%dd: %w", pubkey, windowDays, err)
 	}
+
+	if h.incrementalWindowedRollups {
+		var hasDaily bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM author_hashtag_daily
+				WHERE pubkey = $1
+				  AND activity_date >= to_timestamp($2)::date
+			)
+		`, pubkey, cutoff).Scan(&hasDaily); err != nil {
+			return fmt.Errorf("check author_hashtag_daily for %s: %w", pubkey, err)
+		}
+		if hasDaily {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO author_topic_stats (
+					pubkey,
+					window_days,
+					hashtag,
+					usage_count,
+					active_days,
+					derivation_version
+				)
+				SELECT
+					$1,
+					$2,
+					d.hashtag,
+					SUM(d.usage_count)::bigint AS usage_count,
+					COUNT(*) FILTER (WHERE d.usage_count > 0)::int AS active_days,
+					$3
+				FROM author_hashtag_daily d
+				WHERE d.pubkey = $1
+				  AND d.activity_date >= to_timestamp($4)::date
+				GROUP BY d.hashtag
+				ON CONFLICT (pubkey, window_days, hashtag) DO UPDATE
+				SET usage_count = EXCLUDED.usage_count,
+				    active_days = EXCLUDED.active_days,
+				    derivation_version = EXCLUDED.derivation_version,
+				    updated_at = now()
+			`, pubkey, windowDays, version, cutoff); err != nil {
+				return fmt.Errorf("upsert author topic stats from daily for %s window=%dd: %w", pubkey, windowDays, err)
+			}
+			return nil
+		}
+	}
+
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO author_topic_stats (
 			pubkey,
@@ -62,6 +108,64 @@ func (h *Handlers) upsertAuthorMediaMixWindowTx(
 	cutoff int64,
 	version int,
 ) error {
+	if h.incrementalWindowedRollups {
+		var hasDaily bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM author_media_daily
+				WHERE pubkey = $1
+				  AND activity_date >= to_timestamp($2)::date
+			)
+		`, pubkey, cutoff).Scan(&hasDaily); err != nil {
+			return fmt.Errorf("check author_media_daily for %s: %w", pubkey, err)
+		}
+		if hasDaily {
+			_, err := tx.Exec(ctx, `
+				INSERT INTO author_media_mix_stats (
+					pubkey,
+					window_days,
+					total_posts,
+					with_image_count,
+					with_video_count,
+					with_link_count,
+					with_article_count,
+					text_only_count,
+					total_attachment_count,
+					derivation_version
+				)
+				SELECT
+					$1,
+					$3,
+					COALESCE(SUM(total_posts), 0)::bigint,
+					COALESCE(SUM(with_image_count), 0)::bigint,
+					COALESCE(SUM(with_video_count), 0)::bigint,
+					COALESCE(SUM(with_link_count), 0)::bigint,
+					COALESCE(SUM(with_article_count), 0)::bigint,
+					COALESCE(SUM(text_only_count), 0)::bigint,
+					COALESCE(SUM(total_attachment_count), 0)::bigint,
+					$4
+				FROM author_media_daily
+				WHERE pubkey = $1
+				  AND activity_date >= to_timestamp($2)::date
+				ON CONFLICT (pubkey, window_days) DO UPDATE
+				SET total_posts = EXCLUDED.total_posts,
+				    with_image_count = EXCLUDED.with_image_count,
+				    with_video_count = EXCLUDED.with_video_count,
+				    with_link_count = EXCLUDED.with_link_count,
+				    with_article_count = EXCLUDED.with_article_count,
+				    text_only_count = EXCLUDED.text_only_count,
+				    total_attachment_count = EXCLUDED.total_attachment_count,
+				    derivation_version = EXCLUDED.derivation_version,
+				    updated_at = now()
+			`, pubkey, cutoff, windowDays, version)
+			if err != nil {
+				return fmt.Errorf("upsert author media mix stats from daily for %s window=%dd: %w", pubkey, windowDays, err)
+			}
+			return nil
+		}
+	}
+
 	_, err := tx.Exec(ctx, `
 		WITH media_events AS (
 			SELECT

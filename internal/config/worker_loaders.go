@@ -339,6 +339,14 @@ func loadWorkerSweeperConfigs() (workerSweeperConfigs, error) {
 	return out, nil
 }
 
+func loadWorkerIncrementalStatsConfig() WorkerIncrementalStatsConfig {
+	return WorkerIncrementalStatsConfig{
+		ProfilePublicStats:  getEnvBool("WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS", true),
+		AuthorActivityDaily: getEnvBool("WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY", true),
+		WindowedRollups:     getEnvBool("WORKER_INCREMENTAL_WINDOWED_ROLLUPS", true),
+	}
+}
+
 func loadAuthorAnalyticsSweeperConfig() (WorkerAuthorAnalyticsSweeperConfig, error) {
 	interval, err := getEnvPositiveDurationStrict("WORKER_AUTHOR_ANALYTICS_SWEEPER_INTERVAL", 5*time.Second)
 	if err != nil {

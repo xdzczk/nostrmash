@@ -322,17 +322,6 @@ func (h *Handlers) projectAuthorAnalyticsForPubkeyTx(
 	if err := lockPubkeyForWriteTx(ctx, tx, pubkey, pubkeyLockNamespaceAuthorAnalytics); err != nil {
 		return err
 	}
-	activityVersion, err := resolveDerivationWriteVersion(
-		ctx,
-		tx,
-		DerivationAuthorActivityDaily,
-		AuthorActivityDailyVersion,
-		"Project per-author daily post cadence and engagement aggregates",
-		versionOverride,
-	)
-	if err != nil {
-		return err
-	}
 	engagementVersion, err := resolveDerivationWriteVersion(
 		ctx,
 		tx,
@@ -389,18 +378,31 @@ func (h *Handlers) projectAuthorAnalyticsForPubkeyTx(
 		return err
 	}
 
-	// Live sweeper: rebuild only the recent horizon covering configured
-	// window_days and retain older daily rows (durable engagement history
-	// that engagement retention can no longer recompute from source).
-	// Explicit rebuild/backfill paths pass incrementalDaily=false for a
-	// full DELETE+rebuild.
-	lowerBoundUnix := int64(0)
-	if incrementalDaily {
-		days := maxAuthorAnalyticsWindowDays(h.authorAnalyticsWindowList())
-		lowerBoundUnix = time.Now().UTC().AddDate(0, 0, -days).Unix()
-	}
-	if err := h.rebuildAuthorActivityDailyTx(ctx, tx, pubkey, activityVersion, lowerBoundUnix); err != nil {
-		return err
+	// Live sweeper with incremental author_activity_daily enabled: skip the
+	// expensive multi-CTE daily rebuild entirely. Deltas are applied in the
+	// derive bundle; the sweeper only rolls windowed projections.
+	// Explicit rebuild/backfill paths pass incrementalDaily=false and still
+	// run a full DELETE+rebuild even when the incremental flag is on.
+	if !(h.incrementalAuthorActivityDaily && incrementalDaily) {
+		activityVersion, err := resolveDerivationWriteVersion(
+			ctx,
+			tx,
+			DerivationAuthorActivityDaily,
+			AuthorActivityDailyVersion,
+			"Project per-author daily post cadence and engagement aggregates",
+			versionOverride,
+		)
+		if err != nil {
+			return err
+		}
+		lowerBoundUnix := int64(0)
+		if incrementalDaily {
+			days := maxAuthorAnalyticsWindowDays(h.authorAnalyticsWindowList())
+			lowerBoundUnix = time.Now().UTC().AddDate(0, 0, -days).Unix()
+		}
+		if err := h.rebuildAuthorActivityDailyTx(ctx, tx, pubkey, activityVersion, lowerBoundUnix); err != nil {
+			return err
+		}
 	}
 	return h.rebuildAuthorWindowedStatsTx(
 		ctx,

@@ -185,6 +185,9 @@ Do not hand-edit this file.
 | `WORKER_BACKFILL_CONCURRENCY` | `worker` | optional | `WORKER_CONCURRENCY` | Worker goroutine concurrency for the backfill job pool (events from historical fetch / trust fetch / metadata discovery). Set to 0 to disable. |
 | `WORKER_CLAIM_BATCH_SIZE` | `worker` | optional | `10` | Maximum number of jobs claimed per claim-loop iteration for each worker pool. |
 | `WORKER_CONCURRENCY` | `worker` | optional | `4` | Worker goroutine concurrency for the default job pool (legacy / backlog work). |
+| `WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY` | `worker` | optional | `true` | Maintain author_activity_daily (and fine-grained daily helpers) with O(1) idempotent deltas in derive_event_bundle; the author-analytics sweeper then skips the expensive multi-CTE daily rebuild. |
+| `WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS` | `worker` | optional | `true` | Maintain profile_public_stats with O(1) idempotent deltas in derive_event_bundle instead of full COUNT(*) recomputes in the profile-stats sweeper. |
+| `WORKER_INCREMENTAL_WINDOWED_ROLLUPS` | `worker` | optional | `true` | Roll author topic/media/hourly windowed stats from fine-grained daily tables instead of scanning raw event tables. Falls back to source scans when daily rows are absent for a pubkey/window. |
 | `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT` | `worker` | optional | `500` | Maximum invalid_events rows with raw_payload trimmed to NULL per retention run when payload trimming is enabled. |
 | `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_ENABLED` | `worker` | optional | `true` | Enable optional second-stage invalid_events payload trimming (raw_payload set to NULL before full-row retention purge). |
 | `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE` | `worker` | optional | `168h0m0s` | Max age for invalid_events rows before payload-only trimming (must be smaller than WORKER_INVALID_EVENTS_RETENTION_MAX_AGE). |

@@ -23,6 +23,65 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 		return fmt.Errorf("delete prior author activity windows for %s window=%dd: %w", pubkey, windowDays, err)
 	}
 
+	if h.incrementalWindowedRollups {
+		var hasDaily bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM author_hourly_activity
+				WHERE pubkey = $1
+				  AND activity_date >= to_timestamp($2)::date
+				  AND engagement_received > 0
+			)
+		`, pubkey, cutoff).Scan(&hasDaily); err != nil {
+			return fmt.Errorf("check author_hourly_activity engagement for %s: %w", pubkey, err)
+		}
+		if hasDaily {
+			_, err := tx.Exec(ctx, `
+				INSERT INTO author_activity_windows (
+					pubkey,
+					window_days,
+					day_of_week,
+					hour_of_day,
+					engagement_received,
+					reply_received,
+					reaction_received,
+					repost_received,
+					zap_received,
+					derivation_version
+				)
+				SELECT
+					$1,
+					$3,
+					d.day_of_week,
+					d.hour_of_day,
+					SUM(d.engagement_received)::bigint,
+					SUM(d.reply_received)::bigint,
+					SUM(d.reaction_received)::bigint,
+					SUM(d.repost_received)::bigint,
+					SUM(d.zap_received)::bigint,
+					$4
+				FROM author_hourly_activity d
+				WHERE d.pubkey = $1
+				  AND d.activity_date >= to_timestamp($2)::date
+				GROUP BY d.day_of_week, d.hour_of_day
+				HAVING SUM(d.engagement_received) > 0
+				ON CONFLICT (pubkey, window_days, day_of_week, hour_of_day) DO UPDATE
+				SET engagement_received = EXCLUDED.engagement_received,
+				    reply_received = EXCLUDED.reply_received,
+				    reaction_received = EXCLUDED.reaction_received,
+				    repost_received = EXCLUDED.repost_received,
+				    zap_received = EXCLUDED.zap_received,
+				    derivation_version = EXCLUDED.derivation_version,
+				    updated_at = now()
+			`, pubkey, cutoff, windowDays, version)
+			if err != nil {
+				return fmt.Errorf("upsert author activity windows from daily for %s window=%dd: %w", pubkey, windowDays, err)
+			}
+			return nil
+		}
+	}
+
 	_, err := tx.Exec(ctx, `
 		WITH received_events AS (
 			SELECT
@@ -128,6 +187,59 @@ func (h *Handlers) upsertAuthorPostingPatternsTx(
 		  AND window_days = $2
 	`, pubkey, windowDays); err != nil {
 		return fmt.Errorf("delete prior author posting patterns for %s window=%dd: %w", pubkey, windowDays, err)
+	}
+
+	if h.incrementalWindowedRollups {
+		var hasDaily bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM author_hourly_activity
+				WHERE pubkey = $1
+				  AND activity_date >= to_timestamp($2)::date
+				  AND post_count > 0
+			)
+		`, pubkey, cutoff).Scan(&hasDaily); err != nil {
+			return fmt.Errorf("check author_hourly_activity posts for %s: %w", pubkey, err)
+		}
+		if hasDaily {
+			_, err := tx.Exec(ctx, `
+				INSERT INTO author_posting_patterns (
+					pubkey,
+					window_days,
+					day_of_week,
+					hour_of_day,
+					post_count,
+					note_count,
+					reply_count,
+					derivation_version
+				)
+				SELECT
+					$1,
+					$3,
+					d.day_of_week,
+					d.hour_of_day,
+					SUM(d.post_count)::bigint,
+					SUM(d.note_count)::bigint,
+					SUM(d.reply_count)::bigint,
+					$4
+				FROM author_hourly_activity d
+				WHERE d.pubkey = $1
+				  AND d.activity_date >= to_timestamp($2)::date
+				GROUP BY d.day_of_week, d.hour_of_day
+				HAVING SUM(d.post_count) > 0
+				ON CONFLICT (pubkey, window_days, day_of_week, hour_of_day) DO UPDATE
+				SET post_count = EXCLUDED.post_count,
+				    note_count = EXCLUDED.note_count,
+				    reply_count = EXCLUDED.reply_count,
+				    derivation_version = EXCLUDED.derivation_version,
+				    updated_at = now()
+			`, pubkey, cutoff, windowDays, version)
+			if err != nil {
+				return fmt.Errorf("upsert author posting patterns from daily for %s window=%dd: %w", pubkey, windowDays, err)
+			}
+			return nil
+		}
 	}
 
 	_, err := tx.Exec(ctx, `

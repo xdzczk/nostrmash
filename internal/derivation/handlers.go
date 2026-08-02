@@ -15,6 +15,16 @@ type Handlers struct {
 	// authorAnalyticsWindows is the per-instance window_days list the live
 	// author-analytics sweeper rebuilds. Empty means use the package default.
 	authorAnalyticsWindows []int
+	// incrementalProfilePublicStats maintains note/reply/follower counters
+	// with O(1) deltas instead of full COUNT(*) recomputes.
+	incrementalProfilePublicStats bool
+	// incrementalAuthorActivityDaily maintains author_activity_daily (and
+	// fine-grained daily helpers) with O(1) deltas instead of multi-CTE
+	// full-window rebuilds.
+	incrementalAuthorActivityDaily bool
+	// incrementalWindowedRollups rolls topics/media/hourly windows from the
+	// fine-grained daily tables instead of scanning raw event tables.
+	incrementalWindowedRollups bool
 }
 
 type EventJobPayload = jobs.EventJobPayload
@@ -31,17 +41,36 @@ type HandlersOptions struct {
 	// window_days list. Values outside the schema CHECK ({7, 30, 90}) are
 	// dropped; an entirely-invalid list falls back to the package default.
 	AuthorAnalyticsWindows []int
+	// IncrementalProfilePublicStats enables O(1) profile_public_stats deltas.
+	// When nil, defaults to enabled.
+	IncrementalProfilePublicStats *bool
+	// IncrementalAuthorActivityDaily enables O(1) author_activity_daily deltas.
+	// When nil, defaults to enabled.
+	IncrementalAuthorActivityDaily *bool
+	// IncrementalWindowedRollups rolls windowed topic/media/hourly stats from
+	// fine-grained daily tables. When nil, defaults to enabled.
+	IncrementalWindowedRollups *bool
 }
 
 func NewHandlers(pool *pgxpool.Pool) *Handlers {
 	return NewHandlersWithOptions(pool, HandlersOptions{})
 }
 
+func boolOptionOrDefault(v *bool, def bool) bool {
+	if v == nil {
+		return def
+	}
+	return *v
+}
+
 func NewHandlersWithOptions(pool *pgxpool.Pool, options HandlersOptions) *Handlers {
 	return &Handlers{
-		pool:                   pool,
-		meili:                  options.MeiliClient,
-		authorAnalyticsWindows: normalizeAuthorAnalyticsWindows(options.AuthorAnalyticsWindows),
+		pool:                           pool,
+		meili:                          options.MeiliClient,
+		authorAnalyticsWindows:         normalizeAuthorAnalyticsWindows(options.AuthorAnalyticsWindows),
+		incrementalProfilePublicStats:  boolOptionOrDefault(options.IncrementalProfilePublicStats, true),
+		incrementalAuthorActivityDaily: boolOptionOrDefault(options.IncrementalAuthorActivityDaily, true),
+		incrementalWindowedRollups:     boolOptionOrDefault(options.IncrementalWindowedRollups, true),
 	}
 }
 
@@ -67,23 +96,20 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.UpdateThreadProjection,
 		h.RepairUnresolvedReferences,
 		h.ProjectNoteDiscoveryStats,
-		// ProjectProfilePublicStats and ProjectProfileDiscoveryStats both
-		// run multi-second per-pubkey COUNT/JOIN aggregates against
-		// follower_edges + events + reply_count_contributions +
-		// repost_events + reaction_events + zap_receipts under per-pubkey
-		// advisory locks. On hot pubkeys this collapsed live-pool
-		// throughput: production observed 8-13s advisory-lock waits per
-		// worker stacked on top of 19-30s aggregate queries. The bundle
-		// now records the affected pubkeys as dirty; the profile-stats
-		// sweeper recomputes both projections per dirty pubkey
-		// out-of-band, coalescing bursts. kind=3 is skipped here because
-		// ProjectContactListsLatest already marks the same affected set.
+		// Apply O(1) incremental counter deltas for profile_public_stats and
+		// author_activity_daily (plus fine-grained daily helpers). This is
+		// the steady-state path; full recomputes remain available as a
+		// rebuild/reconciliation backstop when incremental flags are off.
+		h.ApplyIncrementalAuthorStats,
+		// ProjectProfileDiscoveryStats still needs an out-of-band recompute
+		// (and profile_public_stats does too when incremental is disabled).
+		// kind=3 is skipped here because ProjectContactListsLatest already
+		// marks the same affected set.
 		h.MarkProfileStatsDirty,
-		// Heavy per-author analytics rebuild (author_activity_daily +
-		// 5 windowed projections × 3 windows) runs out-of-band via the
-		// author-analytics sweeper. The bundle just marks the affected
-		// pubkeys as dirty so a single rebuild covers any number of
-		// inbound events between sweeper cycles.
+		// Windowed author-analytics roll-ups still run out-of-band via the
+		// author-analytics sweeper. When incremental author_activity_daily
+		// is enabled the sweeper skips the expensive daily rebuild and only
+		// rolls windows from the already-maintained daily tables.
 		h.MarkAuthorAnalyticsDirty,
 		// Meilisearch index sync (HTTP round-trip per event, bounded by
 		// a 30s timeout) runs out-of-band via the meilisearch sweeper.

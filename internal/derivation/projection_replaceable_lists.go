@@ -139,27 +139,17 @@ func (h *Handlers) projectContactListsLatestWithVersion(ctx context.Context, eve
 			}
 			// A kind=3 contact list rewrite changes follower_edges for
 			// (the author + every previously-followed pubkey + every
-			// newly-followed pubkey). Each of those pubkeys' profile_public_stats
-			// rows therefore need recomputing.
+			// newly-followed pubkey). When incremental profile stats are
+			// enabled we apply ±1 follower/following deltas directly from
+			// the edge diff. Otherwise (and always for discovery-stats)
+			// we enqueue dirty markers for out-of-band recompute.
 			//
-			// Previously this step ran projectProfilePublicStatsForPubkeysTx
-			// inline, which acquires the per-pubkey profile_public_stats
-			// advisory lock for every impacted pubkey. Hot kind=3 lists
-			// have hundreds of contacts; if any one of those pubkeys is
-			// concurrently being rebuilt by the profile-stats sweeper the
-			// bundle blocks for the full sweeper rebuild duration (30-160s
-			// observed in production). With many bundle workers all stuck
-			// like this the entire derive_event_bundle pool starved.
-			//
-			// Now we just enqueue dirty markers for each impacted pubkey;
-			// the profile-stats sweeper picks them up and recomputes
-			// out-of-band, naturally coalescing bursts of kind=3 churn
-			// into one rebuild per pubkey per cycle.
-			//
-			// The dirty markers are written inside the same transaction as
+			// Dirty markers are written inside the same transaction as
 			// the contact_lists_latest / follower_edges writes so that a
-			// rollback of the bundle step also rolls back the markers; on
-			// the next retry we re-mark the same set, which is idempotent.
+			// rollback of the bundle step also rolls back the markers.
+			if err := h.applyFollowerCountDeltasTx(ctx, tx, winnerID, pubkey, previousFollowed, contacts, versionOverride); err != nil {
+				return err
+			}
 			impactedPubkeys := make([]string, 0, 1+len(previousFollowed)+len(contacts))
 			impactedPubkeys = append(impactedPubkeys, pubkey)
 			impactedPubkeys = append(impactedPubkeys, previousFollowed...)

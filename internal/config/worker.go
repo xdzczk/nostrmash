@@ -27,10 +27,20 @@ type WorkerConfig struct {
 	AuthorAnalyticsSweeper   WorkerAuthorAnalyticsSweeperConfig
 	ProfileStatsSweeper      WorkerProfileStatsSweeperConfig
 	MeilisearchSweeper       WorkerMeilisearchSweeperConfig
+	IncrementalStats         WorkerIncrementalStatsConfig
 	AccountState             WorkerAccountStateConfig
 	Hydration                HydrationConfig
 	Meilisearch              MeilisearchConfig
 	RelayRegistry            RelayRegistryConfig
+}
+
+// WorkerIncrementalStatsConfig controls the O(1) delta path that replaces
+// full-history recomputes for profile_public_stats and author_activity_daily.
+// See docs/design/incremental-author-stats.md.
+type WorkerIncrementalStatsConfig struct {
+	ProfilePublicStats  bool
+	AuthorActivityDaily bool
+	WindowedRollups     bool
 }
 
 // WorkerAccountStateConfig configures the derived account-state recompute loop.
@@ -326,6 +336,7 @@ func LoadWorker() (WorkerConfig, error) {
 		AuthorAnalyticsSweeper:   sweepers.AuthorAnalytics,
 		ProfileStatsSweeper:      sweepers.ProfileStats,
 		MeilisearchSweeper:       sweepers.Meilisearch,
+		IncrementalStats:         loadWorkerIncrementalStatsConfig(),
 		AccountState:             accountState,
 		Hydration:                hydrationCfg,
 		Meilisearch:              loadWorkerMeilisearchConfig(),
