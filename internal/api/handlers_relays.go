@@ -10,6 +10,7 @@ type relayHealthEntry struct {
 	Mode               string     `json:"mode"`
 	FilterGroup        string     `json:"filter_group"`
 	Status             string     `json:"status"`
+	LastError          *string    `json:"last_error,omitempty"`
 	LatestCheckpointAt time.Time  `json:"latest_checkpoint_at"`
 	EOSESeenAt         *time.Time `json:"eose_seen_at,omitempty"`
 }
@@ -28,6 +29,7 @@ func (h Handlers) GetRelaysHealth(w http.ResponseWriter, r *http.Request) {
 			Mode:               row.Mode,
 			FilterGroup:        row.FilterGroup,
 			Status:             row.Status,
+			LastError:          row.LastError,
 			LatestCheckpointAt: row.UpdatedAt.UTC(),
 			EOSESeenAt:         row.EOSESeenAt,
 		})

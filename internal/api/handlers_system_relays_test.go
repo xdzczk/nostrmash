@@ -34,6 +34,7 @@ func TestReady_UsesErrorEnvelopeWhenDependencyUnavailable(t *testing.T) {
 }
 
 func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
+	lastErr := "dial websocket: websocket: bad handshake"
 	handlers := mustNewHandlers(t, fakeEventReader{
 		listRelayHealthFn: func(_ context.Context) ([]model.IngestCheckpoint, error) {
 			return []model.IngestCheckpoint{
@@ -43,6 +44,14 @@ func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 					FilterGroup: "social_core",
 					Status:      "healthy",
 					UpdatedAt:   time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC),
+				},
+				{
+					RelayURL:    "wss://relay.damus.io",
+					Mode:        "live",
+					FilterGroup: "default_v1",
+					Status:      "errored",
+					LastError:   &lastErr,
+					UpdatedAt:   time.Date(2026, 4, 4, 12, 1, 0, 0, time.UTC),
 				},
 			}, nil
 		},
@@ -61,7 +70,13 @@ func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(resp.Relays) != 1 || resp.Relays[0].RelayURL != "wss://relay.one" {
+	if len(resp.Relays) != 2 || resp.Relays[0].RelayURL != "wss://relay.one" {
 		t.Fatalf("unexpected relays payload: %+v", resp.Relays)
+	}
+	if resp.Relays[1].Status != "errored" {
+		t.Fatalf("expected errored status, got %+v", resp.Relays[1])
+	}
+	if resp.Relays[1].LastError == nil || *resp.Relays[1].LastError != lastErr {
+		t.Fatalf("expected last_error %q, got %+v", lastErr, resp.Relays[1].LastError)
 	}
 }
