@@ -426,6 +426,9 @@ func (s *Store) GetActiveAndPinnedRelayURLs(ctx context.Context) ([]string, erro
 }
 
 // ListRelaysForProbing returns relays that should be probed, ordered by probe priority.
+// Probation and active/pinned stay ahead so the live set keeps fresh health data.
+// Candidate and inactive share the next tier and are ordered by popularity so
+// high-ref relays are not starved after a probation-cap demotion.
 func (s *Store) ListRelaysForProbing(ctx context.Context, limit int) ([]RelayRecord, error) {
 	if limit <= 0 {
 		limit = 50
@@ -450,9 +453,10 @@ func (s *Store) ListRelaysForProbing(ctx context.Context, limit int) ([]RelayRec
 				WHEN 'active' THEN 2
 				WHEN 'pinned' THEN 2
 				WHEN 'candidate' THEN 3
-				WHEN 'inactive' THEN 4
-				ELSE 5
+				WHEN 'inactive' THEN 3
+				ELSE 4
 			END ASC,
+			distinct_user_ref_count DESC,
 			COALESCE(last_probe_at, '1970-01-01'::timestamptz) ASC
 		LIMIT $1
 	`, limit)

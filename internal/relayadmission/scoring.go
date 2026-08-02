@@ -2,9 +2,18 @@ package relayadmission
 
 import (
 	"encoding/json"
+	"math"
 
 	"github.com/xdzczk/nostrmash/internal/relayregistry"
 )
+
+// maxPopularityScore is only a safety ceiling against pathological ref counts.
+// Normal multi-thousand relays stay well below it under popularityScore().
+const maxPopularityScore = 150
+
+// largeRelayUserThreshold is the distinct user-list ref count at which a relay
+// is treated as "large" for admission scoring.
+const largeRelayUserThreshold = 1000
 
 // ScoreComponents holds the transparent breakdown of a relay's computed score.
 type ScoreComponents struct {
@@ -21,10 +30,7 @@ type ScoreComponents struct {
 func ComputeScore(rec relayregistry.RelayRecord) ScoreComponents {
 	var sc ScoreComponents
 
-	// Popularity: log-scaled distinct user references (diminishing returns).
-	if rec.DistinctUserRefCount > 0 {
-		sc.PopularityScore = clamp(float64(rec.DistinctUserRefCount)*2.0, 0, 40)
-	}
+	sc.PopularityScore = popularityScore(rec.DistinctUserRefCount)
 
 	// Probe health: successful probes contribute positively.
 	if rec.LastProbeStatus != nil && *rec.LastProbeStatus == relayregistry.ProbeStatusOK {
@@ -63,6 +69,21 @@ func ComputeScore(rec relayregistry.RelayRecord) ScoreComponents {
 		sc.TotalScore = 0
 	}
 	return sc
+}
+
+// popularityScore maps distinct kind-10002 user refs onto an admission weight.
+// Log growth keeps multi-thousand relays ahead of sub-1000 niches without the
+// old linear cap that treated 40 users the same as 40_000. A boost at
+// largeRelayUserThreshold makes "thousands of users" clearly beat smaller relays.
+func popularityScore(distinctUsers int) float64 {
+	if distinctUsers <= 0 {
+		return 0
+	}
+	score := 22 * math.Log10(1+float64(distinctUsers))
+	if distinctUsers >= largeRelayUserThreshold {
+		score += 20
+	}
+	return clamp(score, 0, maxPopularityScore)
 }
 
 // MarshalComponents serializes score components for storage.
