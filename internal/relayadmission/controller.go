@@ -2,6 +2,7 @@ package relayadmission
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -11,17 +12,30 @@ import (
 	"github.com/xdzczk/nostrmash/internal/relayregistry"
 )
 
+// registryStore is the relay-registry surface admission needs. Concrete
+// *relayregistry.Store implements it; tests use a fake.
+type registryStore interface {
+	ListRelays(ctx context.Context, filter relayregistry.ListFilter) ([]relayregistry.RelayRecord, error)
+	SetAdmissionState(
+		ctx context.Context,
+		urlKey string,
+		state relayregistry.AdmissionState,
+		score float64,
+		scoreComponents json.RawMessage,
+	) error
+}
+
 // Controller computes scores, applies state transitions, enforces caps,
 // and publishes the desired active relay set.
 type Controller struct {
 	log   *slog.Logger
-	store *relayregistry.Store
+	store registryStore
 	cfg   config.RelayRegistryAdmissionConfig
 }
 
 func NewController(
 	log *slog.Logger,
-	store *relayregistry.Store,
+	store registryStore,
 	cfg config.RelayRegistryAdmissionConfig,
 ) *Controller {
 	return &Controller{log: log, store: store, cfg: cfg}
@@ -205,6 +219,7 @@ func (c *Controller) enforceCaps(ctx context.Context) {
 	totalActive := pinnedCount + len(dynamicActiveRelays)
 
 	// Enforce total active cap (pinned + dynamic): demote lowest-scored dynamic relays.
+	// Spills into probation and must be counted before MaxProbation is applied.
 	if totalActive > c.cfg.MaxTotalActive {
 		sort.Slice(dynamicActiveRelays, func(i, j int) bool {
 			return dynamicActiveRelays[i].Score < dynamicActiveRelays[j].Score
@@ -212,6 +227,7 @@ func (c *Controller) enforceCaps(ctx context.Context) {
 		excess := totalActive - c.cfg.MaxTotalActive
 		for i := 0; i < excess && i < len(dynamicActiveRelays); i++ {
 			c.demote(ctx, dynamicActiveRelays[i], relayregistry.AdmissionProbation, "total_active_cap_exceeded")
+			probationRelays = append(probationRelays, dynamicActiveRelays[i])
 		}
 		// Recompute after total cap enforcement.
 		dynamicActiveRelays = dynamicActiveRelays[min(excess, len(dynamicActiveRelays)):]
@@ -225,10 +241,11 @@ func (c *Controller) enforceCaps(ctx context.Context) {
 		excess := len(dynamicActiveRelays) - c.cfg.MaxDynamicActive
 		for i := 0; i < excess; i++ {
 			c.demote(ctx, dynamicActiveRelays[i], relayregistry.AdmissionProbation, "dynamic_cap_exceeded")
+			probationRelays = append(probationRelays, dynamicActiveRelays[i])
 		}
 	}
 
-	// Enforce probation cap.
+	// Enforce probation cap (includes relays just spilled from active caps).
 	if len(probationRelays) > c.cfg.MaxProbation {
 		sort.Slice(probationRelays, func(i, j int) bool {
 			return probationRelays[i].Score < probationRelays[j].Score
