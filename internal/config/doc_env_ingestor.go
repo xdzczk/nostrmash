@@ -351,14 +351,14 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Name:         "RELAY_REGISTRY_ADMISSION_MAX_TOTAL_ACTIVE",
 			Runtimes:     []string{"worker"},
 			Required:     false,
-			DefaultValue: "15",
+			DefaultValue: "20",
 			Description:  "Hard cap on total active relays (pinned + dynamic).",
 		},
 		{
 			Name:         "RELAY_REGISTRY_ADMISSION_MAX_DYNAMIC_ACTIVE",
 			Runtimes:     []string{"worker"},
 			Required:     false,
-			DefaultValue: "10",
+			DefaultValue: "15",
 			Description:  "Hard cap on dynamically admitted active relays.",
 		},
 		{

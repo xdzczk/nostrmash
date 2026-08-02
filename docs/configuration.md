@@ -105,9 +105,9 @@ Do not hand-edit this file.
 | `PRIMAL_WS_MAX_SUBSCRIPTIONS` | `api` | optional | `200` | Maximum concurrent Primal WS subscriptions per connection. |
 | `PRIMAL_WS_REQUEST_TIMEOUT` | `api` | optional | `10s` | Timeout for individual Primal WS request handling. |
 | `RELAY_REGISTRY_ADMISSION_DEMOTE_FAILURE_THRESHOLD` | `worker` | optional | `60` | Probe failure rate percentage above which an active relay is demoted (e.g. 60 = 60%). |
-| `RELAY_REGISTRY_ADMISSION_MAX_DYNAMIC_ACTIVE` | `worker` | optional | `10` | Hard cap on dynamically admitted active relays. |
+| `RELAY_REGISTRY_ADMISSION_MAX_DYNAMIC_ACTIVE` | `worker` | optional | `15` | Hard cap on dynamically admitted active relays. |
 | `RELAY_REGISTRY_ADMISSION_MAX_PROBATION` | `worker` | optional | `20` | Hard cap on relays in probation state. |
-| `RELAY_REGISTRY_ADMISSION_MAX_TOTAL_ACTIVE` | `worker` | optional | `15` | Hard cap on total active relays (pinned + dynamic). |
+| `RELAY_REGISTRY_ADMISSION_MAX_TOTAL_ACTIVE` | `worker` | optional | `20` | Hard cap on total active relays (pinned + dynamic). |
 | `RELAY_REGISTRY_ADMISSION_MIN_SCORE_ACTIVE` | `worker` | optional | `30` | Minimum score for a probation relay to become active. |
 | `RELAY_REGISTRY_ADMISSION_MIN_SCORE_PROBATION` | `worker` | optional | `10` | Minimum score for a candidate to enter probation. |
 | `RELAY_REGISTRY_ALLOW_PRIVATE_NETWORK` | `ingestor, worker` | optional | `false` | Allow private/local network addresses in relay URLs. |

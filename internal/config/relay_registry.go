@@ -109,8 +109,8 @@ func LoadRelayRegistryConfig() (RelayRegistryConfig, error) {
 			MaxParallel:    getEnvInt("RELAY_REGISTRY_PROBING_MAX_PARALLEL", 5),
 		},
 		Admission: RelayRegistryAdmissionConfig{
-			MaxTotalActive:         getEnvInt("RELAY_REGISTRY_ADMISSION_MAX_TOTAL_ACTIVE", 15),
-			MaxDynamicActive:       getEnvInt("RELAY_REGISTRY_ADMISSION_MAX_DYNAMIC_ACTIVE", 10),
+			MaxTotalActive:         getEnvInt("RELAY_REGISTRY_ADMISSION_MAX_TOTAL_ACTIVE", 20),
+			MaxDynamicActive:       getEnvInt("RELAY_REGISTRY_ADMISSION_MAX_DYNAMIC_ACTIVE", 15),
 			MaxProbation:           getEnvInt("RELAY_REGISTRY_ADMISSION_MAX_PROBATION", 20),
 			MinScoreForProbation:   float64(getEnvInt("RELAY_REGISTRY_ADMISSION_MIN_SCORE_PROBATION", 10)),
 			MinScoreForActive:      float64(getEnvInt("RELAY_REGISTRY_ADMISSION_MIN_SCORE_ACTIVE", 30)),
