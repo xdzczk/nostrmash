@@ -99,7 +99,10 @@ paths:
               required: [ids]
       responses:
         '200':
-          description: Found and missing events
+          description: >
+            Found and missing events. Found event payloads include eventual
+            engagement counters (`reply_count`, `repost_count`, `reaction_count`,
+            `zap_count`, `zap_msats`, and nested `counts`) for note-card rendering.
           content:
             application/json:
               schema:
@@ -159,7 +162,9 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: Reply page
+          description: >
+            Reply page with eventual engagement counters attached for note-card
+            rendering.
   /api/v1/events/{id}/ancestors:
     get:
       tags: [public]
@@ -174,7 +179,9 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
       responses:
         '200':
-          description: Ancestor chain with missing IDs
+          description: >
+            Ancestor chain with missing IDs. Present ancestor payloads include
+            eventual engagement counters for note-card rendering.
   /api/v1/threads/{eventId}:
     get:
       tags: [public]
@@ -698,7 +705,10 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Notes search results with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: >
+            Notes search results with trust metadata (`trust_mode`,
+            `trust_applied`, `result_scope`) and eventual engagement counters
+            on each note payload for note-card rendering.
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/search/profiles:
@@ -1140,7 +1150,9 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         '200':
-          description: Highlight events
+          description: >
+            Highlight events with eventual engagement counters attached for
+            note-card rendering.
   /api/v1/users/{pubkey}/long-form:
     get:
       tags: [public]
@@ -1155,7 +1167,9 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         '200':
-          description: Long-form events
+          description: >
+            Long-form events with eventual engagement counters attached for
+            article-card rendering.
   /api/v1/users/{pubkey}/zaps:
     get:
       tags: [public]

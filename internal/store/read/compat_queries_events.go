@@ -51,7 +51,7 @@ func (s *Read) GetRecentEventsByKindAndPubkey(
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read recent events by kind rows: %w", err)
 	}
-	return out, nil
+	return s.EnrichEventsWithCounts(ctx, out)
 }
 
 // GetEventsReferencingPubkey returns events that mention target pubkey in p-tags.
@@ -101,7 +101,7 @@ func (s *Read) GetEventsReferencingPubkey(ctx context.Context, targetPubkey stri
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read events referencing pubkey rows: %w", err)
 	}
-	return out, nil
+	return s.EnrichEventsWithCounts(ctx, out)
 }
 
 func (s *Read) GetEventsByATagAndKind(ctx context.Context, kind int, aTagValue string, limit int) ([]json.RawMessage, error) {

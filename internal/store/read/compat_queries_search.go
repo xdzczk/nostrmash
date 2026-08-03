@@ -114,7 +114,7 @@ func (s *Read) SearchNotes(
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read searched event rows: %w", err)
 	}
-	return out, nil
+	return s.EnrichEventsWithCounts(ctx, out)
 }
 
 const invalidLanguageFilter = "__invalid_language_filter__"

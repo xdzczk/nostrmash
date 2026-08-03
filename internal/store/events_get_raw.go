@@ -94,7 +94,7 @@ func (s *PostgresStore) GetEventRawsByIDs(ctx context.Context, ids []string) (ma
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read event rows: %w", err)
 	}
-	return out, nil
+	return s.EnrichEventRawMap(ctx, out)
 }
 
 // GetEventSeenOn returns relay provenance rows for an event id.

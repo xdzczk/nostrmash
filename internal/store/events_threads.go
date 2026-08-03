@@ -146,6 +146,10 @@ func (s *PostgresStore) GetEventReplies(
 	for _, row := range rowsOut {
 		events = append(events, json.RawMessage(row.raw))
 	}
+	events, err = s.EnrichEventsWithCounts(ctx, events)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	nextCursor = nil
 	if hasMore && len(rowsOut) > 0 {
@@ -269,6 +273,10 @@ func (s *PostgresStore) GetEventRepliesDescending(
 	events = make([]json.RawMessage, 0, len(rowsOut))
 	for _, row := range rowsOut {
 		events = append(events, json.RawMessage(row.raw))
+	}
+	events, err = s.EnrichEventsWithCounts(ctx, events)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if hasMore && len(rowsOut) > 0 {
