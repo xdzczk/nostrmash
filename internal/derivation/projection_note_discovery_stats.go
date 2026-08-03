@@ -14,83 +14,23 @@ func (h *Handlers) ProjectNoteDiscoveryStats(ctx context.Context, eventID string
 	return h.projectNoteDiscoveryStatsWithVersion(ctx, eventID, nil)
 }
 
-// rebuildNoteDiscoveryStatsWithVersion refreshes discovery reply totals from
-// thread_summaries (preferred) / reply_counts without scanning every event id.
+// rebuildNoteDiscoveryStatsWithVersion reprojects note-like events only so a
+// full rebuild can recreate truncated rows without scanning every event kind.
 func (h *Handlers) rebuildNoteDiscoveryStatsWithVersion(ctx context.Context, versionOverride *int) error {
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
 	}
-	tx, err := h.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	writeVersion, err := resolveDerivationWriteVersion(
-		ctx,
-		tx,
-		DerivationNoteDiscoveryStats,
-		NoteDiscoveryStatsVersion,
-		"Project per-note discovery counters and rolling scores",
-		versionOverride,
-	)
+	eventIDs, err := h.queryEventIDsByKinds(ctx, 1, 30023)
 	if err != nil {
 		return err
 	}
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE note_discovery_stats nds
-		SET reply_count = ts.reply_count,
-		    derivation_version = $1,
-		    projected_at = now()
-		FROM thread_summaries ts
-		WHERE ts.root_event_id = nds.event_id
-		  AND nds.reply_count IS DISTINCT FROM ts.reply_count
-	`, writeVersion); err != nil {
-		return fmt.Errorf("refresh note_discovery_stats from thread_summaries: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE note_discovery_stats nds
-		SET reply_count = rc.count,
-		    derivation_version = $1,
-		    projected_at = now()
-		FROM reply_counts rc
-		WHERE rc.event_id = nds.event_id
-		  AND NOT EXISTS (
-			SELECT 1 FROM thread_summaries ts WHERE ts.root_event_id = nds.event_id
-		  )
-		  AND nds.reply_count IS DISTINCT FROM rc.count
-	`, writeVersion); err != nil {
-		return fmt.Errorf("refresh note_discovery_stats from reply_counts: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE note_discovery_stats nds
-		SET reply_count = 0,
-		    derivation_version = $1,
-		    projected_at = now()
-		WHERE nds.reply_count <> 0
-		  AND NOT EXISTS (
-			SELECT 1 FROM thread_summaries ts WHERE ts.root_event_id = nds.event_id
-		  )
-		  AND NOT EXISTS (
-			SELECT 1 FROM reply_counts rc WHERE rc.event_id = nds.event_id
-		  )
-	`, writeVersion); err != nil {
-		return fmt.Errorf("zero note_discovery_stats reply_count without sources: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE note_discovery_stats
-		SET derivation_version = $1,
-		    projected_at = now()
-		WHERE derivation_version IS DISTINCT FROM $1
-	`, writeVersion); err != nil {
-		return fmt.Errorf("promote note_discovery_stats derivation_version: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit note_discovery_stats rebuild tx: %w", err)
-	}
-	return nil
+	return h.rebuildProjectEventIDs(
+		ctx,
+		DerivationNoteDiscoveryStats,
+		eventIDs,
+		h.projectNoteDiscoveryStatsWithVersion,
+		versionOverride,
+	)
 }
 
 func (h *Handlers) projectNoteDiscoveryStatsWithVersion(ctx context.Context, eventID string, versionOverride *int) error {

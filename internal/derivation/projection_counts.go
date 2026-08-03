@@ -35,93 +35,23 @@ func (h *Handlers) projectReplyCountsWithVersion(ctx context.Context, eventID st
 	)
 }
 
-// rebuildReplyCountsWithVersion rebuilds reply_counts from thread_edges.
-// Parent resolution matches ProjectReplyCounts (reply, else root), so edges are
-// the canonical source and avoid scanning tens of millions of events.
+// rebuildReplyCountsWithVersion reprojects kind=1 notes only. That matches
+// ProjectReplyCounts semantics without scanning every event kind on full rebuild.
 func (h *Handlers) rebuildReplyCountsWithVersion(ctx context.Context, versionOverride *int) error {
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
 	}
-	tx, err := h.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	writeVersion, err := resolveDerivationWriteVersion(
-		ctx,
-		tx,
-		DerivationReplyCounts,
-		ReplyCountsVersion,
-		"Project eventually-consistent reply counts from thread-parent references (reply, else root)",
-		versionOverride,
-	)
+	eventIDs, err := h.queryEventIDsByKinds(ctx, 1)
 	if err != nil {
 		return err
 	}
-
-	// Drop orphan edges left behind when events were removed without CASCADE.
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM thread_edges te
-		WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.id = te.child_event_id)
-	`); err != nil {
-		return fmt.Errorf("delete orphan thread_edges: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM reply_count_contributions c
-		WHERE NOT EXISTS (
-			SELECT 1
-			FROM thread_edges te
-			WHERE te.child_event_id = c.source_event_id
-			  AND te.parent_event_id = c.target_event_id
-		)
-	`); err != nil {
-		return fmt.Errorf("delete stale reply_count_contributions: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO reply_count_contributions (
-			source_event_id, target_event_id, derivation_version
-		)
-		SELECT te.child_event_id, te.parent_event_id, $1
-		FROM thread_edges te
-		JOIN events e ON e.id = te.child_event_id
-		ON CONFLICT (source_event_id, target_event_id) DO UPDATE
-		SET derivation_version = EXCLUDED.derivation_version,
-		    projected_at = now()
-	`, writeVersion); err != nil {
-		return fmt.Errorf("upsert reply_count_contributions from thread_edges: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO reply_counts (event_id, count, derivation_version)
-		SELECT target_event_id, COUNT(*), $1
-		FROM reply_count_contributions
-		GROUP BY target_event_id
-		ON CONFLICT (event_id) DO UPDATE
-		SET count = EXCLUDED.count,
-		    derivation_version = EXCLUDED.derivation_version,
-		    updated_at = now()
-	`, writeVersion); err != nil {
-		return fmt.Errorf("upsert reply_counts aggregates: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM reply_counts rc
-		WHERE NOT EXISTS (
-			SELECT 1
-			FROM reply_count_contributions c
-			WHERE c.target_event_id = rc.event_id
-		)
-	`); err != nil {
-		return fmt.Errorf("delete zero reply_counts rows: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit reply_counts rebuild tx: %w", err)
-	}
-	return nil
+	return h.rebuildProjectEventIDs(
+		ctx,
+		DerivationReplyCounts,
+		eventIDs,
+		h.projectReplyCountsWithVersion,
+		versionOverride,
+	)
 }
 
 func (h *Handlers) ProjectReactionCounts(ctx context.Context, eventID string) error {

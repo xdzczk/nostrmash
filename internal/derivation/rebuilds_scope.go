@@ -2,8 +2,11 @@ package derivation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func (h *Handlers) scopeEventIDs(ctx context.Context, scope ProjectionRebuildScope) ([]string, error) {
@@ -54,6 +57,36 @@ func (h *Handlers) queryEventIDs(ctx context.Context, query string, args ...any)
 		return nil, fmt.Errorf("read scope events: %w", err)
 	}
 	return ids, nil
+}
+
+func (h *Handlers) queryEventIDsByKinds(ctx context.Context, kinds ...int) ([]string, error) {
+	if len(kinds) == 0 {
+		return nil, fmt.Errorf("at least one kind is required")
+	}
+	return h.queryEventIDs(ctx, `
+		SELECT id
+		FROM events
+		WHERE kind = ANY($1::int[])
+		ORDER BY created_at ASC, id ASC
+	`, kinds)
+}
+
+func (h *Handlers) rebuildProjectEventIDs(
+	ctx context.Context,
+	derivationName string,
+	eventIDs []string,
+	project func(context.Context, string, *int) error,
+	versionOverride *int,
+) error {
+	for _, eventID := range eventIDs {
+		if err := project(ctx, eventID, versionOverride); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			return fmt.Errorf("rebuild %s for event %s: %w", derivationName, eventID, err)
+		}
+	}
+	return nil
 }
 
 func normalizeRebuildScope(scope ProjectionRebuildScope) (ProjectionRebuildScope, error) {
