@@ -46,14 +46,14 @@ INSERT INTO author_activity_daily (
 )
 SELECT
     zr.receiver_pubkey,
-    to_timestamp(zr.created_at) AT TIME ZONE 'UTC' AS activity_date,
+    (to_timestamp(zr.created_at) AT TIME ZONE 'UTC')::date AS activity_date,
     COALESCE(SUM(zr.amount_sats * 1000), 0)::bigint,
     1
 FROM zap_receipts zr
 WHERE zr.receiver_pubkey IS NOT NULL
   AND zr.receiver_pubkey <> ''
   AND zr.created_at >= extract(epoch FROM now() - interval '90 days')::bigint
-GROUP BY zr.receiver_pubkey, to_timestamp(zr.created_at) AT TIME ZONE 'UTC'
+GROUP BY zr.receiver_pubkey, (to_timestamp(zr.created_at) AT TIME ZONE 'UTC')::date
 ON CONFLICT (pubkey, activity_date) DO UPDATE
 SET zap_msats_received = EXCLUDED.zap_msats_received,
     updated_at = now();
@@ -113,12 +113,12 @@ SET authored_event_count = EXCLUDED.authored_event_count,
 INSERT INTO follower_gains_daily (pubkey, activity_date, gained, derivation_version)
 SELECT
     fe.followed_pubkey,
-    to_timestamp(fe.contact_list_created_at) AT TIME ZONE 'UTC' AS activity_date,
+    (to_timestamp(fe.contact_list_created_at) AT TIME ZONE 'UTC')::date AS activity_date,
     COUNT(*)::bigint,
     1
 FROM follower_edges fe
 WHERE fe.contact_list_created_at >= extract(epoch FROM now() - interval '90 days')::bigint
-GROUP BY fe.followed_pubkey, to_timestamp(fe.contact_list_created_at) AT TIME ZONE 'UTC'
+GROUP BY fe.followed_pubkey, (to_timestamp(fe.contact_list_created_at) AT TIME ZONE 'UTC')::date
 ON CONFLICT (pubkey, activity_date) DO UPDATE
 SET gained = EXCLUDED.gained,
     updated_at = now();
