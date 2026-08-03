@@ -103,15 +103,17 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 	incProfile := cfg.IncrementalStats.ProfilePublicStats
 	incActivity := cfg.IncrementalStats.AuthorActivityDaily
 	incRollups := cfg.IncrementalStats.WindowedRollups
+	incDiscovery := cfg.IncrementalStats.ProfileDiscoveryStats
 	handlers := derivation.NewHandlersWithOptions(pool, derivation.HandlersOptions{
 		MeiliClient: meiliClient,
 		// The author-analytics sweeper (spawned below when enabled) reads its
 		// window list from the handlers instance; invalid/empty values fall back
 		// to the derivation package default.
-		AuthorAnalyticsWindows:         cfg.AuthorAnalyticsSweeper.WindowsDays,
-		IncrementalProfilePublicStats:  &incProfile,
-		IncrementalAuthorActivityDaily: &incActivity,
-		IncrementalWindowedRollups:     &incRollups,
+		AuthorAnalyticsWindows:           cfg.AuthorAnalyticsSweeper.WindowsDays,
+		IncrementalProfilePublicStats:    &incProfile,
+		IncrementalAuthorActivityDaily:   &incActivity,
+		IncrementalWindowedRollups:       &incRollups,
+		IncrementalProfileDiscoveryStats: &incDiscovery,
 	})
 	// Retention purges that hard-delete events (expired engagement,
 	// untrusted-author) must reverse whatever incremental author-stat

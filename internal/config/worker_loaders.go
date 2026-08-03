@@ -376,10 +376,11 @@ func loadWorkerIncrementalStatsConfig() (WorkerIncrementalStatsConfig, error) {
 		return WorkerIncrementalStatsConfig{}, err
 	}
 	return WorkerIncrementalStatsConfig{
-		ProfilePublicStats:  getEnvBool("WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS", true),
-		AuthorActivityDaily: getEnvBool("WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY", true),
-		WindowedRollups:     getEnvBool("WORKER_INCREMENTAL_WINDOWED_ROLLUPS", true),
-		Reconciliation:      reconciliation,
+		ProfilePublicStats:    getEnvBool("WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS", true),
+		AuthorActivityDaily:   getEnvBool("WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY", true),
+		WindowedRollups:       getEnvBool("WORKER_INCREMENTAL_WINDOWED_ROLLUPS", true),
+		ProfileDiscoveryStats: getEnvBool("WORKER_INCREMENTAL_PROFILE_DISCOVERY_STATS", true),
+		Reconciliation:        reconciliation,
 	}, nil
 }
 

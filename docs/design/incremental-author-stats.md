@@ -24,6 +24,7 @@ Implemented (cutover defaults on):
   - `WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS`
   - `WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY`
   - `WORKER_INCREMENTAL_WINDOWED_ROLLUPS`
+  - `WORKER_INCREMENTAL_PROFILE_DISCOVERY_STATS` (requires the two flags above)
 
 - Migration `000064_backfill_incremental_stat_daily_tables.sql`: one-time
   bulk backfill of `author_hashtag_daily` / `author_media_daily` /
@@ -32,6 +33,14 @@ Implemented (cutover defaults on):
   windowed-rollup check doesn't silently drop pre-deploy history for
   already-active pubkeys. Idempotent (overwrite, not additive), safe to
   re-run, safe to run after the incremental writer is already live.
+- Migration `000065_incremental_profile_discovery_stats.sql`:
+  `zap_msats_received` on daily/hourly tables, `follower_gains_daily`,
+  `profile_discovery_recent_activity`, plus 90d backfills. The profile-stats
+  sweeper rolls `profile_discovery_stats` 24h/7d windows from these tables
+  (O(dozens of indexed rows)) instead of rescanning raw engagement tables /
+  the unbounded `MAX(created_at)` UNION. Rising-score `new_followers` uses
+  true kind=3 edge-diff gains going forward (legacy scan counted edges whose
+  `contact_list_created_at` fell in-window, so list rewrites re-counted).
 - Retention decrement path: `derivation.Handlers.ReverseIncrementalAuthorStatsTx`
   undoes the exact deltas `ApplyIncrementalAuthorStats` applied for an event,
   gated by the same `applied_stat_deltas` ledger (unclaim-then-decrement
@@ -68,7 +77,12 @@ Implemented (cutover defaults on):
   purges that hard-delete events without touching incremental stats
   (`PurgeSupersededReplaceableEvents`, `PurgeProcessedDeletionEvents`).
 
-This closes out every item scoped in this design.
+`profile_discovery_stats` was the remaining hot-path full-window scan after
+the author-stats cutover; with `000065` +
+`WORKER_INCREMENTAL_PROFILE_DISCOVERY_STATS` it is on the same O(1) /
+bounded-rollup footing. Full-scan loaders remain as the flag-off escape
+hatch and as the reconciliation oracle (except `new_followers`, which has
+intentionally tighter semantics).
 
 ## Current state (why the sweeper coalescing wasn't enough)
 

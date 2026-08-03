@@ -66,8 +66,87 @@ func (h *Handlers) ReconcileIncrementalAuthorStatsSample(ctx context.Context, sa
 			return ReconciliationReport{}, fmt.Errorf("reconcile author activity totals for %s: %w", pubkey, err)
 		}
 		report.Mismatches = append(report.Mismatches, activityMismatches...)
+
+		if h.incrementalProfileDiscoveryStats {
+			discoveryMismatches, err := h.reconcileProfileDiscoveryStatsForPubkey(ctx, pubkey)
+			if err != nil {
+				return ReconciliationReport{}, fmt.Errorf("reconcile profile discovery stats for %s: %w", pubkey, err)
+			}
+			report.Mismatches = append(report.Mismatches, discoveryMismatches...)
+		}
 	}
 	return report, nil
+}
+
+// reconcileProfileDiscoveryStatsForPubkey compares the incremental daily/hourly
+// rollup against the legacy full-scan metric loaders for the fields that share
+// semantics. new_followers is intentionally excluded: incremental path uses
+// true kind=3 edge-diff gains, while the legacy scan counts edges whose
+// contact_list_created_at falls in the window (rewrites re-count).
+func (h *Handlers) reconcileProfileDiscoveryStatsForPubkey(ctx context.Context, pubkey string) ([]ReconciliationMismatch, error) {
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin discovery reconciliation tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	nowUnix := 0
+	// Use a stable "now" from the DB so both loaders see the same cutoffs.
+	if err := tx.QueryRow(ctx, `SELECT EXTRACT(EPOCH FROM now())::bigint`).Scan(&nowUnix); err != nil {
+		return nil, fmt.Errorf("load reconciliation now: %w", err)
+	}
+
+	incremental, err := loadProfileDualWindowMetricsIncrementalTx(ctx, tx, pubkey, int64(nowUnix))
+	if err != nil {
+		return nil, err
+	}
+	full, err := loadProfileDualWindowMetricsTx(ctx, tx, pubkey, int64(nowUnix))
+	if err != nil {
+		return nil, err
+	}
+	incRecent, err := loadProfileDiscoveryRecentActivityAtTx(ctx, tx, pubkey)
+	if err != nil {
+		return nil, err
+	}
+	fullRecent, err := loadProfileRecentActivityAtTx(ctx, tx, pubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	var mismatches []ReconciliationMismatch
+	appendIfDiff := func(field string, got, want int64) {
+		if got != want {
+			mismatches = append(mismatches, ReconciliationMismatch{
+				Pubkey:      pubkey,
+				Projection:  "profile_discovery_stats",
+				Field:       field,
+				Incremental: got,
+				Recomputed:  want,
+			})
+		}
+	}
+	appendIfDiff("post_count_24h", incremental.window24h.postCount, full.window24h.postCount)
+	appendIfDiff("reply_count_24h", incremental.window24h.replyCount, full.window24h.replyCount)
+	appendIfDiff("engagement_24h", incremental.window24h.engagement, full.window24h.engagement)
+	appendIfDiff("zap_msats_24h", incremental.window24h.zapVolumeMSats, full.window24h.zapVolumeMSats)
+	appendIfDiff("active_days_24h", int64(incremental.window24h.activeDays), int64(full.window24h.activeDays))
+	appendIfDiff("post_count_7d", incremental.window7d.postCount, full.window7d.postCount)
+	appendIfDiff("reply_count_7d", incremental.window7d.replyCount, full.window7d.replyCount)
+	appendIfDiff("engagement_7d", incremental.window7d.engagement, full.window7d.engagement)
+	appendIfDiff("zap_msats_7d", incremental.window7d.zapVolumeMSats, full.window7d.zapVolumeMSats)
+	appendIfDiff("active_days_7d", int64(incremental.window7d.activeDays), int64(full.window7d.activeDays))
+	appendIfDiff("follower_count", incremental.followerCount, full.followerCount)
+
+	incActivity := int64(0)
+	if incRecent != nil {
+		incActivity = *incRecent
+	}
+	fullActivity := int64(0)
+	if fullRecent != nil {
+		fullActivity = *fullRecent
+	}
+	appendIfDiff("recent_activity_at", incActivity, fullActivity)
+	return mismatches, nil
 }
 
 // sampleReconciliationPubkeys draws up to sampleSize distinct pubkeys from

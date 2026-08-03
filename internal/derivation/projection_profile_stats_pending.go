@@ -15,17 +15,15 @@ import (
 // pending_profile_stats_recomputes for every pubkey whose profile-stats
 // rows are affected by this event.
 //
-// Both projections do per-pubkey aggregation queries that are expensive
-// on hot pubkeys: ProjectProfilePublicStats does four sub-COUNTs over
-// follower_edges + events (with a NOT EXISTS / EXISTS lookup against
-// event_references); ProjectProfileDiscoveryStats does ten windowed
-// COUNTs over events + reply_count_contributions + repost_events +
-// reaction_events + zap_receipts. Each runs under a per-pubkey advisory
-// lock keyed by namespace, so concurrent bundle workers processing
-// events from the same hot pubkey serialized on the lock and ran the
-// aggregates one after another. Production observed advisory-lock
-// waits of 8-13 seconds per worker with the underlying COUNT queries
-// running 19-30 seconds.
+// Historically both projections did expensive per-pubkey aggregates on
+// hot pubkeys (full COUNT(*) rebuilds for public stats; multi-table
+// window scans + unbounded MAX(created_at) UNION for discovery). With
+// WORKER_INCREMENTAL_* defaults on, the sweeper skips the public-stats
+// rebuild entirely and rolls discovery scores from
+// author_hourly_activity / follower_gains_daily /
+// profile_discovery_recent_activity. The mark-and-sweep path remains so
+// bursts still coalesce and the flag-off / rebuild escape hatches keep
+// working.
 //
 // The new design: the bundle does a cheap upsert into
 // pending_profile_stats_recomputes for each affected pubkey.

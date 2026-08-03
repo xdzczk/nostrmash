@@ -21,13 +21,18 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
 
 	expectedTables := []string{
+		"applied_stat_deltas",
 		"author_activity_daily",
 		"author_activity_windows",
 		"author_engagement_stats",
+		"author_hashtag_daily",
+		"author_hourly_activity",
+		"author_media_daily",
 		"author_recent_events",
 		"author_media_mix_stats",
 		"author_posting_patterns",
 		"author_topic_stats",
+		"follower_gains_daily",
 		"contact_lists_latest",
 		"curated_creator_paid_tiers",
 		"curated_featured_authors",
@@ -53,6 +58,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"pending_author_analytics_recomputes",
 		"pending_meilisearch_syncs",
 		"pending_profile_stats_recomputes",
+		"profile_discovery_recent_activity",
 		"profile_discovery_stats",
 		"profile_public_stats",
 		"profiles_latest",

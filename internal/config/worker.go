@@ -36,13 +36,14 @@ type WorkerConfig struct {
 }
 
 // WorkerIncrementalStatsConfig controls the O(1) delta path that replaces
-// full-history recomputes for profile_public_stats and author_activity_daily.
-// See docs/design/incremental-author-stats.md.
+// full-history recomputes for profile_public_stats, author_activity_daily,
+// and profile_discovery_stats. See docs/design/incremental-author-stats.md.
 type WorkerIncrementalStatsConfig struct {
-	ProfilePublicStats  bool
-	AuthorActivityDaily bool
-	WindowedRollups     bool
-	Reconciliation      WorkerIncrementalStatsReconciliationConfig
+	ProfilePublicStats    bool
+	AuthorActivityDaily   bool
+	WindowedRollups       bool
+	ProfileDiscoveryStats bool
+	Reconciliation        WorkerIncrementalStatsReconciliationConfig
 }
 
 // WorkerIncrementalStatsReconciliationConfig configures the periodic
@@ -602,6 +603,14 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.ProfileStatsSweeper.Concurrency <= 0 {
 			return fmt.Errorf("WORKER_PROFILE_STATS_SWEEPER_CONCURRENCY must be > 0")
+		}
+	}
+	if cfg.IncrementalStats.ProfileDiscoveryStats {
+		if !cfg.IncrementalStats.ProfilePublicStats {
+			return fmt.Errorf("WORKER_INCREMENTAL_PROFILE_DISCOVERY_STATS=true requires WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS=true")
+		}
+		if !cfg.IncrementalStats.AuthorActivityDaily {
+			return fmt.Errorf("WORKER_INCREMENTAL_PROFILE_DISCOVERY_STATS=true requires WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY=true")
 		}
 	}
 	if cfg.IncrementalStats.Reconciliation.Enabled {

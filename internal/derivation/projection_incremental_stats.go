@@ -37,7 +37,7 @@ func (h *Handlers) ApplyIncrementalAuthorStats(ctx context.Context, eventID stri
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
 	}
-	if !h.incrementalProfilePublicStats && !h.incrementalAuthorActivityDaily {
+	if !h.incrementalProfilePublicStats && !h.incrementalAuthorActivityDaily && !h.incrementalProfileDiscoveryStats {
 		return nil
 	}
 	eventID = strings.TrimSpace(eventID)
@@ -87,6 +87,11 @@ func (h *Handlers) ApplyIncrementalAuthorStats(ctx context.Context, eventID stri
 			return err
 		}
 		if err := h.applyIncrementalAuthorHourlyActivityTx(ctx, tx, eventID, pubkey, kind, createdAt, isReply, replyTargetEventID, tags); err != nil {
+			return err
+		}
+	}
+	if h.incrementalProfileDiscoveryStats {
+		if err := h.applyIncrementalProfileDiscoveryRecentActivityTx(ctx, tx, eventID, pubkey, kind, createdAt, isReply, replyTargetEventID, tags); err != nil {
 			return err
 		}
 	}
@@ -352,6 +357,7 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 	tx pgx.Tx,
 	eventID, authorPubkey string,
 	previousFollowed, contacts []string,
+	contactListCreatedAt int64,
 	versionOverride *int,
 ) error {
 	if !h.incrementalProfilePublicStats {
@@ -425,6 +431,7 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 		bump(followed, -1, 0)
 	}
 
+	activityDate := time.Unix(contactListCreatedAt, 0).UTC().Truncate(24 * time.Hour)
 	for _, d := range deltas {
 		if d.followerDelta == 0 && d.followingDelta == 0 {
 			continue
@@ -448,6 +455,22 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 		`, d.pubkey, d.followerDelta, d.followingDelta, writeVersion); err != nil {
 			return fmt.Errorf("apply follower count delta for %s: %w", d.pubkey, err)
 		}
+		// True edge-diff gains feed profile_discovery_stats rising scores.
+		// Only positive follower deltas count (newly followed pubkeys).
+		if d.followerDelta > 0 {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO follower_gains_daily (
+					pubkey, activity_date, gained, derivation_version
+				)
+				VALUES ($1, $2::date, $3, $4)
+				ON CONFLICT (pubkey, activity_date) DO UPDATE
+				SET gained = GREATEST(follower_gains_daily.gained + EXCLUDED.gained, 0),
+				    derivation_version = EXCLUDED.derivation_version,
+				    updated_at = now()
+			`, d.pubkey, activityDate, d.followerDelta, writeVersion); err != nil {
+				return fmt.Errorf("apply follower gains daily for %s: %w", d.pubkey, err)
+			}
+		}
 	}
 	return nil
 }
@@ -460,6 +483,7 @@ type activityDailyDelta struct {
 	replyCount         int64
 	engagementReceived int64
 	engagementGiven    int64
+	zapMsatsReceived   int64
 }
 
 // computeActivityDailyDeltas derives the author_activity_daily row deltas
@@ -532,9 +556,15 @@ func computeActivityDailyDeltas(
 		if receiver == "" || receiver == pubkey {
 			return nil, nil
 		}
+		zapMsats := parseZapAmountSats(firstTagValue(tags, "amount")) * 1000
 		deltas = append(deltas,
 			activityDailyDelta{pubkey: pubkey, activityDate: activityDate, engagementGiven: 1},
-			activityDailyDelta{pubkey: receiver, activityDate: activityDate, engagementReceived: 1},
+			activityDailyDelta{
+				pubkey:             receiver,
+				activityDate:       activityDate,
+				engagementReceived: 1,
+				zapMsatsReceived:   zapMsats,
+			},
 		)
 	default:
 		return nil, nil
@@ -548,6 +578,7 @@ func negateActivityDailyDelta(d activityDailyDelta) activityDailyDelta {
 	d.replyCount = -d.replyCount
 	d.engagementReceived = -d.engagementReceived
 	d.engagementGiven = -d.engagementGiven
+	d.zapMsatsReceived = -d.zapMsatsReceived
 	return d
 }
 
@@ -640,7 +671,7 @@ func upsertAuthorActivityDailyDeltaTx(ctx context.Context, tx pgx.Tx, d activity
 	if d.pubkey == "" {
 		return nil
 	}
-	if d.postCount == 0 && d.noteCount == 0 && d.replyCount == 0 && d.engagementReceived == 0 && d.engagementGiven == 0 {
+	if d.postCount == 0 && d.noteCount == 0 && d.replyCount == 0 && d.engagementReceived == 0 && d.engagementGiven == 0 && d.zapMsatsReceived == 0 {
 		return nil
 	}
 	_, err := tx.Exec(ctx, `
@@ -652,18 +683,20 @@ func upsertAuthorActivityDailyDeltaTx(ctx context.Context, tx pgx.Tx, d activity
 			reply_count,
 			engagement_received,
 			engagement_given,
+			zap_msats_received,
 			derivation_version
 		)
-		VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (pubkey, activity_date) DO UPDATE
 		SET post_count = GREATEST(author_activity_daily.post_count + EXCLUDED.post_count, 0),
 		    note_count = GREATEST(author_activity_daily.note_count + EXCLUDED.note_count, 0),
 		    reply_count = GREATEST(author_activity_daily.reply_count + EXCLUDED.reply_count, 0),
 		    engagement_received = GREATEST(author_activity_daily.engagement_received + EXCLUDED.engagement_received, 0),
 		    engagement_given = GREATEST(author_activity_daily.engagement_given + EXCLUDED.engagement_given, 0),
+		    zap_msats_received = GREATEST(author_activity_daily.zap_msats_received + EXCLUDED.zap_msats_received, 0),
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
-	`, d.pubkey, d.activityDate, d.postCount, d.noteCount, d.replyCount, d.engagementReceived, d.engagementGiven, writeVersion)
+	`, d.pubkey, d.activityDate, d.postCount, d.noteCount, d.replyCount, d.engagementReceived, d.engagementGiven, d.zapMsatsReceived, writeVersion)
 	if err != nil {
 		return fmt.Errorf("upsert author_activity_daily delta for %s: %w", d.pubkey, err)
 	}
@@ -905,12 +938,19 @@ type hourlyActivityDelta struct {
 	reactionReceived   int64
 	repostReceived     int64
 	zapReceived        int64
+	zapMsatsReceived   int64
+	authoredEventCount int64
 }
 
 // computeHourlyActivityDeltas is the author_hourly_activity counterpart to
 // computeActivityDailyDeltas: a pure (no ledger, no writes) derivation of
 // the per-pubkey deltas one event contributes, shared by apply and
 // reversal.
+//
+// Every event also ticks authored_event_count for its author. That feeds
+// profile_discovery_stats.recent_active_days so the incremental rollup
+// matches the legacy full scan (DISTINCT dates over all authored events,
+// not just kind=1 posts).
 func computeHourlyActivityDeltas(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -921,16 +961,17 @@ func computeHourlyActivityDeltas(
 	tags [][]string,
 ) ([]hourlyActivityDelta, error) {
 	deltas := make([]hourlyActivityDelta, 0, 2)
+	authorTick := hourlyActivityDelta{pubkey: pubkey, authoredEventCount: 1}
 
 	switch kind {
 	case 1:
-		d := hourlyActivityDelta{pubkey: pubkey, postCount: 1}
+		authorTick.postCount = 1
 		if isReply {
-			d.replyCount = 1
+			authorTick.replyCount = 1
 		} else {
-			d.noteCount = 1
+			authorTick.noteCount = 1
 		}
-		deltas = append(deltas, d)
+		deltas = append(deltas, authorTick)
 		if isReply && replyTargetEventID != "" {
 			targetPubkey, ok, err := lookupEventPubkeyTx(ctx, tx, replyTargetEventID)
 			if err != nil {
@@ -945,16 +986,17 @@ func computeHourlyActivityDeltas(
 			}
 		}
 	case 6, 7:
+		deltas = append(deltas, authorTick)
 		targetEventID := firstReferencedEventID(tags)
 		if targetEventID == "" {
-			return nil, nil
+			return deltas, nil
 		}
 		targetPubkey, ok, err := lookupEventPubkeyTx(ctx, tx, targetEventID)
 		if err != nil {
 			return nil, err
 		}
 		if !ok || targetPubkey == "" || targetPubkey == pubkey {
-			return nil, nil
+			return deltas, nil
 		}
 		d := hourlyActivityDelta{pubkey: targetPubkey, engagementReceived: 1}
 		if kind == 7 {
@@ -964,17 +1006,19 @@ func computeHourlyActivityDeltas(
 		}
 		deltas = append(deltas, d)
 	case 9735:
+		deltas = append(deltas, authorTick)
 		receiver := firstTagValue(tags, "p")
 		if receiver == "" || receiver == pubkey {
-			return nil, nil
+			return deltas, nil
 		}
 		deltas = append(deltas, hourlyActivityDelta{
 			pubkey:             receiver,
 			engagementReceived: 1,
 			zapReceived:        1,
+			zapMsatsReceived:   parseZapAmountSats(firstTagValue(tags, "amount")) * 1000,
 		})
 	default:
-		return nil, nil
+		deltas = append(deltas, authorTick)
 	}
 	return deltas, nil
 }
@@ -988,6 +1032,8 @@ func negateHourlyActivityDelta(d hourlyActivityDelta) hourlyActivityDelta {
 	d.reactionReceived = -d.reactionReceived
 	d.repostReceived = -d.repostReceived
 	d.zapReceived = -d.zapReceived
+	d.zapMsatsReceived = -d.zapMsatsReceived
+	d.authoredEventCount = -d.authoredEventCount
 	return d
 }
 
@@ -1085,9 +1131,11 @@ func upsertAuthorHourlyActivityDeltaTx(
 			reaction_received,
 			repost_received,
 			zap_received,
+			zap_msats_received,
+			authored_event_count,
 			derivation_version
 		)
-		VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (pubkey, activity_date, day_of_week, hour_of_day) DO UPDATE
 		SET post_count = GREATEST(author_hourly_activity.post_count + EXCLUDED.post_count, 0),
 		    note_count = GREATEST(author_hourly_activity.note_count + EXCLUDED.note_count, 0),
@@ -1097,13 +1145,95 @@ func upsertAuthorHourlyActivityDeltaTx(
 		    reaction_received = GREATEST(author_hourly_activity.reaction_received + EXCLUDED.reaction_received, 0),
 		    repost_received = GREATEST(author_hourly_activity.repost_received + EXCLUDED.repost_received, 0),
 		    zap_received = GREATEST(author_hourly_activity.zap_received + EXCLUDED.zap_received, 0),
+		    zap_msats_received = GREATEST(author_hourly_activity.zap_msats_received + EXCLUDED.zap_msats_received, 0),
+		    authored_event_count = GREATEST(author_hourly_activity.authored_event_count + EXCLUDED.authored_event_count, 0),
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
 	`, d.pubkey, activityDate, dow, hour,
 		d.postCount, d.noteCount, d.replyCount,
 		d.engagementReceived, d.replyReceived, d.reactionReceived, d.repostReceived, d.zapReceived,
-		writeVersion); err != nil {
+		d.zapMsatsReceived, d.authoredEventCount, writeVersion); err != nil {
 		return fmt.Errorf("upsert author_hourly_activity for %s: %w", d.pubkey, err)
+	}
+	return nil
+}
+
+// applyIncrementalProfileDiscoveryRecentActivityTx maintains
+// profile_discovery_recent_activity with O(1) GREATEST updates for every
+// pubkey whose discovery recency is affected by this event (author on
+// kind=1, plus reply/reaction/repost/zap targets). Replaces the unbounded
+// MAX(created_at) UNION scan in the discovery sweeper.
+//
+// Deliberately not ledger-gated: GREATEST against the same created_at is
+// naturally idempotent under at-least-once redelivery, and retention does
+// not roll recent_activity_at back (same choice as profile_public_stats).
+func (h *Handlers) applyIncrementalProfileDiscoveryRecentActivityTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	eventID, pubkey string,
+	kind int,
+	createdAt int64,
+	isReply bool,
+	replyTargetEventID string,
+	tags [][]string,
+) error {
+	_ = eventID
+	targets := make([]string, 0, 2)
+	switch kind {
+	case 1:
+		targets = append(targets, pubkey)
+		if isReply && replyTargetEventID != "" {
+			targetPubkey, ok, err := lookupEventPubkeyTx(ctx, tx, replyTargetEventID)
+			if err != nil {
+				return err
+			}
+			if ok && targetPubkey != "" {
+				targets = append(targets, targetPubkey)
+			}
+		}
+	case 6, 7:
+		targetEventID := firstReferencedEventID(tags)
+		if targetEventID == "" {
+			return nil
+		}
+		targetPubkey, ok, err := lookupEventPubkeyTx(ctx, tx, targetEventID)
+		if err != nil {
+			return err
+		}
+		if ok && targetPubkey != "" {
+			targets = append(targets, targetPubkey)
+		}
+	case 9735:
+		receiver := firstTagValue(tags, "p")
+		if receiver != "" {
+			targets = append(targets, receiver)
+		}
+	default:
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		if _, ok := seen[target]; ok {
+			continue
+		}
+		seen[target] = struct{}{}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO profile_discovery_recent_activity (pubkey, recent_activity_at)
+			VALUES ($1, $2)
+			ON CONFLICT (pubkey) DO UPDATE
+			SET recent_activity_at = GREATEST(
+					profile_discovery_recent_activity.recent_activity_at,
+					EXCLUDED.recent_activity_at
+				),
+			    updated_at = now()
+		`, target, createdAt); err != nil {
+			return fmt.Errorf("upsert profile discovery recent activity for %s: %w", target, err)
+		}
 	}
 	return nil
 }

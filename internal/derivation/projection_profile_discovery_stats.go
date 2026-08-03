@@ -80,13 +80,30 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 	if err := lockPubkeyForWriteTx(ctx, tx, pubkey, pubkeyLockNamespaceProfileDiscoveryStats); err != nil {
 		return err
 	}
-	metrics, err := loadProfileDualWindowMetricsTx(ctx, tx, pubkey, nowUnix)
-	if err != nil {
-		return err
-	}
-	recentActivityAt, err := loadProfileRecentActivityAtTx(ctx, tx, pubkey)
-	if err != nil {
-		return err
+
+	var (
+		metrics          profileDualWindowMetrics
+		recentActivityAt *int64
+		err              error
+	)
+	if h.incrementalProfileDiscoveryStats {
+		metrics, err = loadProfileDualWindowMetricsIncrementalTx(ctx, tx, pubkey, nowUnix)
+		if err != nil {
+			return err
+		}
+		recentActivityAt, err = loadProfileDiscoveryRecentActivityAtTx(ctx, tx, pubkey)
+		if err != nil {
+			return err
+		}
+	} else {
+		metrics, err = loadProfileDualWindowMetricsTx(ctx, tx, pubkey, nowUnix)
+		if err != nil {
+			return err
+		}
+		recentActivityAt, err = loadProfileRecentActivityAtTx(ctx, tx, pubkey)
+		if err != nil {
+			return err
+		}
 	}
 
 	w24 := metrics.window24h
@@ -138,6 +155,121 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 		return fmt.Errorf("upsert profile discovery stats: %w", err)
 	}
 	return nil
+}
+
+// loadProfileDiscoveryRecentActivityAtTx reads the O(1)-maintained discovery
+// recency marker, falling back to profile_public_stats.recent_activity_at
+// (author-only) when no discovery-specific row exists yet.
+func loadProfileDiscoveryRecentActivityAtTx(ctx context.Context, tx pgx.Tx, pubkey string) (*int64, error) {
+	var recentActivityAt *int64
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(d.recent_activity_at, p.recent_activity_at)
+		FROM (SELECT $1::text AS pubkey) k
+		LEFT JOIN profile_discovery_recent_activity d ON d.pubkey = k.pubkey
+		LEFT JOIN profile_public_stats p ON p.pubkey = k.pubkey
+	`, pubkey).Scan(&recentActivityAt); err != nil {
+		return nil, fmt.Errorf("load incremental profile discovery recent activity: %w", err)
+	}
+	return recentActivityAt, nil
+}
+
+// loadProfileDualWindowMetricsIncrementalTx rolls 24h/7d discovery windows
+// from author_hourly_activity / author_activity_daily / follower_gains_daily
+// and reads follower_count from profile_public_stats. Bounded to a few dozen
+// indexed rows per pubkey instead of scanning raw engagement tables.
+func loadProfileDualWindowMetricsIncrementalTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	pubkey string,
+	nowUnix int64,
+) (profileDualWindowMetrics, error) {
+	cutoff24h := nowUnix - int64((24*time.Hour)/time.Second)
+	cutoff7d := nowUnix - int64((7*24*time.Hour)/time.Second)
+	cutoff7dDate := time.Unix(cutoff7d, 0).UTC().Truncate(24 * time.Hour)
+	cutoff24hDate := time.Unix(cutoff24h, 0).UTC().Truncate(24 * time.Hour)
+
+	var out profileDualWindowMetrics
+	var activeDays24h, activeDays7d int64
+
+	// 24h/7d authored metrics + engagement/zaps from hourly buckets whose hour
+	// start falls inside each rolling window. The LEFT JOIN from a dummy row
+	// keeps the query returning exactly one row when the pubkey has no hourly
+	// activity yet (plain FROM author_hourly_activity would yield ErrNoRows).
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(h.note_count) FILTER (WHERE h.bucket_start >= $2), 0),
+			COALESCE(SUM(h.reply_count) FILTER (WHERE h.bucket_start >= $2), 0),
+			COALESCE(SUM(h.engagement_received) FILTER (WHERE h.bucket_start >= $2), 0),
+			COALESCE(SUM(h.zap_msats_received) FILTER (WHERE h.bucket_start >= $2), 0),
+			COALESCE(COUNT(DISTINCT h.activity_date) FILTER (
+				WHERE h.bucket_start >= $2 AND h.authored_event_count > 0
+			), 0),
+			COALESCE(SUM(h.note_count) FILTER (WHERE h.bucket_start >= $3), 0),
+			COALESCE(SUM(h.reply_count) FILTER (WHERE h.bucket_start >= $3), 0),
+			COALESCE(SUM(h.engagement_received) FILTER (WHERE h.bucket_start >= $3), 0),
+			COALESCE(SUM(h.zap_msats_received) FILTER (WHERE h.bucket_start >= $3), 0),
+			COALESCE(COUNT(DISTINCT h.activity_date) FILTER (
+				WHERE h.bucket_start >= $3 AND h.authored_event_count > 0
+			), 0)
+		FROM (SELECT 1) AS _
+		LEFT JOIN (
+			SELECT
+				activity_date,
+				note_count,
+				reply_count,
+				engagement_received,
+				zap_msats_received,
+				authored_event_count,
+				(
+					EXTRACT(EPOCH FROM (activity_date::timestamp AT TIME ZONE 'UTC'))::bigint
+					+ hour_of_day::bigint * 3600
+				) AS bucket_start
+			FROM author_hourly_activity
+			WHERE pubkey = $1
+			  AND activity_date >= $4::date
+		) h ON TRUE
+	`, pubkey, cutoff24h, cutoff7d, cutoff7dDate).Scan(
+		&out.window24h.postCount,
+		&out.window24h.replyCount,
+		&out.window24h.engagement,
+		&out.window24h.zapVolumeMSats,
+		&activeDays24h,
+		&out.window7d.postCount,
+		&out.window7d.replyCount,
+		&out.window7d.engagement,
+		&out.window7d.zapVolumeMSats,
+		&activeDays7d,
+	); err != nil {
+		return profileDualWindowMetrics{}, fmt.Errorf("load incremental dual-window hourly metrics: %w", err)
+	}
+	out.window24h.activeDays = int(activeDays24h)
+	out.window7d.activeDays = int(activeDays7d)
+
+	// Follower gains use calendar-day buckets (kind=3 created_at date). That
+	// matches how gains are written and is the intended rising-score input;
+	// it is deliberately NOT reconciled against the legacy
+	// contact_list_created_at edge scan (rewrites re-count there).
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			COALESCE((
+				SELECT SUM(gained) FROM follower_gains_daily
+				WHERE pubkey = $1 AND activity_date >= $2::date
+			), 0),
+			COALESCE((
+				SELECT SUM(gained) FROM follower_gains_daily
+				WHERE pubkey = $1 AND activity_date >= $3::date
+			), 0),
+			COALESCE((
+				SELECT follower_count FROM profile_public_stats WHERE pubkey = $1
+			), 0)
+	`, pubkey, cutoff24hDate, cutoff7dDate).Scan(
+		&out.window24h.newFollowers,
+		&out.window7d.newFollowers,
+		&out.followerCount,
+	); err != nil {
+		return profileDualWindowMetrics{}, fmt.Errorf("load incremental follower discovery metrics: %w", err)
+	}
+	return out, nil
 }
 
 func loadProfileRecentActivityAtTx(ctx context.Context, tx pgx.Tx, pubkey string) (*int64, error) {

@@ -147,7 +147,7 @@ func (h *Handlers) projectContactListsLatestWithVersion(ctx context.Context, eve
 			// Dirty markers are written inside the same transaction as
 			// the contact_lists_latest / follower_edges writes so that a
 			// rollback of the bundle step also rolls back the markers.
-			if err := h.applyFollowerCountDeltasTx(ctx, tx, winnerID, pubkey, previousFollowed, contacts, versionOverride); err != nil {
+			if err := h.applyFollowerCountDeltasTx(ctx, tx, winnerID, pubkey, previousFollowed, contacts, winnerCreatedAt, versionOverride); err != nil {
 				return err
 			}
 			impactedPubkeys := make([]string, 0, 1+len(previousFollowed)+len(contacts))

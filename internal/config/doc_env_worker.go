@@ -52,6 +52,13 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Description:  "Roll author topic/media/hourly windowed stats from fine-grained daily tables instead of scanning raw event tables. Falls back to source scans when daily rows are absent for a pubkey/window.",
 		},
 		{
+			Name:         "WORKER_INCREMENTAL_PROFILE_DISCOVERY_STATS",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Roll profile_discovery_stats 24h/7d windows from author_activity_daily / author_hourly_activity / follower_gains_daily instead of rescanning raw engagement tables. Requires WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS and WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY.",
+		},
+		{
 			Name:         "WORKER_INCREMENTAL_STATS_RECONCILIATION_ENABLED",
 			Runtimes:     []string{"worker"},
 			Required:     false,

@@ -25,6 +25,10 @@ type Handlers struct {
 	// incrementalWindowedRollups rolls topics/media/hourly windows from the
 	// fine-grained daily tables instead of scanning raw event tables.
 	incrementalWindowedRollups bool
+	// incrementalProfileDiscoveryStats rolls profile_discovery_stats 24h/7d
+	// windows from author_activity_daily / author_hourly_activity /
+	// follower_gains_daily instead of rescanning raw engagement tables.
+	incrementalProfileDiscoveryStats bool
 }
 
 type EventJobPayload = jobs.EventJobPayload
@@ -50,6 +54,11 @@ type HandlersOptions struct {
 	// IncrementalWindowedRollups rolls windowed topic/media/hourly stats from
 	// fine-grained daily tables. When nil, defaults to enabled.
 	IncrementalWindowedRollups *bool
+	// IncrementalProfileDiscoveryStats rolls profile_discovery_stats from
+	// incremental daily/hourly tables. When nil, defaults to enabled.
+	// Requires IncrementalAuthorActivityDaily + IncrementalProfilePublicStats
+	// for complete inputs (enforced at worker config validation).
+	IncrementalProfileDiscoveryStats *bool
 }
 
 func NewHandlers(pool *pgxpool.Pool) *Handlers {
@@ -65,12 +74,13 @@ func boolOptionOrDefault(v *bool, def bool) bool {
 
 func NewHandlersWithOptions(pool *pgxpool.Pool, options HandlersOptions) *Handlers {
 	return &Handlers{
-		pool:                           pool,
-		meili:                          options.MeiliClient,
-		authorAnalyticsWindows:         normalizeAuthorAnalyticsWindows(options.AuthorAnalyticsWindows),
-		incrementalProfilePublicStats:  boolOptionOrDefault(options.IncrementalProfilePublicStats, true),
-		incrementalAuthorActivityDaily: boolOptionOrDefault(options.IncrementalAuthorActivityDaily, true),
-		incrementalWindowedRollups:     boolOptionOrDefault(options.IncrementalWindowedRollups, true),
+		pool:                             pool,
+		meili:                            options.MeiliClient,
+		authorAnalyticsWindows:           normalizeAuthorAnalyticsWindows(options.AuthorAnalyticsWindows),
+		incrementalProfilePublicStats:    boolOptionOrDefault(options.IncrementalProfilePublicStats, true),
+		incrementalAuthorActivityDaily:   boolOptionOrDefault(options.IncrementalAuthorActivityDaily, true),
+		incrementalWindowedRollups:       boolOptionOrDefault(options.IncrementalWindowedRollups, true),
+		incrementalProfileDiscoveryStats: boolOptionOrDefault(options.IncrementalProfileDiscoveryStats, true),
 	}
 }
 
