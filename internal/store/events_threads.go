@@ -16,11 +16,20 @@ import (
 )
 
 // GetEventWithProvenance loads the canonical event payload and relay provenance.
+// The event payload is enriched with eventual engagement counters for note-card UIs
+// (search direct lookup, event detail fallbacks). Layer-1 GetEventRawByID stays bare.
 func (s *PostgresStore) GetEventWithProvenance(ctx context.Context, id string) (EventWithProvenance, error) {
 	out := EventWithProvenance{}
 	raw, err := s.GetEventRawByID(ctx, id)
 	if err != nil {
 		return out, err
+	}
+	enriched, err := s.EnrichEventsWithCounts(ctx, []json.RawMessage{raw})
+	if err != nil {
+		return out, err
+	}
+	if len(enriched) > 0 {
+		raw = enriched[0]
 	}
 	relays, err := s.GetEventSeenOn(ctx, id)
 	if err != nil {

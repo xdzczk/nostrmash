@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -72,7 +73,7 @@ func (s Service) GetEventWithProvenance(ctx context.Context, eventID string) (Ev
 			})
 		}
 		return EventWithProvenanceResult{
-			Event:       event.Event,
+			Event:       s.enrichEventRawWithCounts(ctx, eventID, event.Event),
 			Relays:      relays,
 			Consistency: "strong",
 		}, nil
@@ -85,10 +86,30 @@ func (s Service) GetEventWithProvenance(ctx context.Context, eventID string) (Ev
 		return EventWithProvenanceResult{}, readmodel.ErrNotFound
 	}
 	return EventWithProvenanceResult{
-		Event:       raw,
+		Event:       s.enrichEventRawWithCounts(ctx, eventID, raw),
 		Relays:      []model.EventRelay{},
 		Consistency: "eventual",
 	}, nil
+}
+
+func (s Service) enrichEventRawWithCounts(ctx context.Context, eventID string, raw json.RawMessage) json.RawMessage {
+	counts, err := s.reader.GetEventCounts(ctx, eventID)
+	if err != nil {
+		return raw
+	}
+	enriched, err := readmodel.MergeEventCountsIntoRaw(raw, readmodel.EventCounts{
+		EventID:       counts.EventID,
+		ReplyCount:    counts.ReplyCount,
+		ReactionCount: counts.ReactionCount,
+		RepostCount:   counts.RepostCount,
+		ZapCount:      counts.ZapCount,
+		ZapMSats:      counts.ZapMSats,
+		Consistency:   counts.Consistency,
+	})
+	if err != nil {
+		return raw
+	}
+	return enriched
 }
 
 func (s Service) GetEventSeenOn(ctx context.Context, eventID string) (EventSeenOnResult, error) {
