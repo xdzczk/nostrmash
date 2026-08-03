@@ -144,6 +144,12 @@ func (h *Handlers) applyScopeRebuild(ctx context.Context, run ProjectionRebuildR
 	}
 	for _, eventID := range eventIDs {
 		if err := def.rebuildProject(ctx, eventID, &version); err != nil {
+			// Full/range rebuilds race with retention: an id can disappear between
+			// the scope scan and projection. Skip those rows instead of failing
+			// the entire rebuild. Event-scoped rebuilds still surface the miss.
+			if errors.Is(err, pgx.ErrNoRows) && run.Scope.Type != RebuildScopeEvent {
+				continue
+			}
 			return fmt.Errorf("rebuild %s for event %s: %w", run.DerivationName, eventID, err)
 		}
 	}

@@ -29,6 +29,7 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       ReplyCountsVersion,
 			description:    "Project eventually-consistent reply counts from thread-parent references (reply, else root)",
 			rebuildProject: h.projectReplyCountsWithVersion,
+			rebuildFull:    h.rebuildReplyCountsWithVersion,
 		}, nil
 	case DerivationReactionCounts:
 		return projectionDefinition{
@@ -112,6 +113,7 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       NoteDiscoveryStatsVersion,
 			description:    "Project per-note discovery counters and rolling scores",
 			rebuildProject: h.projectNoteDiscoveryStatsWithVersion,
+			rebuildFull:    h.rebuildNoteDiscoveryStatsWithVersion,
 		}, nil
 	case DerivationProfileDiscoveryStats:
 		return projectionDefinition{
