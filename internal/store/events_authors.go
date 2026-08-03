@@ -7,6 +7,18 @@ import (
 	"strings"
 )
 
+const authorEventCountsSelect = `
+			COALESCE(
+				(SELECT reply_count FROM thread_summaries WHERE root_event_id = e.id),
+				(SELECT count FROM reply_counts WHERE event_id = e.id),
+				0
+			),
+			COALESCE((SELECT count FROM reaction_counts WHERE event_id = e.id), 0),
+			COALESCE((SELECT count FROM repost_counts WHERE event_id = e.id), 0),
+			COALESCE((SELECT zap_count FROM note_discovery_stats WHERE event_id = e.id), 0),
+			COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = e.id), 0)
+`
+
 // GetAuthorRecentEvents returns projected recent event payloads for one author.
 func (s *PostgresStore) GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
@@ -21,7 +33,9 @@ func (s *PostgresStore) GetAuthorRecentEvents(ctx context.Context, pubkey string
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT e.raw_json::text
+		SELECT
+			e.raw_json::text,
+			`+authorEventCountsSelect+`
 		FROM author_recent_events are
 		INNER JOIN events e ON e.id = are.event_id
 		WHERE are.author_pubkey = $1
@@ -33,18 +47,7 @@ func (s *PostgresStore) GetAuthorRecentEvents(ctx context.Context, pubkey string
 	}
 	defer rows.Close()
 
-	out := make([]json.RawMessage, 0, limit)
-	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return nil, fmt.Errorf("scan author recent event row: %w", err)
-		}
-		out = append(out, json.RawMessage(raw))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read author recent event rows: %w", err)
-	}
-	return out, nil
+	return scanAuthorEventsWithCounts(rows)
 }
 
 // GetAuthorReplies returns replies authored by one pubkey sorted by created_at desc, id desc.
@@ -64,7 +67,9 @@ func (s *PostgresStore) GetAuthorReplies(ctx context.Context, pubkey string, lim
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT e.raw_json::text
+		SELECT
+			e.raw_json::text,
+			`+authorEventCountsSelect+`
 		FROM events e
 		WHERE e.pubkey = $1
 		  AND EXISTS (
@@ -80,18 +85,7 @@ func (s *PostgresStore) GetAuthorReplies(ctx context.Context, pubkey string, lim
 	}
 	defer rows.Close()
 
-	out := make([]json.RawMessage, 0, limit)
-	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return nil, fmt.Errorf("scan author reply row: %w", err)
-		}
-		out = append(out, json.RawMessage(raw))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read author replies rows: %w", err)
-	}
-	return out, nil
+	return scanAuthorEventsWithCounts(rows)
 }
 
 // GetAuthorRecentEventsByKind returns projected recent events for one author filtered by kind.
@@ -119,7 +113,9 @@ func (s *PostgresStore) GetAuthorRecentEventsByKind(
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT e.raw_json::text
+		SELECT
+			e.raw_json::text,
+			`+authorEventCountsSelect+`
 		FROM author_recent_events are
 		INNER JOIN events e ON e.id = are.event_id
 		WHERE are.author_pubkey = $1
@@ -132,16 +128,39 @@ func (s *PostgresStore) GetAuthorRecentEventsByKind(
 	}
 	defer rows.Close()
 
-	out := make([]json.RawMessage, 0, limit)
+	return scanAuthorEventsWithCounts(rows)
+}
+
+type authorEventRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}
+
+func scanAuthorEventsWithCounts(rows authorEventRows) ([]json.RawMessage, error) {
+	out := make([]json.RawMessage, 0)
 	for rows.Next() {
 		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return nil, fmt.Errorf("scan author recent event by kind row: %w", err)
+		var counts EventCounts
+		counts.Consistency = "eventual"
+		if err := rows.Scan(
+			&raw,
+			&counts.ReplyCount,
+			&counts.ReactionCount,
+			&counts.RepostCount,
+			&counts.ZapCount,
+			&counts.ZapMSats,
+		); err != nil {
+			return nil, fmt.Errorf("scan author event row: %w", err)
 		}
-		out = append(out, json.RawMessage(raw))
+		enriched, err := mergeEventCountsIntoRaw(json.RawMessage(raw), counts)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, enriched)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read author recent event by kind rows: %w", err)
+		return nil, fmt.Errorf("read author event rows: %w", err)
 	}
 	return out, nil
 }

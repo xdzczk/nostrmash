@@ -16,10 +16,12 @@ func TestGetAuthorEvents_SortsAlreadyProjectedOrder(t *testing.T) {
 			if limit != 20 {
 				t.Fatalf("unexpected default limit: %d", limit)
 			}
+			// Store enrichment attaches engagement fields before the handler;
+			// the API must pass them through unchanged.
 			return []json.RawMessage{
-				json.RawMessage(`{"id":"newest","created_at":1002}`),
-				json.RawMessage(`{"id":"tie_b","created_at":1000}`),
-				json.RawMessage(`{"id":"tie_a","created_at":1000}`),
+				json.RawMessage(`{"id":"newest","created_at":1002,"reply_count":3,"repost_count":1,"reaction_count":5,"zap_count":2,"zap_msats":1000}`),
+				json.RawMessage(`{"id":"tie_b","created_at":1000,"reply_count":0,"repost_count":0,"reaction_count":0,"zap_count":0,"zap_msats":0}`),
+				json.RawMessage(`{"id":"tie_a","created_at":1000,"reply_count":0,"repost_count":0,"reaction_count":0,"zap_count":0,"zap_msats":0}`),
 			}, nil
 		},
 	}, 10)
@@ -31,6 +33,18 @@ func TestGetAuthorEvents_SortsAlreadyProjectedOrder(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+	}
+	var payload struct {
+		Events []map[string]any `json:"events"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.Events) != 3 {
+		t.Fatalf("unexpected event count: got=%d want=3", len(payload.Events))
+	}
+	if payload.Events[0]["reply_count"] != float64(3) || payload.Events[0]["reaction_count"] != float64(5) {
+		t.Fatalf("expected engagement counts to pass through, got %#v", payload.Events[0])
 	}
 }
 

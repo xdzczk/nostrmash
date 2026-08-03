@@ -339,7 +339,10 @@ paths:
           description: Optional kind filter (e.g. 9735 for sent zap receipts in author feed)
       responses:
         '200':
-          description: Event list
+          description: >
+            Event list with eventual engagement counters attached
+            (`reply_count`, `repost_count`, `reaction_count`, `zap_count`,
+            `zap_msats`, and nested `counts`) for note-card rendering.
   /api/v1/authors/{pubkey}/replies:
     get:
       tags: [public]
@@ -354,7 +357,10 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         '200':
-          description: Reply list
+          description: >
+            Reply list with eventual engagement counters attached
+            (`reply_count`, `repost_count`, `reaction_count`, `zap_count`,
+            `zap_msats`, and nested `counts`) for note-card rendering.
   /api/v1/authors/{pubkey}/zaps:
     get:
       tags: [public]
