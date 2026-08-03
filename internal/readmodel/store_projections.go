@@ -298,6 +298,10 @@ type HotConversation struct {
 	CreatedAt        int64
 	Content          string
 	ReplyCount       int64
+	RepostCount      int64
+	ReactionCount    int64
+	ZapCount         int64
+	ZapMSats         int64
 	ParticipantCount int
 	LastActivityAt   int64
 	Replies24h       int64

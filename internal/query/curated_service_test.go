@@ -198,6 +198,10 @@ func TestGetHotConversationsMapsLegacyStoreModel(t *testing.T) {
 				CreatedAt:        1700000000,
 				Content:          "hot thread",
 				ReplyCount:       8,
+				RepostCount:      2,
+				ReactionCount:    6,
+				ZapCount:         1,
+				ZapMSats:         21000,
 				ParticipantCount: 5,
 				LastActivityAt:   1700000300,
 				Replies24h:       4,
@@ -213,6 +217,9 @@ func TestGetHotConversationsMapsLegacyStoreModel(t *testing.T) {
 	}
 	if len(out) != 1 || out[0].RootEventID != "root-1" || out[0].VelocityScore != 4.75 || out[0].Replies24h != 4 {
 		t.Fatalf("unexpected hot conversations: %#v", out)
+	}
+	if out[0].RepostCount != 2 || out[0].ReactionCount != 6 || out[0].ZapCount != 1 || out[0].ZapMSats != 21000 {
+		t.Fatalf("unexpected mapped engagement counts: %#v", out[0])
 	}
 }
 

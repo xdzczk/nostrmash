@@ -797,7 +797,12 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Active conversation hotspots ranked by velocity score and recency
+          description: >
+            Active conversation hotspots ranked by velocity score and recency.
+            Each conversation includes thread reply totals (`reply_count`,
+            `activity.replies_24h` / `replies_7d`) from `thread_summaries` plus
+            root-note engagement (`repost_count`, `reaction_count`, `zap_count`,
+            `zap_msats`) from `note_discovery_stats`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DiscoveryListResponse' }

@@ -47,6 +47,18 @@ func TestGetHotConversations_WindowsAndOrdering(t *testing.T) {
 			t.Fatalf("project thread for %s: %v", event.ID, err)
 		}
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO note_discovery_stats (
+			event_id, author_pubkey, created_at,
+			reply_count, repost_count, reaction_count, zap_count, zap_msats,
+			score_24h, score_7d, derivation_version
+		)
+		VALUES
+			($1, $2, $3, 2, 3, 5, 1, 15000, 1.0, 1.0, 1),
+			($4, $5, $6, 4, 0, 0, 0, 0, 1.0, 1.0, 1)
+	`, rootA.ID, rootA.Pubkey, rootA.CreatedAt, rootB.ID, rootB.Pubkey, rootB.CreatedAt); err != nil {
+		t.Fatalf("insert note_discovery_stats: %v", err)
+	}
 
 	last24h, err := s.GetHotConversations(ctx, 24*time.Hour, 10, 0)
 	if err != nil {
@@ -60,6 +72,12 @@ func TestGetHotConversations_WindowsAndOrdering(t *testing.T) {
 	}
 	if last24h[0].Replies24h != 2 {
 		t.Fatalf("unexpected 24h replies for root_a: got=%d want=2", last24h[0].Replies24h)
+	}
+	if last24h[0].RepostCount != 3 || last24h[0].ReactionCount != 5 || last24h[0].ZapCount != 1 || last24h[0].ZapMSats != 15000 {
+		t.Fatalf("unexpected root_a engagement from note_discovery_stats: %#v", last24h[0])
+	}
+	if last24h[1].RepostCount != 0 || last24h[1].ReactionCount != 0 || last24h[1].ZapCount != 0 {
+		t.Fatalf("unexpected root_b zero engagement: %#v", last24h[1])
 	}
 
 	last7d, err := s.GetHotConversations(ctx, 7*24*time.Hour, 10, 0)

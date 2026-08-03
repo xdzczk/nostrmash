@@ -33,6 +33,10 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, li
 			e.created_at,
 			e.content,
 			COALESCE(ts.reply_count, 0),
+			COALESCE(nds.repost_count, 0),
+			COALESCE(nds.reaction_count, 0),
+			COALESCE(nds.zap_count, 0),
+			COALESCE(nds.zap_msats, 0),
 			COALESCE(ts.participant_count, 1),
 			COALESCE(ts.last_activity_at, e.created_at),
 			COALESCE(ts.replies_24h, 0),
@@ -43,6 +47,7 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, li
 			) AS velocity_score
 		FROM thread_summaries ts
 		INNER JOIN events e ON e.id = ts.root_event_id
+		LEFT JOIN note_discovery_stats nds ON nds.event_id = ts.root_event_id
 		WHERE e.kind = 1
 		  AND COALESCE(ts.last_activity_at, e.created_at) >= $1
 		  AND COALESCE(ts.%s, 0) > 0
@@ -65,6 +70,10 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, li
 			&row.CreatedAt,
 			&row.Content,
 			&row.ReplyCount,
+			&row.RepostCount,
+			&row.ReactionCount,
+			&row.ZapCount,
+			&row.ZapMSats,
 			&row.ParticipantCount,
 			&row.LastActivityAt,
 			&row.Replies24h,

@@ -163,6 +163,10 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 				"created_at":        conversation.CreatedAt,
 				"content":           conversation.Content,
 				"reply_count":       conversation.ReplyCount,
+				"repost_count":      conversation.RepostCount,
+				"reaction_count":    conversation.ReactionCount,
+				"zap_count":         conversation.ZapCount,
+				"zap_msats":         conversation.ZapMSats,
 				"participant_count": conversation.ParticipantCount,
 				"last_activity_at":  conversation.LastActivityAt,
 				"activity": map[string]any{

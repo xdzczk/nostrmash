@@ -43,7 +43,11 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 				t.Fatalf("unexpected conversations offset: %d", offset)
 			}
 			return []store.HotConversation{
-				{RootEventID: "root_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hot one", ReplyCount: 4, ParticipantCount: 3, LastActivityAt: 1700000100, Replies24h: 4, Replies7d: 5, VelocityScore: 4.3, Consistency: "eventual"},
+				{
+					RootEventID: "root_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hot one",
+					ReplyCount: 4, RepostCount: 2, ReactionCount: 7, ZapCount: 1, ZapMSats: 9000,
+					ParticipantCount: 3, LastActivityAt: 1700000100, Replies24h: 4, Replies7d: 5, VelocityScore: 4.3, Consistency: "eventual",
+				},
 			}, nil
 		},
 		getTrendingTagsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingHashtag, error) {
@@ -126,6 +130,33 @@ func TestDiscoveryTrendingRoutes_ReturnSuccess(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("unexpected status for %s: got %d want %d", path, rec.Code, http.StatusOK)
 		}
+	}
+
+	convReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/conversations/hot?window=24h&limit=2&offset=1", nil)
+	convRec := httptest.NewRecorder()
+	mux.ServeHTTP(convRec, convReq)
+	if convRec.Code != http.StatusOK {
+		t.Fatalf("unexpected conversations status: got %d want %d", convRec.Code, http.StatusOK)
+	}
+	var convPayload struct {
+		Conversations []struct {
+			RootEventID   string `json:"root_event_id"`
+			ReplyCount    int64  `json:"reply_count"`
+			RepostCount   int64  `json:"repost_count"`
+			ReactionCount int64  `json:"reaction_count"`
+			ZapCount      int64  `json:"zap_count"`
+			ZapMSats      int64  `json:"zap_msats"`
+		} `json:"conversations"`
+	}
+	if err := json.Unmarshal(convRec.Body.Bytes(), &convPayload); err != nil {
+		t.Fatalf("decode conversations payload: %v", err)
+	}
+	if len(convPayload.Conversations) != 1 {
+		t.Fatalf("unexpected conversations len: got=%d want=1", len(convPayload.Conversations))
+	}
+	got := convPayload.Conversations[0]
+	if got.RootEventID != "root_1" || got.ReplyCount != 4 || got.RepostCount != 2 || got.ReactionCount != 7 || got.ZapCount != 1 || got.ZapMSats != 9000 {
+		t.Fatalf("unexpected conversation engagement payload: %#v", got)
 	}
 }
 

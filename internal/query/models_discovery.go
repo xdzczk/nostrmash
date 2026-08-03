@@ -231,6 +231,10 @@ type HotConversation struct {
 	CreatedAt        int64   `json:"created_at"`
 	Content          string  `json:"content"`
 	ReplyCount       int64   `json:"reply_count"`
+	RepostCount      int64   `json:"repost_count"`
+	ReactionCount    int64   `json:"reaction_count"`
+	ZapCount         int64   `json:"zap_count"`
+	ZapMSats         int64   `json:"zap_msats"`
 	ParticipantCount int     `json:"participant_count"`
 	LastActivityAt   int64   `json:"last_activity_at"`
 	Replies24h       int64   `json:"replies_24h"`
