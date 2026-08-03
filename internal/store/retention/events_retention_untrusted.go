@@ -18,6 +18,10 @@ import (
 // future writes, this reclaims the untrusted residue the gate let through
 // (open/shadow mode, pre-gate history, authors later dropped from the graph).
 //
+// Kind-1 replies linked in thread_edges are excluded: the ingest gate accepts
+// those from any author when the parent already exists locally, and purging
+// them would silently collapse conversation totals on Discover.
+//
 // Age is enforced on BOTH the author-claimed created_at (indexable via
 // idx_events_kind_created_at) and the ingest-time first_seen_at, so a
 // freshly-backfilled event with an ancient created_at is never purged before

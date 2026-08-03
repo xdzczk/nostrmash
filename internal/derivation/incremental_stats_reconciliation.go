@@ -298,9 +298,8 @@ func (h *Handlers) computeTrueProfilePublicStats(ctx context.Context, pubkey str
 				  AND e.kind = 1
 				  AND NOT EXISTS (
 				      SELECT 1
-				      FROM event_references er
-				      WHERE er.source_event_id = e.id
-				        AND er.relation = 'reply'
+				      FROM thread_edges te
+				      WHERE te.child_event_id = e.id
 				  )
 			), 0) AS note_count,
 			COALESCE((
@@ -310,9 +309,8 @@ func (h *Handlers) computeTrueProfilePublicStats(ctx context.Context, pubkey str
 				  AND e.kind = 1
 				  AND EXISTS (
 				      SELECT 1
-				      FROM event_references er
-				      WHERE er.source_event_id = e.id
-				        AND er.relation = 'reply'
+				      FROM thread_edges te
+				      WHERE te.child_event_id = e.id
 				  )
 			), 0) AS reply_count,
 			(
@@ -402,11 +400,10 @@ func (h *Handlers) computeTrueAuthorActivityTotals(ctx context.Context, pubkey s
 			), 0) AS post_count,
 			COALESCE((
 				SELECT COUNT(*)
-				FROM event_references er
-				INNER JOIN events e ON e.id = er.source_event_id
-				INNER JOIN events target ON target.id = er.referenced_event_id
-				WHERE er.relation = 'reply'
-				  AND target.pubkey = $1
+				FROM thread_edges te
+				INNER JOIN events e ON e.id = te.child_event_id
+				INNER JOIN events target ON target.id = te.parent_event_id
+				WHERE target.pubkey = $1
 				  AND e.pubkey <> $1
 			), 0)
 			+ COALESCE((
@@ -432,11 +429,10 @@ func (h *Handlers) computeTrueAuthorActivityTotals(ctx context.Context, pubkey s
 			), 0) AS engagement_received,
 			COALESCE((
 				SELECT COUNT(*)
-				FROM event_references er
-				INNER JOIN events e ON e.id = er.source_event_id
-				INNER JOIN events target ON target.id = er.referenced_event_id
-				WHERE er.relation = 'reply'
-				  AND e.pubkey = $1
+				FROM thread_edges te
+				INNER JOIN events e ON e.id = te.child_event_id
+				INNER JOIN events target ON target.id = te.parent_event_id
+				WHERE e.pubkey = $1
 				  AND target.pubkey <> $1
 			), 0)
 			+ COALESCE((

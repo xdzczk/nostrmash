@@ -1,6 +1,6 @@
 package derivation
 
-import "strings"
+import "github.com/xdzczk/nostrmash/internal/nostr"
 
 type derivedReference struct {
 	SourceEventID string
@@ -12,91 +12,19 @@ type derivedReference struct {
 }
 
 func deriveEventReferences(sourceEventID string, tags [][]string) []derivedReference {
-	return deriveReferencesByTagName(sourceEventID, tags, "e")
-}
-
-func deriveReferencesByTagName(sourceEventID string, tags [][]string, tagName string) []derivedReference {
-	refs := make([]derivedReference, 0)
-	unmarkedIdx := make([]int, 0)
-
-	for i, tag := range tags {
-		if len(tag) < 2 || tag[0] != tagName {
-			continue
-		}
-		referenced := strings.TrimSpace(tag[1])
-		if referenced == "" {
-			continue
-		}
-
-		relayHint := ""
-		if len(tag) > 2 {
-			relayHint = strings.TrimSpace(tag[2])
-		}
-		marker := ""
-		if len(tag) > 3 {
-			marker = strings.TrimSpace(tag[3])
-		}
-		relation, marked := ParseRelationMarker(marker)
-		if marked {
-			refs = append(refs, derivedReference{
-				SourceEventID: sourceEventID,
-				Referenced:    referenced,
-				Relation:      relation,
-				TagIndex:      i,
-				RelayHint:     relayHint,
-				Marker:        relation,
-			})
-			continue
-		}
-
+	raw := nostr.DeriveETagReferences(tags)
+	refs := make([]derivedReference, 0, len(raw))
+	for _, ref := range raw {
 		refs = append(refs, derivedReference{
 			SourceEventID: sourceEventID,
-			Referenced:    referenced,
-			TagIndex:      i,
-			RelayHint:     relayHint,
+			Referenced:    ref.ID,
+			Relation:      ref.Relation,
+			TagIndex:      ref.TagIndex,
+			RelayHint:     ref.RelayHint,
+			Marker:        ref.Relation,
 		})
-		unmarkedIdx = append(unmarkedIdx, len(refs)-1)
 	}
-
-	assignLegacyRelations(refs, unmarkedIdx)
-	filtered := refs[:0]
-	for _, ref := range refs {
-		if ref.Relation == "" {
-			continue
-		}
-		filtered = append(filtered, ref)
-	}
-	return filtered
-}
-
-func assignLegacyRelations(refs []derivedReference, unmarkedIdx []int) {
-	if len(unmarkedIdx) == 0 {
-		return
-	}
-
-	for _, idx := range unmarkedIdx {
-		refs[idx].Relation = "mention"
-	}
-
-	rootSet := false
-	replySet := false
-	for _, ref := range refs {
-		switch ref.Relation {
-		case "root":
-			rootSet = true
-		case "reply":
-			replySet = true
-		}
-	}
-
-	if !rootSet {
-		first := unmarkedIdx[0]
-		refs[first].Relation = "root"
-	}
-	if !replySet && len(unmarkedIdx) > 1 {
-		last := unmarkedIdx[len(unmarkedIdx)-1]
-		refs[last].Relation = "reply"
-	}
+	return refs
 }
 
 func firstReferenceByRelation(refs []derivedReference, relation string) string {
@@ -106,4 +34,34 @@ func firstReferenceByRelation(refs []derivedReference, relation string) string {
 		}
 	}
 	return ""
+}
+
+// replyParentEventID returns the thread parent for a note using the same rule as
+// thread projection: prefer relation=reply, else fall back to relation=root.
+func replyParentEventID(refs []derivedReference) string {
+	parent := firstReferenceByRelation(refs, "reply")
+	if parent != "" {
+		return parent
+	}
+	return firstReferenceByRelation(refs, "root")
+}
+
+// ReplyParentEventID resolves the NIP-10 thread parent from raw e-tags.
+// Delegates to internal/nostr so ingest and derivation share one definition.
+func ReplyParentEventID(tags [][]string) string {
+	return nostr.ReplyParentEventID(tags)
+}
+
+// replyAffectTargets returns note ids whose reply aggregates may change when a
+// kind-1 event is (re)projected: the direct parent and, when distinct, the root.
+func replyAffectTargets(refs []derivedReference) []string {
+	parent := replyParentEventID(refs)
+	if parent == "" {
+		return nil
+	}
+	out := []string{parent}
+	if root := firstReferenceByRelation(refs, "root"); root != "" && root != parent {
+		out = append(out, root)
+	}
+	return out
 }

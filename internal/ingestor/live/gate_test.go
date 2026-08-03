@@ -136,6 +136,71 @@ func TestEvaluateGate_Kind1Author(t *testing.T) {
 	}
 }
 
+func TestEvaluateGate_Kind1ReplyTargetExistsBypass(t *testing.T) {
+	t.Parallel()
+	trusted := &fakeTrustedAuthors{loaded: true}
+	checker := &fakeTargetChecker{exists: map[string]struct{}{"note1": {}}}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, checker)
+
+	markedReply := [][]string{{"e", "note1", "", "reply"}}
+	if d := enforce.evaluateGate(context.Background(), 1, "mallory", markedReply); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("untrusted marked reply to local note: expected accept, got %+v", d)
+	}
+
+	legacySingle := [][]string{{"e", "note1"}}
+	if d := enforce.evaluateGate(context.Background(), 1, "mallory", legacySingle); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("untrusted single-e reply to local note: expected accept, got %+v", d)
+	}
+
+	// Mentions of a local note must not bypass author gating.
+	mentionOnly := [][]string{{"e", "note1", "", "mention"}}
+	if d := enforce.evaluateGate(context.Background(), 1, "mallory", mentionOnly); d.accept || d.decision != gateDecisionRejectUntrustedAuthor {
+		t.Fatalf("untrusted mention-only note: expected reject_untrusted_author, got %+v", d)
+	}
+}
+
+func TestEvaluateGate_Kind1ReplyMissingTargetFallsBackToAuthorGate(t *testing.T) {
+	t.Parallel()
+	trusted := &fakeTrustedAuthors{loaded: true, members: map[string]struct{}{"alice": {}}}
+	checker := &fakeTargetChecker{exists: map[string]struct{}{}}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, checker)
+	tags := [][]string{{"e", "missing", "", "reply"}}
+
+	if d := enforce.evaluateGate(context.Background(), 1, "alice", tags); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("trusted reply to missing parent: expected author-gate accept, got %+v", d)
+	}
+	if d := enforce.evaluateGate(context.Background(), 1, "mallory", tags); d.accept || d.decision != gateDecisionRejectUntrustedAuthor {
+		t.Fatalf("untrusted reply to missing parent: expected reject_untrusted_author, got %+v", d)
+	}
+}
+
+func TestEvaluateGate_Kind1ReplyBypassWorksWhenTrustNeverLoaded(t *testing.T) {
+	t.Parallel()
+	neverLoaded := &fakeTrustedAuthors{loaded: false}
+	checker := &fakeTargetChecker{exists: map[string]struct{}{"note1": {}}}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, neverLoaded, checker)
+	tags := [][]string{{"e", "note1", "", "reply"}}
+	if d := enforce.evaluateGate(context.Background(), 1, "mallory", tags); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("reply to local note with unloaded trust set: expected accept, got %+v", d)
+	}
+}
+
+func TestReplyParentTargetIDs(t *testing.T) {
+	t.Parallel()
+	if got := replyParentTargetIDs([][]string{{"e", "only"}}); len(got) != 1 || got[0] != "only" {
+		t.Fatalf("single unmarked e: expected [only], got %v", got)
+	}
+	if got := replyParentTargetIDs([][]string{
+		{"e", "root", "", "root"},
+		{"e", "parent", "", "reply"},
+	}); len(got) != 1 || got[0] != "parent" {
+		t.Fatalf("marked reply: expected [parent], got %v", got)
+	}
+	if got := replyParentTargetIDs([][]string{{"e", "quoted", "", "mention"}}); len(got) != 0 {
+		t.Fatalf("mention-only: expected nil, got %v", got)
+	}
+}
+
 func TestEvaluateGate_AuthorGatedProductKinds(t *testing.T) {
 	t.Parallel()
 	trusted := &fakeTrustedAuthors{loaded: true, members: map[string]struct{}{"alice": {}}}

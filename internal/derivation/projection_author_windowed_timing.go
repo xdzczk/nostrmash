@@ -87,11 +87,10 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 			SELECT
 				to_timestamp(e.created_at) AT TIME ZONE 'UTC' AS engaged_at,
 				'reply'::text AS interaction_type
-			FROM event_references er
-			INNER JOIN events e ON e.id = er.source_event_id
-			INNER JOIN events target ON target.id = er.referenced_event_id
-			WHERE er.relation = 'reply'
-			  AND target.pubkey = $1
+			FROM thread_edges te
+			INNER JOIN events e ON e.id = te.child_event_id
+			INNER JOIN events target ON target.id = te.parent_event_id
+			WHERE target.pubkey = $1
 			  AND target.kind = 1
 			  AND e.pubkey <> $1
 			  AND e.created_at >= $2
@@ -248,9 +247,8 @@ func (h *Handlers) upsertAuthorPostingPatternsTx(
 				to_timestamp(e.created_at) AT TIME ZONE 'UTC' AS posted_at,
 				EXISTS (
 					SELECT 1
-					FROM event_references er
-					WHERE er.source_event_id = e.id
-					  AND er.relation = 'reply'
+					FROM thread_edges te
+					WHERE te.child_event_id = e.id
 				) AS is_reply
 			FROM events e
 			WHERE e.pubkey = $1

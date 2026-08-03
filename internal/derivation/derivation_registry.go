@@ -27,7 +27,7 @@ var RegisteredDerivations = []RegisteredDerivation{
 	{Name: DerivationReplaceableState, Version: ReplaceableStateVersion, Description: "Track deterministic latest-wins replaceable event state"},
 	{Name: DerivationProfilesLatest, Version: ProfilesLatestVersion, Description: "Project latest effective replaceable metadata (kind 0) per pubkey"},
 	{Name: DerivationAuthorRecentEvents, Version: AuthorRecentEventsVersion, Description: "Project author recent events ordered by created_at desc, id desc"},
-	{Name: DerivationReplyCounts, Version: ReplyCountsVersion, Description: "Project eventually-consistent reply counts from relation=reply references"},
+	{Name: DerivationReplyCounts, Version: ReplyCountsVersion, Description: "Project eventually-consistent reply counts from thread-parent references (reply, else root)"},
 	{Name: DerivationReactionCounts, Version: ReactionCountsVersion, Description: "Project eventually-consistent reaction counts from kind=7 e references"},
 	{Name: DerivationRepostCounts, Version: RepostCountsVersion, Description: "Project eventually-consistent repost counts from kind=6 e references"},
 	{Name: DerivationReactionEvents, Version: ReactionEventsVersion, Description: "Project reaction_events records from kind=7 references"},

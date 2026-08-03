@@ -174,14 +174,14 @@ func (h *Handlers) ReverseIncrementalAuthorStatsTx(ctx context.Context, tx pgx.T
 
 // replyTargetFromTags derives whether an event is a reply and, if so, the
 // event id it replies to. Shared by the apply and reverse paths so both
-// classify the same event identically.
+// classify the same event identically. Uses thread-parent semantics (reply,
+// else root) so single unmarked #e notes count as replies.
 func replyTargetFromTags(eventID string, tags [][]string) (isReply bool, replyTargetEventID string) {
-	for _, ref := range deriveEventReferences(eventID, tags) {
-		if ref.Relation == "reply" {
-			return true, strings.TrimSpace(ref.Referenced)
-		}
+	parent := replyParentEventID(deriveEventReferences(eventID, tags))
+	if parent == "" {
+		return false, ""
 	}
-	return false, ""
+	return true, parent
 }
 
 // loadEventTagsTx is the transaction-scoped counterpart to loadEventTags,

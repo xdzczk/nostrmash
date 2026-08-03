@@ -102,7 +102,16 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		return nil
 	}
 
-	replyCount, err := queryInt64Tx(ctx, tx, `SELECT COALESCE((SELECT count FROM reply_counts WHERE event_id = $1), 0)`, noteID)
+	// Prefer thread-wide descendant totals for discovery reply_count so Discover
+	// matches other clients' conversation sizes. Fall back to direct-parent
+	// reply_counts when no thread summary exists (e.g. non-root notes).
+	replyCount, err := queryInt64Tx(ctx, tx, `
+		SELECT COALESCE(
+			(SELECT reply_count FROM thread_summaries WHERE root_event_id = $1),
+			(SELECT count FROM reply_counts WHERE event_id = $1),
+			0
+		)
+	`, noteID)
 	if err != nil {
 		return fmt.Errorf("load total reply_count: %w", err)
 	}
@@ -138,6 +147,12 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 	reply7d, repost7d, reaction7d, zapCount7d, zapMSats7d, err := loadWindowedInteractionCounts(ctx, tx, noteID, nowUnix, 7*24*time.Hour)
 	if err != nil {
 		return err
+	}
+	if threadReply24h, threadReply7d, ok, threadErr := loadThreadSummaryWindowedReplies(ctx, tx, noteID); threadErr != nil {
+		return threadErr
+	} else if ok {
+		reply24h = threadReply24h
+		reply7d = threadReply7d
 	}
 	hasImage, hasVideo, hasLink, hasArticle, attachmentCount, err := loadNoteMediaFlagsTx(ctx, tx, noteID)
 	if err != nil {
@@ -194,6 +209,25 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		return fmt.Errorf("upsert note discovery stats: %w", err)
 	}
 	return nil
+}
+
+func loadThreadSummaryWindowedReplies(
+	ctx context.Context,
+	tx pgx.Tx,
+	noteID string,
+) (reply24h int64, reply7d int64, ok bool, err error) {
+	err = tx.QueryRow(ctx, `
+		SELECT replies_24h, replies_7d
+		FROM thread_summaries
+		WHERE root_event_id = $1
+	`, noteID).Scan(&reply24h, &reply7d)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, 0, false, nil
+		}
+		return 0, 0, false, fmt.Errorf("load thread summary windowed replies: %w", err)
+	}
+	return reply24h, reply7d, true, nil
 }
 
 func loadWindowedInteractionCounts(

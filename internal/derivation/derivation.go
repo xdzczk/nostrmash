@@ -1,10 +1,10 @@
 package derivation
 
 import (
-	"strings"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/jobs"
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 const (
@@ -67,7 +67,7 @@ const (
 	ReplaceableStateVersion        = 1
 	ProfilesLatestVersion          = 1
 	AuthorRecentEventsVersion      = 1
-	ReplyCountsVersion             = 1
+	ReplyCountsVersion             = 2
 	ReactionCountsVersion          = 1
 	RepostCountsVersion            = 1
 	ReactionEventsVersion          = 1
@@ -78,7 +78,7 @@ const (
 	RelayListsLatestVersion        = 1
 	EventHashtagsVersion           = 1
 	EventURLsVersion               = 2
-	NoteDiscoveryStatsVersion      = 3
+	NoteDiscoveryStatsVersion      = 4
 	ProfileDiscoveryStatsVersion   = 1
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
@@ -143,11 +143,5 @@ type RebuildProjectionScopeJobPayload struct {
 
 // ParseRelationMarker normalizes root/reply/mention markers.
 func ParseRelationMarker(value string) (string, bool) {
-	marker := strings.ToLower(strings.TrimSpace(value))
-	switch marker {
-	case "root", "reply", "mention":
-		return marker, true
-	default:
-		return "", false
-	}
+	return nostr.ParseRelationMarker(value)
 }

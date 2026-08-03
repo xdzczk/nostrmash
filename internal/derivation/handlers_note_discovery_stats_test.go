@@ -142,7 +142,7 @@ func TestProjectionRebuildScopes_NoteDiscoveryStatsFullRebuild(t *testing.T) {
 
 	run, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
 		DerivationName: derivation.DerivationNoteDiscoveryStats,
-		TargetVersion:  3,
+		TargetVersion:  derivation.NoteDiscoveryStatsVersion,
 		Scope: derivation.ProjectionRebuildScope{
 			Type: derivation.RebuildScopeFull,
 		},
@@ -154,14 +154,64 @@ func TestProjectionRebuildScopes_NoteDiscoveryStatsFullRebuild(t *testing.T) {
 		t.Fatalf("execute note discovery rebuild: %v", err)
 	}
 	assertRebuildRunSucceeded(t, ctx, handlers, run.ID)
-	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationNoteDiscoveryStats, 3, 3)
+	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationNoteDiscoveryStats, derivation.NoteDiscoveryStatsVersion, derivation.NoteDiscoveryStatsVersion)
 
 	var version int
 	if err := pool.QueryRow(ctx, `SELECT derivation_version FROM note_discovery_stats WHERE event_id = $1`, note.ID).Scan(&version); err != nil {
 		t.Fatalf("query note discovery derivation version: %v", err)
 	}
-	if version != 3 {
-		t.Fatalf("unexpected note discovery derivation version: got=%d want=3", version)
+	if version != derivation.NoteDiscoveryStatsVersion {
+		t.Fatalf("unexpected note discovery derivation version: got=%d want=%d", version, derivation.NoteDiscoveryStatsVersion)
+	}
+}
+
+func TestProjectNoteDiscoveryStats_UsesThreadWideReplyCount(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	root := newEventForTest("thread_root", "author_root", now.Add(-3*time.Hour).Unix(), 1, nil, "root", now.Add(-3*time.Hour))
+	direct := newEventForTest(
+		"thread_direct",
+		"author_direct",
+		now.Add(-2*time.Hour).Unix(),
+		1,
+		[][]string{{"e", "thread_root", "", "root"}, {"e", "thread_root", "", "reply"}},
+		"direct reply",
+		now.Add(-2*time.Hour),
+	)
+	nested := newEventForTest(
+		"thread_nested",
+		"author_nested",
+		now.Add(-1*time.Hour).Unix(),
+		1,
+		[][]string{{"e", "thread_root", "", "root"}, {"e", "thread_direct", "", "reply"}},
+		"nested reply",
+		now.Add(-1*time.Hour),
+	)
+	for _, event := range []model.Event{root, direct, nested} {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+
+	row := readNoteDiscoveryStatsRow(t, ctx, pool, "thread_root")
+	if row.ReplyCount != 2 {
+		t.Fatalf("discover reply_count should be thread-wide: got=%d want=2", row.ReplyCount)
+	}
+	counts, err := pgStore.GetEventCounts(ctx, "thread_root")
+	if err != nil {
+		t.Fatalf("get event counts: %v", err)
+	}
+	if counts.ReplyCount != 2 {
+		t.Fatalf("event counts reply_count should be thread-wide: got=%d want=2", counts.ReplyCount)
 	}
 }
 

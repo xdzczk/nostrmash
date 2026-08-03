@@ -149,11 +149,8 @@ func (h *Handlers) authorAnalyticsAffectedPubkeys(
 
 	switch kind {
 	case 1:
-		for _, ref := range references {
-			if ref.Relation != "reply" {
-				continue
-			}
-			if err := appendEventAuthor(ref.Referenced); err != nil {
+		for _, targetID := range replyAffectTargets(references) {
+			if err := appendEventAuthor(targetID); err != nil {
 				return nil, err
 			}
 		}
@@ -445,17 +442,15 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(
 				COUNT(*) FILTER (
 					WHERE NOT EXISTS (
 						SELECT 1
-						FROM event_references er
-						WHERE er.source_event_id = e.id
-						  AND er.relation = 'reply'
+						FROM thread_edges te
+						WHERE te.child_event_id = e.id
 					)
 				) AS note_count,
 				COUNT(*) FILTER (
 					WHERE EXISTS (
 						SELECT 1
-						FROM event_references er
-						WHERE er.source_event_id = e.id
-						  AND er.relation = 'reply'
+						FROM thread_edges te
+						WHERE te.child_event_id = e.id
 					)
 				) AS reply_count
 			FROM events e
@@ -467,11 +462,10 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(
 		),
 		received_sources AS (
 			SELECT to_timestamp(e.created_at)::date AS activity_date, COUNT(*) AS count_value
-			FROM event_references er
-			INNER JOIN events e ON e.id = er.source_event_id
-			INNER JOIN events target ON target.id = er.referenced_event_id
-			WHERE er.relation = 'reply'
-			  AND target.pubkey = $1
+			FROM thread_edges te
+			INNER JOIN events e ON e.id = te.child_event_id
+			INNER JOIN events target ON target.id = te.parent_event_id
+			WHERE target.pubkey = $1
 			  AND e.pubkey <> $1
 			  AND e.created_at >= $4
 			  AND e.created_at <= $3
@@ -511,11 +505,10 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(
 		),
 		given_sources AS (
 			SELECT to_timestamp(e.created_at)::date AS activity_date, COUNT(*) AS count_value
-			FROM event_references er
-			INNER JOIN events e ON e.id = er.source_event_id
-			INNER JOIN events target ON target.id = er.referenced_event_id
-			WHERE er.relation = 'reply'
-			  AND e.pubkey = $1
+			FROM thread_edges te
+			INNER JOIN events e ON e.id = te.child_event_id
+			INNER JOIN events target ON target.id = te.parent_event_id
+			WHERE e.pubkey = $1
 			  AND target.pubkey <> $1
 			  AND e.created_at >= $4
 			  AND e.created_at <= $3

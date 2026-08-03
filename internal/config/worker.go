@@ -195,8 +195,9 @@ type WorkerReplaceableRetentionConfig struct {
 // author-gated rows whose author is absent from trust_graph_snapshot:
 //
 //   - raw events (kinds 1/4/5/9802/10000/10003/30023), once older than MaxAge
-//     (enforced on both created_at and first_seen_at). This is the
-//     months-scale complement to the ingest trust gate: the gate bounds
+//     (enforced on both created_at and first_seen_at). Kind-1 replies that
+//     already have a thread_edges row are kept (target-exists ingest). This is
+//     the months-scale complement to the ingest trust gate: the gate bounds
 //     inflow, this reclaims untrusted residue accepted while the gate was
 //     open (shadow mode, pre-gate history).
 //   - derived event_urls / event_hashtags rows (added 2026-08-01), with no

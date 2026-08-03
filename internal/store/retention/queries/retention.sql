@@ -121,6 +121,15 @@ WITH candidates AS (
         SELECT 1 FROM trust_graph_snapshot s
         WHERE s.pubkey = e.pubkey
       )
+      -- Kind-1 replies accepted via target-exists ingest are kept so conversation
+      -- totals are not rolled back by untrusted-author retention. Root notes from
+      -- untrusted authors remain purgeable.
+      AND NOT (
+        e.kind = 1
+        AND EXISTS (
+          SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
+        )
+      )
       AND NOT EXISTS (
         SELECT 1
         FROM jobs j
@@ -151,6 +160,12 @@ WHERE e.kind IN (1, 4, 5, 9802, 10000, 10003, 30023)
   AND NOT EXISTS (
     SELECT 1 FROM trust_graph_snapshot s
     WHERE s.pubkey = e.pubkey
+  )
+  AND NOT (
+    e.kind = 1
+    AND EXISTS (
+      SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
+    )
   )
   AND NOT EXISTS (
     SELECT 1

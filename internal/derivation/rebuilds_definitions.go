@@ -27,7 +27,7 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 		return projectionDefinition{
 			name:           DerivationReplyCounts,
 			compiled:       ReplyCountsVersion,
-			description:    "Project eventually-consistent reply counts from relation=reply references",
+			description:    "Project eventually-consistent reply counts from thread-parent references (reply, else root)",
 			rebuildProject: h.projectReplyCountsWithVersion,
 		}, nil
 	case DerivationReactionCounts:

@@ -18,21 +18,18 @@ func (h *Handlers) projectReplyCountsWithVersion(ctx context.Context, eventID st
 		eventID,
 		DerivationReplyCounts,
 		ReplyCountsVersion,
-		"Project eventually-consistent reply counts from relation=reply references",
+		"Project eventually-consistent reply counts from thread-parent references (reply, else root)",
 		"reply_count_contributions",
 		"reply_counts",
 		func(kind int, refs []derivedReference) []string {
 			if kind != 1 {
 				return nil
 			}
-			ids := make([]string, 0, len(refs))
-			for _, ref := range refs {
-				if ref.Relation != "reply" {
-					continue
-				}
-				ids = append(ids, ref.Referenced)
+			parent := replyParentEventID(refs)
+			if parent == "" {
+				return nil
 			}
-			return ids
+			return []string{parent}
 		},
 		versionOverride,
 	)

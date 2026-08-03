@@ -94,9 +94,8 @@ func (h *Handlers) projectProfilePublicStatsForPubkeysTx(
 					  AND e.kind = 1
 					  AND NOT EXISTS (
 					      SELECT 1
-					      FROM event_references er
-					      WHERE er.source_event_id = e.id
-					        AND er.relation = 'reply'
+					      FROM thread_edges te
+					      WHERE te.child_event_id = e.id
 					  )
 				), 0) AS note_count,
 				COALESCE((
@@ -106,9 +105,8 @@ func (h *Handlers) projectProfilePublicStatsForPubkeysTx(
 					  AND e.kind = 1
 					  AND EXISTS (
 					      SELECT 1
-					      FROM event_references er
-					      WHERE er.source_event_id = e.id
-					        AND er.relation = 'reply'
+					      FROM thread_edges te
+					      WHERE te.child_event_id = e.id
 					  )
 				), 0) AS reply_count,
 				(

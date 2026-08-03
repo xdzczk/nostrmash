@@ -12,7 +12,8 @@ On a fixed disk, subscribing to broad relay filters and storing every kind indef
 
 - Relay subscriptions stay broad (relays cannot filter by author at scale). Enforcement happens locally in the ingest hot path.
 - Kinds `0`, `3`, `10002` remain open so the trust graph can grow and profiles resolve. This is acceptable for the first rollout, not a permanent guarantee against kind-0/3 spam.
-- Authored kinds `1` (notes), `4` (DMs, gated on sender trust), `5` (deletion tombstones), `9802` (highlights), `10000` (mute lists), `10003` (bookmark lists), and `30023` (long-form articles) are hard-gated: persist only when the author is in the trusted set.
+- Root kind `1` notes (no thread parent) and authored kinds `4` (DMs, gated on sender trust), `5` (deletion tombstones), `9802` (highlights), `10000` (mute lists), `10003` (bookmark lists), and `30023` (long-form articles) are hard-gated: persist only when the author is in the trusted set.
+- Kind `1` replies whose thread parent (NIP-10 `reply`, else `root` / legacy single `#e`) already exists locally are accepted from any author — the same target-exists rule as engagement — so conversation totals are not capped to the trust graph. Mentions alone do not open this bypass.
 - Kinds `6`, `7`, `9735` are kept only when their target event already exists locally (engagement on already-stored/trusted content). Engagement that arrives before its target is dropped permanently in v1 (no pending buffer).
 - Kind `5` used to also accept deletions whose referenced `e`-tag target existed locally; that path still let untrusted tombstone spam dominate the events table, so deletions are now strictly author-gated like notes.
 - Raw engagement events are purged after a short retention window. Lifetime aggregate counters (`reaction_counts`, `repost_counts`) survive because they have no FK to `events`.
@@ -22,7 +23,10 @@ flowchart TD
   E["Event from relay"] --> V["ParseAndValidate"]
   V -->|valid| K{"kind?"}
   K -->|"0,3,10002"| Store["InsertCanonicalEvent"]
-  K -->|"1,4,5,9802,10000,10003,30023"| T{"author in trusted set?"}
+  K -->|"1"| R{"thread parent exists locally?"}
+  R -->|yes| Store
+  R -->|no| T{"author in trusted set?"}
+  K -->|"4,5,9802,10000,10003,30023"| T
   T -->|yes| Store
   T -->|no| Drop["metric only; no invalid_events"]
   K -->|"6,7,9735"| Tgt{"target event exists locally?"}
@@ -51,7 +55,7 @@ On a fresh database the snapshot is seeds-only until kind-3 contact lists arrive
 | --- | --- | --- |
 | `TrustedAuthorSet` | `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` (default `2m`) | Loads pubkeys from `trust_graph_snapshot WHERE min_hops <= INGESTOR_TRUST_GATE_MAX_HOPS` (default `2`). Avoids a per-event DB lookup. |
 | Last-good retention | — | Failed refreshes keep the previous set; staleness is visible via `nostrmash_ingest_trusted_set_age_seconds`. |
-| Fail-closed | `INGESTOR_TRUST_GATE_MODE=trusted_only` | If the set has **never** loaded successfully, author-gated kinds (`1`/`4`/`5`/`9802`/`10000`/`10003`/`30023`) are rejected. Open kinds and target-local engagement are unaffected so the graph can bootstrap. |
+| Fail-closed | `INGESTOR_TRUST_GATE_MODE=trusted_only` | If the set has **never** loaded successfully, author-gated kinds (`1` roots / `4` / `5` / `9802` / `10000` / `10003` / `30023`) are rejected. Open kinds, target-local engagement, and kind-1 replies to already-stored parents are unaffected so the graph can bootstrap. |
 
 ### Ingest gate (`ingestor`)
 
@@ -64,10 +68,15 @@ On a fresh database the snapshot is seeds-only until kind-3 contact lists arrive
 Gate decisions per kind:
 
 - `0`, `3`, `10002`: always accept.
-- `1`, `4`, `5`, `9802`, `10000`, `10003`, `30023`: accept iff author in trusted set (or shadow-reject in `open` mode). Kind `4` is gated on the sender (author) being trusted. Kind `5` deletions are author-gated only (no target-exists bypass).
+- `1`: accept if the thread parent already exists locally (any author), else accept iff author in trusted set (or shadow-reject in `open` mode). Parent resolution matches thread projection: prefer `e` marked `reply`, else `root` / legacy single unmarked `#e`. Mentions do not count as a parent.
+- `4`, `5`, `9802`, `10000`, `10003`, `30023`: accept iff author in trusted set (or shadow-reject in `open` mode). Kind `4` is gated on the sender (author) being trusted. Kind `5` deletions are author-gated only (no target-exists bypass).
 - `6`, `7`, `9735`: accept iff target event exists locally (`EventsExist`). Kind `9735` uses the same first-`e`-tag rule as zap derivation.
 
 Rejected events increment metrics only. They are **not** written to `invalid_events` (they are valid Nostr events, just out of scope). The live resume checkpoint still advances so restarts do not re-fetch and re-drop the same span.
+
+### Untrusted-author retention and replies
+
+`WORKER_RETENTION_UNTRUSTED_AUTHOR_*` still purges untrusted root notes and other author-gated kinds after the horizon. Kind-1 events that already have a `thread_edges` row (replies accepted via target-exists) are excluded so conversation totals are not rolled back after ingest.
 
 ### Engagement raw retention (`worker`)
 

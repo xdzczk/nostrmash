@@ -53,6 +53,7 @@ type AuthorActivityDaily struct {
 	EngagementGiven    int64
 	DerivationVersion  int32
 	UpdatedAt          pgtype.Timestamptz
+	ZapMsatsReceived   int64
 }
 
 type AuthorActivityWindow struct {
@@ -109,6 +110,8 @@ type AuthorHourlyActivity struct {
 	ZapReceived        int64
 	DerivationVersion  int32
 	UpdatedAt          pgtype.Timestamptz
+	ZapMsatsReceived   int64
+	AuthoredEventCount int64
 }
 
 type AuthorMediaDaily struct {
@@ -314,6 +317,14 @@ type FollowerEdge struct {
 	UpdatedAt            pgtype.Timestamptz
 }
 
+type FollowerGainsDaily struct {
+	Pubkey            string
+	ActivityDate      pgtype.Date
+	Gained            int64
+	DerivationVersion int32
+	UpdatedAt         pgtype.Timestamptz
+}
+
 type IngestCheckpoint struct {
 	RelayUrl           string
 	Mode               string
@@ -417,6 +428,12 @@ type PendingProfileStatsRecompute struct {
 	MarkedAt   pgtype.Timestamptz
 	ClaimedAt  pgtype.Timestamptz
 	ClaimToken pgtype.UUID
+}
+
+type ProfileDiscoveryRecentActivity struct {
+	Pubkey           string
+	RecentActivityAt int64
+	UpdatedAt        pgtype.Timestamptz
 }
 
 type ProfileDiscoveryStat struct {

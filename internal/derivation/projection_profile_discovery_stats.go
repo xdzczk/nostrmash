@@ -364,9 +364,8 @@ func loadProfileDualWindowMetricsTx(
 				e.kind,
 				EXISTS (
 					SELECT 1
-					FROM event_references er
-					WHERE er.source_event_id = e.id
-					  AND er.relation = 'reply'
+					FROM thread_edges te
+					WHERE te.child_event_id = e.id
 				) AS is_reply
 			FROM events e
 			WHERE e.pubkey = $1

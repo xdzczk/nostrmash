@@ -79,6 +79,17 @@ func TestPurgeUntrustedAuthorEvents(t *testing.T) {
 	insertEvent(t, ctx, pool, "u_old_deletion", "untrusted_pub", 5, oldUnix, oldSeen)
 	insertEvent(t, ctx, pool, "k_trusted_note", "trusted_pub", 1, oldUnix, oldSeen)
 	insertEvent(t, ctx, pool, "k_open_kind", "untrusted_pub", 0, oldUnix, oldSeen)
+	// Untrusted reply to a local note must be retained (target-exists ingest).
+	insertEvent(t, ctx, pool, "u_old_reply", "untrusted_pub", 1, oldUnix, oldSeen)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO thread_edges (
+			child_event_id, child_created_at, parent_event_id, root_event_id,
+			parent_missing, root_missing, derivation_version
+		)
+		VALUES ('u_old_reply', $1, 'k_trusted_note', 'k_trusted_note', false, false, 1)
+	`, oldUnix); err != nil {
+		t.Fatalf("insert thread edge for untrusted reply: %v", err)
+	}
 
 	deleted, err = s.PurgeUntrustedAuthorEvents(ctx, olderThan, deadGraceBefore, 100)
 	if err != nil {
@@ -89,7 +100,7 @@ func TestPurgeUntrustedAuthorEvents(t *testing.T) {
 	}
 
 	got := remainingEventIDs(t, ctx, pool)
-	want := []string{"k_open_kind", "k_trusted_note"}
+	want := []string{"k_open_kind", "k_trusted_note", "u_old_reply"}
 	if !sameStrings(got, want) {
 		t.Fatalf("remaining mismatch: got %v want %v", got, want)
 	}

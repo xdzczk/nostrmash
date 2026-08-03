@@ -47,6 +47,27 @@ func normalizeUniqueIDs(ids []string) []string {
 	return out
 }
 
+func queryStringColumnTx(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]string, error) {
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]string, 0)
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		out = append(out, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func nullIfBlank(value string) *string {
 	value = strings.TrimSpace(value)
 	if value == "" {

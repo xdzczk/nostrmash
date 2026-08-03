@@ -44,7 +44,11 @@ func (s *PostgresStore) GetEventCounts(ctx context.Context, eventID string) (Eve
 	out.EventID = eventID
 
 	if err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE((SELECT count FROM reply_counts WHERE event_id = $1), 0),
+		SELECT COALESCE(
+		         (SELECT reply_count FROM thread_summaries WHERE root_event_id = $1),
+		         (SELECT count FROM reply_counts WHERE event_id = $1),
+		         0
+		       ),
 		       COALESCE((SELECT count FROM reaction_counts WHERE event_id = $1), 0),
 		       COALESCE((SELECT count FROM repost_counts WHERE event_id = $1), 0),
 		       COALESCE((SELECT zap_count FROM note_discovery_stats WHERE event_id = $1), 0),

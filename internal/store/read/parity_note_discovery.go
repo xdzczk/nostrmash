@@ -57,9 +57,8 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 		  AND e.kind = ANY($4::int[])
 		  AND NOT EXISTS (
 			SELECT 1
-			FROM event_references er
-			WHERE er.source_event_id = s.event_id
-			  AND er.relation = 'reply'
+			FROM thread_edges te
+			WHERE te.child_event_id = s.event_id
 		  )
 		  AND (
 			EXISTS (

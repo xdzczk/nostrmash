@@ -30,11 +30,8 @@ func (h *Handlers) affectedProfileDiscoveryPubkeysTx(
 
 	switch kind {
 	case 1:
-		for _, ref := range references {
-			if ref.Relation != "reply" {
-				continue
-			}
-			targetPubkey, err := h.eventPubkeyTx(ctx, tx, ref.Referenced)
+		for _, targetID := range replyAffectTargets(references) {
+			targetPubkey, err := h.eventPubkeyTx(ctx, tx, targetID)
 			if err != nil {
 				return nil, err
 			}
@@ -173,12 +170,8 @@ func (h *Handlers) affectedNoteDiscoveryIDsTx(
 	}
 	switch kind {
 	case 1:
-		for _, ref := range references {
-			if ref.Relation == "reply" {
-				ids = append(ids, ref.Referenced)
-			}
-		}
-		rows, err := tx.Query(ctx, `
+		ids = append(ids, replyAffectTargets(references)...)
+		contributionTargets, err := queryStringColumnTx(ctx, tx, `
 			SELECT target_event_id
 			FROM reply_count_contributions
 			WHERE source_event_id = $1
@@ -186,16 +179,24 @@ func (h *Handlers) affectedNoteDiscoveryIDsTx(
 		if err != nil {
 			return nil, fmt.Errorf("load existing reply targets: %w", err)
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var targetEventID string
-			if err := rows.Scan(&targetEventID); err != nil {
-				return nil, fmt.Errorf("scan existing reply target: %w", err)
-			}
-			ids = append(ids, targetEventID)
+		ids = append(ids, contributionTargets...)
+		// Thread-wide discover reply totals live on the root summary; refresh
+		// whatever root/parent the edge currently (or previously) pointed at.
+		var rootEventID *string
+		var parentEventID string
+		err = tx.QueryRow(ctx, `
+			SELECT root_event_id, parent_event_id
+			FROM thread_edges
+			WHERE child_event_id = $1
+		`, sourceEventID).Scan(&rootEventID, &parentEventID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("load thread edge targets for note discovery: %w", err)
 		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("read existing reply targets: %w", err)
+		if err == nil {
+			if rootEventID != nil {
+				ids = append(ids, *rootEventID)
+			}
+			ids = append(ids, parentEventID)
 		}
 	case 6:
 		for _, ref := range references {

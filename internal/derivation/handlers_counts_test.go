@@ -98,3 +98,40 @@ func TestProjectCounts_ReplyReactionRepost(t *testing.T) {
 		t.Fatalf("unexpected repost_count: got=%d want=1", counts.RepostCount)
 	}
 }
+
+func TestProjectReplyCounts_SingleUnmarkedETagCountsAsReply(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	baseTime := time.Date(2026, 4, 4, 18, 0, 0, 0, time.UTC)
+
+	target := newEventForTest("legacy_target", "author_target", 2000, 1, nil, "{}", baseTime)
+	legacyReply := newEventForTest(
+		"legacy_reply",
+		"author_reply",
+		2001,
+		1,
+		[][]string{{"e", "legacy_target"}},
+		`{"content":"legacy reply"}`,
+		baseTime.Add(1*time.Second),
+	)
+	for _, event := range []model.Event{target, legacyReply} {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+	}
+	if err := handlers.ProjectReplyCounts(ctx, legacyReply.ID); err != nil {
+		t.Fatalf("project reply counts: %v", err)
+	}
+	counts, err := pgStore.GetEventCounts(ctx, "legacy_target")
+	if err != nil {
+		t.Fatalf("get event counts: %v", err)
+	}
+	if counts.ReplyCount != 1 {
+		t.Fatalf("single unmarked #e should increment reply_counts: got=%d want=1", counts.ReplyCount)
+	}
+}

@@ -182,6 +182,19 @@ func TestDeriveEventReferences(t *testing.T) {
 		if len(refs) != 1 || refs[0].Relation != "root" {
 			t.Fatalf("expected single root ref, got %+v", refs)
 		}
+		if got := ReplyParentEventID(tags); got != "only_evt" {
+			t.Fatalf("ReplyParentEventID single unmarked = %q want only_evt", got)
+		}
+	})
+
+	t.Run("ReplyParentEventID prefers reply over root", func(t *testing.T) {
+		tags := [][]string{
+			{"e", "root_evt", "", "root"},
+			{"e", "reply_evt", "", "reply"},
+		}
+		if got := ReplyParentEventID(tags); got != "reply_evt" {
+			t.Fatalf("ReplyParentEventID = %q want reply_evt", got)
+		}
 	})
 
 	t.Run("legacy positional: first is root, last is reply, middle mention", func(t *testing.T) {

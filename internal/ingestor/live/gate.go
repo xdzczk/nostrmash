@@ -3,6 +3,8 @@ package live
 import (
 	"context"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 // Trust gate modes. "open" runs in shadow (records would-be decisions as
@@ -77,10 +79,12 @@ func gateKindLabel(kind int) string {
 }
 
 // isAuthorGatedKind reports whether an event kind is persisted only when its
-// author is in the trusted set. This covers kind 1 notes plus the authored
-// product kinds in the live filter group: encrypted DMs (4, gated on sender
-// trust), deletion tombstones (5), highlights (9802), mute lists (10000),
-// bookmark lists (10003), and long-form articles (30023).
+// author is in the trusted set (unless a more specific branch handles it
+// first). Kind 1 root notes use this path; kind 1 replies with a locally
+// stored thread parent are accepted earlier via target-exists. Also covers
+// encrypted DMs (4, gated on sender trust), deletion tombstones (5),
+// highlights (9802), mute lists (10000), bookmark lists (10003), and
+// long-form articles (30023).
 //
 // Kind 5 used to be a special case (accept if trusted OR any referenced
 // e-tag target exists locally). That target-exists path still let untrusted
@@ -116,39 +120,25 @@ func (p *Processor) evaluateGate(ctx context.Context, kind int, pubkey string, t
 	enforce := p.gateMode == TrustGateModeTrustedOnly
 
 	switch {
-	case isAuthorGatedKind(kind):
-		if !p.trustedAuthors.Loaded() {
-			// Never loaded: in trusted_only fail CLOSED rather than guessing.
-			if enforce {
-				return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionFailClosed}
-			}
-			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
-		}
-		if p.trustedAuthors.Contains(pubkey) {
+	case kind == 1:
+		// Replies to already-stored notes are accepted from any author (like
+		// engagement), so conversation totals are not capped to the trust
+		// graph. Missing parents do not reject here: trusted authors still
+		// pass via the author gate below (root notes and replies-before-parent).
+		if p.replyParentExists(ctx, kind, tags) {
 			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
 		}
-		if enforce {
-			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectUntrustedAuthor}
-		}
-		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
+		return p.evaluateAuthorGate(kindLabel, pubkey, enforce)
+
+	case isAuthorGatedKind(kind):
+		return p.evaluateAuthorGate(kindLabel, pubkey, enforce)
 
 	case isEngagementKind(kind):
-		ids := engagementTargetIDs(kind, tags)
-		exists := false
-		if len(ids) > 0 {
-			var err error
-			exists, err = p.targetChecker.EventsExist(ctx, ids)
-			if err != nil {
-				// Transient store error: fail OPEN so a DB blip does not silently
-				// drop engagement. The subsequent persist would surface the real
-				// error downstream anyway.
-				p.log.Warn("ingest_gate_target_check_failed", "error", err, "kind", kind)
-				return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
-			}
+		decision, handled := p.evaluateTargetExistsGate(ctx, kindLabel, kind, engagementTargetIDs(kind, tags), enforce)
+		if handled {
+			return decision
 		}
-		if exists {
-			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
-		}
+		// No e-tag targets: treat as missing.
 		if enforce {
 			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectMissingTarget}
 		}
@@ -158,6 +148,69 @@ func (p *Processor) evaluateGate(ctx context.Context, kind int, pubkey string, t
 		// Open kinds (0,3,10002) and any other subscribed kind always pass.
 		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
 	}
+}
+
+// replyParentExists reports whether a kind-1 event's thread parent is already
+// stored locally. Store lookup errors fail open (treat as exists) so a DB blip
+// does not drop replies that would otherwise be accepted.
+func (p *Processor) replyParentExists(ctx context.Context, kind int, tags [][]string) bool {
+	ids := replyParentTargetIDs(tags)
+	if len(ids) == 0 {
+		return false
+	}
+	exists, err := p.targetChecker.EventsExist(ctx, ids)
+	if err != nil {
+		p.log.Warn("ingest_gate_target_check_failed", "error", err, "kind", kind)
+		return true
+	}
+	return exists
+}
+
+func (p *Processor) evaluateAuthorGate(kindLabel, pubkey string, enforce bool) gateDecision {
+	if !p.trustedAuthors.Loaded() {
+		// Never loaded: in trusted_only fail CLOSED rather than guessing.
+		if enforce {
+			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionFailClosed}
+		}
+		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
+	}
+	if p.trustedAuthors.Contains(pubkey) {
+		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
+	}
+	if enforce {
+		return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectUntrustedAuthor}
+	}
+	return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
+}
+
+// evaluateTargetExistsGate accepts when any candidate target exists locally.
+// When there are no candidate ids it returns handled=false so the caller can
+// apply a different policy (kind-1 roots fall through to author gating).
+func (p *Processor) evaluateTargetExistsGate(
+	ctx context.Context,
+	kindLabel string,
+	kind int,
+	ids []string,
+	enforce bool,
+) (gateDecision, bool) {
+	if len(ids) == 0 {
+		return gateDecision{}, false
+	}
+	exists, err := p.targetChecker.EventsExist(ctx, ids)
+	if err != nil {
+		// Transient store error: fail OPEN so a DB blip does not silently
+		// drop engagement/replies. The subsequent persist would surface the
+		// real error downstream anyway.
+		p.log.Warn("ingest_gate_target_check_failed", "error", err, "kind", kind)
+		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}, true
+	}
+	if exists {
+		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}, true
+	}
+	if enforce {
+		return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectMissingTarget}, true
+	}
+	return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}, true
 }
 
 // engagementTargetIDs returns the candidate target event ids referenced by an
@@ -176,6 +229,17 @@ func engagementTargetIDs(kind int, tags [][]string) []string {
 	default:
 		return nil
 	}
+}
+
+// replyParentTargetIDs returns the thread-parent event id for a kind-1 note.
+// Uses the shared NIP-10 parent rule in internal/nostr (prefer reply, else root;
+// legacy single unmarked #e counts; mentions alone do not).
+func replyParentTargetIDs(tags [][]string) []string {
+	parent := nostr.ReplyParentEventID(tags)
+	if parent == "" {
+		return nil
+	}
+	return []string{parent}
 }
 
 func firstETagValue(tags [][]string) string {

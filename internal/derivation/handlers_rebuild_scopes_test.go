@@ -62,9 +62,14 @@ func TestProjectionRebuildScopes_ReplyCounts(t *testing.T) {
 		}
 	}
 
+	// Rebuild to a version above the compiled active version so scoped
+	// rebuilds can demonstrate partial contribution upgrades.
+	const rebuildTarget = derivation.ReplyCountsVersion + 1
+	baseVersion := derivation.ReplyCountsVersion
+
 	runEvent, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
 		DerivationName: derivation.DerivationReplyCounts,
-		TargetVersion:  2,
+		TargetVersion:  rebuildTarget,
 		Scope: derivation.ProjectionRebuildScope{
 			Type:    derivation.RebuildScopeEvent,
 			EventID: replyA1.ID,
@@ -78,15 +83,15 @@ func TestProjectionRebuildScopes_ReplyCounts(t *testing.T) {
 	}
 	assertRebuildRunSucceeded(t, ctx, handlers, runEvent.ID)
 	assertReplyContributionVersions(t, ctx, pool, map[string]int{
-		replyA1.ID: 2,
-		replyB.ID:  1,
-		replyA2.ID: 1,
+		replyA1.ID: rebuildTarget,
+		replyB.ID:  baseVersion,
+		replyA2.ID: baseVersion,
 	})
-	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationReplyCounts, 1, 2)
+	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationReplyCounts, baseVersion, rebuildTarget)
 
 	runPubkey, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
 		DerivationName: derivation.DerivationReplyCounts,
-		TargetVersion:  2,
+		TargetVersion:  rebuildTarget,
 		Scope: derivation.ProjectionRebuildScope{
 			Type:   derivation.RebuildScopePubkey,
 			Pubkey: "author_a",
@@ -100,17 +105,17 @@ func TestProjectionRebuildScopes_ReplyCounts(t *testing.T) {
 	}
 	assertRebuildRunSucceeded(t, ctx, handlers, runPubkey.ID)
 	assertReplyContributionVersions(t, ctx, pool, map[string]int{
-		replyA1.ID: 2,
-		replyB.ID:  1,
-		replyA2.ID: 2,
+		replyA1.ID: rebuildTarget,
+		replyB.ID:  baseVersion,
+		replyA2.ID: rebuildTarget,
 	})
-	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationReplyCounts, 1, 2)
+	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationReplyCounts, baseVersion, rebuildTarget)
 
 	start := int64(1002)
 	end := int64(1002)
 	runTimeRange, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
 		DerivationName: derivation.DerivationReplyCounts,
-		TargetVersion:  2,
+		TargetVersion:  rebuildTarget,
 		Scope: derivation.ProjectionRebuildScope{
 			Type:           derivation.RebuildScopeTimeRange,
 			StartCreatedAt: &start,
@@ -125,15 +130,15 @@ func TestProjectionRebuildScopes_ReplyCounts(t *testing.T) {
 	}
 	assertRebuildRunSucceeded(t, ctx, handlers, runTimeRange.ID)
 	assertReplyContributionVersions(t, ctx, pool, map[string]int{
-		replyA1.ID: 2,
-		replyB.ID:  2,
-		replyA2.ID: 2,
+		replyA1.ID: rebuildTarget,
+		replyB.ID:  rebuildTarget,
+		replyA2.ID: rebuildTarget,
 	})
-	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationReplyCounts, 1, 2)
+	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationReplyCounts, baseVersion, rebuildTarget)
 
 	runFull, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
 		DerivationName: derivation.DerivationReplyCounts,
-		TargetVersion:  2,
+		TargetVersion:  rebuildTarget,
 		Scope: derivation.ProjectionRebuildScope{
 			Type: derivation.RebuildScopeFull,
 		},
@@ -146,9 +151,9 @@ func TestProjectionRebuildScopes_ReplyCounts(t *testing.T) {
 	}
 	assertRebuildRunSucceeded(t, ctx, handlers, runFull.ID)
 	assertReplyContributionVersions(t, ctx, pool, map[string]int{
-		replyA1.ID: 2,
-		replyB.ID:  2,
-		replyA2.ID: 2,
+		replyA1.ID: rebuildTarget,
+		replyB.ID:  rebuildTarget,
+		replyA2.ID: rebuildTarget,
 	})
-	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationReplyCounts, 2, 2)
+	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationReplyCounts, rebuildTarget, rebuildTarget)
 }
