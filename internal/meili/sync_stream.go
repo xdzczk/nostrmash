@@ -227,6 +227,7 @@ func streamSearchDocumentsConn(ctx context.Context, conn *pgxpool.Conn, batchSiz
 					popularity,
 					trust_score
 				FROM search_documents
+				WHERE entity_type IN ('hashtag', 'identity', 'relay')
 				ORDER BY entity_type ASC, entity_id ASC
 				LIMIT $1
 			`, batchSize)
@@ -243,7 +244,8 @@ func streamSearchDocumentsConn(ctx context.Context, conn *pgxpool.Conn, batchSiz
 					popularity,
 					trust_score
 				FROM search_documents
-				WHERE (entity_type, entity_id) > ($2::text, $3::text)
+				WHERE entity_type IN ('hashtag', 'identity', 'relay')
+				  AND (entity_type, entity_id) > ($2::text, $3::text)
 				ORDER BY entity_type ASC, entity_id ASC
 				LIMIT $1
 			`, batchSize, cursorType, cursorEntity)

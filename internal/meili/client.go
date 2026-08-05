@@ -224,6 +224,12 @@ func (c *Client) enqueueDocuments(ctx context.Context, docs []SearchDocument) (i
 	if !c.Enabled() || len(docs) == 0 {
 		return 0, nil
 	}
+	// Notes and profiles already live in dedicated Meili indexes; the global
+	// search path only consumes hashtag/identity/relay hits from documents.
+	docs = filterMeiliDocumentsIndexRows(docs)
+	if len(docs) == 0 {
+		return 0, nil
+	}
 	for i := range docs {
 		trimSearchDocument(&docs[i])
 	}

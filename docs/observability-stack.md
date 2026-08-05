@@ -84,11 +84,18 @@ Dockerfile ldflags so `nostrmash_build_info` stops reporting `version=dev` /
 ## Alert delivery
 
 Default Alertmanager config keeps alerts visible in the UI but does not forward
-them. Before treating Phase 0 as complete for paging:
+them. The Compose service runs `alertmanager/entrypoint.sh`, which renders a
+live config from environment variables:
 
-1. Edit `observability/alertmanager/alertmanager.yml` (or mount an override).
-2. Add Slack / email / Telegram receivers.
-3. Redeploy the observability stack and fire a test alert.
+| Env | Effect |
+| --- | --- |
+| `ALERTMANAGER_WEBHOOK_URL` | Generic webhook (ntfy, Discord, custom) |
+| `ALERTMANAGER_SLACK_WEBHOOK_URL` | Slack incoming webhook |
+| `ALERTMANAGER_SLACK_CHANNEL` | Slack channel (default `#nostrmash-alerts`) |
+
+Set one of these on the Coolify observability application, redeploy
+Alertmanager, then fire a test alert from Prometheus. Without them, alerts
+stay in the Alertmanager UI only.
 
 ## Related docs
 

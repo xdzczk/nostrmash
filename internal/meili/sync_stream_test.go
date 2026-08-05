@@ -151,6 +151,8 @@ func TestStreamSearchDocuments_KeysetCoversAllRowsAcrossBatches(t *testing.T) {
 		{"note", "n2"},
 		{"note", "n1"},
 		{"profile", "p1"},
+		{"identity", "alice"},
+		{"relay", "wss://x"},
 	}
 	for _, s := range seeds {
 		if _, err := pool.Exec(ctx, `
@@ -176,7 +178,8 @@ func TestStreamSearchDocuments_KeysetCoversAllRowsAcrossBatches(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("streamSearchDocuments: %v", err)
 	}
-	want := []string{"hashtag/aaa", "hashtag/zzz", "note/n1", "note/n2", "profile/p1"}
+	// note/profile rows are intentionally excluded from the Meili documents index.
+	want := []string{"hashtag/aaa", "hashtag/zzz", "identity/alice", "relay/wss://x"}
 	if len(seen) != len(want) {
 		t.Fatalf("seen=%v want %v", seen, want)
 	}

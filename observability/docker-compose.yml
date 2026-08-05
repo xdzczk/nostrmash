@@ -43,11 +43,18 @@ services:
     restart: unless-stopped
     networks:
       - coolify
-    command:
-      - --config.file=/etc/alertmanager/alertmanager.yml
-      - --storage.path=/alertmanager
+    entrypoint: ["/bin/sh", "/etc/alertmanager/entrypoint.sh"]
+    environment:
+      # Set one of these in Coolify to enable external paging:
+      #   ALERTMANAGER_WEBHOOK_URL=https://...   (generic webhook / ntfy / Discord)
+      #   ALERTMANAGER_SLACK_WEBHOOK_URL=https://hooks.slack.com/...
+      #   ALERTMANAGER_SLACK_CHANNEL=#nostrmash-alerts
+      ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
+      ALERTMANAGER_SLACK_WEBHOOK_URL: ${ALERTMANAGER_SLACK_WEBHOOK_URL:-}
+      ALERTMANAGER_SLACK_CHANNEL: ${ALERTMANAGER_SLACK_CHANNEL:-#nostrmash-alerts}
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
       - alertmanager_data:/alertmanager
     expose:
       - "9093"

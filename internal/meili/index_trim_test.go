@@ -42,3 +42,25 @@ func TestIndexedNotesMinCreatedAt(t *testing.T) {
 		t.Fatalf("min=%d want=%d", min, want)
 	}
 }
+
+func TestFilterMeiliDocumentsIndexRows(t *testing.T) {
+	t.Parallel()
+	in := []SearchDocument{
+		{EntityType: "note", EntityID: "n1"},
+		{EntityType: "profile", EntityID: "p1"},
+		{EntityType: "hashtag", EntityID: "bitcoin"},
+		{EntityType: "identity", EntityID: "alice"},
+		{EntityType: "relay", EntityID: "wss://x"},
+	}
+	got := filterMeiliDocumentsIndexRows(in)
+	if len(got) != 3 {
+		t.Fatalf("len=%d want 3: %#v", len(got), got)
+	}
+	for _, row := range got {
+		switch row.EntityType {
+		case "hashtag", "identity", "relay":
+		default:
+			t.Fatalf("unexpected entity_type %q", row.EntityType)
+		}
+	}
+}

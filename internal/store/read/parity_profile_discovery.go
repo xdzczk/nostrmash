@@ -22,6 +22,10 @@ func (s *Read) GetRisingProfiles(ctx context.Context, window time.Duration, limi
 // seconds. Callers should degrade (e.g. trending fallback) on timeout.
 const relatedProfilesQueryTimeout = 3 * time.Second
 
+// relatedProfilesProjectionMaxAge is how long a materialized related_profiles
+// batch stays authoritative before we recompute the multi-CTE query.
+const relatedProfilesProjectionMaxAge = 24 * time.Hour
+
 // GetRelatedProfiles returns bounded related-profile candidates for one focal pubkey.
 func (s *Read) GetRelatedProfiles(ctx context.Context, pubkey string, limit int) (_ []RelatedProfile, err error) {
 	started := time.Now()
@@ -41,9 +45,6 @@ func (s *Read) GetRelatedProfiles(ctx context.Context, pubkey string, limit int)
 	if limit > 50 {
 		limit = 50
 	}
-	queryCtx, cancel := context.WithTimeout(ctx, relatedProfilesQueryTimeout)
-	defer cancel()
-	ctx = queryCtx
 	var exists bool
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
@@ -55,6 +56,91 @@ func (s *Read) GetRelatedProfiles(ctx context.Context, pubkey string, limit int)
 	if !exists {
 		return nil, ErrNotFound
 	}
+	if cached, cacheErr := s.loadRelatedProfilesProjection(ctx, pubkey, limit); cacheErr == nil && cached != nil {
+		return cached, nil
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, relatedProfilesQueryTimeout)
+	defer cancel()
+	out, err := s.computeRelatedProfiles(queryCtx, pubkey, limit)
+	if err != nil {
+		return nil, err
+	}
+	// Best-effort materialization; read path must not fail if the write races.
+	storeCtx, storeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = s.storeRelatedProfilesProjection(storeCtx, pubkey, out)
+	storeCancel()
+	return out, nil
+}
+
+func (s *Read) loadRelatedProfilesProjection(ctx context.Context, pubkey string, limit int) ([]RelatedProfile, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			related_pubkey,
+			topic_overlap,
+			reply_adjacency,
+			interaction_adjacency,
+			quote_repost_adjacency,
+			reasons,
+			score
+		FROM related_profiles
+		WHERE focal_pubkey = $1
+		  AND updated_at >= now() - make_interval(secs => $3::int)
+		ORDER BY score DESC, related_pubkey ASC
+		LIMIT $2
+	`, pubkey, limit, int(relatedProfilesProjectionMaxAge.Seconds()))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]RelatedProfile, 0, limit)
+	for rows.Next() {
+		var row RelatedProfile
+		if err := rows.Scan(
+			&row.Pubkey,
+			&row.TopicOverlap,
+			&row.ReplyAdjacency,
+			&row.InteractionAdjacency,
+			&row.QuoteRepostAdjacency,
+			&row.Reasons,
+			&row.Score,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func (s *Read) storeRelatedProfilesProjection(ctx context.Context, pubkey string, rows []RelatedProfile) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `DELETE FROM related_profiles WHERE focal_pubkey = $1`, pubkey); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO related_profiles (
+				focal_pubkey, related_pubkey,
+				topic_overlap, reply_adjacency, interaction_adjacency, quote_repost_adjacency,
+				reasons, score, updated_at
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
+		`, pubkey, row.Pubkey, row.TopicOverlap, row.ReplyAdjacency, row.InteractionAdjacency, row.QuoteRepostAdjacency, row.Reasons, row.Score); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Read) computeRelatedProfiles(ctx context.Context, pubkey string, limit int) ([]RelatedProfile, error) {
 	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour).Unix()
 	rows, err := s.pool.Query(ctx, `
 		WITH focal_notes AS (

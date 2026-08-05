@@ -62,3 +62,21 @@ func trimSearchDocument(row *SearchDocument) {
 func indexedNotesMinCreatedAt(now time.Time) int64 {
 	return now.UTC().Add(-indexedNotesMaxAge).Unix()
 }
+
+// filterMeiliDocumentsIndexRows drops entity types that are already covered by
+// the dedicated notes/profiles indexes. Keeping them in `documents` roughly
+// doubled Meili disk on the single-server host without changing API results
+// (splitSearchDocuments only returns hashtag/identity/relay).
+func filterMeiliDocumentsIndexRows(docs []SearchDocument) []SearchDocument {
+	if len(docs) == 0 {
+		return docs
+	}
+	out := make([]SearchDocument, 0, len(docs))
+	for _, doc := range docs {
+		switch strings.TrimSpace(doc.EntityType) {
+		case "hashtag", "identity", "relay":
+			out = append(out, doc)
+		}
+	}
+	return out
+}

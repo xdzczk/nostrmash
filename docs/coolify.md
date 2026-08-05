@@ -146,6 +146,14 @@ UI Maximum Memory on **standalone** resources (Postgres / Redis).
 Also set `API_DATABASE_MAX_CONNS=32` (Compose default) so raised Postgres
 `work_mem` cannot multiply into OOM under connection spikes.
 
+Weekly host pulse (Phase 5):
+
+```bash
+sudo bash scripts/phase5_ops_check.sh
+```
+
+Checks rootfs usage, Meili disk, memory caps, search smoke, and dead jobs.
+
 For scraping metrics with Prometheus/Grafana on the same host, see
 [observability-stack.md](observability-stack.md).
 
