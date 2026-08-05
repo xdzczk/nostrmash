@@ -137,9 +137,18 @@ func (r *Runtime) persistComputeResults(
 		return fmt.Errorf("clear previous trust score staging rows: %w", err)
 	}
 
-	if len(ranked) > 0 {
-		rows := make([][]any, 0, len(ranked))
-		for i, item := range ranked {
+	// Batch CopyFrom instead of one giant stream. Production saw a single
+	// CopyFrom of ~170k rows stall indefinitely after ~192KiB on the wire
+	// (pg_stat_progress_copy tuples_processed stuck at 0).
+	const copyBatch = 2000
+	for offset := 0; offset < len(ranked); offset += copyBatch {
+		end := offset + copyBatch
+		if end > len(ranked) {
+			end = len(ranked)
+		}
+		rows := make([][]any, 0, end-offset)
+		for i := offset; i < end; i++ {
+			item := ranked[i]
 			rows = append(rows, []any{
 				runID,
 				item.Pubkey,
@@ -156,7 +165,7 @@ func (r *Runtime) persistComputeResults(
 			pgx.CopyFromRows(rows),
 		)
 		if err != nil {
-			return fmt.Errorf("write trust score staging rows by copy: %w", err)
+			return fmt.Errorf("write trust score staging rows by copy (offset %d): %w", offset, err)
 		}
 	}
 
