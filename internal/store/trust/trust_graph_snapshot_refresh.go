@@ -4,9 +4,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
+
+// trustHeavyStatementTimeout covers BFS snapshot rebuild + trusted-discovery
+// projection refresh. Those statements scan follower_edges / large candidate
+// tables and legitimately exceed the production 15s API guardrail.
+const trustHeavyStatementTimeout = 15 * time.Minute
+
+func setTrustHeavyStatementTimeout(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(
+		"SET LOCAL statement_timeout = %d",
+		trustHeavyStatementTimeout.Milliseconds(),
+	))
+	if err != nil {
+		return fmt.Errorf("set trust statement_timeout: %w", err)
+	}
+	return nil
+}
 
 type TrustGraphSnapshotRefreshResult struct {
 	RowsUpserted int
@@ -26,6 +43,9 @@ func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (Tru
 		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("begin trust graph snapshot refresh: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTrustHeavyStatementTimeout(ctx, tx); err != nil {
+		return TrustGraphSnapshotRefreshResult{}, err
+	}
 
 	var sourceRunID *int64
 	if err := tx.QueryRow(ctx, `
@@ -115,6 +135,9 @@ func (s *Trust) runProjectionRefresh(
 		return fmt.Errorf("begin %s projection refresh: %w", name, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTrustHeavyStatementTimeout(ctx, tx); err != nil {
+		return err
+	}
 	if err := refresh(ctx, tx, 1); err != nil {
 		return err
 	}
