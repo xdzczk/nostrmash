@@ -139,7 +139,10 @@ services:
   trust_worker:
     <<: *nostrmash-service
     command: ["/app/trust_worker"]
-    mem_limit: ${TRUST_WORKER_MEM_LIMIT:-256m}
+    # Redis graph sync + in-memory score compute stream ~5M follower_edges;
+    # 256m OOMs / Redis client timeouts mid-compute. Keep under the single-server
+    # RAM budget but large enough for a full adjacency load.
+    mem_limit: ${TRUST_WORKER_MEM_LIMIT:-2g}
     environment:
       <<: *common-env
       METRICS_ADDR: ${TRUST_WORKER_METRICS_ADDR:-:9090}
