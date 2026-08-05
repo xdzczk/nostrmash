@@ -13,6 +13,9 @@ x-nostrmash-service: &nostrmash-service
   image: nostrmash:coolify
   restart: unless-stopped
   init: true
+  # Coolify's app-level Resource Limits UI does not apply per Compose service.
+  # These cgroup caps survive redeploy; override via env if needed.
+  mem_limit: ${NOSTRMASH_SERVICE_MEM_LIMIT:-512m}
 
 x-common-env: &common-env
   DATABASE_URL: ${DATABASE_URL}
@@ -136,6 +139,7 @@ services:
   trust_worker:
     <<: *nostrmash-service
     command: ["/app/trust_worker"]
+    mem_limit: ${TRUST_WORKER_MEM_LIMIT:-256m}
     environment:
       <<: *common-env
       METRICS_ADDR: ${TRUST_WORKER_METRICS_ADDR:-:9090}

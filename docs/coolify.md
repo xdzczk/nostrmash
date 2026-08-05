@@ -129,15 +129,18 @@ Rebuild after changing them.
 
 ### Single-server memory budgets
 
-On a shared ~30 GiB host, set Coolify resource limits (or rely on Compose
-`mem_limit` where present) so one service cannot thrash the others:
+Coolify's **Resource Limits** page on a Docker Compose application is
+app-wide and does **not** set per-service caps. For `nostrmash-prod`, put
+limits in `docker-compose.coolify.yml` (`mem_limit`) and only use the Coolify
+UI Maximum Memory on **standalone** resources (Postgres / Redis).
 
-| Resource | Suggested limit | Notes |
+| Resource | Suggested limit | Where to set |
 | --- | --- | --- |
-| Postgres (Coolify DB resource) | 14 GiB | Keep `shared_buffers` at 8 GB |
-| Meilisearch | 6 GiB (`MEILI_MEM_LIMIT`) | `MEILI_MAX_INDEXING_MEMORY=2GiB`; shrink index first |
-| Redis | 2–4 GiB | Already documented via Redis Conf `maxmemory` |
-| api / worker / ingestor / trust_worker | ~256–512 MiB each | Usually far below this |
+| Postgres (Coolify DB resource) | 14 GiB | DB resource → Resource Limits → Maximum Memory |
+| Redis | 2–4 GiB | Redis resource → Maximum Memory + Redis Conf `maxmemory` |
+| Meilisearch | 6 GiB | Compose `MEILI_MEM_LIMIT` (default `6g`) |
+| api / worker / ingestor | 512 MiB | Compose `NOSTRMASH_SERVICE_MEM_LIMIT` (default `512m`) |
+| trust_worker | 256 MiB | Compose `TRUST_WORKER_MEM_LIMIT` (default `256m`) |
 | Observability stack | ~576 MiB | See [observability-stack.md](observability-stack.md) |
 
 Also set `API_DATABASE_MAX_CONNS=32` (Compose default) so raised Postgres
