@@ -216,14 +216,14 @@ Concrete changes shipped in this PR:
 - New column `jobs.finished_at TIMESTAMPTZ` set on the terminal transition (`succeeded` via `CompleteJob`, `dead` via `FailJob` or stale recovery). It is **not** touched on retry-to-pending.
 - New partial index `idx_jobs_terminal_finished_at ON jobs (status, finished_at) WHERE status IN ('succeeded','dead')` to make the purge cheap.
 - `PurgeTerminalJobs` filters by `finished_at`, not `updated_at`. Old rows are backfilled (`finished_at = updated_at WHERE status IN ('succeeded','dead')`) by the migration.
-- Tighter defaults: `WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE=24h`, `WORKER_JOB_RETENTION_DEAD_MAX_AGE=336h` (14 d), `WORKER_JOB_RETENTION_RUN_INTERVAL=15m`, `WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT=2000`.
+- Tighter defaults: `WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE=6h`, `WORKER_JOB_RETENTION_DEAD_MAX_AGE=168h` (7 d), `WORKER_JOB_RETENTION_RUN_INTERVAL=15m`, `WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT=2000`.
 - Retention loop now also runs in the trust worker (was main worker only). Trust jobs were effectively never purged.
 - Auto-pacing in the retention loop ([internal/jobs/retention.go](../../internal/jobs/retention.go)): when a delete batch comes back saturated (`deleted >= DeleteBatchLimit`), the loop immediately re-runs after a short courtesy pause instead of sleeping for `RunInterval`. This makes `DeleteBatchLimit` a per-batch chunking knob, not a throughput ceiling, so transient backlogs (operator-induced or workload spikes) drain at disk speed without anyone retuning env defaults. Steady-state cost is unchanged: a below-limit batch returns to the normal `RunInterval` sleep. A `job_retention_catchup` log line is emitted every 50 consecutive saturated batches so operators can see sustained burndowns.
 - New gauges: `nostrmash_jobs_rows{status,job_type}` and `nostrmash_jobs_oldest_finished_age_seconds{status}`. Cardinality is bounded by the fixed enum of known job types in [internal/jobs/types.go](../../internal/jobs/types.go); unknown types are reported under `job_type="other"`.
 
 ### Acceptance criteria
 
-- After deploy + one `RunInterval` tick, no `succeeded` row in `jobs` is older than 24 h.
+- After deploy + one `RunInterval` tick, no `succeeded` row in `jobs` is older than 6 h.
 - Trust worker logs include `job_retention_enabled` and `job_retention_purged` events.
 - `nostrmash_jobs_rows{status,job_type}` and `nostrmash_jobs_oldest_finished_age_seconds{status}` are visible.
 - No FK breakage in `projection_rebuild_runs` / `trust_runs` (FKs are `ON DELETE SET NULL`, so terminal purge nulls the pointer safely).

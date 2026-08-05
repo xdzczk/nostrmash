@@ -393,13 +393,15 @@ func LoadWorker() (WorkerConfig, error) {
 // so that the trust worker (which previously did not run the retention loop
 // at all) shares the same retention semantics. Defaults are tuned for the
 // observed steady-state job volume: succeeded jobs are queue exhaust and only
-// matter for live debugging, dead jobs deserve a longer triage window.
+// matter for live debugging (6h), dead jobs keep a short triage window (7d).
+// Keeping these tight prevents the jobs indexes from bloating under high churn
+// on a single-server host.
 func loadWorkerJobRetentionConfig() (WorkerJobRetentionConfig, error) {
-	succeededMaxAge, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE", 24*time.Hour)
+	succeededMaxAge, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE", 6*time.Hour)
 	if err != nil {
 		return WorkerJobRetentionConfig{}, err
 	}
-	deadMaxAge, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_DEAD_MAX_AGE", 14*24*time.Hour)
+	deadMaxAge, err := getEnvPositiveDurationStrict("WORKER_JOB_RETENTION_DEAD_MAX_AGE", 7*24*time.Hour)
 	if err != nil {
 		return WorkerJobRetentionConfig{}, err
 	}

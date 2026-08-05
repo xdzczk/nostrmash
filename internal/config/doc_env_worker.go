@@ -202,7 +202,7 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Name:         "WORKER_JOB_RETENTION_DEAD_MAX_AGE",
 			Runtimes:     []string{"trust_worker", "worker"},
 			Required:     false,
-			DefaultValue: "336h0m0s",
+			DefaultValue: "168h0m0s",
 			Description:  "Max age for dead jobs (purged by finished_at) before retention purges terminal history.",
 		},
 		{
@@ -230,7 +230,7 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Name:         "WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE",
 			Runtimes:     []string{"trust_worker", "worker"},
 			Required:     false,
-			DefaultValue: "24h0m0s",
+			DefaultValue: "6h0m0s",
 			Description:  "Max age for succeeded jobs (purged by finished_at) before retention purges terminal history.",
 		},
 		{

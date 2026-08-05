@@ -533,10 +533,10 @@ func TestLoadWorker_DefaultsAndValidation(t *testing.T) {
 	if !cfg.JobRetention.Enabled {
 		t.Fatalf("expected job retention enabled by default")
 	}
-	if cfg.JobRetention.SucceededMaxAge != 24*time.Hour {
+	if cfg.JobRetention.SucceededMaxAge != 6*time.Hour {
 		t.Fatalf("unexpected default retention succeeded max age: %s", cfg.JobRetention.SucceededMaxAge)
 	}
-	if cfg.JobRetention.DeadMaxAge != 14*24*time.Hour {
+	if cfg.JobRetention.DeadMaxAge != 7*24*time.Hour {
 		t.Fatalf("unexpected default retention dead max age: %s", cfg.JobRetention.DeadMaxAge)
 	}
 	if cfg.JobRetention.RunInterval != 15*time.Minute {
@@ -644,10 +644,10 @@ func TestLoadTrustWorker_DefaultsAndValidation(t *testing.T) {
 	if !cfg.JobRetention.Enabled {
 		t.Fatalf("expected trust worker job retention enabled by default")
 	}
-	if cfg.JobRetention.SucceededMaxAge != 24*time.Hour {
+	if cfg.JobRetention.SucceededMaxAge != 6*time.Hour {
 		t.Fatalf("unexpected trust worker retention succeeded max age: %s", cfg.JobRetention.SucceededMaxAge)
 	}
-	if cfg.JobRetention.DeadMaxAge != 14*24*time.Hour {
+	if cfg.JobRetention.DeadMaxAge != 7*24*time.Hour {
 		t.Fatalf("unexpected trust worker retention dead max age: %s", cfg.JobRetention.DeadMaxAge)
 	}
 	if cfg.Redis.URL != "redis://localhost:6379/0" {
