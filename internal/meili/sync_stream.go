@@ -10,7 +10,41 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// FullSync streams can legitimately exceed the production 15s statement_timeout
+// guardrail (first notes page alone is multi-second even with kind/created
+// indexes once content + lateral title joins are included). Elevate only the
+// acquired sync connection; API request paths keep the short default.
+const syncStatementTimeout = 5 * time.Minute
+
+func withSyncDB(ctx context.Context, pool *pgxpool.Pool, fn func(conn *pgxpool.Conn) error) error {
+	if pool == nil {
+		return fmt.Errorf("nil pool")
+	}
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire sync db conn: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, fmt.Sprintf(
+		"SELECT set_config('statement_timeout', '%d', false)",
+		syncStatementTimeout.Milliseconds(),
+	)); err != nil {
+		return fmt.Errorf("raise sync statement_timeout: %w", err)
+	}
+	defer func() {
+		// Return the pooled connection to the DB/role default (15s in prod).
+		_, _ = conn.Exec(context.Background(), `RESET statement_timeout`)
+	}()
+	return fn(conn)
+}
+
 func streamNotes(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume func([]NoteDocument) error) error {
+	return withSyncDB(ctx, pool, func(conn *pgxpool.Conn) error {
+		return streamNotesConn(ctx, conn, batchSize, consume)
+	})
+}
+
+func streamNotesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, consume func([]NoteDocument) error) error {
 	// Keyset on (created_at DESC, id DESC). OFFSET pagination was timing out
 	// FullSync in production: deep pages were multi-minute sequential scans.
 	minCreatedAt := indexedNotesMinCreatedAt(time.Now())
@@ -25,14 +59,14 @@ func streamNotes(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume
 			err  error
 		)
 		if !haveCursor {
-			rows, err = pool.Query(ctx, noteDocumentSelect+`
+			rows, err = conn.Query(ctx, noteDocumentSelect+`
 				WHERE e.kind IN (1, 30023)
 				  AND e.created_at >= $2::bigint
 				ORDER BY e.created_at DESC, e.id DESC
 				LIMIT $1
 			`, batchSize, minCreatedAt)
 		} else {
-			rows, err = pool.Query(ctx, noteDocumentSelect+`
+			rows, err = conn.Query(ctx, noteDocumentSelect+`
 				WHERE e.kind IN (1, 30023)
 				  AND e.created_at >= $4::bigint
 				  AND (e.created_at, e.id) < ($2::bigint, $3::text)
@@ -71,6 +105,12 @@ func streamNotes(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume
 }
 
 func streamProfiles(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume func([]ProfileDocument) error) error {
+	return withSyncDB(ctx, pool, func(conn *pgxpool.Conn) error {
+		return streamProfilesConn(ctx, conn, batchSize, consume)
+	})
+}
+
+func streamProfilesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, consume func([]ProfileDocument) error) error {
 	// Keyset on (metadata_created_at DESC, pubkey ASC). Mixed sort directions
 	// mean the continue predicate is not a single row comparison.
 	var (
@@ -98,12 +138,12 @@ func streamProfiles(ctx context.Context, pool *pgxpool.Pool, batchSize int, cons
 			err  error
 		)
 		if !haveCursor {
-			rows, err = pool.Query(ctx, profileSelect+`
+			rows, err = conn.Query(ctx, profileSelect+`
 				ORDER BY p.metadata_created_at DESC, p.pubkey ASC
 				LIMIT $1
 			`, batchSize)
 		} else {
-			rows, err = pool.Query(ctx, profileSelect+`
+			rows, err = conn.Query(ctx, profileSelect+`
 				WHERE p.metadata_created_at < $2::bigint
 				   OR (p.metadata_created_at = $2::bigint AND p.pubkey > $3::text)
 				ORDER BY p.metadata_created_at DESC, p.pubkey ASC
@@ -157,6 +197,12 @@ func streamProfiles(ctx context.Context, pool *pgxpool.Pool, batchSize int, cons
 }
 
 func streamSearchDocuments(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume func([]SearchDocument) error) error {
+	return withSyncDB(ctx, pool, func(conn *pgxpool.Conn) error {
+		return streamSearchDocumentsConn(ctx, conn, batchSize, consume)
+	})
+}
+
+func streamSearchDocumentsConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, consume func([]SearchDocument) error) error {
 	// Keyset on (entity_type ASC, entity_id ASC).
 	var (
 		haveCursor   bool
@@ -169,7 +215,7 @@ func streamSearchDocuments(ctx context.Context, pool *pgxpool.Pool, batchSize in
 			err  error
 		)
 		if !haveCursor {
-			rows, err = pool.Query(ctx, `
+			rows, err = conn.Query(ctx, `
 				SELECT
 					entity_type,
 					entity_id,
@@ -185,7 +231,7 @@ func streamSearchDocuments(ctx context.Context, pool *pgxpool.Pool, batchSize in
 				LIMIT $1
 			`, batchSize)
 		} else {
-			rows, err = pool.Query(ctx, `
+			rows, err = conn.Query(ctx, `
 				SELECT
 					entity_type,
 					entity_id,
