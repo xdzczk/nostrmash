@@ -127,6 +127,22 @@ TRUST_ENABLE_REDIS_SYNC=false
 build args so `nostrmash_build_info` reports a real commit (not `dev`/`unknown`).
 Rebuild after changing them.
 
+### Single-server memory budgets
+
+On a shared ~30 GiB host, set Coolify resource limits (or rely on Compose
+`mem_limit` where present) so one service cannot thrash the others:
+
+| Resource | Suggested limit | Notes |
+| --- | --- | --- |
+| Postgres (Coolify DB resource) | 14 GiB | Keep `shared_buffers` at 8 GB |
+| Meilisearch | 6 GiB (`MEILI_MEM_LIMIT`) | `MEILI_MAX_INDEXING_MEMORY=2GiB`; shrink index first |
+| Redis | 2–4 GiB | Already documented via Redis Conf `maxmemory` |
+| api / worker / ingestor / trust_worker | ~256–512 MiB each | Usually far below this |
+| Observability stack | ~576 MiB | See [observability-stack.md](observability-stack.md) |
+
+Also set `API_DATABASE_MAX_CONNS=32` (Compose default) so raised Postgres
+`work_mem` cannot multiply into OOM under connection spikes.
+
 For scraping metrics with Prometheus/Grafana on the same host, see
 [observability-stack.md](observability-stack.md).
 

@@ -17,6 +17,11 @@ func (s *Read) GetRisingProfiles(ctx context.Context, window time.Duration, limi
 	return s.getProfileDiscoveryRows(ctx, window, limit, offset, true)
 }
 
+// relatedProfilesQueryTimeout bounds the heavy multi-CTE related-profiles
+// query so a saturated Postgres cannot hold an HTTP request for tens of
+// seconds. Callers should degrade (e.g. trending fallback) on timeout.
+const relatedProfilesQueryTimeout = 3 * time.Second
+
 // GetRelatedProfiles returns bounded related-profile candidates for one focal pubkey.
 func (s *Read) GetRelatedProfiles(ctx context.Context, pubkey string, limit int) (_ []RelatedProfile, err error) {
 	started := time.Now()
@@ -36,6 +41,9 @@ func (s *Read) GetRelatedProfiles(ctx context.Context, pubkey string, limit int)
 	if limit > 50 {
 		limit = 50
 	}
+	queryCtx, cancel := context.WithTimeout(ctx, relatedProfilesQueryTimeout)
+	defer cancel()
+	ctx = queryCtx
 	var exists bool
 	if err := s.pool.QueryRow(ctx, `
 		SELECT

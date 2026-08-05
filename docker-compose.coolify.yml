@@ -31,9 +31,13 @@ services:
     init: true
     expose:
       - "7700"
+    # Single-server budget: keep Meili from evicting Postgres page cache.
+    # Shrink the index below ~10GB before relying on this cap under load.
+    mem_limit: ${MEILI_MEM_LIMIT:-6g}
     environment:
       MEILI_ENV: production
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_MAX_INDEXING_MEMORY: ${MEILI_MAX_INDEXING_MEMORY:-2GiB}
     volumes:
       - meili_data_v2:/meili_data
 
@@ -45,6 +49,8 @@ services:
     environment:
       <<: *common-env
       HTTP_ADDR: ":8080"
+      # Cap pool size on the single-server host so raised work_mem stays safe.
+      DATABASE_MAX_CONNS: ${API_DATABASE_MAX_CONNS:-32}
       ADMIN_BEARER_TOKEN: ${ADMIN_BEARER_TOKEN}
       API_MAX_BATCH_SIZE: ${API_MAX_BATCH_SIZE:-200}
       HTTP_RATE_LIMIT_RPM: ${HTTP_RATE_LIMIT_RPM:-240}

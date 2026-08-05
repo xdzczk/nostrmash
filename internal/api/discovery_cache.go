@@ -21,6 +21,7 @@ const (
 	defaultDiscoveryDiscoveryTTL       = 60 * time.Second
 	defaultDiscoveryPublicStatsTTL     = 10 * time.Minute
 	defaultDiscoverySuggestionTTL      = 60 * time.Second
+	defaultDiscoveryRelatedTTL         = 1 * time.Hour
 	discoveryCacheContentTypeJSONName  = "application/json"
 	publicCacheValueNormalizeMaxLength = 512
 
@@ -46,6 +47,7 @@ type DiscoveryCacheOptions struct {
 	DiscoveryTTL   time.Duration
 	PublicStatsTTL time.Duration
 	SuggestionTTL  time.Duration
+	RelatedTTL     time.Duration
 
 	// Backward-compatible aliases. Prefer family-based TTL fields above.
 	TrendingTTL time.Duration
@@ -59,6 +61,7 @@ type discoveryCacheConfig struct {
 	DiscoveryTTL   time.Duration
 	PublicStatsTTL time.Duration
 	SuggestionTTL  time.Duration
+	RelatedTTL     time.Duration
 }
 
 func defaultDiscoveryCacheConfig() discoveryCacheConfig {
@@ -69,6 +72,7 @@ func defaultDiscoveryCacheConfig() discoveryCacheConfig {
 		DiscoveryTTL:   defaultDiscoveryDiscoveryTTL,
 		PublicStatsTTL: defaultDiscoveryPublicStatsTTL,
 		SuggestionTTL:  defaultDiscoverySuggestionTTL,
+		RelatedTTL:     defaultDiscoveryRelatedTTL,
 	}
 }
 
@@ -97,6 +101,9 @@ func (c discoveryCacheConfig) withOverrides(overrides DiscoveryCacheOptions) dis
 	if overrides.SuggestionTTL > 0 {
 		out.SuggestionTTL = overrides.SuggestionTTL
 	}
+	if overrides.RelatedTTL > 0 {
+		out.RelatedTTL = overrides.RelatedTTL
+	}
 	if overrides.PublicStatsTTL > 0 {
 		out.PublicStatsTTL = overrides.PublicStatsTTL
 	}
@@ -110,6 +117,7 @@ const (
 	publicCacheFamilyDiscovery  publicCacheFamily = "discovery"
 	publicCacheFamilyStats      publicCacheFamily = "stats"
 	publicCacheFamilySuggestion publicCacheFamily = "suggestion"
+	publicCacheFamilyRelated    publicCacheFamily = "related"
 )
 
 func (c discoveryCacheConfig) ttlForFamily(family publicCacheFamily) time.Duration {
@@ -120,6 +128,8 @@ func (c discoveryCacheConfig) ttlForFamily(family publicCacheFamily) time.Durati
 		return c.PublicStatsTTL
 	case publicCacheFamilySuggestion:
 		return c.SuggestionTTL
+	case publicCacheFamilyRelated:
+		return c.RelatedTTL
 	case publicCacheFamilyDiscovery:
 		fallthrough
 	default:

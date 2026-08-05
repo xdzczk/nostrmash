@@ -27,46 +27,87 @@ func (h Handlers) GetRelatedProfiles(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "profiles_related", map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyRelated, "profiles_related", map[string]any{
 		"pubkey": pubkey,
 		"limit":  limit,
 	})
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
 		related, relatedErr := h.service.GetRelatedProfiles(ctx, pubkey, limit)
+		degraded := false
 		if relatedErr != nil {
-			return nil, relatedErr
-		}
-		relatedPubkeys := make([]string, 0, len(related))
-		for _, profile := range related {
-			relatedPubkeys = append(relatedPubkeys, profile.Pubkey)
-		}
-		identities, identitiesErr := h.resolveProfileIdentities(ctx, relatedPubkeys)
-		if identitiesErr != nil {
-			return nil, identitiesErr
-		}
-		items := make([]map[string]any, 0, len(related))
-		for _, profile := range related {
-			item := map[string]any{
-				"pubkey":                 profile.Pubkey,
-				"topic_overlap":          profile.TopicOverlap,
-				"reply_adjacency":        profile.ReplyAdjacency,
-				"interaction_adjacency":  profile.InteractionAdjacency,
-				"quote_repost_adjacency": profile.QuoteRepostAdjacency,
-				"reasons":                profile.Reasons,
-				"score":                  profile.Score,
+			if query.IsNotFound(relatedErr) || query.IsUnsupportedCapability(relatedErr) {
+				return nil, relatedErr
 			}
-			if npub := encodeNpub(profile.Pubkey); npub != "" {
-				item["npub"] = npub
+			// Timeout / DB pressure: prefer a 200 with trending fallback over 500.
+			degraded = true
+			related = nil
+		}
+		items := make([]map[string]any, 0, limit)
+		if !degraded {
+			relatedPubkeys := make([]string, 0, len(related))
+			for _, profile := range related {
+				relatedPubkeys = append(relatedPubkeys, profile.Pubkey)
 			}
-			if identity, ok := identities[profile.Pubkey]; ok {
-				applyProfileIdentity(item, identity)
+			identities, identitiesErr := h.resolveProfileIdentities(ctx, relatedPubkeys)
+			if identitiesErr != nil {
+				degraded = true
+			} else {
+				for _, profile := range related {
+					item := map[string]any{
+						"pubkey":                 profile.Pubkey,
+						"topic_overlap":          profile.TopicOverlap,
+						"reply_adjacency":        profile.ReplyAdjacency,
+						"interaction_adjacency":  profile.InteractionAdjacency,
+						"quote_repost_adjacency": profile.QuoteRepostAdjacency,
+						"reasons":                profile.Reasons,
+						"score":                  profile.Score,
+					}
+					if npub := encodeNpub(profile.Pubkey); npub != "" {
+						item["npub"] = npub
+					}
+					if identity, ok := identities[profile.Pubkey]; ok {
+						applyProfileIdentity(item, identity)
+					}
+					items = append(items, item)
+				}
 			}
-			items = append(items, item)
+		}
+		if degraded {
+			trending, trendErr := h.service.GetTrendingProfiles(ctx, 24*time.Hour, limit, 0)
+			if trendErr == nil {
+				trendPubkeys := make([]string, 0, len(trending))
+				for _, profile := range trending {
+					trendPubkeys = append(trendPubkeys, profile.Pubkey)
+				}
+				identities, _ := h.resolveProfileIdentities(ctx, trendPubkeys)
+				for _, profile := range trending {
+					item := map[string]any{
+						"pubkey":                 profile.Pubkey,
+						"topic_overlap":          0,
+						"reply_adjacency":        0,
+						"interaction_adjacency":  0,
+						"quote_repost_adjacency": 0,
+						"reasons":                []string{"trending_fallback"},
+						"score":                  profile.Score,
+					}
+					if npub := encodeNpub(profile.Pubkey); npub != "" {
+						item["npub"] = npub
+					}
+					if identity, ok := identities[profile.Pubkey]; ok {
+						applyProfileIdentity(item, identity)
+					}
+					items = append(items, item)
+				}
+			}
 		}
 		payload := map[string]any{
 			"pubkey":      pubkey,
 			"related":     items,
 			"consistency": "eventual",
+		}
+		if degraded {
+			payload["degraded"] = true
+			payload["degraded_reason"] = "related_profiles_unavailable"
 		}
 		h.addDiscoveryTrustMetadata(payload)
 		return payload, nil
