@@ -227,8 +227,23 @@ func (c *Client) ResetIndexes(ctx context.Context) error {
 			continue
 		}
 		if waitErr := c.waitForTask(ctx, task.TaskUID); waitErr != nil {
+			// Concurrent cancels / already-deleted indexes surface as task
+			// failures rather than DeleteIndex errors.
+			if isIgnorableIndexDeleteFailure(waitErr) {
+				continue
+			}
 			return fmt.Errorf("wait delete index %s: %w", uid, waitErr)
 		}
 	}
 	return c.EnsureIndexes(ctx)
+}
+
+func isIgnorableIndexDeleteFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "index_not_found") ||
+		strings.Contains(msg, "index not found") ||
+		strings.Contains(msg, "status=canceled")
 }
