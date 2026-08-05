@@ -100,8 +100,9 @@ func TestInsertCanonicalEventIdempotentOnIDAndPreservesEarliestFirstSeen(t *test
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM event_tags WHERE event_id = $1`, eventID).Scan(&tagCount); err != nil {
 		t.Fatalf("count event_tags: %v", err)
 	}
-	if tagCount != 4 {
-		t.Fatalf("expected 4 tag rows, got %d", tagCount)
+	// e (2 values) + p (1 value); client is filtered by the eventtags allowlist.
+	if tagCount != 3 {
+		t.Fatalf("expected 3 tag rows, got %d", tagCount)
 	}
 
 	var relayCount int

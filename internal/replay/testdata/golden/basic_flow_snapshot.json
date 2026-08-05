@@ -11,13 +11,6 @@
     "event_tags": [
       {
         "event_id": "c108c0bfe77ffc3c0e07f1056d0b5d008e2b4e2a8c4197af5b8c7e3582d41f74",
-        "tag_name": "client",
-        "tag_index": 0,
-        "value_index": 0,
-        "value": "nostrmash"
-      },
-      {
-        "event_id": "c108c0bfe77ffc3c0e07f1056d0b5d008e2b4e2a8c4197af5b8c7e3582d41f74",
         "tag_name": "t",
         "tag_index": 1,
         "value_index": 0,
