@@ -137,35 +137,39 @@ func (r *Runtime) persistComputeResults(
 		return fmt.Errorf("clear previous trust score staging rows: %w", err)
 	}
 
-	// Batch CopyFrom instead of one giant stream. Production saw a single
-	// CopyFrom of ~170k rows stall indefinitely after ~192KiB on the wire
-	// (pg_stat_progress_copy tuples_processed stuck at 0).
-	const copyBatch = 2000
-	for offset := 0; offset < len(ranked); offset += copyBatch {
-		end := offset + copyBatch
+	// Prefer batched INSERT over CopyFrom. Production CopyFrom to
+	// trust_scores_global_stage repeatedly stalled after ~192KiB with
+	// pg_stat_progress_copy.tuples_processed stuck at 0 (even for 2k-row
+	// batches), leaving the compute job hung until stale recovery.
+	const insertBatch = 500
+	for offset := 0; offset < len(ranked); offset += insertBatch {
+		end := offset + insertBatch
 		if end > len(ranked) {
 			end = len(ranked)
 		}
-		rows := make([][]any, 0, end-offset)
+		args := make([]any, 0, (end-offset)*6)
+		valueSQL := make([]string, 0, end-offset)
 		for i := offset; i < end; i++ {
 			item := ranked[i]
-			rows = append(rows, []any{
+			base := len(args)
+			valueSQL = append(valueSQL, fmt.Sprintf(
+				"($%d,$%d,$%d,$%d,$%d,$%d)",
+				base+1, base+2, base+3, base+4, base+5, base+6,
+			))
+			args = append(args,
 				runID,
 				item.Pubkey,
 				item.Score,
-				i + 1,
+				i+1,
 				derivation.DerivationTrustScoresGlobal,
 				derivation.TrustScoresGlobalVersion,
-			})
+			)
 		}
-		_, err = tx.CopyFrom(
-			ctx,
-			pgx.Identifier{"trust_scores_global_stage"},
-			[]string{"run_id", "pubkey", "score", "rank", "derivation_name", "target_version"},
-			pgx.CopyFromRows(rows),
-		)
-		if err != nil {
-			return fmt.Errorf("write trust score staging rows by copy (offset %d): %w", offset, err)
+		sql := `INSERT INTO trust_scores_global_stage (
+			run_id, pubkey, score, rank, derivation_name, target_version
+		) VALUES ` + strings.Join(valueSQL, ",")
+		if _, err = tx.Exec(ctx, sql, args...); err != nil {
+			return fmt.Errorf("write trust score staging rows (offset %d): %w", offset, err)
 		}
 	}
 
