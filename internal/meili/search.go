@@ -469,18 +469,6 @@ func hitStringList(hit ms.Hit, key string) []string {
 	return out
 }
 
-func hitJSON(hit ms.Hit, key string) json.RawMessage {
-	raw, ok := hit[key]
-	if !ok || len(raw) == 0 {
-		return json.RawMessage(`{}`)
-	}
-	var payload json.RawMessage
-	if err := json.Unmarshal(raw, &payload); err != nil || len(payload) == 0 {
-		return json.RawMessage(`{}`)
-	}
-	return payload
-}
-
 func hitFormatted(hit ms.Hit) map[string]string {
 	raw, ok := hit["_formatted"]
 	if !ok || len(raw) == 0 {

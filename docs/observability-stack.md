@@ -89,13 +89,46 @@ live config from environment variables:
 
 | Env | Effect |
 | --- | --- |
+| `ALERTMANAGER_TELEGRAM_BOT_TOKEN` | Bot token from [@BotFather](https://t.me/BotFather) |
+| `ALERTMANAGER_TELEGRAM_CHAT_ID` | Numeric chat/group id (can be negative for groups) |
+| `ALERTMANAGER_TELEGRAM_PARSE_MODE` | Default `HTML` |
 | `ALERTMANAGER_WEBHOOK_URL` | Generic webhook (ntfy, Discord, custom) |
 | `ALERTMANAGER_SLACK_WEBHOOK_URL` | Slack incoming webhook |
 | `ALERTMANAGER_SLACK_CHANNEL` | Slack channel (default `#nostrmash-alerts`) |
+| `ALERTMANAGER_SMTP_*` | Email (SMTP); see below — usually harder than Telegram |
 
-Set one of these on the Coolify observability application, redeploy
-Alertmanager, then fire a test alert from Prometheus. Without them, alerts
-stay in the Alertmanager UI only.
+Receiver priority in `entrypoint.sh`: webhook → Slack → **Telegram** → email → UI-only.
+
+### Telegram setup (recommended)
+
+1. In Telegram, message [@BotFather](https://t.me/BotFather) → `/newbot` → copy the bot token.
+2. Start a chat with your bot (or add it to a private group) and send any message.
+3. Get the chat id:
+   - Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser, or
+   - Message [@userinfobot](https://t.me/userinfobot) for your personal id.
+   - Groups use a negative id (e.g. `-1001234567890`).
+4. On the **nostrmash-observability** Coolify app → **Environment Variables**:
+
+```bash
+ALERTMANAGER_TELEGRAM_BOT_TOKEN=123456:ABC...
+ALERTMANAGER_TELEGRAM_CHAT_ID=123456789
+```
+
+5. Redeploy/restart **alertmanager**. Logs should load `/tmp/alertmanager.rendered.yml`.
+6. Do not also set webhook/Slack env vars if you want Telegram (webhook wins first).
+
+### Email setup (optional)
+
+Needs a working SMTP relay (nostrmash.com mail is not required, but you must have *some* provider). Example:
+
+```bash
+ALERTMANAGER_SMTP_SMARTHOST=smtp.gmail.com:587
+ALERTMANAGER_SMTP_FROM=alerts@yourdomain.com
+ALERTMANAGER_SMTP_TO=you@yourdomain.com
+ALERTMANAGER_SMTP_USERNAME=alerts@yourdomain.com
+ALERTMANAGER_SMTP_PASSWORD=<app-password>
+ALERTMANAGER_SMTP_REQUIRE_TLS=true
+```
 
 ## Related docs
 
