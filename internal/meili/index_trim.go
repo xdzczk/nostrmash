@@ -17,9 +17,9 @@ const (
 	// Notes older than this are omitted from full sync / age-bounded streams.
 	// Incremental SyncEvent of a specific id may still upsert recent activity
 	// targets, but FullSync stops once the keyset cursor crosses this age.
-	// 30d keeps the rebuild tractable on a single-server host (~hundreds of
-	// thousands of notes rather than multi-million).
-	indexedNotesMaxAge = 30 * 24 * time.Hour
+	// 14d keeps the Meili notes index small enough for the single-server
+	// RAM/disk budget (<10 GB total after dropping redundant documents).
+	indexedNotesMaxAge = 14 * 24 * time.Hour
 )
 
 func truncateIndexedText(s string, maxRunes int) string {
