@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/testutil/dbtest"
@@ -18,10 +19,12 @@ func TestStreamNotes_KeysetCoversAllRowsAcrossBatches(t *testing.T) {
 	}
 
 	// Same created_at for a few rows exercises the id tie-break in the keyset.
+	// Timestamps must fall inside indexedNotesMaxAge or streamNotes omits them.
+	now := time.Now().UTC().Unix()
 	const n = 7
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("note_%02d", i)
-		createdAt := int64(1000 - i/2) // pairs share created_at
+		createdAt := now - int64(i/2) // pairs share created_at
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json)
 			VALUES ($1, 'pub', $2, 1, 'sig', $3, '{}'::jsonb)
@@ -32,8 +35,8 @@ func TestStreamNotes_KeysetCoversAllRowsAcrossBatches(t *testing.T) {
 	// Noise: kind that must not appear.
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json)
-		VALUES ('meta_0', 'pub', 9999, 0, 'sig', '', '{}'::jsonb)
-	`); err != nil {
+		VALUES ('meta_0', 'pub', $1, 0, 'sig', '', '{}'::jsonb)
+	`, now); err != nil {
 		t.Fatalf("insert kind0 noise: %v", err)
 	}
 

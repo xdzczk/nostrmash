@@ -490,7 +490,10 @@ func normalizeTrendingProfiles(rows []storeread.TrendingProfile) []trendingProfi
 
 func normalizeNetworkStats(stats storeread.PublicDiscoveryNetworkStats) publicNetworkReadRow {
 	out := publicNetworkReadRow{
-		EventsIngested:    stats.EventsIngested,
+		// EventsIngested comes from pg_class.reltuples (approxLiveTupleCount)
+		// and can move after ANALYZE during rebuilds; it is not a projection
+		// invariant worth asserting here.
+		EventsIngested:    0,
 		ProjectedProfiles: stats.ProjectedProfiles,
 		Relays:            stats.Relays,
 		ActiveAuthors24h:  stats.ActiveAuthors.Last24h,
