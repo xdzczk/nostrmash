@@ -221,6 +221,10 @@ Concrete changes shipped in this PR:
 - Auto-pacing in the retention loop ([internal/jobs/retention.go](../../internal/jobs/retention.go)): when a delete batch comes back saturated (`deleted >= DeleteBatchLimit`), the loop immediately re-runs after a short courtesy pause instead of sleeping for `RunInterval`. This makes `DeleteBatchLimit` a per-batch chunking knob, not a throughput ceiling, so transient backlogs (operator-induced or workload spikes) drain at disk speed without anyone retuning env defaults. Steady-state cost is unchanged: a below-limit batch returns to the normal `RunInterval` sleep. A `job_retention_catchup` log line is emitted every 50 consecutive saturated batches so operators can see sustained burndowns.
 - New gauges: `nostrmash_jobs_rows{status,job_type}` and `nostrmash_jobs_oldest_finished_age_seconds{status}`. Cardinality is bounded by the fixed enum of known job types in [internal/jobs/types.go](../../internal/jobs/types.go); unknown types are reported under `job_type="other"`.
 
+### Cascade FK indexes (migration `000068`)
+
+Event retention deletes from `events` and relies on `ON DELETE CASCADE`. Several child tables referenced `events(id)` without a leading index on the FK column, so each deleted event seq-scanned the child heap. On production that made a 100-row kind-5 batch take ~100s (a 2000-row batch exceeded the retention 15-minute statement timeout), so every deletion/engagement/replaceable/untrusted-author purge failed every hour. Migration `000068` adds the missing leading indexes (`author_recent_events.event_id` was the observed blocker; also `follower_edges.source_event_id`, `profiles_latest.metadata_event_id`, `relay_lists_latest.event_id`, `contact_lists_latest.event_id`). After the index build, the same 2000-row batch completed in ~8s.
+
 ### Acceptance criteria
 
 - After deploy + one `RunInterval` tick, no `succeeded` row in `jobs` is older than 6 h.
