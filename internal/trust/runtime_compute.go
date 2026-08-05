@@ -16,31 +16,19 @@ import (
 
 func (r *Runtime) executeGlobalScoresRun(ctx context.Context, runID int64, snapshotRef string) (err error) {
 	started := time.Now()
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin trust compute tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
-	var currentStatus string
-	err = tx.QueryRow(ctx, `SELECT status FROM trust_runs WHERE id = $1 FOR UPDATE`, runID).Scan(&currentStatus)
+	// Keep the DB transaction short. Loading adjacency from Redis/Postgres and
+	// iterative ranking can take minutes; holding a transaction open across
+	// that work previously left COPY stuck and tripped idle-in-transaction /
+	// stale-recovery paths in production.
+	snapshotRef, skipped, err := r.claimComputePhase(ctx, runID, snapshotRef)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("trust run %d not found", runID)
-		}
-		return fmt.Errorf("lock trust run: %w", err)
+		return err
 	}
-	if currentStatus == RunStatusSucceeded || currentStatus == RunStatusFailed {
+	if skipped {
 		metrics.ObserveWorkerJobExecution(jobs.JobTypeTrustComputeGlobalScore, "skipped", time.Since(started))
 		metrics.ObserveTrustPhaseDuration(RunPhaseCompute, "skipped", time.Since(started))
 		return nil
-	}
-
-	if strings.TrimSpace(snapshotRef) == "" {
-		err = tx.QueryRow(ctx, `SELECT COALESCE(redis_snapshot_ref, '') FROM trust_runs WHERE id = $1`, runID).Scan(&snapshotRef)
-		if err != nil {
-			return fmt.Errorf("load trust run redis snapshot ref: %w", err)
-		}
 	}
 
 	var adjacency map[string][]string
@@ -57,6 +45,46 @@ func (r *Runtime) executeGlobalScoresRun(ctx context.Context, runID int64, snaps
 		}
 	}
 
+	ranked := computeIterativeGlobalRank(adjacency, nodeSet)
+	followerEdges := int64(0)
+	for _, neighbors := range adjacency {
+		followerEdges += int64(len(neighbors))
+	}
+
+	if err := r.persistComputeResults(ctx, runID, snapshotRef, ranked, followerEdges); err != nil {
+		return err
+	}
+	metrics.ObserveWorkerJobExecution(jobs.JobTypeTrustComputeGlobalScore, "success", time.Since(started))
+	metrics.ObserveTrustPhaseDuration(RunPhaseCompute, "success", time.Since(started))
+	return nil
+}
+
+func (r *Runtime) claimComputePhase(ctx context.Context, runID int64, snapshotRef string) (string, bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("begin trust compute claim tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var currentStatus string
+	err = tx.QueryRow(ctx, `SELECT status FROM trust_runs WHERE id = $1 FOR UPDATE`, runID).Scan(&currentStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, fmt.Errorf("trust run %d not found", runID)
+		}
+		return "", false, fmt.Errorf("lock trust run: %w", err)
+	}
+	if currentStatus == RunStatusSucceeded || currentStatus == RunStatusFailed {
+		return "", true, nil
+	}
+
+	if strings.TrimSpace(snapshotRef) == "" {
+		err = tx.QueryRow(ctx, `SELECT COALESCE(redis_snapshot_ref, '') FROM trust_runs WHERE id = $1`, runID).Scan(&snapshotRef)
+		if err != nil {
+			return "", false, fmt.Errorf("load trust run redis snapshot ref: %w", err)
+		}
+	}
+
 	if _, err = tx.Exec(ctx, `
 		UPDATE trust_runs
 		SET current_phase = $1,
@@ -66,14 +94,49 @@ func (r *Runtime) executeGlobalScoresRun(ctx context.Context, runID int64, snaps
 		    updated_at = now()
 		WHERE id = $2
 	`, RunPhaseCompute, runID); err != nil {
-		return fmt.Errorf("mark trust run compute phase: %w", err)
+		return "", false, fmt.Errorf("mark trust run compute phase: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", false, fmt.Errorf("commit trust compute claim tx: %w", err)
+	}
+	return snapshotRef, false, nil
+}
+
+func (r *Runtime) persistComputeResults(
+	ctx context.Context,
+	runID int64,
+	snapshotRef string,
+	ranked []rankNode,
+	followerEdges int64,
+) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin trust compute persist tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		"SET LOCAL statement_timeout = %d",
+		trustEdgeScanStatementTimeout.Milliseconds(),
+	)); err != nil {
+		return fmt.Errorf("set trust compute statement_timeout: %w", err)
+	}
+
+	var currentStatus string
+	err = tx.QueryRow(ctx, `SELECT status FROM trust_runs WHERE id = $1 FOR UPDATE`, runID).Scan(&currentStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("trust run %d not found", runID)
+		}
+		return fmt.Errorf("lock trust run for persist: %w", err)
+	}
+	if currentStatus == RunStatusSucceeded || currentStatus == RunStatusFailed {
+		return nil
 	}
 
 	if _, err = tx.Exec(ctx, `DELETE FROM trust_scores_global_stage WHERE run_id = $1`, runID); err != nil {
 		return fmt.Errorf("clear previous trust score staging rows: %w", err)
 	}
 
-	ranked := computeIterativeGlobalRank(adjacency, nodeSet)
 	if len(ranked) > 0 {
 		rows := make([][]any, 0, len(ranked))
 		for i, item := range ranked {
@@ -95,12 +158,6 @@ func (r *Runtime) executeGlobalScoresRun(ctx context.Context, runID int64, snaps
 		if err != nil {
 			return fmt.Errorf("write trust score staging rows by copy: %w", err)
 		}
-	}
-
-	scoreRows := int64(len(ranked))
-	followerEdges := int64(0)
-	if err = tx.QueryRow(ctx, `SELECT COUNT(*) FROM follower_edges`).Scan(&followerEdges); err != nil {
-		return fmt.Errorf("count follower edges: %w", err)
 	}
 
 	payload, err := json.Marshal(PromoteRunPayload{
@@ -132,15 +189,13 @@ func (r *Runtime) executeGlobalScoresRun(ctx context.Context, runID int64, snaps
 		    job_id = $5,
 		    updated_at = now()
 		WHERE id = $6
-	`, RunStatusRunning, followerEdges, scoreRows, snapshotRef, promoteJobID, runID)
+	`, RunStatusRunning, followerEdges, int64(len(ranked)), snapshotRef, promoteJobID, runID)
 	if err != nil {
 		return fmt.Errorf("mark trust run computed: %w", err)
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit trust compute tx: %w", err)
+		return fmt.Errorf("commit trust compute persist tx: %w", err)
 	}
-	metrics.ObserveWorkerJobExecution(jobs.JobTypeTrustComputeGlobalScore, "success", time.Since(started))
-	metrics.ObserveTrustPhaseDuration(RunPhaseCompute, "success", time.Since(started))
 	return nil
 }
