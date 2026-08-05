@@ -33,6 +33,12 @@ func (r *Runtime) executeRedisSyncRun(ctx context.Context, runID int64) error {
 		return fmt.Errorf("begin trust redis sync tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		"SET LOCAL statement_timeout = %d",
+		trustEdgeScanStatementTimeout.Milliseconds(),
+	)); err != nil {
+		return fmt.Errorf("set trust sync statement_timeout: %w", err)
+	}
 
 	var currentStatus string
 	err = tx.QueryRow(ctx, `SELECT status FROM trust_runs WHERE id = $1 FOR UPDATE`, runID).Scan(&currentStatus)

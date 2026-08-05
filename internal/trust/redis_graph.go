@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -136,65 +137,70 @@ func (r *Runtime) writeGraphSnapshot(ctx context.Context, runID int64, snapshotR
 	flushEvery := int64(1000)
 	pending := int64(0)
 
-	edgeRows, err := r.pool.Query(ctx, `
-		SELECT follower_pubkey, followed_pubkey
-		FROM follower_edges
-	`)
-	if err != nil {
-		return redisSyncResult{}, fmt.Errorf("query follower edges for redis sync: %w", err)
-	}
-	defer edgeRows.Close()
-	for edgeRows.Next() {
-		var follower string
-		var followed string
-		if err := edgeRows.Scan(&follower, &followed); err != nil {
-			return redisSyncResult{}, fmt.Errorf("scan follower edge for redis sync: %w", err)
+	if err := withHeavyStatementTimeout(ctx, r.pool, trustEdgeScanStatementTimeout, func(conn *pgxpool.Conn) error {
+		edgeRows, err := conn.Query(ctx, `
+			SELECT follower_pubkey, followed_pubkey
+			FROM follower_edges
+		`)
+		if err != nil {
+			return fmt.Errorf("query follower edges for redis sync: %w", err)
 		}
-		follower = strings.TrimSpace(follower)
-		followed = strings.TrimSpace(followed)
-		if follower == "" || followed == "" {
-			continue
-		}
-
-		adjKey := keys.runAdjKey(runID, snapshotRef, follower)
-		pipe.SAdd(ctx, adjKey, followed)
-		pending++
-		if _, ok := adjTouched[follower]; !ok {
-			adjTouched[follower] = struct{}{}
-			pipe.Expire(ctx, adjKey, redisRunKeyTTL)
-			pending++
-		}
-
-		revKey := keys.runRevAdjKey(runID, snapshotRef, followed)
-		pipe.SAdd(ctx, revKey, follower)
-		pending++
-		if _, ok := revTouched[followed]; !ok {
-			revTouched[followed] = struct{}{}
-			pipe.Expire(ctx, revKey, redisRunKeyTTL)
-			pending++
-		}
-
-		nodesKey := keys.runNodesKey(runID, snapshotRef)
-		pipe.SAdd(ctx, nodesKey, follower, followed)
-		pending++
-		if !nodesKeyTouched {
-			nodesKeyTouched = true
-			pipe.Expire(ctx, nodesKey, redisRunKeyTTL)
-			pending++
-		}
-
-		nodeSet[follower] = struct{}{}
-		nodeSet[followed] = struct{}{}
-		edgeCount++
-		if pending >= flushEvery {
-			if err := execRedisPipe(ctx, pipe, "flush redis graph edge sync pipeline"); err != nil {
-				return redisSyncResult{}, err
+		defer edgeRows.Close()
+		for edgeRows.Next() {
+			var follower string
+			var followed string
+			if err := edgeRows.Scan(&follower, &followed); err != nil {
+				return fmt.Errorf("scan follower edge for redis sync: %w", err)
 			}
-			pending = 0
+			follower = strings.TrimSpace(follower)
+			followed = strings.TrimSpace(followed)
+			if follower == "" || followed == "" {
+				continue
+			}
+
+			adjKey := keys.runAdjKey(runID, snapshotRef, follower)
+			pipe.SAdd(ctx, adjKey, followed)
+			pending++
+			if _, ok := adjTouched[follower]; !ok {
+				adjTouched[follower] = struct{}{}
+				pipe.Expire(ctx, adjKey, redisRunKeyTTL)
+				pending++
+			}
+
+			revKey := keys.runRevAdjKey(runID, snapshotRef, followed)
+			pipe.SAdd(ctx, revKey, follower)
+			pending++
+			if _, ok := revTouched[followed]; !ok {
+				revTouched[followed] = struct{}{}
+				pipe.Expire(ctx, revKey, redisRunKeyTTL)
+				pending++
+			}
+
+			nodesKey := keys.runNodesKey(runID, snapshotRef)
+			pipe.SAdd(ctx, nodesKey, follower, followed)
+			pending++
+			if !nodesKeyTouched {
+				nodesKeyTouched = true
+				pipe.Expire(ctx, nodesKey, redisRunKeyTTL)
+				pending++
+			}
+
+			nodeSet[follower] = struct{}{}
+			nodeSet[followed] = struct{}{}
+			edgeCount++
+			if pending >= flushEvery {
+				if err := execRedisPipe(ctx, pipe, "flush redis graph edge sync pipeline"); err != nil {
+					return err
+				}
+				pending = 0
+			}
 		}
-	}
-	if err := edgeRows.Err(); err != nil {
-		return redisSyncResult{}, fmt.Errorf("read follower edge rows for redis sync: %w", err)
+		if err := edgeRows.Err(); err != nil {
+			return fmt.Errorf("read follower edge rows for redis sync: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return redisSyncResult{}, err
 	}
 
 	seeds, err := loadActiveSeeds(ctx, r.pool)
@@ -352,34 +358,39 @@ func (r *Runtime) loadAdjacencyFromRedis(ctx context.Context, runID int64, snaps
 }
 
 func (r *Runtime) loadAdjacencyFromPostgres(ctx context.Context) (map[string][]string, map[string]struct{}, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT follower_pubkey, followed_pubkey
-		FROM follower_edges
-	`)
-	if err != nil {
-		return nil, nil, fmt.Errorf("query follower edges for ranking: %w", err)
-	}
-	defer rows.Close()
-
 	adj := make(map[string][]string)
 	nodeSet := make(map[string]struct{})
-	for rows.Next() {
-		var follower string
-		var followed string
-		if err := rows.Scan(&follower, &followed); err != nil {
-			return nil, nil, fmt.Errorf("scan follower edge for ranking: %w", err)
+	if err := withHeavyStatementTimeout(ctx, r.pool, trustEdgeScanStatementTimeout, func(conn *pgxpool.Conn) error {
+		rows, err := conn.Query(ctx, `
+			SELECT follower_pubkey, followed_pubkey
+			FROM follower_edges
+		`)
+		if err != nil {
+			return fmt.Errorf("query follower edges for ranking: %w", err)
 		}
-		follower = strings.TrimSpace(follower)
-		followed = strings.TrimSpace(followed)
-		if follower == "" || followed == "" {
-			continue
+		defer rows.Close()
+
+		for rows.Next() {
+			var follower string
+			var followed string
+			if err := rows.Scan(&follower, &followed); err != nil {
+				return fmt.Errorf("scan follower edge for ranking: %w", err)
+			}
+			follower = strings.TrimSpace(follower)
+			followed = strings.TrimSpace(followed)
+			if follower == "" || followed == "" {
+				continue
+			}
+			adj[follower] = append(adj[follower], followed)
+			nodeSet[follower] = struct{}{}
+			nodeSet[followed] = struct{}{}
 		}
-		adj[follower] = append(adj[follower], followed)
-		nodeSet[follower] = struct{}{}
-		nodeSet[followed] = struct{}{}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, fmt.Errorf("read follower edge rows for ranking: %w", err)
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("read follower edge rows for ranking: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, nil, err
 	}
 	return adj, nodeSet, nil
 }

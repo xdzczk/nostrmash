@@ -12,7 +12,7 @@ import (
 // trustHeavyStatementTimeout covers BFS snapshot rebuild + trusted-discovery
 // projection refresh. Those statements scan follower_edges / large candidate
 // tables and legitimately exceed the production 15s API guardrail.
-const trustHeavyStatementTimeout = 15 * time.Minute
+const trustHeavyStatementTimeout = 30 * time.Minute
 
 func setTrustHeavyStatementTimeout(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, fmt.Sprintf(
