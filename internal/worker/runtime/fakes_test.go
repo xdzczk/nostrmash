@@ -103,6 +103,11 @@ func (f *fakeGovernorStore) PurgeStaleEventRelays(context.Context, time.Time, in
 	return 1, nil
 }
 
+func (f *fakeGovernorStore) PruneFilteredEventTags(context.Context, int) (int64, error) {
+	f.drainCalls["event_tags"]++
+	return 1, nil
+}
+
 type fakeGovernorQueue struct {
 	purgeCalls int
 	purgeErr   error

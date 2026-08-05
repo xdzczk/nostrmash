@@ -20,6 +20,7 @@ type GovernorStore interface {
 	PurgeUntrustedAuthorEvents(ctx context.Context, olderThan, deadGraceBefore time.Time, limit int) (int64, error)
 	PruneAuthorRecentEvents(ctx context.Context, olderThan time.Time, perAuthorCap, authorBatchLimit, deleteBatchLimit int) (int64, error)
 	PurgeStaleEventRelays(ctx context.Context, seenBefore time.Time, limit int) (int64, error)
+	PruneFilteredEventTags(ctx context.Context, limit int) (int64, error)
 }
 
 // GovernorQueue is the jobs-queue slice the governor uses for terminal job
@@ -226,6 +227,18 @@ func drainUnderPressure(
 		} else if deleted > 0 {
 			metrics.AddRetentionPurgedRows("event_relays", deleted)
 			log.Info("storage_governor_drained", "target", "event_relays", "deleted", deleted, "level", int(level))
+		}
+	}
+
+	if cfg.EventTagsRetention.Enabled {
+		if deleted, err := store.PruneFilteredEventTags(
+			ctx,
+			cfg.EventTagsRetention.DeleteBatchLimit,
+		); err != nil {
+			log.Error("storage_governor_drain_failed", "target", "event_tags", "error", err)
+		} else if deleted > 0 {
+			metrics.AddRetentionPurgedRows("event_tags", deleted)
+			log.Info("storage_governor_drained", "target", "event_tags", "deleted", deleted, "level", int(level))
 		}
 	}
 }

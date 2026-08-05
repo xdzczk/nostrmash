@@ -35,6 +35,8 @@ func governorTestConfig() config.WorkerConfig {
 	cfg.AuthorRecentRetention.DeleteBatchLimit = 100
 	cfg.EventRelaysRetention.Enabled = true
 	cfg.EventRelaysRetention.DeleteBatchLimit = 100
+	cfg.EventTagsRetention.Enabled = true
+	cfg.EventTagsRetention.DeleteBatchLimit = 100
 	return cfg
 }
 
@@ -94,7 +96,7 @@ func TestRunStorageGovernorLoop_AggressivePressureDrains(t *testing.T) {
 	if len(store.upserts) == 0 || store.upserts[0].level != int(config.PressureAggressive) {
 		t.Fatalf("expected aggressive level upsert, got %+v", store.upserts)
 	}
-	for _, target := range []string{"engagement", "replaceable", "deletion", "untrusted", "author_recent", "event_relays"} {
+	for _, target := range []string{"engagement", "replaceable", "deletion", "untrusted", "author_recent", "event_relays", "event_tags"} {
 		if store.drainCalls[target] == 0 {
 			t.Fatalf("expected drain of %q under aggressive pressure; calls=%v", target, store.drainCalls)
 		}
@@ -116,6 +118,7 @@ func TestDrainUnderPressure_RespectsDisabledTargets(t *testing.T) {
 	cfg.UntrustedAuthorRetention.Enabled = false
 	cfg.AuthorRecentRetention.Enabled = false
 	cfg.EventRelaysRetention.Enabled = false
+	cfg.EventTagsRetention.Enabled = false
 
 	drainUnderPressure(context.Background(), log, store, queue, cfg, config.PressureAggressive)
 
