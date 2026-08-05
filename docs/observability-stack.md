@@ -68,18 +68,20 @@ Expect a short Postgres blip during the restart. App containers reconnect automa
 
 ## Build identity (app stack)
 
-In the NostrMash Coolify application, set:
+The Dockerfile stamps `nostrmash_build_info` from the git checkout at build
+time (`git rev-parse HEAD`). A Coolify redeploy that rebuilds from `main`
+therefore reports the SHA that was actually built — you do not need to
+maintain a `SOURCE_COMMIT` env var.
+
+Optional overrides (rarely needed):
 
 ```bash
-APP_VERSION=<git-sha-or-release-tag>
+# Human release tag for the version label (defaults to the git SHA).
+APP_VERSION=v1.2.3
+# Only used when the build context has no .git (e.g. a source tarball).
 SOURCE_COMMIT=<git-sha>
-# optional
 BUILD_TIME=<RFC3339 or CI timestamp>
 ```
-
-`docker-compose.coolify.yml` passes these as Docker build `args` into the
-Dockerfile ldflags so `nostrmash_build_info` stops reporting `version=dev` /
-`commit=unknown`. Redeploy (rebuild) the app stack after setting them.
 
 ## Alert delivery
 

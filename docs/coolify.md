@@ -112,8 +112,6 @@ Recommended production defaults:
 ```bash
 ENVIRONMENT=production
 LOG_LEVEL=info
-APP_VERSION=<git-sha-or-release-tag>
-SOURCE_COMMIT=<git-sha>
 INGESTOR_MODE=live
 INGESTOR_FILTER_GROUP=default_v1
 WORKER_CONCURRENCY=4
@@ -121,11 +119,16 @@ TRUST_WORKER_CONCURRENCY=2
 TRUST_WORKER_CLAIM_BATCH_SIZE=5
 TRUST_ENABLE_SCORE_COMPUTE=true
 TRUST_ENABLE_REDIS_SYNC=false
+# Optional: human release tag for build_info version (defaults to git SHA).
+# APP_VERSION=v1.2.3
 ```
 
-`APP_VERSION`, `SOURCE_COMMIT`, and optional `BUILD_TIME` are passed as Docker
-build args so `nostrmash_build_info` reports a real commit (not `dev`/`unknown`).
-Rebuild after changing them.
+Build identity is stamped from the git checkout during `docker build`
+(`git rev-parse HEAD` → `main.buildCommit` / `nostrmash_build_info`). You do
+**not** need to keep `SOURCE_COMMIT` in sync across redeploys; if a leftover
+`SOURCE_COMMIT` / `APP_VERSION` env is still set in Coolify it is ignored for
+the commit label whenever `.git` is present in the build context. Set
+`APP_VERSION` only when you want a human tag (e.g. `v1.2.3`) instead of the SHA.
 
 ### Single-server memory budgets
 

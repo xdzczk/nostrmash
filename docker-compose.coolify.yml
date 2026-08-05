@@ -5,11 +5,13 @@ x-nostrmash-service: &nostrmash-service
     context: .
     dockerfile: Dockerfile
     args:
-      # Set APP_VERSION / SOURCE_COMMIT in Coolify so binaries stamp real identity
-      # into nostrmash_build_info (avoid version=dev / commit=unknown in prod).
-      VERSION: ${APP_VERSION:-coolify}
-      COMMIT: ${SOURCE_COMMIT:-unknown}
-      BUILD_TIME: ${BUILD_TIME:-unknown}
+      # Optional only. The Dockerfile stamps commit/version from the git
+      # checkout when .git is present, so a stale Coolify SOURCE_COMMIT /
+      # APP_VERSION env cannot mislabel a newer binary. Pass APP_VERSION
+      # only when you want a human release tag (e.g. v1.2.3) instead of the SHA.
+      VERSION: ${APP_VERSION:-}
+      COMMIT: ${SOURCE_COMMIT:-}
+      BUILD_TIME: ${BUILD_TIME:-}
   image: nostrmash:coolify
   restart: unless-stopped
   init: true
