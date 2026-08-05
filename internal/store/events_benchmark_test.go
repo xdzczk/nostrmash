@@ -64,7 +64,7 @@ func BenchmarkExpandEventTags(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rows := ExpandEventTags("evt_hot_path", tags)
+		rows := ExpandEventTags("evt_hot_path", 1, tags)
 		if len(rows) == 0 {
 			b.Fatal("expected expanded tag rows")
 		}

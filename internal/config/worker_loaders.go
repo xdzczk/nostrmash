@@ -49,6 +49,7 @@ type workerRetentionConfigs struct {
 	AuthorRecent      WorkerAuthorRecentRetentionConfig
 	SearchDocs        WorkerSearchDocsRetentionConfig
 	EventRelays       WorkerEventRelaysRetentionConfig
+	EventTags         WorkerEventTagsRetentionConfig
 	AppliedStatDeltas WorkerAppliedStatDeltasRetentionConfig
 	TrustRetention    WorkerTrustRetentionLoopConfig
 }
@@ -79,6 +80,9 @@ func loadWorkerRetentionConfigs() (workerRetentionConfigs, error) {
 		return workerRetentionConfigs{}, err
 	}
 	if out.EventRelays, err = loadEventRelaysRetentionConfig(); err != nil {
+		return workerRetentionConfigs{}, err
+	}
+	if out.EventTags, err = loadEventTagsRetentionConfig(); err != nil {
 		return workerRetentionConfigs{}, err
 	}
 	if out.AppliedStatDeltas, err = loadAppliedStatDeltasRetentionConfig(); err != nil {
@@ -301,6 +305,25 @@ func loadEventRelaysRetentionConfig() (WorkerEventRelaysRetentionConfig, error) 
 	return WorkerEventRelaysRetentionConfig{
 		Enabled:          getEnvBool("WORKER_RETENTION_EVENT_RELAYS_ENABLED", true),
 		MaxAge:           maxAge,
+		RunInterval:      runInterval,
+		DeleteBatchLimit: deleteBatchLimit,
+	}, nil
+}
+
+// loadEventTagsRetentionConfig reads WORKER_RETENTION_EVENT_TAGS_*. Defaults
+// are aggressive (5m / 20k) so the historical backlog of kind-3 p-tags and
+// junk names drains quickly after deploy; once empty each tick is a no-op.
+func loadEventTagsRetentionConfig() (WorkerEventTagsRetentionConfig, error) {
+	runInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL", 5*time.Minute)
+	if err != nil {
+		return WorkerEventTagsRetentionConfig{}, err
+	}
+	deleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_EVENT_TAGS_DELETE_BATCH_LIMIT", 20000)
+	if err != nil {
+		return WorkerEventTagsRetentionConfig{}, err
+	}
+	return WorkerEventTagsRetentionConfig{
+		Enabled:          getEnvBool("WORKER_RETENTION_EVENT_TAGS_ENABLED", true),
 		RunInterval:      runInterval,
 		DeleteBatchLimit: deleteBatchLimit,
 	}, nil

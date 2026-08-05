@@ -654,6 +654,27 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Description:  "Maximum event_relays rows deleted per retention purge batch.",
 		},
 		{
+			Name:         "WORKER_RETENTION_EVENT_TAGS_ENABLED",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable pruning of event_tags rows excluded by the ingest allowlist (non-allowlisted tag names, kind-3 contact-list p-tags, kind-10002 relay-list r-tags). events.raw_json is untouched; the table is a rebuildable join index. See internal/eventtags.",
+		},
+		{
+			Name:         "WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "5m0s",
+			Description:  "How often the event_tags allowlist prune loop runs. Saturated batches catch up immediately between ticks.",
+		},
+		{
+			Name:         "WORKER_RETENTION_EVENT_TAGS_DELETE_BATCH_LIMIT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "20000",
+			Description:  "Maximum event_tags rows deleted per allowlist prune batch.",
+		},
+		{
 			Name:         "WORKER_RETENTION_APPLIED_STAT_DELTAS_ENABLED",
 			Runtimes:     []string{"worker"},
 			Required:     false,

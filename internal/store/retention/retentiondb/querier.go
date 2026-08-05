@@ -19,6 +19,15 @@ type Querier interface {
 	GroomSearchDocumentsTrim(ctx context.Context, arg GroomSearchDocumentsTrimParams) (int64, error)
 	PruneAuthorRecentEventsByAge(ctx context.Context, arg PruneAuthorRecentEventsByAgeParams) (int64, error)
 	PruneAuthorRecentEventsByCap(ctx context.Context, arg PruneAuthorRecentEventsByCapParams) (int64, error)
+	// Drop event_tags rows that the ingest allowlist would no longer write.
+	// Matches internal/eventtags.ShouldPersist:
+	//   * tag_name outside @allowed_tag_names
+	//   * kind-3 contact-list p-tags
+	//   * kind-10002 relay-list r-tags
+	// events.raw_json remains the source of truth; this only shrinks the
+	// derived join index. Batched via LIMIT so the worker catchup loop can
+	// drain hundreds of millions of rows without a single long transaction.
+	PruneFilteredEventTags(ctx context.Context, arg PruneFilteredEventTagsParams) (int64, error)
 	// Deletes applied_stat_deltas ledger rows whose source event no longer
 	// exists in events. This is the only condition under which a ledger row is
 	// guaranteed to serve no further purpose: as long as the event exists,

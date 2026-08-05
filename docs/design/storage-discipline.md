@@ -81,7 +81,7 @@ Every table falls into exactly one class.
 ### Canonical roots (never auto-pruned)
 
 - `events` — raw signed events. Source of truth for everything else. Pruning canonical events is out of scope for this pass.
-- `event_tags` — expanded tag rows per event. Canonical because they are produced from `events.raw_json` at ingest time and used as a join target by many downstream tables. Pruning is not allowed.
+- `event_tags` — expanded tag rows per event. Derived join index produced from `events.raw_json` at ingest; only tags with production SQL readers are persisted (see `internal/eventtags`). Historical rows outside that allowlist (plus kind-3 contact-list `p` tags and kind-10002 relay-list `r` tags) are pruned by `WORKER_RETENTION_EVENT_TAGS_*`. Full tags always remain in `events.raw_json` and can be backfilled.
 - `event_relays` — provenance of which relays delivered each event. Append-only, canonical for ingest provenance.
 - `invalid_events` — quarantine of payloads that failed validation. Already has age + payload-trim retention via `WORKER_INVALID_EVENTS_*`.
 - `ingest_checkpoints` — durable per-relay ingest cursor. Operational but canonical-shaped.
@@ -229,6 +229,10 @@ Event retention deletes from `events` and relies on `ON DELETE CASCADE`. Several
 
 `event_tags.raw_values` duplicated the full original tag array onto every expanded value row and had no production readers (derivation handlers parse `events.raw_json`; join paths only use `tag_name`/`value`). A 1% production sample showed it was ~59% of payload bytes (~30 GB of the 58 GB heap). Migration `000069` drops the column; new inserts shrink immediately. Heap reclaim for existing rows needs `pg_repack` / natural churn (DROP COLUMN is metadata-only).
 
+### Filter + prune `event_tags` allowlist (`internal/eventtags`)
+
+`event_tags` is a derived join index, not a source of truth. Ingest (`ExpandEventTags`) only persists tag names with production SQL readers (`p`, `e`, `d`, `a`, `t`, `word`, `image`, `thumb`, `video`, `imeta`, `m`, `r`, `url`, `u`, `g`, `group`, `series`), and additionally drops kind-3 contact-list `p` tags (~49% of bytes; follows live in `follower_edges`) and kind-10002 relay-list `r` tags (~20% of bytes; projection reads `raw_json`). The worker loop `WORKER_RETENTION_EVENT_TAGS_*` (default enabled, 5m / 20k) drains the historical backlog with the same predicate. Mentions (`GetEventsReferencingPubkey`) explicitly exclude kind 3. To restore a filtered tag for a future feature: add it to `AllowedTagNames` (and drop any kind-scope exclusion), then backfill from `events.raw_json`.
+
 ### Acceptance criteria
 
 - After deploy + one `RunInterval` tick, no `succeeded` row in `jobs` is older than 6 h.
@@ -242,9 +246,10 @@ Event retention deletes from `events` and relies on `ON DELETE CASCADE`. Several
 
 ## Non-goals
 
-- Pruning trusted-author `events` or their `event_tags`. Those are canonical.
-  (Untrusted-author events are pruned by the Phase 4 loop; that is a
-  trust-policy decision, not canonical-data cleanup.)
+- Pruning trusted-author `events`. Those are canonical. (Untrusted-author
+  events are pruned by the Phase 4 loop; that is a trust-policy decision.)
+  Filtering/pruning unused `event_tags` index rows is allowed because the
+  table is derived from `events.raw_json` (see allowlist section above).
 - Building a job-history archive subsystem. Bounded retention is enough.
 - ClickHouse / external store / archival side-system to dodge local discipline.
 - Removing indexes by inertia without `pg_stat_user_indexes` evidence over a fresh window.

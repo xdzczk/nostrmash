@@ -70,6 +70,12 @@ type EventRelaysRetentionStore interface {
 	PurgeStaleEventRelays(ctx context.Context, seenBefore time.Time, limit int) (int64, error)
 }
 
+// EventTagsRetentionStore prunes event_tags rows excluded by the ingest
+// allowlist. Satisfied by *store.PostgresStore.
+type EventTagsRetentionStore interface {
+	PruneFilteredEventTags(ctx context.Context, limit int) (int64, error)
+}
+
 // AppliedStatDeltasRetentionStore prunes orphaned applied_stat_deltas ledger
 // rows (see docs/design/incremental-author-stats.md). Satisfied by
 // *store.PostgresStore.

@@ -305,6 +305,59 @@ func TestPurgeStaleEventRelays(t *testing.T) {
 	}
 }
 
+func TestPruneFilteredEventTags(t *testing.T) {
+	ctx, pool, s := setupRetention(t)
+	ref := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+
+	insertEvent(t, ctx, pool, "note1", "alice", 1, ref.Unix(), ref)
+	insertEvent(t, ctx, pool, "clist", "alice", 3, ref.Unix(), ref)
+	insertEvent(t, ctx, pool, "rlist", "alice", 10002, ref.Unix(), ref)
+
+	insertTag := func(eventID, tagName string, tagIndex, valueIndex int, value string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO event_tags (event_id, tag_name, tag_index, value_index, value)
+			VALUES ($1, $2, $3, $4, $5)
+		`, eventID, tagName, tagIndex, valueIndex, value); err != nil {
+			t.Fatalf("insert tag: %v", err)
+		}
+	}
+	insertTag("note1", "p", 0, 0, "bob")        // keep
+	insertTag("note1", "client", 1, 0, "damus") // junk
+	insertTag("clist", "p", 0, 0, "bob")        // kind-3 p drop
+	insertTag("clist", "d", 1, 0, "slot")       // keep
+	insertTag("rlist", "r", 0, 0, "wss://a")    // kind-10002 r drop
+	insertTag("rlist", "p", 1, 0, "hint")       // keep
+
+	deleted, err := s.PruneFilteredEventTags(ctx, 100)
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if deleted != 3 {
+		t.Fatalf("expected 3 deletions (client + kind3 p + kind10002 r), got %d", deleted)
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT event_id, tag_name FROM event_tags ORDER BY event_id, tag_name
+	`)
+	if err != nil {
+		t.Fatalf("query remaining tags: %v", err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var eventID, tagName string
+		if err := rows.Scan(&eventID, &tagName); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, eventID+":"+tagName)
+	}
+	want := []string{"clist:d", "note1:p", "rlist:p"}
+	if !sameStrings(got, want) {
+		t.Fatalf("remaining tags = %v, want %v", got, want)
+	}
+}
+
 func sameStrings(got, want []string) bool {
 	if len(got) != len(want) {
 		return false

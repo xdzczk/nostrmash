@@ -11,11 +11,16 @@ import (
 
 func insertEventWithTags(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id string, createdAt int64, tags [][]string) {
 	t.Helper()
+	insertEventWithKindAndTags(t, ctx, pool, id, 1, createdAt, tags)
+}
+
+func insertEventWithKindAndTags(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id string, kind int, createdAt int64, tags [][]string) {
+	t.Helper()
 	raw := fmt.Sprintf(`{"id":%q}`, id)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json)
-		VALUES ($1, 'pub', $2, 1, 'sig', '', $3::jsonb)
-	`, id, createdAt, raw); err != nil {
+		VALUES ($1, 'pub', $2, $3, 'sig', '', $4::jsonb)
+	`, id, createdAt, kind, raw); err != nil {
 		t.Fatalf("insert event %s: %v", id, err)
 	}
 	for tagIndex, tag := range tags {
@@ -46,9 +51,11 @@ func TestGetEventsReferencingPubkey(t *testing.T) {
 	insertEventWithTags(t, ctx, pool, "m_double", 2000, [][]string{{"p", target}, {"p", target}})
 	// p-tag with a relay hint at value_index 1: hint must not match as a target.
 	insertEventWithTags(t, ctx, pool, "m_hinted", 1000, [][]string{{"p", target, "wss://relay.example"}})
-	// Non-matches: different pubkey, and an e-tag whose value equals the target.
+	// Non-matches: different pubkey, an e-tag whose value equals the target,
+	// and a kind-3 contact list that follows the target (follow ≠ mention).
 	insertEventWithTags(t, ctx, pool, "x_other_pub", 2500, [][]string{{"p", "other_pub"}})
 	insertEventWithTags(t, ctx, pool, "x_etag", 2600, [][]string{{"e", target}})
+	insertEventWithKindAndTags(t, ctx, pool, "x_contact", 3, 2700, [][]string{{"p", target}})
 
 	got, err := NewPostgresStore(pool).GetEventsReferencingPubkey(ctx, target, 10)
 	if err != nil {

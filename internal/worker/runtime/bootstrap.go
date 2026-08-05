@@ -34,6 +34,7 @@ type Bootstrap struct {
 	AuthorRecentStore      AuthorRecentRetentionStore
 	SearchDocsStore        SearchDocsRetentionStore
 	EventRelaysStore       EventRelaysRetentionStore
+	EventTagsStore         EventTagsRetentionStore
 	AppliedStatDeltasStore AppliedStatDeltasRetentionStore
 	TrustRetention         TrustRetentionStore
 	ProcessJob             ProcessJobFn
@@ -143,6 +144,7 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		AuthorRecentStore:      postgresStore,
 		SearchDocsStore:        postgresStore,
 		EventRelaysStore:       postgresStore,
+		EventTagsStore:         postgresStore,
 		AppliedStatDeltasStore: postgresStore,
 		TrustRetention:         postgresStore,
 		ProcessJob: func(jobCtx context.Context, job jobs.Job) error {

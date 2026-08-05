@@ -31,10 +31,11 @@ func TestDBResultFromErr(t *testing.T) {
 }
 
 func TestExpandEventTags(t *testing.T) {
-	got := ExpandEventTags("evt_1", [][]string{
+	got := ExpandEventTags("evt_1", 1, [][]string{
 		{"e", "target_1", "wss://relay.one", "reply"},
 		{},
 		{"p", "author_1"},
+		{"client", "damus"},
 		{"client"},
 	})
 
@@ -71,6 +72,26 @@ func TestExpandEventTags(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ExpandEventTags() mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestExpandEventTags_KindScopedFilters(t *testing.T) {
+	contact := ExpandEventTags("c1", 3, [][]string{
+		{"p", "bob"},
+		{"p", "carol"},
+		{"d", "ignored-on-kind3-but-allowed"},
+	})
+	if len(contact) != 1 || contact[0].TagName != "d" {
+		t.Fatalf("kind-3 expand should keep only d-tag, got %#v", contact)
+	}
+
+	relays := ExpandEventTags("r1", 10002, [][]string{
+		{"r", "wss://relay.one"},
+		{"r", "wss://relay.two"},
+		{"p", "hint_pub"},
+	})
+	if len(relays) != 1 || relays[0].TagName != "p" {
+		t.Fatalf("kind-10002 expand should drop r-tags, got %#v", relays)
 	}
 }
 

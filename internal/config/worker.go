@@ -22,6 +22,7 @@ type WorkerConfig struct {
 	AuthorRecentRetention      WorkerAuthorRecentRetentionConfig
 	SearchDocsRetention        WorkerSearchDocsRetentionConfig
 	EventRelaysRetention       WorkerEventRelaysRetentionConfig
+	EventTagsRetention         WorkerEventTagsRetentionConfig
 	AppliedStatDeltasRetention WorkerAppliedStatDeltasRetentionConfig
 	TrustRetentionHooks        TrustRetentionHooksConfig
 	TrustRetentionLoop         WorkerTrustRetentionLoopConfig
@@ -277,6 +278,17 @@ type WorkerEventRelaysRetentionConfig struct {
 	DeleteBatchLimit int
 }
 
+// WorkerEventTagsRetentionConfig configures the pruner that deletes
+// event_tags rows excluded by the ingest allowlist (junk tag names, kind-3
+// contact-list p-tags, kind-10002 relay-list r-tags). See
+// internal/eventtags and docs/design/storage-discipline.md. No age
+// horizon: once the historical backlog drains, each tick is a no-op.
+type WorkerEventTagsRetentionConfig struct {
+	Enabled          bool
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
 // WorkerAppliedStatDeltasRetentionConfig configures the pruner that reclaims
 // orphaned applied_stat_deltas ledger rows (see
 // docs/design/incremental-author-stats.md and
@@ -365,6 +377,7 @@ func LoadWorker() (WorkerConfig, error) {
 		AuthorRecentRetention:      retention.AuthorRecent,
 		SearchDocsRetention:        retention.SearchDocs,
 		EventRelaysRetention:       retention.EventRelays,
+		EventTagsRetention:         retention.EventTags,
 		AppliedStatDeltasRetention: retention.AppliedStatDeltas,
 		TrustRetentionHooks:        trustRetentionHooks,
 		TrustRetentionLoop:         retention.TrustRetention,
@@ -573,6 +586,14 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.EventRelaysRetention.DeleteBatchLimit <= 0 {
 			return fmt.Errorf("WORKER_RETENTION_EVENT_RELAYS_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.EventTagsRetention.Enabled {
+		if cfg.EventTagsRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL must be > 0")
+		}
+		if cfg.EventTagsRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_EVENT_TAGS_DELETE_BATCH_LIMIT must be > 0")
 		}
 	}
 	if cfg.AppliedStatDeltasRetention.Enabled {

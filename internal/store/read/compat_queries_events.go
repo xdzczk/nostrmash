@@ -58,6 +58,10 @@ func (s *Read) GetRecentEventsByKindAndPubkey(
 // Served directly from canonical event_tags (idx_event_tags_p_lookup) since the
 // derived pubkey_references table was dropped in migration 000053. EXISTS keeps
 // events with multiple p-tags to the same target from appearing twice.
+//
+// Kind 3 contact lists are excluded: a follow is not a mention, and kind-3
+// p-tags are no longer persisted into event_tags (see internal/eventtags).
+// Follower relationships live in follower_edges.
 func (s *Read) GetEventsReferencingPubkey(ctx context.Context, targetPubkey string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
@@ -75,7 +79,8 @@ func (s *Read) GetEventsReferencingPubkey(ctx context.Context, targetPubkey stri
 	rows, err := s.pool.Query(ctx, `
 		SELECT e.raw_json::text
 		FROM events e
-		WHERE EXISTS (
+		WHERE e.kind <> 3
+		  AND EXISTS (
 			SELECT 1
 			FROM event_tags t
 			WHERE t.tag_name = 'p'

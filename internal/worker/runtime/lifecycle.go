@@ -110,6 +110,13 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		})
 	})
 	spawn(func(c context.Context) {
+		jobs.RunEventTagsRetentionLoop(c, log, bootstrap.EventTagsStore, jobs.EventTagsRetentionConfig{
+			Enabled:          cfg.EventTagsRetention.Enabled,
+			RunInterval:      cfg.EventTagsRetention.RunInterval,
+			DeleteBatchLimit: cfg.EventTagsRetention.DeleteBatchLimit,
+		})
+	})
+	spawn(func(c context.Context) {
 		jobs.RunAppliedStatDeltasRetentionLoop(c, log, bootstrap.AppliedStatDeltasStore, jobs.AppliedStatDeltasRetentionConfig{
 			Enabled:          cfg.AppliedStatDeltasRetention.Enabled,
 			GracePeriod:      cfg.AppliedStatDeltasRetention.GracePeriod,

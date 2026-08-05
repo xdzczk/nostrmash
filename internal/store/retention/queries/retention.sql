@@ -381,3 +381,27 @@ WITH candidates AS (
 DELETE FROM account_states a
 USING candidates c
 WHERE a.pubkey = c.pubkey;
+
+-- name: PruneFilteredEventTags :execrows
+-- Drop event_tags rows that the ingest allowlist would no longer write.
+-- Matches internal/eventtags.ShouldPersist:
+--   * tag_name outside @allowed_tag_names
+--   * kind-3 contact-list p-tags
+--   * kind-10002 relay-list r-tags
+-- events.raw_json remains the source of truth; this only shrinks the
+-- derived join index. Batched via LIMIT so the worker catchup loop can
+-- drain hundreds of millions of rows without a single long transaction.
+WITH candidates AS (
+    SELECT et.event_id, et.tag_index, et.value_index
+    FROM event_tags et
+    INNER JOIN events e ON e.id = et.event_id
+    WHERE (et.tag_name = 'p' AND e.kind = 3)
+       OR (et.tag_name = 'r' AND e.kind = 10002)
+       OR (et.tag_name <> ALL (@allowed_tag_names::text[]))
+    LIMIT @row_limit
+)
+DELETE FROM event_tags et
+USING candidates c
+WHERE et.event_id = c.event_id
+  AND et.tag_index = c.tag_index
+  AND et.value_index = c.value_index;

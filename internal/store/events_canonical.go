@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/eventtags"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/traceutil"
@@ -61,7 +62,7 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 		relaySeenAt = firstSeenAt
 	}
 
-	expandedTags := ExpandEventTags(event.ID, tags)
+	expandedTags := ExpandEventTags(event.ID, event.Kind, tags)
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -159,8 +160,10 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 	return outcome, nil
 }
 
-// ExpandEventTags deterministically expands raw Nostr tags into event_tags rows.
-func ExpandEventTags(eventID string, tags [][]string) []model.EventTag {
+// ExpandEventTags deterministically expands raw Nostr tags into event_tags
+// rows, applying the internal/eventtags persistence policy (allowlist +
+// kind scope). Filtered tags remain available via events.raw_json.
+func ExpandEventTags(eventID string, kind int, tags [][]string) []model.EventTag {
 	totalValues := 0
 	for _, tag := range tags {
 		if len(tag) > 1 {
@@ -173,6 +176,9 @@ func ExpandEventTags(eventID string, tags [][]string) []model.EventTag {
 			continue
 		}
 		tagName := tag[0]
+		if !eventtags.ShouldPersist(kind, tagName) {
+			continue
+		}
 		for i := 1; i < len(tag); i++ {
 			out = append(out, model.EventTag{
 				EventID:    eventID,
