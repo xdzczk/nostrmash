@@ -169,45 +169,69 @@ func (c *Client) waitForTask(ctx context.Context, taskUID int64) error {
 }
 
 func (c *Client) UpsertNotes(ctx context.Context, docs []NoteDocument) error {
+	taskUID, err := c.enqueueNotes(ctx, docs)
+	if err != nil || taskUID == 0 {
+		return err
+	}
+	return c.waitForTask(ctx, taskUID)
+}
+
+func (c *Client) UpsertProfiles(ctx context.Context, docs []ProfileDocument) error {
+	taskUID, err := c.enqueueProfiles(ctx, docs)
+	if err != nil || taskUID == 0 {
+		return err
+	}
+	return c.waitForTask(ctx, taskUID)
+}
+
+func (c *Client) UpsertDocuments(ctx context.Context, docs []SearchDocument) error {
+	taskUID, err := c.enqueueDocuments(ctx, docs)
+	if err != nil || taskUID == 0 {
+		return err
+	}
+	return c.waitForTask(ctx, taskUID)
+}
+
+func (c *Client) enqueueNotes(ctx context.Context, docs []NoteDocument) (int64, error) {
 	if !c.Enabled() || len(docs) == 0 {
-		return nil
+		return 0, nil
 	}
 	for i := range docs {
 		trimNoteDocument(&docs[i])
 	}
 	task, err := c.service.Index(IndexNotes).UpdateDocumentsWithContext(ctx, docs, nil)
 	if err != nil {
-		return fmt.Errorf("upsert notes in meilisearch: %w", err)
+		return 0, fmt.Errorf("upsert notes in meilisearch: %w", err)
 	}
-	return c.waitForTask(ctx, task.TaskUID)
+	return task.TaskUID, nil
 }
 
-func (c *Client) UpsertProfiles(ctx context.Context, docs []ProfileDocument) error {
+func (c *Client) enqueueProfiles(ctx context.Context, docs []ProfileDocument) (int64, error) {
 	if !c.Enabled() || len(docs) == 0 {
-		return nil
+		return 0, nil
 	}
 	for i := range docs {
 		trimProfileDocument(&docs[i])
 	}
 	task, err := c.service.Index(IndexProfiles).UpdateDocumentsWithContext(ctx, docs, nil)
 	if err != nil {
-		return fmt.Errorf("upsert profiles in meilisearch: %w", err)
+		return 0, fmt.Errorf("upsert profiles in meilisearch: %w", err)
 	}
-	return c.waitForTask(ctx, task.TaskUID)
+	return task.TaskUID, nil
 }
 
-func (c *Client) UpsertDocuments(ctx context.Context, docs []SearchDocument) error {
+func (c *Client) enqueueDocuments(ctx context.Context, docs []SearchDocument) (int64, error) {
 	if !c.Enabled() || len(docs) == 0 {
-		return nil
+		return 0, nil
 	}
 	for i := range docs {
 		trimSearchDocument(&docs[i])
 	}
 	task, err := c.service.Index(IndexDocuments).UpdateDocumentsWithContext(ctx, docs, nil)
 	if err != nil {
-		return fmt.Errorf("upsert documents in meilisearch: %w", err)
+		return 0, fmt.Errorf("upsert documents in meilisearch: %w", err)
 	}
-	return c.waitForTask(ctx, task.TaskUID)
+	return task.TaskUID, nil
 }
 
 // ResetIndexes deletes the NostrMash Meilisearch indexes so the next

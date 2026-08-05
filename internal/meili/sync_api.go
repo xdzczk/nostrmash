@@ -251,32 +251,63 @@ func (c *Client) FullSync(ctx context.Context, pool *pgxpool.Pool, batchSize int
 		return SyncStats{}, fmt.Errorf("capture meilisearch full sync start time: %w", err)
 	}
 	stats := SyncStats{}
+	// FullSync enqueues Meili tasks without waiting per batch, then waits once
+	// at the end of each stream. Per-batch WaitForTask was the dominant stall
+	// once SQL pages were cheap enough to pipeline.
+	var lastNotesTask, lastProfilesTask, lastDocumentsTask int64
 	if err := streamNotes(ctx, pool, batchSize, func(rows []NoteDocument) error {
-		if err := c.UpsertNotes(ctx, rows); err != nil {
+		taskUID, err := c.enqueueNotes(ctx, rows)
+		if err != nil {
 			return err
+		}
+		if taskUID != 0 {
+			lastNotesTask = taskUID
 		}
 		stats.Notes += int64(len(rows))
 		return nil
 	}); err != nil {
 		return stats, err
 	}
+	if lastNotesTask != 0 {
+		if err := c.waitForTask(ctx, lastNotesTask); err != nil {
+			return stats, fmt.Errorf("wait notes full sync tasks: %w", err)
+		}
+	}
 	if err := streamProfiles(ctx, pool, batchSize, func(rows []ProfileDocument) error {
-		if err := c.UpsertProfiles(ctx, rows); err != nil {
+		taskUID, err := c.enqueueProfiles(ctx, rows)
+		if err != nil {
 			return err
+		}
+		if taskUID != 0 {
+			lastProfilesTask = taskUID
 		}
 		stats.Profiles += int64(len(rows))
 		return nil
 	}); err != nil {
 		return stats, err
 	}
+	if lastProfilesTask != 0 {
+		if err := c.waitForTask(ctx, lastProfilesTask); err != nil {
+			return stats, fmt.Errorf("wait profiles full sync tasks: %w", err)
+		}
+	}
 	if err := streamSearchDocuments(ctx, pool, batchSize, func(rows []SearchDocument) error {
-		if err := c.UpsertDocuments(ctx, rows); err != nil {
+		taskUID, err := c.enqueueDocuments(ctx, rows)
+		if err != nil {
 			return err
+		}
+		if taskUID != 0 {
+			lastDocumentsTask = taskUID
 		}
 		stats.Documents += int64(len(rows))
 		return nil
 	}); err != nil {
 		return stats, err
+	}
+	if lastDocumentsTask != 0 {
+		if err := c.waitForTask(ctx, lastDocumentsTask); err != nil {
+			return stats, fmt.Errorf("wait documents full sync tasks: %w", err)
+		}
 	}
 	// FullSync already upserted every note/profile/document that was in
 	// Postgres at syncStartedAt. Drop the redundant sweeper backlog so we

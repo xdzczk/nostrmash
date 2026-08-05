@@ -17,7 +17,9 @@ const (
 	// Notes older than this are omitted from full sync / age-bounded streams.
 	// Incremental SyncEvent of a specific id may still upsert recent activity
 	// targets, but FullSync stops once the keyset cursor crosses this age.
-	indexedNotesMaxAge = 180 * 24 * time.Hour
+	// 30d keeps the rebuild tractable on a single-server host (~hundreds of
+	// thousands of notes rather than multi-million).
+	indexedNotesMaxAge = 30 * 24 * time.Hour
 )
 
 func truncateIndexedText(s string, maxRunes int) string {

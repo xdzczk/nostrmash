@@ -35,31 +35,16 @@ type SyncStats struct {
 }
 
 // noteDocumentSelect is the shared projection feeding the Meilisearch `notes`
-// index. Kind 1 text notes index their content directly; kind 30023 long-form
-// articles fold their `title` tag into the indexed content so articles are
-// findable by title. The index only matches/highlights on `content` and search
-// hydrates the raw event by id, so folding the title in here does not change
-// the payloads returned to clients. Callers append their own
-// WHERE/ORDER/pagination clauses; both note kinds share the same column shape.
+// index. Content is truncated in SQL (Go trim further to rune limits) and
+// per-row event_tags laterals are avoided so FullSync pages stay inside
+// production statement_timeout guardrails. Search hydrates full events by id.
 const noteDocumentSelect = `
 	SELECT
 		e.id,
-		CASE
-			WHEN e.kind = 30023 THEN btrim(coalesce(t.title, '') || E'\n' || coalesce(e.content, ''))
-			ELSE coalesce(e.content, '')
-		END,
+		left(coalesce(e.content, ''), 2000),
 		e.pubkey,
 		e.created_at,
 		coalesce(nds.primary_language, 'und')
 	FROM events e
 	LEFT JOIN note_discovery_stats nds ON nds.event_id = e.id
-	LEFT JOIN LATERAL (
-		SELECT et.value AS title
-		FROM event_tags et
-		WHERE et.event_id = e.id
-		  AND et.tag_name = 'title'
-		  AND et.value_index = 0
-		ORDER BY et.tag_index ASC
-		LIMIT 1
-	) t ON true
 `
