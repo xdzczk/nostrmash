@@ -1,0 +1,11 @@
+-- Drop the unused event_tags.raw_values column.
+--
+-- raw_values duplicated the full original tag array onto every expanded value
+-- row (so a 3-element tag stored the same JSONB three times). No production
+-- reader ever selects it: derivation handlers parse events.raw_json, and the
+-- tag join paths only use (tag_name, value_index, value). The column was
+-- ~59% of event_tags payload bytes on production (~30 GB of the 58 GB heap).
+--
+-- DROP COLUMN is metadata-only; heap space is reclaimed by subsequent
+-- autovacuum / pg_repack / natural churn. New inserts shrink immediately.
+ALTER TABLE event_tags DROP COLUMN IF EXISTS raw_values;

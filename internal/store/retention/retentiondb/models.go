@@ -292,7 +292,6 @@ type EventTag struct {
 	TagIndex   int32
 	ValueIndex int32
 	Value      string
-	RawValues  []byte
 }
 
 type EventUrl struct {

@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -103,21 +102,19 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 		tagIndexes := make([]int32, len(expandedTags))
 		valueIndexes := make([]int32, len(expandedTags))
 		values := make([]string, len(expandedTags))
-		rawValues := make([]string, len(expandedTags))
 		for i, tag := range expandedTags {
 			tagNames[i] = tag.TagName
 			tagIndexes[i] = int32(tag.TagIndex)
 			valueIndexes[i] = int32(tag.ValueIndex)
 			values[i] = tag.Value
-			rawValues[i] = string(tag.RawValues)
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO event_tags (
-				event_id, tag_name, tag_index, value_index, value, raw_values
+				event_id, tag_name, tag_index, value_index, value
 			)
-			SELECT $1, t.tag_name, t.tag_index, t.value_index, t.value, t.raw_values::jsonb
-			FROM unnest($2::text[], $3::int[], $4::int[], $5::text[], $6::text[])
-				AS t(tag_name, tag_index, value_index, value, raw_values)
+			SELECT $1, t.tag_name, t.tag_index, t.value_index, t.value
+			FROM unnest($2::text[], $3::int[], $4::int[], $5::text[])
+				AS t(tag_name, tag_index, value_index, value)
 			ON CONFLICT (event_id, tag_index, value_index) DO NOTHING
 		`,
 			event.ID,
@@ -125,7 +122,6 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 			tagIndexes,
 			valueIndexes,
 			values,
-			rawValues,
 		)
 		if err != nil {
 			return outcome, fmt.Errorf("insert event tags: %w", err)
@@ -176,11 +172,6 @@ func ExpandEventTags(eventID string, tags [][]string) []model.EventTag {
 		if len(tag) == 0 {
 			continue
 		}
-		rawValues, err := json.Marshal(tag)
-		if err != nil {
-			// []string marshaling cannot fail; skip defensively if it does.
-			continue
-		}
 		tagName := tag[0]
 		for i := 1; i < len(tag); i++ {
 			out = append(out, model.EventTag{
@@ -189,7 +180,6 @@ func ExpandEventTags(eventID string, tags [][]string) []model.EventTag {
 				TagIndex:   tagIndex,
 				ValueIndex: i - 1,
 				Value:      tag[i],
-				RawValues:  rawValues,
 			})
 		}
 	}

@@ -427,8 +427,8 @@ func mustInsertEventHashtag(t *testing.T, pool *pgxpool.Pool, eventID, pubkey st
 func mustInsertEventTag(t *testing.T, pool *pgxpool.Pool, eventID, tagName string, tagIndex int, valueIndex int, value string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), `
-		INSERT INTO event_tags (event_id, tag_name, tag_index, value_index, value, raw_values)
-		VALUES ($1, $2, $3, $4, $5, '[]'::jsonb)
+		INSERT INTO event_tags (event_id, tag_name, tag_index, value_index, value)
+		VALUES ($1, $2, $3, $4, $5)
 	`, eventID, tagName, tagIndex, valueIndex, value); err != nil {
 		t.Fatalf("insert event tag for %s: %v", eventID, err)
 	}

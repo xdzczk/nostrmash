@@ -37,8 +37,8 @@ func insertParameterizedReplaceableWinner(t *testing.T, ctx context.Context, poo
 func insertReplaceableDTag(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, dTag string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO event_tags (event_id, tag_name, tag_index, value_index, value, raw_values)
-		VALUES ($1, 'd', 0, 0, $2, '[]'::jsonb)
+		INSERT INTO event_tags (event_id, tag_name, tag_index, value_index, value)
+		VALUES ($1, 'd', 0, 0, $2)
 	`, eventID, dTag); err != nil {
 		t.Fatalf("insert d tag for %s: %v", eventID, err)
 	}

@@ -21,8 +21,8 @@ func insertEventWithTags(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	for tagIndex, tag := range tags {
 		for valueIndex, value := range tag[1:] {
 			if _, err := pool.Exec(ctx, `
-				INSERT INTO event_tags (event_id, tag_name, tag_index, value_index, value, raw_values)
-				VALUES ($1, $2, $3, $4, $5, '[]'::jsonb)
+				INSERT INTO event_tags (event_id, tag_name, tag_index, value_index, value)
+				VALUES ($1, $2, $3, $4, $5)
 			`, id, tag[0], tagIndex, valueIndex, value); err != nil {
 				t.Fatalf("insert tag for %s: %v", id, err)
 			}

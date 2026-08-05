@@ -19,13 +19,14 @@ type Event struct {
 }
 
 // EventTag is one expanded tag value.
+// The original tag array is recoverable from events.raw_json; it is not
+// duplicated onto each expanded row.
 type EventTag struct {
 	EventID    string
 	TagName    string
 	TagIndex   int
 	ValueIndex int
 	Value      string
-	RawValues  json.RawMessage
 }
 
 // EventRelay is per-relay provenance.

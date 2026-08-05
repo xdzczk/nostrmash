@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -39,15 +38,6 @@ func TestExpandEventTags(t *testing.T) {
 		{"client"},
 	})
 
-	rawE, err := json.Marshal([]string{"e", "target_1", "wss://relay.one", "reply"})
-	if err != nil {
-		t.Fatalf("marshal expected e-tag raw values: %v", err)
-	}
-	rawP, err := json.Marshal([]string{"p", "author_1"})
-	if err != nil {
-		t.Fatalf("marshal expected p-tag raw values: %v", err)
-	}
-
 	want := []model.EventTag{
 		{
 			EventID:    "evt_1",
@@ -55,7 +45,6 @@ func TestExpandEventTags(t *testing.T) {
 			TagIndex:   0,
 			ValueIndex: 0,
 			Value:      "target_1",
-			RawValues:  rawE,
 		},
 		{
 			EventID:    "evt_1",
@@ -63,7 +52,6 @@ func TestExpandEventTags(t *testing.T) {
 			TagIndex:   0,
 			ValueIndex: 1,
 			Value:      "wss://relay.one",
-			RawValues:  rawE,
 		},
 		{
 			EventID:    "evt_1",
@@ -71,7 +59,6 @@ func TestExpandEventTags(t *testing.T) {
 			TagIndex:   0,
 			ValueIndex: 2,
 			Value:      "reply",
-			RawValues:  rawE,
 		},
 		{
 			EventID:    "evt_1",
@@ -79,7 +66,6 @@ func TestExpandEventTags(t *testing.T) {
 			TagIndex:   2,
 			ValueIndex: 0,
 			Value:      "author_1",
-			RawValues:  rawP,
 		},
 	}
 

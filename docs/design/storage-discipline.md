@@ -225,6 +225,10 @@ Concrete changes shipped in this PR:
 
 Event retention deletes from `events` and relies on `ON DELETE CASCADE`. Several child tables referenced `events(id)` without a leading index on the FK column, so each deleted event seq-scanned the child heap. On production that made a 100-row kind-5 batch take ~100s (a 2000-row batch exceeded the retention 15-minute statement timeout), so every deletion/engagement/replaceable/untrusted-author purge failed every hour. Migration `000068` adds the missing leading indexes (`author_recent_events.event_id` was the observed blocker; also `follower_edges.source_event_id`, `profiles_latest.metadata_event_id`, `relay_lists_latest.event_id`, `contact_lists_latest.event_id`). After the index build, the same 2000-row batch completed in ~8s.
 
+### Drop `event_tags.raw_values` (migration `000069`)
+
+`event_tags.raw_values` duplicated the full original tag array onto every expanded value row and had no production readers (derivation handlers parse `events.raw_json`; join paths only use `tag_name`/`value`). A 1% production sample showed it was ~59% of payload bytes (~30 GB of the 58 GB heap). Migration `000069` drops the column; new inserts shrink immediately. Heap reclaim for existing rows needs `pg_repack` / natural churn (DROP COLUMN is metadata-only).
+
 ### Acceptance criteria
 
 - After deploy + one `RunInterval` tick, no `succeeded` row in `jobs` is older than 6 h.
