@@ -107,15 +107,26 @@ Receiver priority in `entrypoint.sh`: webhook → Slack → **Telegram** → ema
    - Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser, or
    - Message [@userinfobot](https://t.me/userinfobot) for your personal id.
    - Groups use a negative id (e.g. `-1001234567890`).
-4. On the **nostrmash-observability** Coolify app → **Environment Variables**:
+4. Set the vars on the **observability** stack (not the NostrMash app stack).
+   For the host checkout at `/opt/nostrmash-observability`:
 
 ```bash
+# in /opt/nostrmash-observability/.env
 ALERTMANAGER_TELEGRAM_BOT_TOKEN=123456:ABC...
 ALERTMANAGER_TELEGRAM_CHAT_ID=123456789
 ```
 
-5. Redeploy/restart **alertmanager**. Logs should load `/tmp/alertmanager.rendered.yml`.
-6. Do not also set webhook/Slack env vars if you want Telegram (webhook wins first).
+   If observability is a Coolify Compose app instead, set the same keys there.
+
+5. Recreate Alertmanager so it re-renders config:
+
+```bash
+cd /opt/nostrmash-observability && docker compose up -d --force-recreate alertmanager
+```
+
+6. Confirm `telegram_configs` in the rendered config (`/-/ready` then
+   `/api/v2/status`). Do not also set webhook/Slack env vars if you want Telegram
+   (webhook wins first).
 
 ### Email setup (optional)
 
