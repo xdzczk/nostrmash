@@ -521,6 +521,18 @@ type ReactionEvent struct {
 	ProjectedAt       pgtype.Timestamptz
 }
 
+type RelatedProfile struct {
+	FocalPubkey          string
+	RelatedPubkey        string
+	TopicOverlap         int64
+	ReplyAdjacency       int64
+	InteractionAdjacency int64
+	QuoteRepostAdjacency int64
+	Reasons              []string
+	Score                int64
+	UpdatedAt            pgtype.Timestamptz
+}
+
 type RelayDesiredSet struct {
 	ID            int64
 	PublishedAt   pgtype.Timestamptz
