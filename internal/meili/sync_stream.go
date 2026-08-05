@@ -13,6 +13,7 @@ import (
 func streamNotes(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume func([]NoteDocument) error) error {
 	// Keyset on (created_at DESC, id DESC). OFFSET pagination was timing out
 	// FullSync in production: deep pages were multi-minute sequential scans.
+	minCreatedAt := indexedNotesMinCreatedAt(time.Now())
 	var (
 		haveCursor bool
 		cursorAt   int64
@@ -26,16 +27,18 @@ func streamNotes(ctx context.Context, pool *pgxpool.Pool, batchSize int, consume
 		if !haveCursor {
 			rows, err = pool.Query(ctx, noteDocumentSelect+`
 				WHERE e.kind IN (1, 30023)
+				  AND e.created_at >= $2::bigint
 				ORDER BY e.created_at DESC, e.id DESC
 				LIMIT $1
-			`, batchSize)
+			`, batchSize, minCreatedAt)
 		} else {
 			rows, err = pool.Query(ctx, noteDocumentSelect+`
 				WHERE e.kind IN (1, 30023)
+				  AND e.created_at >= $4::bigint
 				  AND (e.created_at, e.id) < ($2::bigint, $3::text)
 				ORDER BY e.created_at DESC, e.id DESC
 				LIMIT $1
-			`, batchSize, cursorAt, cursorID)
+			`, batchSize, cursorAt, cursorID, minCreatedAt)
 		}
 		if err != nil {
 			return fmt.Errorf("query notes for meilisearch sync: %w", err)

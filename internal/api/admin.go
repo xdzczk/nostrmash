@@ -23,7 +23,7 @@ type AdminService interface {
 	GetProjectionStatus(context.Context) (adminProjectionStatusResponse, error)
 	GetDiscoveryStatus(context.Context) (adminDiscoveryStatusResponse, error)
 	GetSearchStatus(context.Context) (adminSearchStatusResponse, error)
-	TriggerMeilisearchSync(context.Context, int) (adminMeilisearchSyncResponse, error)
+	TriggerMeilisearchSync(context.Context, int, bool) (adminMeilisearchSyncResponse, error)
 	GetRebuilds(context.Context, int) ([]adminRebuildRunResponse, error)
 	TriggerRebuild(context.Context, derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error)
 	GetStorage(context.Context) (adminStorageResponse, error)
@@ -228,18 +228,27 @@ func (h AdminHandlers) TriggerMeilisearchSync(w http.ResponseWriter, r *http.Req
 		}
 		wait = parsedWait
 	}
+	resetIndexes := false
+	if rawReset := strings.TrimSpace(r.URL.Query().Get("reset")); rawReset != "" {
+		parsedReset, parseErr := strconv.ParseBool(rawReset)
+		if parseErr != nil {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "reset must be a boolean")
+			return
+		}
+		resetIndexes = parsedReset
+	}
 	if !wait {
 		startedAt := time.Now().UTC()
-		go func(batch int) {
+		go func(batch int, reset bool) {
 			// Full corpus sync streams notes + profiles + search_documents and
 			// can run for several hours on a large production index. 30m was
 			// cancelling mid-stream and leaving Meilisearch only partially filled.
 			bgCtx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
 			defer cancel()
-			if _, syncErr := h.service.TriggerMeilisearchSync(bgCtx, batch); syncErr != nil {
-				log.Printf("admin_meilisearch_sync_async_failed: batch_size=%d err=%v", batch, syncErr)
+			if _, syncErr := h.service.TriggerMeilisearchSync(bgCtx, batch, reset); syncErr != nil {
+				log.Printf("admin_meilisearch_sync_async_failed: batch_size=%d reset=%v err=%v", batch, reset, syncErr)
 			}
-		}(batchSize)
+		}(batchSize, resetIndexes)
 		writeJSON(w, http.StatusAccepted, adminMeilisearchSyncResponse{
 			StartedAt: startedAt,
 			BatchSize: batchSize,
@@ -248,7 +257,7 @@ func (h AdminHandlers) TriggerMeilisearchSync(w http.ResponseWriter, r *http.Req
 		})
 		return
 	}
-	resp, err := h.service.TriggerMeilisearchSync(r.Context(), batchSize)
+	resp, err := h.service.TriggerMeilisearchSync(r.Context(), batchSize, resetIndexes)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return

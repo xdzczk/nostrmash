@@ -172,6 +172,9 @@ func (c *Client) UpsertNotes(ctx context.Context, docs []NoteDocument) error {
 	if !c.Enabled() || len(docs) == 0 {
 		return nil
 	}
+	for i := range docs {
+		trimNoteDocument(&docs[i])
+	}
 	task, err := c.service.Index(IndexNotes).UpdateDocumentsWithContext(ctx, docs, nil)
 	if err != nil {
 		return fmt.Errorf("upsert notes in meilisearch: %w", err)
@@ -182,6 +185,9 @@ func (c *Client) UpsertNotes(ctx context.Context, docs []NoteDocument) error {
 func (c *Client) UpsertProfiles(ctx context.Context, docs []ProfileDocument) error {
 	if !c.Enabled() || len(docs) == 0 {
 		return nil
+	}
+	for i := range docs {
+		trimProfileDocument(&docs[i])
 	}
 	task, err := c.service.Index(IndexProfiles).UpdateDocumentsWithContext(ctx, docs, nil)
 	if err != nil {
@@ -194,9 +200,35 @@ func (c *Client) UpsertDocuments(ctx context.Context, docs []SearchDocument) err
 	if !c.Enabled() || len(docs) == 0 {
 		return nil
 	}
+	for i := range docs {
+		trimSearchDocument(&docs[i])
+	}
 	task, err := c.service.Index(IndexDocuments).UpdateDocumentsWithContext(ctx, docs, nil)
 	if err != nil {
 		return fmt.Errorf("upsert documents in meilisearch: %w", err)
 	}
 	return c.waitForTask(ctx, task.TaskUID)
+}
+
+// ResetIndexes deletes the NostrMash Meilisearch indexes so the next
+// EnsureIndexes + FullSync rebuilds them with the current document shape.
+// Meilisearch only reclaims disk after index deletion/recreation.
+func (c *Client) ResetIndexes(ctx context.Context) error {
+	if !c.Enabled() {
+		return nil
+	}
+	for _, uid := range []string{IndexNotes, IndexProfiles, IndexDocuments} {
+		task, err := c.service.DeleteIndexWithContext(ctx, uid)
+		if err != nil {
+			// Missing index is fine during first-time setup / repeated resets.
+			continue
+		}
+		if task == nil {
+			continue
+		}
+		if waitErr := c.waitForTask(ctx, task.TaskUID); waitErr != nil {
+			return fmt.Errorf("wait delete index %s: %w", uid, waitErr)
+		}
+	}
+	return c.EnsureIndexes(ctx)
 }

@@ -19,11 +19,17 @@ type adminMeilisearchSyncResponse struct {
 	} `json:"stats"`
 }
 
-func (s *adminService) TriggerMeilisearchSync(ctx context.Context, batchSize int) (adminMeilisearchSyncResponse, error) {
+func (s *adminService) TriggerMeilisearchSync(ctx context.Context, batchSize int, resetIndexes bool) (adminMeilisearchSyncResponse, error) {
 	if s.meili == nil || !s.meili.Enabled() {
 		return adminMeilisearchSyncResponse{}, fmt.Errorf("meilisearch is not configured")
 	}
 	startedAt := time.Now().UTC()
+	if resetIndexes {
+		// Meilisearch only reclaims disk after index deletion/recreation.
+		if err := s.meili.ResetIndexes(ctx); err != nil {
+			return adminMeilisearchSyncResponse{}, fmt.Errorf("reset meilisearch indexes: %w", err)
+		}
+	}
 	stats, err := s.meili.FullSync(ctx, s.pool, batchSize)
 	if err != nil {
 		return adminMeilisearchSyncResponse{}, fmt.Errorf("run meilisearch full sync: %w", err)

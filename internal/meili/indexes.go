@@ -42,7 +42,6 @@ func meiliIndexSpecs() []indexSpec {
 				},
 				DisplayedAttributes: []string{
 					"id",
-					"content",
 					"pubkey",
 					"created_at",
 					"language",
@@ -78,7 +77,6 @@ func meiliIndexSpecs() []indexSpec {
 					"display_name",
 					"about",
 					"nip05",
-					"profile_json",
 					"popularity",
 				},
 			},
@@ -110,7 +108,6 @@ func meiliIndexSpecs() []indexSpec {
 					"entity_type",
 					"entity_id",
 					"title",
-					"body",
 					"aliases",
 					"identity_tokens",
 					"freshness",

@@ -208,9 +208,12 @@ func (s *Searcher) SearchProfiles(
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
 	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(searchCtx, searchQuery, &ms.SearchRequest{
-		Limit:                int64(limit),
-		Offset:               int64(offset),
-		AttributesToRetrieve: []string{"pubkey", "metadata_event_id", "metadata_created_at", "profile_json"},
+		Limit:  int64(limit),
+		Offset: int64(offset),
+		AttributesToRetrieve: []string{
+			"pubkey", "metadata_event_id", "metadata_created_at",
+			"name", "display_name", "about", "nip05",
+		},
 	})
 	if err != nil {
 		s.finishSearch(&outcome, err)
@@ -227,12 +230,7 @@ func (s *Searcher) SearchProfiles(
 		if formatted := hitFormatted(hit); len(formatted) > 0 {
 			localHighlights[pubkey] = formatted
 		}
-		out = append(out, readmodel.Profile{
-			Pubkey:            pubkey,
-			MetadataEventID:   hitString(hit, "metadata_event_id"),
-			MetadataCreatedAt: hitInt64(hit, "metadata_created_at"),
-			ProfileJSON:       hitJSON(hit, "profile_json"),
-		})
+		out = append(out, profileFromMeiliHit(hit))
 	}
 	s.recordHighlights(localHighlights)
 	return out, nil
@@ -254,9 +252,12 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
 	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(searchCtx, searchQuery, &ms.SearchRequest{
-		Limit:                   int64(limit),
-		Offset:                  0,
-		AttributesToRetrieve:    []string{"pubkey", "metadata_event_id", "metadata_created_at", "profile_json"},
+		Limit:  int64(limit),
+		Offset: 0,
+		AttributesToRetrieve: []string{
+			"pubkey", "metadata_event_id", "metadata_created_at",
+			"name", "display_name", "about", "nip05",
+		},
 		MatchingStrategy:        ms.Last,
 		AttributesToSearchOn:    []string{"pubkey", "name", "display_name", "nip05", "about"},
 		AttributesToHighlight:   []string{"name", "display_name", "nip05"},
@@ -278,12 +279,7 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 		if formatted := hitFormatted(hit); len(formatted) > 0 {
 			localHighlights[pubkey] = formatted
 		}
-		out = append(out, readmodel.Profile{
-			Pubkey:            pubkey,
-			MetadataEventID:   hitString(hit, "metadata_event_id"),
-			MetadataCreatedAt: hitInt64(hit, "metadata_created_at"),
-			ProfileJSON:       hitJSON(hit, "profile_json"),
-		})
+		out = append(out, profileFromMeiliHit(hit))
 	}
 	s.recordHighlights(localHighlights)
 	return out, nil
@@ -365,6 +361,25 @@ func (s *Searcher) SearchDocuments(ctx context.Context, searchQuery string, limi
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+func profileFromMeiliHit(hit ms.Hit) readmodel.Profile {
+	name := hitString(hit, "name")
+	displayName := hitString(hit, "display_name")
+	about := hitString(hit, "about")
+	nip05 := hitString(hit, "nip05")
+	slim, _ := json.Marshal(map[string]any{
+		"name":         name,
+		"display_name": displayName,
+		"about":        about,
+		"nip05":        nip05,
+	})
+	return readmodel.Profile{
+		Pubkey:            hitString(hit, "pubkey"),
+		MetadataEventID:   hitString(hit, "metadata_event_id"),
+		MetadataCreatedAt: hitInt64(hit, "metadata_created_at"),
+		ProfileJSON:       slim,
+	}
 }
 
 func hitString(hit ms.Hit, key string) string {

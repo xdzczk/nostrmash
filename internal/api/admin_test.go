@@ -21,7 +21,7 @@ type fakeAdminService struct {
 	getProjectionStatusFn    func(context.Context) (adminProjectionStatusResponse, error)
 	getDiscoveryStatusFn     func(context.Context) (adminDiscoveryStatusResponse, error)
 	getSearchStatusFn        func(context.Context) (adminSearchStatusResponse, error)
-	triggerMeilisearchSyncFn func(context.Context, int) (adminMeilisearchSyncResponse, error)
+	triggerMeilisearchSyncFn func(context.Context, int, bool) (adminMeilisearchSyncResponse, error)
 	getRebuildsFn            func(context.Context, int) ([]adminRebuildRunResponse, error)
 	triggerRebuildFn         func(context.Context, derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error)
 	getStorageFn             func(context.Context) (adminStorageResponse, error)
@@ -66,11 +66,11 @@ func (f fakeAdminService) GetSearchStatus(ctx context.Context) (adminSearchStatu
 	}
 	return f.getSearchStatusFn(ctx)
 }
-func (f fakeAdminService) TriggerMeilisearchSync(ctx context.Context, batchSize int) (adminMeilisearchSyncResponse, error) {
+func (f fakeAdminService) TriggerMeilisearchSync(ctx context.Context, batchSize int, resetIndexes bool) (adminMeilisearchSyncResponse, error) {
 	if f.triggerMeilisearchSyncFn == nil {
 		return adminMeilisearchSyncResponse{}, nil
 	}
-	return f.triggerMeilisearchSyncFn(ctx, batchSize)
+	return f.triggerMeilisearchSyncFn(ctx, batchSize, resetIndexes)
 }
 func (f fakeAdminService) GetRebuilds(ctx context.Context, limit int) ([]adminRebuildRunResponse, error) {
 	return f.getRebuildsFn(ctx, limit)
@@ -327,7 +327,7 @@ func TestAdminStatusRoutes_ReturnFreshnessSignals(t *testing.T) {
 func TestAdminMeilisearchSync_DefaultsToAsync(t *testing.T) {
 	called := make(chan int, 1)
 	mux := newAdminTestMux("token", fakeAdminService{
-		triggerMeilisearchSyncFn: func(_ context.Context, batchSize int) (adminMeilisearchSyncResponse, error) {
+		triggerMeilisearchSyncFn: func(_ context.Context, batchSize int, _ bool) (adminMeilisearchSyncResponse, error) {
 			called <- batchSize
 			return adminMeilisearchSyncResponse{}, nil
 		},
@@ -367,7 +367,7 @@ func TestAdminMeilisearchSync_WaitTrue(t *testing.T) {
 	startedAt := time.Date(2026, 4, 12, 6, 0, 0, 0, time.UTC)
 	finishedAt := startedAt.Add(2 * time.Second)
 	mux := newAdminTestMux("token", fakeAdminService{
-		triggerMeilisearchSyncFn: func(_ context.Context, batchSize int) (adminMeilisearchSyncResponse, error) {
+		triggerMeilisearchSyncFn: func(_ context.Context, batchSize int, _ bool) (adminMeilisearchSyncResponse, error) {
 			if batchSize != 50 {
 				t.Fatalf("unexpected batch size: got %d want %d", batchSize, 50)
 			}
