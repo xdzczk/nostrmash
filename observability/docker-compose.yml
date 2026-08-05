@@ -1,0 +1,82 @@
+# Lightweight monitoring stack for the single-server Coolify host.
+#
+# Deploy as a separate Coolify Docker Compose application from this file, then
+# attach it to the same Docker network as the nostrmash app stack so Prometheus
+# can resolve `api`, `worker`, `ingestor`, and `trust_worker`.
+#
+# Memory budget (~500 MB total): keep these limits; do not raise without
+# revisiting the single-server RAM plan.
+
+name: nostrmash-observability
+
+# Join Coolify's shared network so Prometheus can resolve Compose service
+# aliases (api, worker, ingestor, trust_worker) from the app stack.
+networks:
+  coolify:
+    external: true
+    name: coolify
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    networks:
+      - coolify
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=8GB
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./recording_rules:/etc/prometheus/rules:ro
+      - ./alerts:/etc/prometheus/alerts:ro
+      - prometheus_data:/prometheus
+    expose:
+      - "9090"
+    mem_limit: 384m
+    cpus: 0.5
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    networks:
+      - coolify
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    expose:
+      - "9093"
+    mem_limit: 64m
+    cpus: 0.25
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    restart: unless-stopped
+    networks:
+      - coolify
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    expose:
+      - "3000"
+    mem_limit: 128m
+    cpus: 0.25
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus_data:
+  alertmanager_data:
+  grafana_data:

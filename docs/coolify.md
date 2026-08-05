@@ -113,6 +113,7 @@ Recommended production defaults:
 ENVIRONMENT=production
 LOG_LEVEL=info
 APP_VERSION=<git-sha-or-release-tag>
+SOURCE_COMMIT=<git-sha>
 INGESTOR_MODE=live
 INGESTOR_FILTER_GROUP=default_v1
 WORKER_CONCURRENCY=4
@@ -121,6 +122,13 @@ TRUST_WORKER_CLAIM_BATCH_SIZE=5
 TRUST_ENABLE_SCORE_COMPUTE=true
 TRUST_ENABLE_REDIS_SYNC=false
 ```
+
+`APP_VERSION`, `SOURCE_COMMIT`, and optional `BUILD_TIME` are passed as Docker
+build args so `nostrmash_build_info` reports a real commit (not `dev`/`unknown`).
+Rebuild after changing them.
+
+For scraping metrics with Prometheus/Grafana on the same host, see
+[observability-stack.md](observability-stack.md).
 
 Trust-bounded ingest (storage bounding) — set on the shared app env or per-service overrides:
 

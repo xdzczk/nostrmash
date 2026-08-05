@@ -1,0 +1,40 @@
+# Default Alertmanager config for single-server NostrMash.
+# Wire a real receiver before relying on pages:
+#   - set ALERTMANAGER_SLACK_WEBHOOK_URL or ALERTMANAGER_EMAIL_* in Coolify, OR
+#   - replace the null receiver below with Telegram/Slack/email.
+#
+# Until a receiver is configured, alerts still fire and are visible in
+# Alertmanager UI / Prometheus "Alerts" — they are just not delivered externally.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: default
+      repeat_interval: 1h
+
+receivers:
+  - name: default
+    # Placeholder: alerts are retained in Alertmanager but not forwarded.
+    # Example Slack (uncomment and set webhook):
+    # slack_configs:
+    #   - api_url: "${ALERTMANAGER_SLACK_WEBHOOK_URL}"
+    #     channel: "#nostrmash-alerts"
+    #     send_resolved: true
+    #     title: '{{ template "slack.nostrmash.title" . }}'
+    #     text: '{{ template "slack.nostrmash.text" . }}'
+
+inhibit_rules:
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ["alertname"]

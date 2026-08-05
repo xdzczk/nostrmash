@@ -36,6 +36,7 @@ These pages are authoritative, but they are best used as targeted references:
 
 - [configuration.md](configuration.md): generated environment-variable reference
 - [observability.md](observability.md): metrics, tracing, and signal interpretation
+- [observability-stack.md](observability-stack.md): Prometheus/Grafana deploy on the Coolify host
 - [development.md](development.md): local workflow details and replay-safe development loops
 - [testing.md](testing.md): CI gates, race policy, coverage, fuzzing, benchmarks, and contract drift
 - [migrations.md](migrations.md): schema safety and rollout posture

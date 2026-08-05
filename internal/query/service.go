@@ -359,8 +359,11 @@ func IsUnsupportedCapability(err error) bool {
 }
 
 func (s Service) SearchEngineName() string {
-	if s.meilisearch != nil {
-		return "meilisearch"
+	if s.meilisearch == nil {
+		return "postgres"
 	}
-	return "postgres"
+	if available, ok := s.meilisearch.(interface{ Available() bool }); ok && !available.Available() {
+		return "degraded"
+	}
+	return "meilisearch"
 }

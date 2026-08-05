@@ -24,13 +24,16 @@ func (s Service) Search(ctx context.Context, text string, limit int) (out Search
 	}
 
 	profileQuery := normalizeProfileSearchQuery(text)
+	degraded := false
 	events, err := s.SearchNotes(ctx, NotesSearchParams{
 		Query: profileQuery.NormalizedQuery,
 		Limit: limit,
 		Sort:  "relevant",
 	})
 	if err != nil {
-		return SearchResult{}, err
+		// Prefer a partial 200 over a 500 when search backends are under pressure.
+		events = []json.RawMessage{}
+		degraded = true
 	}
 	profiles, err := s.SearchProfiles(ctx, ProfileSearchParams{
 		Query: profileQuery.NormalizedQuery,
@@ -38,24 +41,30 @@ func (s Service) Search(ctx context.Context, text string, limit int) (out Search
 		Sort:  "relevant",
 	})
 	if err != nil {
-		return SearchResult{}, err
+		profiles = []Profile{}
+		degraded = true
 	}
 	hashtags, relays, identities, err := s.searchGlobalDocuments(ctx, profileQuery.NormalizedQuery, limit)
 	if err != nil {
-		return SearchResult{}, err
+		hashtags, relays, identities = nil, nil, nil
+		degraded = true
 	}
 
 	if profileQuery.CanonicalIdentifier == "" && len(profiles) == 0 && len(events) > 0 && s.fallback != nil {
 		profiles = s.enrichProfilesFromNoteAuthors(ctx, events, profileQuery.NormalizedQuery, limit)
 	}
 
+	engine := s.SearchEngineName()
+	if degraded && engine == "meilisearch" {
+		engine = "degraded"
+	}
 	result := SearchResult{
 		Events:       events,
 		Profiles:     profiles,
 		Hashtags:     hashtags,
 		Relays:       relays,
 		Identities:   identities,
-		SearchEngine: s.SearchEngineName(),
+		SearchEngine: engine,
 	}
 	if consumer, ok := s.meilisearch.(interface{ ConsumeHighlights() map[string]any }); ok {
 		result.Highlights = consumer.ConsumeHighlights()

@@ -3,6 +3,7 @@ package meili
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -10,11 +11,17 @@ import (
 	ms "github.com/meilisearch/meilisearch-go"
 )
 
+// DefaultHTTPTimeout bounds every Meilisearch HTTP call (search + sync).
+// Search paths also apply a tighter context timeout; this is the hard cap.
+const DefaultHTTPTimeout = 3 * time.Second
+
 type Config struct {
 	Enabled      bool
 	URL          string
 	MasterKey    string
 	SearchAPIKey string
+	// HTTPTimeout overrides DefaultHTTPTimeout when > 0.
+	HTTPTimeout time.Duration
 }
 
 type IndexStats struct {
@@ -44,7 +51,14 @@ func NewClient(cfg Config) (*Client, error) {
 	if searchKey := strings.TrimSpace(cfg.SearchAPIKey); searchKey != "" {
 		apiKey = searchKey
 	}
-	options := make([]ms.Option, 0, 1)
+	timeout := DefaultHTTPTimeout
+	if cfg.HTTPTimeout > 0 {
+		timeout = cfg.HTTPTimeout
+	}
+	options := []ms.Option{
+		ms.WithCustomClient(&http.Client{Timeout: timeout}),
+		ms.DisableRetries(),
+	}
 	if apiKey != "" {
 		options = append(options, ms.WithAPIKey(apiKey))
 	}

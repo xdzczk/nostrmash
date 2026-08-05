@@ -4,6 +4,12 @@ x-nostrmash-service: &nostrmash-service
   build:
     context: .
     dockerfile: Dockerfile
+    args:
+      # Set APP_VERSION / SOURCE_COMMIT in Coolify so binaries stamp real identity
+      # into nostrmash_build_info (avoid version=dev / commit=unknown in prod).
+      VERSION: ${APP_VERSION:-coolify}
+      COMMIT: ${SOURCE_COMMIT:-unknown}
+      BUILD_TIME: ${BUILD_TIME:-unknown}
   image: nostrmash:coolify
   restart: unless-stopped
   init: true

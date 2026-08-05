@@ -3,6 +3,7 @@ package meili
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +15,10 @@ import (
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
+// DefaultSearchTimeout is the per-request Meilisearch search deadline.
+// On timeout or circuit-open, callers fall back to Postgres.
+const DefaultSearchTimeout = 2 * time.Second
+
 type eventHydrator interface {
 	GetEventRawsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
 }
@@ -22,6 +27,8 @@ type Searcher struct {
 	client     *Client
 	events     eventHydrator
 	enabled    bool
+	timeout    time.Duration
+	circuit    *searchCircuit
 	mu         sync.Mutex
 	highlights map[string]any
 }
@@ -34,12 +41,64 @@ func NewSearcher(client *Client, events eventHydrator) *Searcher {
 		client:     client,
 		events:     events,
 		enabled:    true,
+		timeout:    DefaultSearchTimeout,
+		circuit:    newSearchCircuit(),
 		highlights: make(map[string]any),
 	}
 }
 
 func (s *Searcher) Enabled() bool {
 	return s != nil && s.enabled && s.client != nil && s.client.Enabled()
+}
+
+// Available reports whether Meilisearch search is currently usable.
+// When false, the query layer should report search_engine=degraded and
+// prefer Postgres fallbacks without waiting on Meili.
+func (s *Searcher) Available() bool {
+	return s.Enabled() && (s.circuit == nil || !s.circuit.open())
+}
+
+func (s *Searcher) searchTimeout() time.Duration {
+	if s == nil || s.timeout <= 0 {
+		return DefaultSearchTimeout
+	}
+	return s.timeout
+}
+
+func (s *Searcher) beginSearch(ctx context.Context, index string) (context.Context, context.CancelFunc, string, bool) {
+	if !s.Enabled() {
+		return ctx, func() {}, "error", false
+	}
+	if s.circuit != nil && !s.circuit.allow() {
+		metrics.ObserveMeiliSearch(index, "circuit_open", 0)
+		return ctx, func() {}, "circuit_open", false
+	}
+	searchCtx, cancel := context.WithTimeout(ctx, s.searchTimeout())
+	return searchCtx, cancel, "success", true
+}
+
+func (s *Searcher) finishSearch(outcome *string, err error) {
+	if err == nil {
+		if s.circuit != nil {
+			s.circuit.success()
+		}
+		return
+	}
+	if s.circuit != nil {
+		s.circuit.failure()
+	}
+	if errorsIsTimeout(err) {
+		*outcome = "timeout"
+		return
+	}
+	*outcome = "error"
+}
+
+func errorsIsTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timeout")
 }
 
 func (s *Searcher) SearchNotes(
@@ -56,8 +115,13 @@ func (s *Searcher) SearchNotes(
 	defer func() {
 		metrics.ObserveMeiliSearch(IndexNotes, outcome, time.Since(started))
 	}()
-	if !s.Enabled() {
-		outcome = "error"
+	searchCtx, cancel, preOutcome, ok := s.beginSearch(ctx, IndexNotes)
+	defer cancel()
+	if !ok {
+		outcome = preOutcome
+		if preOutcome == "circuit_open" {
+			return nil, fmt.Errorf("meilisearch circuit open")
+		}
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
 	req := &ms.SearchRequest{
@@ -84,11 +148,12 @@ func (s *Searcher) SearchNotes(
 	if strings.EqualFold(strings.TrimSpace(sort), "latest") {
 		req.Sort = []string{"created_at:desc"}
 	}
-	resp, err := s.client.service.Index(IndexNotes).SearchWithContext(ctx, searchQuery, req)
+	resp, err := s.client.service.Index(IndexNotes).SearchWithContext(searchCtx, searchQuery, req)
 	if err != nil {
-		outcome = "error"
+		s.finishSearch(&outcome, err)
 		return nil, err
 	}
+	s.finishSearch(&outcome, nil)
 	ids := make([]string, 0, len(resp.Hits))
 	localHighlights := make(map[string]any)
 	for _, hit := range resp.Hits {
@@ -133,19 +198,25 @@ func (s *Searcher) SearchProfiles(
 	defer func() {
 		metrics.ObserveMeiliSearch(IndexProfiles, outcome, time.Since(started))
 	}()
-	if !s.Enabled() {
-		outcome = "error"
+	searchCtx, cancel, preOutcome, ok := s.beginSearch(ctx, IndexProfiles)
+	defer cancel()
+	if !ok {
+		outcome = preOutcome
+		if preOutcome == "circuit_open" {
+			return nil, fmt.Errorf("meilisearch circuit open")
+		}
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
-	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(ctx, searchQuery, &ms.SearchRequest{
+	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(searchCtx, searchQuery, &ms.SearchRequest{
 		Limit:                int64(limit),
 		Offset:               int64(offset),
 		AttributesToRetrieve: []string{"pubkey", "metadata_event_id", "metadata_created_at", "profile_json"},
 	})
 	if err != nil {
-		outcome = "error"
+		s.finishSearch(&outcome, err)
 		return nil, err
 	}
+	s.finishSearch(&outcome, nil)
 	out := make([]readmodel.Profile, 0, len(resp.Hits))
 	localHighlights := make(map[string]any)
 	for _, hit := range resp.Hits {
@@ -173,11 +244,16 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 	defer func() {
 		metrics.ObserveMeiliSearch(IndexProfiles, outcome, time.Since(started))
 	}()
-	if !s.Enabled() {
-		outcome = "error"
+	searchCtx, cancel, preOutcome, ok := s.beginSearch(ctx, IndexProfiles)
+	defer cancel()
+	if !ok {
+		outcome = preOutcome
+		if preOutcome == "circuit_open" {
+			return nil, fmt.Errorf("meilisearch circuit open")
+		}
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
-	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(ctx, searchQuery, &ms.SearchRequest{
+	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(searchCtx, searchQuery, &ms.SearchRequest{
 		Limit:                   int64(limit),
 		Offset:                  0,
 		AttributesToRetrieve:    []string{"pubkey", "metadata_event_id", "metadata_created_at", "profile_json"},
@@ -188,9 +264,10 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 		ShowRankingScoreDetails: false,
 	})
 	if err != nil {
-		outcome = "error"
+		s.finishSearch(&outcome, err)
 		return nil, err
 	}
+	s.finishSearch(&outcome, nil)
 	out := make([]readmodel.Profile, 0, len(resp.Hits))
 	localHighlights := make(map[string]any)
 	for _, hit := range resp.Hits {
@@ -248,19 +325,25 @@ func (s *Searcher) SearchDocuments(ctx context.Context, searchQuery string, limi
 	defer func() {
 		metrics.ObserveMeiliSearch(IndexDocuments, outcome, time.Since(started))
 	}()
-	if !s.Enabled() {
-		outcome = "error"
+	searchCtx, cancel, preOutcome, ok := s.beginSearch(ctx, IndexDocuments)
+	defer cancel()
+	if !ok {
+		outcome = preOutcome
+		if preOutcome == "circuit_open" {
+			return nil, fmt.Errorf("meilisearch circuit open")
+		}
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
-	resp, err := s.client.service.Index(IndexDocuments).SearchWithContext(ctx, searchQuery, &ms.SearchRequest{
+	resp, err := s.client.service.Index(IndexDocuments).SearchWithContext(searchCtx, searchQuery, &ms.SearchRequest{
 		Limit:                int64(limit),
 		Offset:               0,
 		AttributesToRetrieve: []string{"id", "entity_type", "entity_id", "title", "body", "aliases", "identity_tokens", "freshness", "popularity", "trust_score"},
 	})
 	if err != nil {
-		outcome = "error"
+		s.finishSearch(&outcome, err)
 		return nil, err
 	}
+	s.finishSearch(&outcome, nil)
 	out := make([]readmodel.SearchDocument, 0, len(resp.Hits))
 	for _, hit := range resp.Hits {
 		entityType := hitString(hit, "entity_type")

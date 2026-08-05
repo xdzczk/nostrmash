@@ -33,6 +33,9 @@ Prometheus rule files (first pass) live in:
 - `observability/recording_rules/slo_and_workflow_rules.yml`
 - `observability/alerts/core_workflow_alerts.yml`
 
+To run Prometheus + Alertmanager + Grafana on the Coolify host and scrape the
+app stack, use [observability-stack.md](observability-stack.md).
+
 Build and deployment metadata now also expose:
 
 - `nostrmash_build_info{binary_role,version,commit,build_time}`
