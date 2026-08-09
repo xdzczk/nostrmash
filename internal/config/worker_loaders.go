@@ -310,11 +310,22 @@ func loadEventRelaysRetentionConfig() (WorkerEventRelaysRetentionConfig, error) 
 	}, nil
 }
 
-// loadEventTagsRetentionConfig reads WORKER_RETENTION_EVENT_TAGS_*. Defaults
-// are aggressive (5m / 20k) so the historical backlog of kind-3 p-tags and
-// junk names drains quickly after deploy; once empty each tick is a no-op.
+// loadEventTagsRetentionConfig reads WORKER_RETENTION_EVENT_TAGS_*.
+//
+// RunInterval defaults to 24h, not the 5m this used to ship with. Draining
+// an existing backlog is governed by DeleteBatchLimit and the retention
+// engine's internal catchup loop (see internal/jobs/retention.go), not by
+// RunInterval, so a longer interval does not slow down catchup — it only
+// controls how often the steady-state "any backlog left?" check runs. That
+// check is not cheap: PruneFilteredEventTagsKindScoped has no covering
+// index over its events join and cost ~600k-2M+ rows on every tick even
+// fully drained (confirmed on production; see docs/design/storage-discipline.md
+// and .cursor/rules/retention-query-cost.mdc). Since ingest
+// (internal/eventtags.ShouldPersist) already refuses to write disallowed
+// tag names or kind-scoped p/r tags, neither category can regain backlog,
+// so there is no upside to checking often.
 func loadEventTagsRetentionConfig() (WorkerEventTagsRetentionConfig, error) {
-	runInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL", 5*time.Minute)
+	runInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL", 24*time.Hour)
 	if err != nil {
 		return WorkerEventTagsRetentionConfig{}, err
 	}

@@ -27,6 +27,18 @@ backlog size, and catchup stretched into weeks of IO contention.
 5. When adding a new retention op, wire `metrics.ObserveDBOperation` (already
    required by existing wrappers). Alerts already watch
    `nostrmash:retention:batch_duration_p95_seconds:6h`.
+6. If a candidate set can only be found via a join against another large/wide
+   table (e.g. `events`, which carries `raw_json`) and there is no cheap
+   covering/partial index for it — confirm this with `EXPLAIN` before
+   assuming one exists; a driving-side row count that looks small can still
+   force an expensive heap-fetch or seq-scan-sized plan (see
+   `PruneFilteredEventTagsKindScoped` and its comment for a worked example
+   where neither join order was cheap). When the underlying condition is one
+   that write-time filtering already prevents from recurring (no *new*
+   violating rows can ever be created), the correct fix is usually to run
+   that check on a much longer interval, not to chase a perfect O(1) query.
+   Split it out from any cheap, frequently-safe checks in the same job so
+   the two don't share a run cadence.
 
 ## Before merging
 

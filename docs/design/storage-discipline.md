@@ -231,7 +231,30 @@ Event retention deletes from `events` and relies on `ON DELETE CASCADE`. Several
 
 ### Filter + prune `event_tags` allowlist (`internal/eventtags`)
 
-`event_tags` is a derived join index, not a source of truth. Ingest (`ExpandEventTags`) only persists tag names with production SQL readers (`p`, `e`, `d`, `a`, `t`, `word`, `image`, `thumb`, `video`, `imeta`, `m`, `r`, `url`, `u`, `g`, `group`, `series`), and additionally drops kind-3 contact-list `p` tags (~49% of bytes; follows live in `follower_edges`) and kind-10002 relay-list `r` tags (~20% of bytes; projection reads `raw_json`). The worker loop `WORKER_RETENTION_EVENT_TAGS_*` (default enabled, 5m / 20k) drains the historical backlog with the same predicate. Mentions (`GetEventsReferencingPubkey`) explicitly exclude kind 3. To restore a filtered tag for a future feature: add it to `AllowedTagNames` (and drop any kind-scope exclusion), then backfill from `events.raw_json`.
+`event_tags` is a derived join index, not a source of truth. Ingest (`ExpandEventTags`) only persists tag names with production SQL readers (`p`, `e`, `d`, `a`, `t`, `word`, `image`, `thumb`, `video`, `imeta`, `m`, `r`, `url`, `u`, `g`, `group`, `series`), and additionally drops kind-3 contact-list `p` tags (~49% of bytes; follows live in `follower_edges`) and kind-10002 relay-list `r` tags (~20% of bytes; projection reads `raw_json`). The worker loop `WORKER_RETENTION_EVENT_TAGS_*` drains the historical backlog with the same predicate. Mentions (`GetEventsReferencingPubkey`) explicitly exclude kind 3. To restore a filtered tag for a future feature: add it to `AllowedTagNames` (and drop any kind-scope exclusion), then backfill from `events.raw_json`.
+
+**Query cost hardening (migration `000071`)**: `PruneFilteredEventTags` used a
+single query joining `event_tags` to `events` for both the allowlist and
+kind-scoped branches. On production this timed out (>120s) just to *count*
+the kind-scoped backlog, because `events` carries `raw_json` and no covering
+index makes either join order cheap. It is now two independently-timed
+queries:
+
+- `PruneFilteredEventTagsDisallowedNames` — backed by the new partial index
+  `idx_event_tags_disallowed_tag_name` (a literal copy of
+  `AllowedTagNames`, kept in sync by
+  `TestAllowedTagNamesMatchesDisallowedNameQuery`). Cheap forever: once the
+  historical backlog drains, the index stays empty and this is an index
+  probe, not a scan.
+- `PruneFilteredEventTagsKindScoped` — the kind-3 `p` / kind-10002 `r`
+  branch. No cheap covering index exists for this one (see the query
+  comment for the two join orders we measured on production and why both
+  were expensive); it is *not* cheap on an empty tick.
+
+Since ingest already refuses to write either category, neither can regain
+new backlog. `WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL` was raised from the
+original 5m default specifically so the kind-scoped branch isn't paying its
+cost every tick forever for no benefit — see `docs/configuration.md`.
 
 ### Acceptance criteria
 

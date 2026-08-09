@@ -664,8 +664,8 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Name:         "WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL",
 			Runtimes:     []string{"worker"},
 			Required:     false,
-			DefaultValue: "5m0s",
-			Description:  "How often the event_tags allowlist prune loop runs. Saturated batches catch up immediately between ticks.",
+			DefaultValue: "24h0m0s",
+			Description:  "How often the event_tags allowlist prune loop runs. Saturated batches catch up immediately between ticks regardless of this interval (see internal/jobs/retention.go), so this only controls the steady-state check cadence, not backlog drain speed. Keep this infrequent: the kind-scoped branch (kind-3 p-tags / kind-10002 r-tags) has no cheap covering index and costs roughly the count of kind-3/kind-10002 events on every tick even fully drained, and ingest already refuses to write new violations of either category, so there is no benefit to checking often.",
 		},
 		{
 			Name:         "WORKER_RETENTION_EVENT_TAGS_DELETE_BATCH_LIMIT",

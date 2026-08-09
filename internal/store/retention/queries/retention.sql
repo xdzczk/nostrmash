@@ -397,22 +397,54 @@ DELETE FROM account_states a
 USING candidates c
 WHERE a.pubkey = c.pubkey;
 
--- name: PruneFilteredEventTags :execrows
--- Drop event_tags rows that the ingest allowlist would no longer write.
--- Matches internal/eventtags.ShouldPersist:
---   * tag_name outside @allowed_tag_names
---   * kind-3 contact-list p-tags
---   * kind-10002 relay-list r-tags
--- events.raw_json remains the source of truth; this only shrinks the
--- derived join index. Batched via LIMIT so the worker catchup loop can
--- drain hundreds of millions of rows without a single long transaction.
+-- name: PruneFilteredEventTagsDisallowedNames :execrows
+-- Drop event_tags rows whose tag_name is outside the ingest allowlist
+-- (internal/eventtags.ShouldPersist). ingest already refuses to write
+-- these, so idx_event_tags_disallowed_tag_name only ever holds legacy
+-- rows written before that filter existed; once drained the index stays
+-- empty and this query costs an index probe, not a table scan.
+--
+-- The literal list below must exactly match both
+-- internal/eventtags.AllowedTagNames and the partial index predicate in
+-- migrations/000071_event_tags_disallowed_name_index.sql — see
+-- TestAllowedTagNamesMatchesDisallowedNameQuery. A parameterized array
+-- (@allowed_tag_names) can't be used here: Postgres can only prove a
+-- partial index satisfies a NOT IN predicate when the literal list is
+-- identical at plan time, not behind a bind parameter.
+WITH candidates AS (
+    SELECT et.event_id, et.tag_index, et.value_index
+    FROM event_tags et
+    WHERE et.tag_name NOT IN (
+        'a', 'd', 'e', 'g', 'group', 'image', 'imeta', 'm', 'p', 'r',
+        'series', 't', 'thumb', 'u', 'url', 'video', 'word'
+    )
+    LIMIT @row_limit
+)
+DELETE FROM event_tags et
+USING candidates c
+WHERE et.event_id = c.event_id
+  AND et.tag_index = c.tag_index
+  AND et.value_index = c.value_index;
+
+-- name: PruneFilteredEventTagsKindScoped :execrows
+-- Drop event_tags rows the ingest allowlist excludes by (kind, tag_name):
+-- kind-3 contact-list p-tags and kind-10002 relay-list r-tags (see
+-- internal/eventtags.ShouldPersist). events.raw_json remains the source
+-- of truth; this only shrinks the derived join index.
+--
+-- Cost is bounded by how many kind-3/kind-10002 events exist, not by
+-- event_tags size — but that is still millions of rows with no cheap
+-- covering index (events carries raw_json, so both a seq scan and an
+-- index+heap-fetch scan of the driving side are expensive; see the
+-- investigation in the PR that introduced this comment). Keep this on an
+-- infrequent run cadence (WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL); it is
+-- NOT cheap on an empty tick the way the disallowed-names query above is.
 WITH candidates AS (
     SELECT et.event_id, et.tag_index, et.value_index
     FROM event_tags et
     INNER JOIN events e ON e.id = et.event_id
     WHERE (et.tag_name = 'p' AND e.kind = 3)
        OR (et.tag_name = 'r' AND e.kind = 10002)
-       OR (et.tag_name <> ALL (@allowed_tag_names::text[]))
     LIMIT @row_limit
 )
 DELETE FROM event_tags et

@@ -23,15 +23,33 @@ type Querier interface {
 	// (idx_author_recent_events_projected_at) keeps per-tick cost proportional to
 	// recent write volume instead of total table size.
 	PruneAuthorRecentEventsByCap(ctx context.Context, arg PruneAuthorRecentEventsByCapParams) (int64, error)
-	// Drop event_tags rows that the ingest allowlist would no longer write.
-	// Matches internal/eventtags.ShouldPersist:
-	//   * tag_name outside @allowed_tag_names
-	//   * kind-3 contact-list p-tags
-	//   * kind-10002 relay-list r-tags
-	// events.raw_json remains the source of truth; this only shrinks the
-	// derived join index. Batched via LIMIT so the worker catchup loop can
-	// drain hundreds of millions of rows without a single long transaction.
-	PruneFilteredEventTags(ctx context.Context, arg PruneFilteredEventTagsParams) (int64, error)
+	// Drop event_tags rows whose tag_name is outside the ingest allowlist
+	// (internal/eventtags.ShouldPersist). ingest already refuses to write
+	// these, so idx_event_tags_disallowed_tag_name only ever holds legacy
+	// rows written before that filter existed; once drained the index stays
+	// empty and this query costs an index probe, not a table scan.
+	//
+	// The literal list below must exactly match both
+	// internal/eventtags.AllowedTagNames and the partial index predicate in
+	// migrations/000071_event_tags_disallowed_name_index.sql — see
+	// TestAllowedTagNamesMatchesDisallowedNameQuery. A parameterized array
+	// (@allowed_tag_names) can't be used here: Postgres can only prove a
+	// partial index satisfies a NOT IN predicate when the literal list is
+	// identical at plan time, not behind a bind parameter.
+	PruneFilteredEventTagsDisallowedNames(ctx context.Context, rowLimit int32) (int64, error)
+	// Drop event_tags rows the ingest allowlist excludes by (kind, tag_name):
+	// kind-3 contact-list p-tags and kind-10002 relay-list r-tags (see
+	// internal/eventtags.ShouldPersist). events.raw_json remains the source
+	// of truth; this only shrinks the derived join index.
+	//
+	// Cost is bounded by how many kind-3/kind-10002 events exist, not by
+	// event_tags size — but that is still millions of rows with no cheap
+	// covering index (events carries raw_json, so both a seq scan and an
+	// index+heap-fetch scan of the driving side are expensive; see the
+	// investigation in the PR that introduced this comment). Keep this on an
+	// infrequent run cadence (WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL); it is
+	// NOT cheap on an empty tick the way the disallowed-names query above is.
+	PruneFilteredEventTagsKindScoped(ctx context.Context, rowLimit int32) (int64, error)
 	// Deletes applied_stat_deltas ledger rows whose source event no longer
 	// exists in events. This is the only condition under which a ledger row is
 	// guaranteed to serve no further purpose: as long as the event exists,

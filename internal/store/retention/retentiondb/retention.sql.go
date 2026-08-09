@@ -176,15 +176,15 @@ func (q *Queries) PruneAuthorRecentEventsByCap(ctx context.Context, arg PruneAut
 	return result.RowsAffected(), nil
 }
 
-const pruneFilteredEventTags = `-- name: PruneFilteredEventTags :execrows
+const pruneFilteredEventTagsDisallowedNames = `-- name: PruneFilteredEventTagsDisallowedNames :execrows
 WITH candidates AS (
     SELECT et.event_id, et.tag_index, et.value_index
     FROM event_tags et
-    INNER JOIN events e ON e.id = et.event_id
-    WHERE (et.tag_name = 'p' AND e.kind = 3)
-       OR (et.tag_name = 'r' AND e.kind = 10002)
-       OR (et.tag_name <> ALL ($1::text[]))
-    LIMIT $2
+    WHERE et.tag_name NOT IN (
+        'a', 'd', 'e', 'g', 'group', 'image', 'imeta', 'm', 'p', 'r',
+        'series', 't', 'thumb', 'u', 'url', 'video', 'word'
+    )
+    LIMIT $1
 )
 DELETE FROM event_tags et
 USING candidates c
@@ -193,22 +193,57 @@ WHERE et.event_id = c.event_id
   AND et.value_index = c.value_index
 `
 
-type PruneFilteredEventTagsParams struct {
-	AllowedTagNames []string
-	RowLimit        int32
+// Drop event_tags rows whose tag_name is outside the ingest allowlist
+// (internal/eventtags.ShouldPersist). ingest already refuses to write
+// these, so idx_event_tags_disallowed_tag_name only ever holds legacy
+// rows written before that filter existed; once drained the index stays
+// empty and this query costs an index probe, not a table scan.
+//
+// The literal list below must exactly match both
+// internal/eventtags.AllowedTagNames and the partial index predicate in
+// migrations/000071_event_tags_disallowed_name_index.sql — see
+// TestAllowedTagNamesMatchesDisallowedNameQuery. A parameterized array
+// (@allowed_tag_names) can't be used here: Postgres can only prove a
+// partial index satisfies a NOT IN predicate when the literal list is
+// identical at plan time, not behind a bind parameter.
+func (q *Queries) PruneFilteredEventTagsDisallowedNames(ctx context.Context, rowLimit int32) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneFilteredEventTagsDisallowedNames, rowLimit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-// Drop event_tags rows that the ingest allowlist would no longer write.
-// Matches internal/eventtags.ShouldPersist:
-//   - tag_name outside @allowed_tag_names
-//   - kind-3 contact-list p-tags
-//   - kind-10002 relay-list r-tags
+const pruneFilteredEventTagsKindScoped = `-- name: PruneFilteredEventTagsKindScoped :execrows
+WITH candidates AS (
+    SELECT et.event_id, et.tag_index, et.value_index
+    FROM event_tags et
+    INNER JOIN events e ON e.id = et.event_id
+    WHERE (et.tag_name = 'p' AND e.kind = 3)
+       OR (et.tag_name = 'r' AND e.kind = 10002)
+    LIMIT $1
+)
+DELETE FROM event_tags et
+USING candidates c
+WHERE et.event_id = c.event_id
+  AND et.tag_index = c.tag_index
+  AND et.value_index = c.value_index
+`
+
+// Drop event_tags rows the ingest allowlist excludes by (kind, tag_name):
+// kind-3 contact-list p-tags and kind-10002 relay-list r-tags (see
+// internal/eventtags.ShouldPersist). events.raw_json remains the source
+// of truth; this only shrinks the derived join index.
 //
-// events.raw_json remains the source of truth; this only shrinks the
-// derived join index. Batched via LIMIT so the worker catchup loop can
-// drain hundreds of millions of rows without a single long transaction.
-func (q *Queries) PruneFilteredEventTags(ctx context.Context, arg PruneFilteredEventTagsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, pruneFilteredEventTags, arg.AllowedTagNames, arg.RowLimit)
+// Cost is bounded by how many kind-3/kind-10002 events exist, not by
+// event_tags size — but that is still millions of rows with no cheap
+// covering index (events carries raw_json, so both a seq scan and an
+// index+heap-fetch scan of the driving side are expensive; see the
+// investigation in the PR that introduced this comment). Keep this on an
+// infrequent run cadence (WORKER_RETENTION_EVENT_TAGS_RUN_INTERVAL); it is
+// NOT cheap on an empty tick the way the disallowed-names query above is.
+func (q *Queries) PruneFilteredEventTagsKindScoped(ctx context.Context, rowLimit int32) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneFilteredEventTagsKindScoped, rowLimit)
 	if err != nil {
 		return 0, err
 	}
