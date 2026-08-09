@@ -223,19 +223,16 @@ WHERE h.event_id = c.event_id
   AND h.hashtag = c.hashtag;
 
 -- name: PurgeStaleEventRelays :execrows
+-- Deletes duplicate provenance older than seen_before. The earliest-seen
+-- row per event (is_first_seen, maintained by triggers in migration 000070)
+-- is never deleted. Served by idx_event_relays_purge_nonfirst_seen_at so
+-- cost tracks deletable backlog, not total table size.
 WITH candidates AS (
     SELECT er.event_id, er.relay_url
     FROM event_relays er
     WHERE er.seen_at < @seen_before
-      AND EXISTS (
-        SELECT 1
-        FROM event_relays first
-        WHERE first.event_id = er.event_id
-          AND (
-            first.seen_at < er.seen_at
-            OR (first.seen_at = er.seen_at AND first.relay_url < er.relay_url)
-          )
-      )
+      AND NOT er.is_first_seen
+    ORDER BY er.seen_at ASC, er.event_id ASC, er.relay_url ASC
     LIMIT @row_limit
 )
 DELETE FROM event_relays er
@@ -256,11 +253,29 @@ WHERE a.author_pubkey = c.author_pubkey
   AND a.event_id = c.event_id;
 
 -- name: PruneAuthorRecentEventsByCap :execrows
-WITH offenders AS (
-    SELECT author_pubkey
-    FROM author_recent_events
-    GROUP BY author_pubkey
-    HAVING count(*) > @per_author_cap::bigint
+-- Only authors touched recently can newly exceed the per-author cap; the age
+-- pass already drains cold rows. Bounding the offender scan to projected_at
+-- (idx_author_recent_events_projected_at) keeps per-tick cost proportional to
+-- recent write volume instead of total table size.
+WITH touched AS (
+    SELECT t.author_pubkey
+    FROM (
+        SELECT DISTINCT ON (a.author_pubkey) a.author_pubkey, a.projected_at
+        FROM author_recent_events a
+        WHERE a.projected_at >= @touched_since
+        ORDER BY a.author_pubkey, a.projected_at DESC
+    ) t
+    ORDER BY t.projected_at DESC
+    LIMIT @author_scan_limit
+),
+offenders AS (
+    SELECT t.author_pubkey
+    FROM touched t
+    WHERE (
+        SELECT count(*)::bigint
+        FROM author_recent_events a
+        WHERE a.author_pubkey = t.author_pubkey
+    ) > @per_author_cap::bigint
     LIMIT @author_batch_limit
 ),
 victims AS (

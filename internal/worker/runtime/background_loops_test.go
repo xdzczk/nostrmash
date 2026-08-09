@@ -79,6 +79,66 @@ func TestRefreshRelayWindowSnapshotsOnce_UninitializedHandlersDoesNotPanic(t *te
 	if !log.sawError("relay_window_snapshots_age_query_failed") {
 		t.Fatal("expected age-query-failed error log")
 	}
+	// Permanent wiring errors must not burn the retry delay.
+	failed := 0
+	for _, msg := range log.errs {
+		if msg == "relay_window_snapshots_refresh_failed" {
+			failed++
+		}
+	}
+	if failed != 1 {
+		t.Fatalf("expected a single refresh attempt for uninitialized handlers, got %d", failed)
+	}
+}
+
+func TestRefreshRelayWindowSnapshotsWithRetry_RetriesTransientFailure(t *testing.T) {
+	oldDelay := relayWindowSnapshotsRefreshRetryDelay
+	relayWindowSnapshotsRefreshRetryDelay = time.Millisecond
+	defer func() { relayWindowSnapshotsRefreshRetryDelay = oldDelay }()
+
+	log := &recordingLogger{}
+	attempts := 0
+	err := refreshRelayWindowSnapshotsWithRetry(context.Background(), log, func(context.Context) error {
+		attempts++
+		if attempts == 1 {
+			return context.DeadlineExceeded
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if !log.sawError("relay_window_snapshots_refresh_failed") {
+		t.Fatal("expected first-attempt failure log")
+	}
+	if !log.sawInfo("relay_window_snapshots_refreshed") {
+		t.Fatal("expected success log on retry")
+	}
+}
+
+func TestShouldRetryRelayWindowSnapshotRefresh(t *testing.T) {
+	ctx := context.Background()
+	if shouldRetryRelayWindowSnapshotRefresh(ctx, nil) {
+		t.Fatal("nil error should not retry")
+	}
+	if !shouldRetryRelayWindowSnapshotRefresh(ctx, context.DeadlineExceeded) {
+		t.Fatal("transient deadline errors should retry")
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if shouldRetryRelayWindowSnapshotRefresh(canceled, context.DeadlineExceeded) {
+		t.Fatal("canceled parent should not retry")
+	}
+	if shouldRetryRelayWindowSnapshotRefresh(ctx, errHandlersNotInitialized()) {
+		t.Fatal("uninitialized handlers should not retry")
+	}
+}
+
+func errHandlersNotInitialized() error {
+	return derivation.NewHandlers(nil).RefreshRelayWindowSnapshots(context.Background())
 }
 
 func TestRunMeilisearchStartupSync_NilClientReturns(t *testing.T) {

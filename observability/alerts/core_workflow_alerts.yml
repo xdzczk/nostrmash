@@ -189,6 +189,28 @@ groups:
           description: "Retention purge runs are erroring over 15m. Inspect worker logs and retention configuration for jobs/invalid_events."
           runbook: "docs/operations.md#alert-response-playbook"
 
+      - alert: NostrMashRetentionBatchDurationHigh
+        expr: nostrmash:retention:batch_duration_p95_seconds:6h > 30 and sum by (operation) (rate(nostrmash_db_operation_duration_seconds_count{operation=~"purge_.*|prune_.*|groom_.*"}[6h])) > 0.01
+        for: 3h
+        labels:
+          severity: warning
+          slo: worker-throughput
+        annotations:
+          summary: "Retention batch p95 latency is high"
+          description: "Retention/store purge operation {{ $labels.operation }} has 6h p95 batch duration above 30s for 3h. This is the leading indicator of the table-size-scaling anti-pattern (self-join / full GROUP BY catchup). Inspect EXPLAIN for that query and recent retention logs."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashEventTagsJunkCatchupSustained
+        expr: nostrmash:retention:purged_rows_rate1h_by_target{target="event_tags"} > 10
+        for: 12h
+        labels:
+          severity: warning
+          slo: capacity-planning
+        annotations:
+          summary: "event_tags junk prune is in sustained catchup"
+          description: "event_tags retention is deleting more than 10 rows/s for 12h. After the allowlist + historical drain this should be near-zero; sustained catchup usually means ingest-side filtering regressed or a new junk tag class appeared."
+          runbook: "docs/operations.md#alert-response-playbook"
+
       - alert: NostrMashMeilisearchSyncLagHigh
         expr: nostrmash_pending_meilisearch_sync_oldest_age_seconds > 300 and nostrmash_pending_meilisearch_syncs > 0
         for: 10m

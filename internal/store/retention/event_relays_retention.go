@@ -15,9 +15,10 @@ import (
 // Windowed relay analytics read far inside any sane horizon and are
 // unaffected; only long-tail duplicate provenance is reclaimed.
 //
-// The seen_at scan is served by idx_event_relays_seen_at_pubkey (migration
-// 000045); the earliest-row check is served by the (event_id, relay_url)
-// primary key.
+// Candidates are rows with is_first_seen = false (stamped at write time by
+// triggers from migration 000070) and seen_at older than the horizon. The
+// scan is served by idx_event_relays_purge_nonfirst_seen_at so batch cost
+// tracks deletable backlog, not total table size.
 func (s *Retention) PurgeStaleEventRelays(
 	ctx context.Context,
 	seenBefore time.Time,

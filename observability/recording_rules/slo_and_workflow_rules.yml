@@ -97,3 +97,12 @@ groups:
 
       - record: nostrmash:retention:purged_rows_rate1h_by_target
         expr: sum by (target) (rate(nostrmash_retention_purged_rows_total[1h]))
+
+      # p95 latency of retention/store purge ops. Used to catch the
+      # "batch cost grows with table size" failure mode before catchup
+      # stretches into days/weeks. Labels match ObserveDBOperation names.
+      - record: nostrmash:retention:batch_duration_p95_seconds:6h
+        expr: histogram_quantile(0.95, sum by (operation, le) (rate(nostrmash_db_operation_duration_seconds_bucket{operation=~"purge_.*|prune_.*|groom_.*"}[6h])))
+
+      - record: nostrmash:retention:batch_duration_p95_seconds:24h
+        expr: histogram_quantile(0.95, sum by (operation, le) (rate(nostrmash_db_operation_duration_seconds_bucket{operation=~"purge_.*|prune_.*|groom_.*"}[24h])))

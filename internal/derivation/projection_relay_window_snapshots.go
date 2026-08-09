@@ -11,6 +11,35 @@ import (
 	"github.com/xdzczk/nostrmash/internal/model"
 )
 
+// relayWindowSnapshotStatementTimeout is the per-statement Postgres budget for
+// homepage snapshot aggregates. Kept under the worker loop's 120s refresh
+// timeout so a stuck statement is cancelled by Postgres before the Go context
+// expires and leaves an abandoned backend.
+//
+// These refreshes used to inherit the pool's ~15-30s statement_timeout. Under
+// concurrent retention IO (buffer-cache eviction on event_relays), the 7d
+// COUNT(DISTINCT) regularly crossed that ceiling even though the worker loop
+// still had ~90s of budget left — causing NostrMashRelayWindowSnapshotStale
+// whenever a catchup ran hot. SET LOCAL inside each refresh transaction
+// scopes the raise to this work only.
+const relayWindowSnapshotStatementTimeout = 100 * time.Second
+
+// configureRelayWindowSnapshotTx applies per-transaction settings shared by
+// both refresh phases: enough work_mem for the COUNT(DISTINCT) hashtables,
+// and a statement_timeout that matches the intended refresh budget.
+func configureRelayWindowSnapshotTx(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `SET LOCAL work_mem = '128MB'`); err != nil {
+		return fmt.Errorf("set work_mem: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		`SET LOCAL statement_timeout = %d`,
+		relayWindowSnapshotStatementTimeout.Milliseconds(),
+	)); err != nil {
+		return fmt.Errorf("set statement_timeout: %w", err)
+	}
+	return nil
+}
+
 // domainMediaURLFilterClause excludes obvious inline media/attachment links
 // from domain aggregation. Kept in sync with the identical constant in
 // internal/store/read/parity_domains.go (the live GetTrendingDomains query)
@@ -112,9 +141,10 @@ func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 		// Default work_mem (4MB) forces the COUNT(DISTINCT) hashtables
 		// to spill ~100-200MB to disk for the 7d windows. 128MB keeps
 		// everything in memory; SET LOCAL releases it on commit so the
-		// pool connection is unaffected.
-		if _, err := tx.Exec(ctx, `SET LOCAL work_mem = '128MB'`); err != nil {
-			return fmt.Errorf("set work_mem: %w", err)
+		// pool connection is unaffected. statement_timeout is raised in
+		// the same helper — see configureRelayWindowSnapshotTx.
+		if err := configureRelayWindowSnapshotTx(ctx, tx); err != nil {
+			return err
 		}
 
 		summary, err := computeRelaySummarySnapshot(ctx, tx)
@@ -179,8 +209,8 @@ func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 // rather than every pubkey ingest has ever seen a link or tag from.
 func (h *Handlers) refreshTrendingLinksSnapshots(ctx context.Context) error {
 	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SET LOCAL work_mem = '128MB'`); err != nil {
-			return fmt.Errorf("set work_mem: %w", err)
+		if err := configureRelayWindowSnapshotTx(ctx, tx); err != nil {
+			return err
 		}
 
 		now := time.Now().UTC()

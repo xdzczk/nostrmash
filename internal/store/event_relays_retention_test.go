@@ -64,6 +64,16 @@ func TestPurgeStaleEventRelays(t *testing.T) {
 	insertEventRelayRow(t, ctx, pool, "e_ties", "wss://a", ancient)
 	insertEventRelayRow(t, ctx, pool, "e_ties", "wss://b", ancient)
 
+	// Write-time triggers should mark only the earliest row per event as first.
+	assertFirstSeenFlags(t, ctx, pool, map[string]bool{
+		"e_multi|wss://first":      true,
+		"e_multi|wss://dup_old":    false,
+		"e_multi|wss://dup_recent": false,
+		"e_single|wss://only":      true,
+		"e_ties|wss://a":           true,
+		"e_ties|wss://b":           false,
+	})
+
 	deleted, err := NewPostgresStore(pool).PurgeStaleEventRelays(ctx, seenBefore, 100)
 	if err != nil {
 		t.Fatalf("purge: %v", err)
@@ -86,6 +96,37 @@ func TestPurgeStaleEventRelays(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("remaining mismatch: got %v want %v", got, want)
+		}
+	}
+}
+
+func assertFirstSeenFlags(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want map[string]bool) {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+		SELECT event_id || '|' || relay_url, is_first_seen
+		FROM event_relays
+		ORDER BY 1 ASC
+	`)
+	if err != nil {
+		t.Fatalf("query is_first_seen: %v", err)
+	}
+	defer rows.Close()
+	got := make(map[string]bool, len(want))
+	for rows.Next() {
+		var key string
+		var first bool
+		if err := rows.Scan(&key, &first); err != nil {
+			t.Fatalf("scan is_first_seen: %v", err)
+		}
+		got[key] = first
+	}
+	for key, wantFirst := range want {
+		gotFirst, ok := got[key]
+		if !ok {
+			t.Fatalf("missing event_relays row %s", key)
+		}
+		if gotFirst != wantFirst {
+			t.Fatalf("is_first_seen[%s]=%v want %v (got map %v)", key, gotFirst, wantFirst, got)
 		}
 	}
 }

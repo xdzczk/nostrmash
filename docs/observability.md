@@ -289,7 +289,7 @@ Recording rules provide reusable series for SLO/dashboards, including:
 - Worker dead/retry ratios (`nostrmash:worker:dead_ratio30m`, `nostrmash:worker:retry_ratio15m`)
 - Ingest/checkpoint/backlog/rebuild helpers (`nostrmash:ingest:checkpoint_freshness_seconds:max`, `nostrmash:worker:queue_backlog_oldest_pending_age_seconds`, `nostrmash:rebuild:active_oldest_age_seconds`)
 - Fallback health helpers (`nostrmash:lookup:fallback_error_ratio5m_by_entity`, `nostrmash:lookup:fallback_miss_ratio5m_by_entity`, `nostrmash:lookup:fallback_latency_p95_seconds:5m_by_entity`, `nostrmash:lookup:local_miss_ratio5m_by_surface`)
-- Storage and retention helpers (`nostrmash:storage:database_growth_bytes_per_hour:6h`, `nostrmash:storage:heavy_table_growth_bytes_per_hour:6h`, `nostrmash:retention:purge_error_rate5m`, `nostrmash:retention:purged_rows_rate1h_by_target`)
+- Storage and retention helpers (`nostrmash:storage:database_growth_bytes_per_hour:6h`, `nostrmash:storage:heavy_table_growth_bytes_per_hour:6h`, `nostrmash:retention:purge_error_rate5m`, `nostrmash:retention:purged_rows_rate1h_by_target`, `nostrmash:retention:batch_duration_p95_seconds:6h`)
 
 Alert rules cover:
 
@@ -299,7 +299,7 @@ Alert rules cover:
 - Ingest likely stall (checkpoint freshness stale)
 - Rebuild slowdown (active rebuild age) and rebuild dead-letter failures
 - Fallback error ratio/latency and elevated local miss ratio on fallback-enabled lookup surfaces
-- Retention purge failures and sustained storage growth (global DB and `invalid_events` early warning)
+- Retention purge failures, elevated retention batch p95 latency, sustained `event_tags` junk catchup, and sustained storage growth (global DB and `invalid_events` early warning)
 
 Interpreting storage growth safely:
 

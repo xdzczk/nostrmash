@@ -695,6 +695,9 @@ Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use 
 - `NostrMashTrustSnapshotStale`
   - Meaning: the most recent successful trust snapshot is older than the freshness target.
   - Check next: trigger or inspect `POST /admin/v1/trust/runs`, verify `trust_worker` liveness, and confirm Redis/Postgres trust phases are completing.
+- `NostrMashRelayWindowSnapshotStale`
+  - Meaning: the homepage `home_window_24h` snapshot is older than 15 minutes (refresh runs every 5m, with one retry on failure).
+  - Check next: worker `relay_window_snapshots_refresh_failed` logs (often `statement timeout` on the 7d `event_relays` aggregate under retention IO), worker liveness, and whether a retention catchup is saturating disk. Refresh transactions raise `statement_timeout` to 100s locally; sustained failures usually mean heavier IO contention than a single retry can absorb.
 - `NostrMashTrustRetryStorm`
   - Meaning: trust sync/compute/promote phases are retrying at an unhealthy rate.
   - Check next: retry-heavy `job_type` values, trust phase error fields, Redis reachability, and backing store latency.
@@ -710,6 +713,12 @@ Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use 
 - `NostrMashRetentionPurgeFailing`
   - Meaning: worker retention loops are repeatedly erroring.
   - Check next: worker logs for purge target (`jobs` vs `invalid_events`), DB connectivity, and retention env configuration.
+- `NostrMashRetentionBatchDurationHigh`
+  - Meaning: a retention purge/prune/groom DB operation has sustained high batch p95 latency (6h p95 > 30s for 3h).
+  - Check next: `nostrmash:retention:batch_duration_p95_seconds:6h` by `operation`, worker retention logs, and EXPLAIN for that query. Prefer query shapes whose cost is bounded by the batch/backlog, not total table size (no correlated self-EXISTS / full-table GROUP BY on each tick).
+- `NostrMashEventTagsJunkCatchupSustained`
+  - Meaning: `event_tags` retention is deleting at a sustained catchup rate for 12h+.
+  - Check next: ingest allowlist/`ShouldPersist` regressions, whether new junk tag classes are being written, and `event_tags_retention_*` worker logs.
 - `NostrMashDatabaseGrowthSustained`
   - Meaning: global database growth rate is elevated for hours.
   - Check next: heavy-table growth (`nostrmash_storage_table_bytes{table}`), retention throughput, and expected ingest/rebuild workload.

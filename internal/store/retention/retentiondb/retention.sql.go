@@ -111,12 +111,26 @@ func (q *Queries) PruneAuthorRecentEventsByAge(ctx context.Context, arg PruneAut
 }
 
 const pruneAuthorRecentEventsByCap = `-- name: PruneAuthorRecentEventsByCap :execrows
-WITH offenders AS (
-    SELECT author_pubkey
-    FROM author_recent_events
-    GROUP BY author_pubkey
-    HAVING count(*) > $1::bigint
+WITH touched AS (
+    SELECT t.author_pubkey
+    FROM (
+        SELECT DISTINCT ON (a.author_pubkey) a.author_pubkey, a.projected_at
+        FROM author_recent_events a
+        WHERE a.projected_at >= $1
+        ORDER BY a.author_pubkey, a.projected_at DESC
+    ) t
+    ORDER BY t.projected_at DESC
     LIMIT $2
+),
+offenders AS (
+    SELECT t.author_pubkey
+    FROM touched t
+    WHERE (
+        SELECT count(*)::bigint
+        FROM author_recent_events a
+        WHERE a.author_pubkey = t.author_pubkey
+    ) > $3::bigint
+    LIMIT $4
 ),
 victims AS (
     SELECT r.author_pubkey, r.event_id
@@ -126,9 +140,9 @@ victims AS (
         FROM author_recent_events a
         WHERE a.author_pubkey = o.author_pubkey
         ORDER BY a.created_at DESC, a.event_id DESC
-        OFFSET $1::bigint
+        OFFSET $3::bigint
     ) r
-    LIMIT $3
+    LIMIT $5
 )
 DELETE FROM author_recent_events a
 USING victims v
@@ -137,13 +151,25 @@ WHERE a.author_pubkey = v.author_pubkey
 `
 
 type PruneAuthorRecentEventsByCapParams struct {
+	TouchedSince     pgtype.Timestamptz
+	AuthorScanLimit  int32
 	PerAuthorCap     int64
 	AuthorBatchLimit int32
 	DeleteBatchLimit int32
 }
 
+// Only authors touched recently can newly exceed the per-author cap; the age
+// pass already drains cold rows. Bounding the offender scan to projected_at
+// (idx_author_recent_events_projected_at) keeps per-tick cost proportional to
+// recent write volume instead of total table size.
 func (q *Queries) PruneAuthorRecentEventsByCap(ctx context.Context, arg PruneAuthorRecentEventsByCapParams) (int64, error) {
-	result, err := q.db.Exec(ctx, pruneAuthorRecentEventsByCap, arg.PerAuthorCap, arg.AuthorBatchLimit, arg.DeleteBatchLimit)
+	result, err := q.db.Exec(ctx, pruneAuthorRecentEventsByCap,
+		arg.TouchedSince,
+		arg.AuthorScanLimit,
+		arg.PerAuthorCap,
+		arg.AuthorBatchLimit,
+		arg.DeleteBatchLimit,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -349,15 +375,8 @@ WITH candidates AS (
     SELECT er.event_id, er.relay_url
     FROM event_relays er
     WHERE er.seen_at < $1
-      AND EXISTS (
-        SELECT 1
-        FROM event_relays first
-        WHERE first.event_id = er.event_id
-          AND (
-            first.seen_at < er.seen_at
-            OR (first.seen_at = er.seen_at AND first.relay_url < er.relay_url)
-          )
-      )
+      AND NOT er.is_first_seen
+    ORDER BY er.seen_at ASC, er.event_id ASC, er.relay_url ASC
     LIMIT $2
 )
 DELETE FROM event_relays er
@@ -371,6 +390,10 @@ type PurgeStaleEventRelaysParams struct {
 	RowLimit   int32
 }
 
+// Deletes duplicate provenance older than seen_before. The earliest-seen
+// row per event (is_first_seen, maintained by triggers in migration 000070)
+// is never deleted. Served by idx_event_relays_purge_nonfirst_seen_at so
+// cost tracks deletable backlog, not total table size.
 func (q *Queries) PurgeStaleEventRelays(ctx context.Context, arg PurgeStaleEventRelaysParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeStaleEventRelays, arg.SeenBefore, arg.RowLimit)
 	if err != nil {

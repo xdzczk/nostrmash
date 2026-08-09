@@ -18,6 +18,10 @@ type Querier interface {
 	GroomSearchDocumentsPrune(ctx context.Context, rowLimit int32) (int64, error)
 	GroomSearchDocumentsTrim(ctx context.Context, arg GroomSearchDocumentsTrimParams) (int64, error)
 	PruneAuthorRecentEventsByAge(ctx context.Context, arg PruneAuthorRecentEventsByAgeParams) (int64, error)
+	// Only authors touched recently can newly exceed the per-author cap; the age
+	// pass already drains cold rows. Bounding the offender scan to projected_at
+	// (idx_author_recent_events_projected_at) keeps per-tick cost proportional to
+	// recent write volume instead of total table size.
 	PruneAuthorRecentEventsByCap(ctx context.Context, arg PruneAuthorRecentEventsByCapParams) (int64, error)
 	// Drop event_tags rows that the ingest allowlist would no longer write.
 	// Matches internal/eventtags.ShouldPersist:
@@ -50,6 +54,10 @@ type Querier interface {
 	PurgeExpiredEngagementEvents(ctx context.Context, arg PurgeExpiredEngagementEventsParams) (int64, error)
 	PurgeIdleAccountStates(ctx context.Context, arg PurgeIdleAccountStatesParams) (int64, error)
 	PurgeProcessedDeletionEvents(ctx context.Context, arg PurgeProcessedDeletionEventsParams) (int64, error)
+	// Deletes duplicate provenance older than seen_before. The earliest-seen
+	// row per event (is_first_seen, maintained by triggers in migration 000070)
+	// is never deleted. Served by idx_event_relays_purge_nonfirst_seen_at so
+	// cost tracks deletable backlog, not total table size.
 	PurgeStaleEventRelays(ctx context.Context, arg PurgeStaleEventRelaysParams) (int64, error)
 	PurgeStaleTrustedNoteDiscoveryCandidates(ctx context.Context, arg PurgeStaleTrustedNoteDiscoveryCandidatesParams) (int64, error)
 	PurgeStaleTrustedProfileDiscoveryCandidates(ctx context.Context, arg PurgeStaleTrustedProfileDiscoveryCandidatesParams) (int64, error)

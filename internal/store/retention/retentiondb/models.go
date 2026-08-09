@@ -280,10 +280,11 @@ type EventReference struct {
 }
 
 type EventRelay struct {
-	EventID  string
-	RelayUrl string
-	SeenAt   pgtype.Timestamptz
-	Pubkey   string
+	EventID     string
+	RelayUrl    string
+	SeenAt      pgtype.Timestamptz
+	Pubkey      string
+	IsFirstSeen bool
 }
 
 type EventTag struct {

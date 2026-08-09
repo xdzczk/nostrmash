@@ -13,6 +13,9 @@ import (
 	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
+// Overridable for tests (see refreshRelayWindowSnapshotsWithRetry).
+var relayWindowSnapshotsRefreshRetryDelay = 5 * time.Second
+
 // relayWindowSnapshotsRefreshInterval is how often the worker
 // recomputes the homepage relay summary stats (24h / 7d windows +
 // top-10 relays by activity) and overwrites
@@ -26,15 +29,20 @@ import (
 const relayWindowSnapshotsRefreshInterval = 5 * time.Minute
 
 // relayWindowSnapshotsRefreshTimeout caps how long a single refresh
-// may run. The seed in migration 000047 takes ~12s on production,
-// and pathological cases (e.g. autovacuum holding locks during a
-// table bloat) could push it higher. Bumped from the original 60s to
-// 120s after 000061_domain_window_snapshots.sql added two more
-// COUNT(DISTINCT)-shaped aggregates (top_domains_24h/7d) into this
-// same single-transaction budget alongside relays/languages/hashtags;
-// 60s was calibrated before that work existed and left little
-// headroom for the extra queries under load.
+// attempt may run (Go context). The seed in migration 000047 takes
+// ~12s on production; under retention IO pressure the 7d
+// COUNT(DISTINCT) over event_relays has been observed near ~40s once
+// the per-statement Postgres budget is raised to match (see
+// derivation.relayWindowSnapshotStatementTimeout). Bumped from the
+// original 60s to 120s after 000061_domain_window_snapshots.sql added
+// two more COUNT(DISTINCT)-shaped aggregates (top_domains_24h/7d).
 const relayWindowSnapshotsRefreshTimeout = 120 * time.Second
+
+// relayWindowSnapshotsRefreshAttempts is the number of tries per tick
+// (initial + one retry on failure). Transient buffer-cache eviction
+// from concurrent retention deletes often clears within a few seconds;
+// retrying once avoids a full 5-minute staleness wait.
+const relayWindowSnapshotsRefreshAttempts = 2
 
 // RunRelayWindowSnapshotsLoop periodically refreshes the homepage
 // relay summary snapshot. The homepage handler reads
@@ -109,21 +117,7 @@ func refreshRelayWindowSnapshotsOnce(ctx context.Context, log Logger, handlers *
 		}
 	}()
 
-	runCtx, cancel := context.WithTimeout(ctx, relayWindowSnapshotsRefreshTimeout)
-	defer cancel()
-	started := time.Now()
-	if err := handlers.RefreshRelayWindowSnapshots(runCtx); err != nil {
-		log.Error(
-			"relay_window_snapshots_refresh_failed",
-			"error", err,
-			"duration_s", time.Since(started).Seconds(),
-		)
-	} else {
-		log.Info(
-			"relay_window_snapshots_refreshed",
-			"duration_s", time.Since(started).Seconds(),
-		)
-	}
+	_ = refreshRelayWindowSnapshotsWithRetry(ctx, log, handlers.RefreshRelayWindowSnapshots)
 
 	// Report the snapshot's actual staleness regardless of whether this
 	// tick's refresh succeeded — a failing tick is exactly the case the
@@ -141,6 +135,59 @@ func refreshRelayWindowSnapshotsOnce(ctx context.Context, log Logger, handlers *
 		return
 	}
 	metrics.SetRelayWindowSnapshotAge(age.Seconds())
+}
+
+// refreshRelayWindowSnapshotsWithRetry runs refresh up to
+// relayWindowSnapshotsRefreshAttempts times with a short delay between
+// failures. Extracted so unit tests can exercise the retry path without a
+// live DB.
+func refreshRelayWindowSnapshotsWithRetry(
+	ctx context.Context,
+	log Logger,
+	refresh func(context.Context) error,
+) error {
+	var lastErr error
+	for attempt := 1; attempt <= relayWindowSnapshotsRefreshAttempts; attempt++ {
+		runCtx, cancel := context.WithTimeout(ctx, relayWindowSnapshotsRefreshTimeout)
+		started := time.Now()
+		err := refresh(runCtx)
+		cancel()
+		if err == nil {
+			log.Info(
+				"relay_window_snapshots_refreshed",
+				"duration_s", time.Since(started).Seconds(),
+				"attempt", attempt,
+			)
+			return nil
+		}
+		lastErr = err
+		log.Error(
+			"relay_window_snapshots_refresh_failed",
+			"error", err,
+			"duration_s", time.Since(started).Seconds(),
+			"attempt", attempt,
+		)
+		if attempt >= relayWindowSnapshotsRefreshAttempts || !shouldRetryRelayWindowSnapshotRefresh(ctx, err) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return lastErr
+		case <-time.After(relayWindowSnapshotsRefreshRetryDelay):
+		}
+	}
+	return lastErr
+}
+
+func shouldRetryRelayWindowSnapshotRefresh(parent context.Context, err error) bool {
+	if parent.Err() != nil || err == nil {
+		return false
+	}
+	// Permanent configuration / wiring errors — retrying cannot help.
+	if strings.Contains(err.Error(), "handlers are not initialized") {
+		return false
+	}
+	return true
 }
 
 // RunMeilisearchStartupSync performs a one-shot reconciliation between
