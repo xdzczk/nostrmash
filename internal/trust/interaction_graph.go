@@ -147,7 +147,7 @@ func adjacencyToWeighted(adjacency map[string][]string) map[string]map[string]fl
 			if dst == "" {
 				continue
 			}
-			bucket[dst] += 1
+			bucket[dst]++
 		}
 	}
 	return out
