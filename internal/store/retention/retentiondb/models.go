@@ -720,6 +720,41 @@ type TrustGraphSnapshot struct {
 	RefreshedAt pgtype.Timestamptz
 }
 
+type TrustInteractionEdgeWeight struct {
+	SrcPubkey string
+	DstPubkey string
+	Weight    float64
+	UpdatedAt pgtype.Timestamptz
+}
+
+type TrustNeighborhoodMember struct {
+	SeedPubkey   string
+	MemberPubkey string
+	Hops         int32
+	Weight       float64
+	SourceRunID  pgtype.Int8
+	ComputedAt   pgtype.Timestamptz
+}
+
+type TrustNeighborhoodMembersStage struct {
+	RunID        int64
+	SeedPubkey   string
+	MemberPubkey string
+	Hops         int32
+	Weight       float64
+}
+
+type TrustPubkeysLatest struct {
+	Pubkey      string
+	MinHops     pgtype.Int4
+	IsSeed      bool
+	Score       pgtype.Float8
+	Rank        pgtype.Int8
+	SourceRunID pgtype.Int8
+	ComputedAt  pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
 type TrustRelaySuggestion struct {
 	RelayUrl                string
 	WeightedScore           float64
