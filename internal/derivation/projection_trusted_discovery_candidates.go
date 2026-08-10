@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func (h *Handlers) rebuildTrustedNoteDiscoveryWithVersion(ctx context.Context, versionOverride *int) error {
@@ -26,6 +27,12 @@ func (h *Handlers) rebuildTrustedNoteDiscoveryWithVersion(ctx context.Context, v
 		versionOverride,
 	)
 	if err != nil {
+		return err
+	}
+	// Rebuilds may run against manually seeded snapshot/score rows (tests and
+	// operator rebuilds). Refresh the denormalized hop+score table first so
+	// projection joins stay on a single source of truth.
+	if err := storetrust.RefreshTrustPubkeysLatestTx(ctx, tx); err != nil {
 		return err
 	}
 	if err := refreshTrustedNoteDiscoveryTx(ctx, tx, writeVersion); err != nil {
@@ -55,6 +62,9 @@ func (h *Handlers) rebuildTrustedProfileDiscoveryWithVersion(ctx context.Context
 		versionOverride,
 	)
 	if err != nil {
+		return err
+	}
+	if err := storetrust.RefreshTrustPubkeysLatestTx(ctx, tx); err != nil {
 		return err
 	}
 	if err := refreshTrustedProfileDiscoveryTx(ctx, tx, writeVersion); err != nil {
@@ -98,15 +108,14 @@ func refreshTrustedNoteDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersion 
 		SELECT
 			n.event_id,
 			n.author_pubkey,
-			snapshot.min_hops,
-			scores.score,
-			snapshot.source_run_id,
+			latest.min_hops,
+			latest.score,
+			latest.source_run_id,
 			$1,
 			$2,
 			now()
 		FROM note_discovery_stats n
-		LEFT JOIN trust_graph_snapshot snapshot ON snapshot.pubkey = n.author_pubkey
-		LEFT JOIN trust_scores_global scores ON scores.pubkey = n.author_pubkey
+		LEFT JOIN trust_pubkeys_latest latest ON latest.pubkey = n.author_pubkey
 		ON CONFLICT (event_id) DO UPDATE
 		SET author_pubkey = EXCLUDED.author_pubkey,
 		    min_hops = EXCLUDED.min_hops,
@@ -166,15 +175,14 @@ func refreshTrustedProfileDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersi
 		)
 		SELECT
 			p.pubkey,
-			snapshot.min_hops,
-			scores.score,
-			snapshot.source_run_id,
+			latest.min_hops,
+			latest.score,
+			latest.source_run_id,
 			$1,
 			$2,
 			now()
 		FROM profile_discovery_stats p
-		LEFT JOIN trust_graph_snapshot snapshot ON snapshot.pubkey = p.pubkey
-		LEFT JOIN trust_scores_global scores ON scores.pubkey = p.pubkey
+		LEFT JOIN trust_pubkeys_latest latest ON latest.pubkey = p.pubkey
 		ON CONFLICT (pubkey) DO UPDATE
 		SET min_hops = EXCLUDED.min_hops,
 		    trust_score = EXCLUDED.trust_score,

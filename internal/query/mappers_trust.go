@@ -2,6 +2,24 @@ package query
 
 import "github.com/xdzczk/nostrmash/internal/readmodel"
 
+// TrustSummaryFromState maps internal trust state into the product-facing
+// summary. totalRanked is the denominator for percentile (ranked pubkeys in
+// trust_pubkeys_latest); pass 0 to omit percentile.
+func TrustSummaryFromState(state TrustState, totalRanked int64) TrustSummary {
+	summary := TrustSummary{Tier: "unranked"}
+	if state.IsSeed {
+		summary.Tier = "seed"
+	} else if state.HopDistance != nil {
+		summary.Tier = "in_network"
+	}
+	summary.HopDistance = state.HopDistance
+	if state.Rank != nil && *state.Rank > 0 && totalRanked > 0 {
+		percentile := (float64(*state.Rank) / float64(totalRanked)) * 100.0
+		summary.Percentile = &percentile
+	}
+	return summary
+}
+
 func trustScoreFromStore(row readmodel.TrustGlobalScore) TrustScore {
 	return TrustScore{
 		Pubkey:         row.Pubkey,

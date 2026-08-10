@@ -76,16 +76,14 @@ func (s *Trust) GetTrustStates(ctx context.Context, pubkeys []string) (map[strin
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			requested.pubkey,
-			snapshot.min_hops,
-			snapshot.is_seed,
-			COALESCE(snapshot.source_run_id, scores.run_id),
-			scores.score,
-			scores.rank,
-			scores.computed_at,
-			snapshot.refreshed_at
+			latest.min_hops,
+			latest.is_seed,
+			latest.source_run_id,
+			latest.score,
+			latest.rank,
+			latest.computed_at
 		FROM unnest($1::text[]) AS requested(pubkey)
-		LEFT JOIN trust_graph_snapshot snapshot ON snapshot.pubkey = requested.pubkey
-		LEFT JOIN trust_scores_global scores ON scores.pubkey = requested.pubkey
+		LEFT JOIN trust_pubkeys_latest latest ON latest.pubkey = requested.pubkey
 	`, normalized)
 	if err != nil {
 		return nil, fmt.Errorf("get trust states: %w", err)
@@ -95,14 +93,13 @@ func (s *Trust) GetTrustStates(ctx context.Context, pubkeys []string) (map[strin
 	out := make(map[string]TrustState, len(normalized))
 	for rows.Next() {
 		var (
-			pubkey          string
-			hopDistance     *int
-			isSeed          *bool
-			generationID    *int64
-			score           *float64
-			rank            *int64
-			scoreComputedAt *time.Time
-			refreshedAt     *time.Time
+			pubkey       string
+			hopDistance  *int
+			isSeed       *bool
+			generationID *int64
+			score        *float64
+			rank         *int64
+			computedAt   *time.Time
 		)
 		if err := rows.Scan(
 			&pubkey,
@@ -111,8 +108,7 @@ func (s *Trust) GetTrustStates(ctx context.Context, pubkeys []string) (map[strin
 			&generationID,
 			&score,
 			&rank,
-			&scoreComputedAt,
-			&refreshedAt,
+			&computedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan trust state row: %w", err)
 		}
@@ -129,11 +125,8 @@ func (s *Trust) GetTrustStates(ctx context.Context, pubkeys []string) (map[strin
 		}
 		state.Qualified = trustStateQualified(state)
 		state.Tier = trustTierFromState(state)
-		if scoreComputedAt != nil {
-			ts := scoreComputedAt.UTC()
-			state.ComputedAt = &ts
-		} else if refreshedAt != nil {
-			ts := refreshedAt.UTC()
+		if computedAt != nil {
+			ts := computedAt.UTC()
 			state.ComputedAt = &ts
 		}
 		out[pubkey] = state

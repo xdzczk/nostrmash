@@ -60,6 +60,7 @@ const (
 	DerivationThreadProjection        = "thread_projection"
 	DerivationThreadSummary           = "thread_summary"
 	DerivationTrustScoresGlobal       = "trust_scores_global"
+	DerivationTrustPubkeysLatest      = "trust_pubkeys_latest"
 )
 
 const (
@@ -94,6 +95,7 @@ const (
 	ThreadProjectionVersion        = 1
 	ThreadSummaryVersion           = 1
 	TrustScoresGlobalVersion       = 3
+	TrustPubkeysLatestVersion      = 1
 )
 
 const (

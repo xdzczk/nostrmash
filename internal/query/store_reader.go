@@ -66,6 +66,7 @@ type TrustReads interface {
 	trustRunCapability
 	trustRunsCapability
 	trustQualificationCapability
+	rankedPubkeyCountCapability
 }
 
 // DMReads bundles the direct-message capability surface.

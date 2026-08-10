@@ -122,6 +122,14 @@ func TestRuntime_TriggerGlobalRunAndProcessLifecycleWithoutRedis(t *testing.T) {
 		t.Fatalf("expected two published trust score rows, got %d", publishedRows)
 	}
 
+	var latestRows int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM trust_pubkeys_latest WHERE rank IS NOT NULL`).Scan(&latestRows); err != nil {
+		t.Fatalf("count trust_pubkeys_latest rows: %v", err)
+	}
+	if latestRows != 2 {
+		t.Fatalf("expected two trust_pubkeys_latest ranked rows after promote, got %d", latestRows)
+	}
+
 	var remainingStageRows int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM trust_scores_global_stage WHERE run_id = $1`, run.ID).Scan(&remainingStageRows); err != nil {
 		t.Fatalf("count staged trust scores after promote: %v", err)

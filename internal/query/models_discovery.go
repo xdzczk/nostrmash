@@ -21,8 +21,9 @@ type ProfilePublicStats struct {
 }
 
 type ProfilePublicSummary struct {
-	Profile Profile
-	Stats   ProfilePublicStats
+	Profile      Profile
+	Stats        ProfilePublicStats
+	TrustSummary *TrustSummary
 }
 
 type ContactList struct {

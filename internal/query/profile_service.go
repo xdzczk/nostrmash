@@ -228,7 +228,22 @@ func (s Service) GetProfile(ctx context.Context, pubkey string) (out Profile, er
 func (s Service) GetProfilePublicSummary(ctx context.Context, pubkey string) (out ProfilePublicSummary, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.get_profile_public_summary")
 	defer func() { span.End(err) }()
-	return profileService{reader: s.reader, fallback: s.fallback, persister: s.fallbackPersister, policy: s.fallbackPolicy()}.GetProfilePublicSummary(ctx, pubkey)
+	out, err = profileService{reader: s.reader, fallback: s.fallback, persister: s.fallbackPersister, policy: s.fallbackPolicy()}.GetProfilePublicSummary(ctx, pubkey)
+	if err != nil {
+		return ProfilePublicSummary{}, err
+	}
+	summary, trustErr := s.GetTrustSummary(ctx, out.Profile.Pubkey)
+	if trustErr == nil {
+		out.TrustSummary = &summary
+	} else if !IsUnsupportedCapability(trustErr) {
+		// Unexpected trust lookup failures should not fail the profile summary;
+		// omit the optional field and keep the core payload intact.
+		slog.Warn("profile_trust_summary_failed",
+			"pubkey", out.Profile.Pubkey,
+			"error", trustErr.Error(),
+		)
+	}
+	return out, nil
 }
 
 func (s profileService) persistFallbackProfile(_ context.Context, profile Profile) {

@@ -103,6 +103,25 @@ func TestTrustReadsAndSeeds(t *testing.T) {
 		t.Fatalf("expected snapshot rows, got %+v", refresh)
 	}
 
+	latest, err := s.GetTrustPubkeyLatest(ctx, "pk1")
+	if err != nil {
+		t.Fatalf("GetTrustPubkeyLatest: %v", err)
+	}
+	if latest.Pubkey != "pk1" || latest.Score == nil || *latest.Score != 10.5 || latest.Rank == nil || *latest.Rank != 1 {
+		t.Fatalf("unexpected trust_pubkeys_latest row: %+v", latest)
+	}
+	if latest.MinHops == nil || *latest.MinHops != 1 {
+		t.Fatalf("expected pk1 hop distance 1, got %+v", latest)
+	}
+
+	ranked, err := s.CountRankedPubkeys(ctx)
+	if err != nil {
+		t.Fatalf("CountRankedPubkeys: %v", err)
+	}
+	if ranked != 2 {
+		t.Fatalf("expected 2 ranked pubkeys, got %d", ranked)
+	}
+
 	trusted, err := s.IsTrustedAuthor(ctx, "seed_a", trust.TrustQualificationPolicy{MaxHops: 3})
 	if err != nil {
 		t.Fatalf("IsTrustedAuthor: %v", err)

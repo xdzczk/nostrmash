@@ -12,6 +12,15 @@ type TrustScore struct {
 	ComputedAt     time.Time
 }
 
+// TrustSummary is the product-facing trust signal for profiles. It never
+// exposes the raw global score float — only tier, hop distance, and optional
+// rank percentile.
+type TrustSummary struct {
+	Tier        string   `json:"tier"`                   // "seed" | "in_network" | "unranked"
+	HopDistance *int     `json:"hop_distance,omitempty"` // omitted when unknown
+	Percentile  *float64 `json:"percentile,omitempty"`   // top-N% by global rank; omitted when unranked
+}
+
 type TrustState struct {
 	Pubkey       string
 	Score        *float64

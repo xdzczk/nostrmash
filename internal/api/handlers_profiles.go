@@ -45,6 +45,7 @@ type profilePublicSummaryResponse struct {
 	RecentNotePreviews []map[string]any            `json:"recent_note_previews"`
 	RelatedDiscovery   profileRelatedDiscovery     `json:"related_discovery"`
 	IdentityDetails    profileIdentityDetails      `json:"identity_details"`
+	TrustSummary       *query.TrustSummary         `json:"trust_summary,omitempty"`
 	// Partial is true when one or more enrichment sections (recent notes,
 	// related/rising profiles) failed to load for a reason other than
 	// not-found, so the client can distinguish "no data" from "degraded".
@@ -290,6 +291,7 @@ func (h Handlers) GetProfilePublicSummary(w http.ResponseWriter, r *http.Request
 		RecentNotePreviews: recentNotePreviews,
 		RelatedDiscovery:   relatedDiscovery,
 		IdentityDetails:    identityDetails,
+		TrustSummary:       summary.TrustSummary,
 		Partial:            notesPartial || discoveryPartial,
 	})
 }

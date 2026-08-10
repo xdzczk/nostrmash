@@ -14,6 +14,7 @@ type trustQualificationReader struct {
 	getTrustStatesFn         func(context.Context, []string) (map[string]readmodel.TrustState, error)
 	getTrustQualificationsFn func(context.Context, []string, readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error)
 	isTrustedAuthorFn        func(context.Context, string, readmodel.TrustQualificationPolicy) (bool, error)
+	countRankedPubkeysFn     func(context.Context) (int64, error)
 }
 
 func (r trustQualificationReader) GetTrustState(ctx context.Context, pubkey string) (readmodel.TrustState, error) {
@@ -50,6 +51,55 @@ func (r trustQualificationReader) IsTrustedAuthor(
 		return false, nil
 	}
 	return r.isTrustedAuthorFn(ctx, pubkey, policy)
+}
+
+func (r trustQualificationReader) CountRankedPubkeys(ctx context.Context) (int64, error) {
+	if r.countRankedPubkeysFn == nil {
+		return 0, nil
+	}
+	return r.countRankedPubkeysFn(ctx)
+}
+
+func TestGetTrustSummary_MapsTierHopAndPercentile(t *testing.T) {
+	t.Parallel()
+	hops := 2
+	rank := int64(10)
+	svc := mustNewService(t, trustQualificationReader{
+		fakeReader: fakeReader{},
+		getTrustStateFn: func(_ context.Context, pubkey string) (readmodel.TrustState, error) {
+			if pubkey != "alice" {
+				return readmodel.TrustState{}, readmodel.ErrNotFound
+			}
+			return readmodel.TrustState{
+				Pubkey:      pubkey,
+				Qualified:   true,
+				HopDistance: &hops,
+				Rank:        &rank,
+			}, nil
+		},
+		countRankedPubkeysFn: func(context.Context) (int64, error) {
+			return 100, nil
+		},
+	})
+
+	summary, err := svc.GetTrustSummary(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("GetTrustSummary: %v", err)
+	}
+	if summary.Tier != "in_network" || summary.HopDistance == nil || *summary.HopDistance != 2 {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if summary.Percentile == nil || *summary.Percentile != 10.0 {
+		t.Fatalf("expected percentile 10.0, got %#v", summary.Percentile)
+	}
+
+	missing, err := svc.GetTrustSummary(context.Background(), "missing")
+	if err != nil {
+		t.Fatalf("GetTrustSummary missing: %v", err)
+	}
+	if missing.Tier != "unranked" || missing.Percentile != nil {
+		t.Fatalf("expected unranked summary for missing pubkey, got %#v", missing)
+	}
 }
 
 func TestTrustQualificationService_BatchAndUnknownPubkeys(t *testing.T) {

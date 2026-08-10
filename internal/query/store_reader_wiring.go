@@ -52,6 +52,7 @@ func wireTrustGroup(g TrustReads, caps *serviceCapabilities) {
 	caps.trust.run = g
 	caps.trust.runs = g
 	caps.trust.qualification = g
+	caps.trust.rankedCount = g
 }
 
 func wireDMGroup(g DMReads, caps *serviceCapabilities) {

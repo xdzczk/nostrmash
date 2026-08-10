@@ -54,6 +54,7 @@ var RegisteredDerivations = []RegisteredDerivation{
 	{Name: DerivationThreadProjection, Version: ThreadProjectionVersion, Description: "Project reply parent/root edges with unresolved reference tracking"},
 	{Name: DerivationThreadSummary, Version: ThreadSummaryVersion, Description: "Project root-level thread summary counters and velocity hints"},
 	{Name: DerivationTrustScoresGlobal, Version: TrustScoresGlobalVersion, Description: "Compute global trust scores"},
+	{Name: DerivationTrustPubkeysLatest, Version: TrustPubkeysLatestVersion, Description: "Denormalize hop distance and global trust scores per pubkey"},
 }
 
 // EnsureRegisteredDerivations performs a one-time, process-startup

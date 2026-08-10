@@ -529,6 +529,18 @@ type TrustGlobalScore struct {
 	ComputedAt     time.Time
 }
 
+// TrustPubkeyLatest is the denormalized hop+score row for one pubkey.
+type TrustPubkeyLatest struct {
+	Pubkey      string
+	MinHops     *int
+	IsSeed      bool
+	Score       *float64
+	Rank        *int64
+	SourceRunID *int64
+	ComputedAt  *time.Time
+	UpdatedAt   time.Time
+}
+
 type TrustQualification struct {
 	Pubkey       string
 	Trusted      bool

@@ -98,6 +98,13 @@ func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (Tru
 		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("rebuild trust graph snapshot: %w", err)
 	}
 
+	// Keep hop+score denormalization atomic with the snapshot rebuild so
+	// GetTrustStates readers never observe a new hop set without matching
+	// trust_pubkeys_latest rows.
+	if err := RefreshTrustPubkeysLatestTx(ctx, tx); err != nil {
+		return TrustGraphSnapshotRefreshResult{}, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("commit trust graph snapshot refresh: %w", err)
 	}

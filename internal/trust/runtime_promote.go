@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/xdzczk/nostrmash/internal/jobs"
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
 func (r *Runtime) executePromoteRun(ctx context.Context, runID int64, snapshotRef string) error {
@@ -77,6 +78,12 @@ func (r *Runtime) executePromoteRun(ctx context.Context, runID int64, snapshotRe
 		return fmt.Errorf("publish staged trust global scores: %w", err)
 	}
 	metrics.AddTrustScoreRowsPublished(tag.RowsAffected())
+
+	// Denormalize hop+score into trust_pubkeys_latest in the same transaction
+	// so promote never leaves scores published without a matching latest row.
+	if err := storetrust.RefreshTrustPubkeysLatestTx(ctx, tx); err != nil {
+		return err
+	}
 
 	// Stage rows are only needed until promote publishes them into
 	// trust_scores_global. Leaving them forever blew trust_scores_global_stage

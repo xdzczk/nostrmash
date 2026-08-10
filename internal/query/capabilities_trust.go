@@ -35,6 +35,10 @@ type trustQualificationCapability interface {
 	IsTrustedAuthor(ctx context.Context, pubkey string, policy readmodel.TrustQualificationPolicy) (bool, error)
 }
 
+type rankedPubkeyCountCapability interface {
+	CountRankedPubkeys(ctx context.Context) (int64, error)
+}
+
 func adaptTrustCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(trustStateCapability); ok {
 		caps.trust.state = r
@@ -53,5 +57,8 @@ func adaptTrustCapabilities(reader any, caps *serviceCapabilities) {
 	}
 	if r, ok := reader.(trustQualificationCapability); ok {
 		caps.trust.qualification = r
+	}
+	if r, ok := reader.(rankedPubkeyCountCapability); ok {
+		caps.trust.rankedCount = r
 	}
 }

@@ -69,6 +69,7 @@ type trustCapabilities struct {
 	run           trustRunCapability
 	runs          trustRunsCapability
 	qualification trustQualificationCapability
+	rankedCount   rankedPubkeyCountCapability
 }
 
 type replaceableCapabilities struct {

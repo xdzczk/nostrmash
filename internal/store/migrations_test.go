@@ -84,6 +84,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"trusted_discovery_projection_state",
 		"trust_scores_global",
 		"trust_scores_global_stage",
+		"trust_pubkeys_latest",
 		"trust_seeds",
 		"unresolved_thread_references",
 		"zap_receipts",

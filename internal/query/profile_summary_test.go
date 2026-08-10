@@ -5,30 +5,47 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
 func TestGetProfilePublicSummary_ComposesProfileAndStats(t *testing.T) {
 	t.Parallel()
 	recent := int64(900)
-	svc := mustNewService(t, fakeReader{
-		getProfileByPubkeyFn: func(context.Context, string) (store.ProfileProjection, error) {
-			return store.ProfileProjection{
-				Pubkey:            "pk_1",
-				MetadataEventID:   "meta_1",
-				MetadataCreatedAt: 321,
-				ProfileJSON:       json.RawMessage(`{"name":"alice"}`),
+	hops := 1
+	rank := int64(4)
+	svc := mustNewService(t, trustQualificationReader{
+		fakeReader: fakeReader{
+			getProfileByPubkeyFn: func(context.Context, string) (store.ProfileProjection, error) {
+				return store.ProfileProjection{
+					Pubkey:            "pk_1",
+					MetadataEventID:   "meta_1",
+					MetadataCreatedAt: 321,
+					ProfileJSON:       json.RawMessage(`{"name":"alice"}`),
+				}, nil
+			},
+			getProfilePublicStatsFn: func(context.Context, string) (store.ProfilePublicStatsProjection, error) {
+				return store.ProfilePublicStatsProjection{
+					Pubkey:           "pk_1",
+					FollowerCount:    6,
+					FollowingCount:   3,
+					NoteCount:        11,
+					ReplyCount:       2,
+					RecentActivityAt: &recent,
+				}, nil
+			},
+		},
+		getTrustStateFn: func(_ context.Context, pubkey string) (readmodel.TrustState, error) {
+			return readmodel.TrustState{
+				Pubkey:      pubkey,
+				Qualified:   true,
+				IsSeed:      true,
+				HopDistance: &hops,
+				Rank:        &rank,
 			}, nil
 		},
-		getProfilePublicStatsFn: func(context.Context, string) (store.ProfilePublicStatsProjection, error) {
-			return store.ProfilePublicStatsProjection{
-				Pubkey:           "pk_1",
-				FollowerCount:    6,
-				FollowingCount:   3,
-				NoteCount:        11,
-				ReplyCount:       2,
-				RecentActivityAt: &recent,
-			}, nil
+		countRankedPubkeysFn: func(context.Context) (int64, error) {
+			return 80, nil
 		},
 	})
 
@@ -44,6 +61,12 @@ func TestGetProfilePublicSummary_ComposesProfileAndStats(t *testing.T) {
 	}
 	if out.Stats.RecentActivityAt == nil || *out.Stats.RecentActivityAt != 900 {
 		t.Fatalf("unexpected recent activity: %#v", out.Stats.RecentActivityAt)
+	}
+	if out.TrustSummary == nil || out.TrustSummary.Tier != "seed" {
+		t.Fatalf("expected seed trust summary, got %#v", out.TrustSummary)
+	}
+	if out.TrustSummary.Percentile == nil || *out.TrustSummary.Percentile != 5.0 {
+		t.Fatalf("expected percentile 5.0, got %#v", out.TrustSummary.Percentile)
 	}
 }
 

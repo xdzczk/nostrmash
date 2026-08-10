@@ -6,11 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
+
+const rankedPubkeyCountCacheTTL = 5 * time.Minute
+
+type rankedPubkeyCountCache struct {
+	mu        sync.Mutex
+	count     int64
+	expiresAt time.Time
+}
 
 type Reader interface {
 	GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error)
@@ -116,6 +125,7 @@ type Service struct {
 	searchTrustScanSize             int
 	retentionHooks                  TrustRetentionHooks
 	meilisearch                     MeilisearchSearcher
+	rankedPubkeyCountCache          *rankedPubkeyCountCache
 }
 
 // FallbackReader fetches entity-shaped data from configured relays on local miss.
@@ -303,6 +313,7 @@ func buildService(nativeReader Reader, probeSource any, options ServiceOptions) 
 		searchTrustScanSize:             400,
 		retentionHooks:                  retentionHooks,
 		meilisearch:                     options.MeilisearchSearcher,
+		rankedPubkeyCountCache:          &rankedPubkeyCountCache{},
 	}, nil
 }
 

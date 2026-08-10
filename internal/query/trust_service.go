@@ -4,7 +4,62 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
+
+// GetTrustSummary returns the product-facing trust signal for a pubkey.
+// Unsupported trust-state capability returns ErrUnsupportedCapability so
+// callers can omit the field rather than failing the parent request.
+func (s Service) GetTrustSummary(ctx context.Context, pubkey string) (TrustSummary, error) {
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return TrustSummary{}, fmt.Errorf("pubkey is required")
+	}
+	if s.capabilities.trust.state == nil {
+		return TrustSummary{}, unsupportedCapabilityError("trust state")
+	}
+	state, err := s.GetTrustState(ctx, pubkey)
+	if err != nil {
+		if IsNotFound(err) {
+			return TrustSummary{Tier: "unranked"}, nil
+		}
+		return TrustSummary{}, err
+	}
+	totalRanked, err := s.cachedRankedPubkeyCount(ctx)
+	if err != nil {
+		// Percentile is optional; degrade to hop/tier-only summary.
+		totalRanked = 0
+	}
+	return TrustSummaryFromState(state, totalRanked), nil
+}
+
+func (s Service) cachedRankedPubkeyCount(ctx context.Context) (int64, error) {
+	reader := s.capabilities.trust.rankedCount
+	if reader == nil {
+		return 0, unsupportedCapabilityError("ranked pubkey count")
+	}
+	cache := s.rankedPubkeyCountCache
+	if cache != nil {
+		cache.mu.Lock()
+		if time.Now().Before(cache.expiresAt) {
+			count := cache.count
+			cache.mu.Unlock()
+			return count, nil
+		}
+		cache.mu.Unlock()
+	}
+	count, err := reader.CountRankedPubkeys(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if cache != nil {
+		cache.mu.Lock()
+		cache.count = count
+		cache.expiresAt = time.Now().Add(rankedPubkeyCountCacheTTL)
+		cache.mu.Unlock()
+	}
+	return count, nil
+}
 
 func (s Service) GetTrustState(ctx context.Context, pubkey string) (TrustState, error) {
 	pubkey = strings.TrimSpace(pubkey)
