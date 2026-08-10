@@ -26,9 +26,10 @@ const (
 	JobTypeRepairUnresolvedRefs     = "repair_unresolved_references"
 	JobTypeRebuildProjectionScope   = "rebuild_projection_scope"
 
-	JobTypeTrustSyncGraphRedis     = "trust_sync_graph_redis"
-	JobTypeTrustComputeGlobalScore = "trust_compute_global_scores"
-	JobTypeTrustPromoteRun         = "trust_promote_run"
+	JobTypeTrustSyncGraphRedis       = "trust_sync_graph_redis"
+	JobTypeTrustComputeGlobalScore   = "trust_compute_global_scores"
+	JobTypeTrustComputeNeighborhoods = "trust_compute_neighborhoods"
+	JobTypeTrustPromoteRun           = "trust_promote_run"
 
 	JobTypeHydrateAccount = "hydrate_account"
 )

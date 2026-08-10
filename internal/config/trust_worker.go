@@ -22,6 +22,9 @@ type TrustWorkerConfig struct {
 	JobRetention                 WorkerJobRetentionConfig
 	EnableRedisSync              bool
 	EnableScoreCompute           bool
+	EnableNeighborhoods          bool
+	NeighborhoodMaxMembers       int
+	EnableInteractionGraph       bool
 	GraphSnapshotRefreshInterval time.Duration
 	RunSchedulerInterval         time.Duration
 }
@@ -63,6 +66,10 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 	if err != nil {
 		return TrustWorkerConfig{}, err
 	}
+	neighborhoodMaxMembers, err := getEnvPositiveIntStrict("TRUST_NEIGHBORHOOD_MAX_MEMBERS", 5000)
+	if err != nil {
+		return TrustWorkerConfig{}, err
+	}
 
 	cfg := TrustWorkerConfig{
 		Shared: shared,
@@ -78,6 +85,9 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 		JobRetention:                 jobRetention,
 		EnableRedisSync:              getEnvBool("TRUST_ENABLE_REDIS_SYNC", false),
 		EnableScoreCompute:           getEnvBool("TRUST_ENABLE_SCORE_COMPUTE", true),
+		EnableNeighborhoods:          getEnvBool("TRUST_ENABLE_NEIGHBORHOODS", false),
+		NeighborhoodMaxMembers:       neighborhoodMaxMembers,
+		EnableInteractionGraph:       getEnvBool("TRUST_ENABLE_INTERACTION_GRAPH", false),
 		GraphSnapshotRefreshInterval: graphSnapshotRefreshInterval,
 		RunSchedulerInterval:         runSchedulerInterval,
 	}
@@ -131,6 +141,9 @@ func validateTrustWorkerConfig(cfg TrustWorkerConfig) error {
 	}
 	if cfg.EnableRedisSync && strings.TrimSpace(cfg.Redis.KeyPrefix) == "" {
 		return fmt.Errorf("TRUST_REDIS_KEY_PREFIX must not be empty when TRUST_ENABLE_REDIS_SYNC=true")
+	}
+	if cfg.NeighborhoodMaxMembers <= 0 {
+		return fmt.Errorf("TRUST_NEIGHBORHOOD_MAX_MEMBERS must be > 0")
 	}
 	return nil
 }

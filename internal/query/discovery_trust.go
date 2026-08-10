@@ -58,11 +58,15 @@ var hashtagPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9_])#([a-z0-9_]{1,64})`
 type trustedNoteCandidate struct {
 	note    TrendingNote
 	trusted bool
+	score   *float64
+	rank    *int64
 }
 
 type trustedProfileCandidate struct {
 	profile TrendingProfile
 	trusted bool
+	score   *float64
+	rank    *int64
 }
 
 // plainTrendingFetch loads ranked candidate rows for one trending surface.
@@ -114,7 +118,7 @@ func (s Service) getTrendingTrustAware(
 	if err != nil {
 		return nil, err
 	}
-	return paginateTrendingNotes(trustedNoteRowsByMode(candidates, s.discoveryTrustMode), limit, offset), nil
+	return paginateTrendingNotes(trustedNoteRowsByMode(candidates, s.discoveryTrustMode, s.discoveryScoreBoostWeight), limit, offset), nil
 }
 
 func (s Service) getTrendingProfilesTrustAware(
@@ -134,7 +138,7 @@ func (s Service) getTrendingProfilesTrustAware(
 	if err != nil {
 		return nil, err
 	}
-	return paginateTrendingProfiles(trustedProfileRowsByMode(candidates, s.discoveryTrustMode), limit, offset), nil
+	return paginateTrendingProfiles(trustedProfileRowsByMode(candidates, s.discoveryTrustMode, s.discoveryScoreBoostWeight), limit, offset), nil
 }
 
 func (s Service) getTrendingHashtagsTrustAware(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingHashtag, error) {
@@ -146,14 +150,16 @@ func (s Service) getTrendingHashtagsTrustAware(ctx context.Context, window time.
 		return nil, err
 	}
 	type hashtagAgg struct {
-		eventCount int64
-		authors    map[string]struct{}
+		eventCount  int64
+		authors     map[string]struct{}
+		trustWeight float64
 	}
 	agg := make(map[string]*hashtagAgg, len(notes))
 	for _, candidate := range notes {
 		if s.discoveryTrustMode == trustModeTrustedOnly && !candidate.trusted {
 			continue
 		}
+		authorTrust := candidateTrustSignal(candidate.score, candidate.rank)
 		for _, hashtag := range hashtagsFromContent(candidate.note.Content) {
 			row := agg[hashtag]
 			if row == nil {
@@ -162,25 +168,41 @@ func (s Service) getTrendingHashtagsTrustAware(ctx context.Context, window time.
 			}
 			row.eventCount++
 			row.authors[candidate.note.AuthorPubkey] = struct{}{}
+			row.trustWeight += authorTrust
 		}
 	}
-	out := make([]TrendingHashtag, 0, len(agg))
+	type hashtagSortRow struct {
+		tag         TrendingHashtag
+		trustWeight float64
+	}
+	sortable := make([]hashtagSortRow, 0, len(agg))
 	for hashtag, row := range agg {
-		out = append(out, TrendingHashtag{
-			Hashtag:       hashtag,
-			EventCount:    row.eventCount,
-			UniqueAuthors: int64(len(row.authors)),
+		sortable = append(sortable, hashtagSortRow{
+			tag: TrendingHashtag{
+				Hashtag:       hashtag,
+				EventCount:    row.eventCount,
+				UniqueAuthors: int64(len(row.authors)),
+			},
+			trustWeight: row.trustWeight,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].EventCount != out[j].EventCount {
-			return out[i].EventCount > out[j].EventCount
+	boostWeight := s.discoveryScoreBoostWeight
+	sort.SliceStable(sortable, func(i, j int) bool {
+		if sortable[i].tag.EventCount != sortable[j].tag.EventCount {
+			return sortable[i].tag.EventCount > sortable[j].tag.EventCount
 		}
-		if out[i].UniqueAuthors != out[j].UniqueAuthors {
-			return out[i].UniqueAuthors > out[j].UniqueAuthors
+		if boostWeight > 0 && sortable[i].trustWeight != sortable[j].trustWeight {
+			return sortable[i].trustWeight > sortable[j].trustWeight
 		}
-		return out[i].Hashtag < out[j].Hashtag
+		if sortable[i].tag.UniqueAuthors != sortable[j].tag.UniqueAuthors {
+			return sortable[i].tag.UniqueAuthors > sortable[j].tag.UniqueAuthors
+		}
+		return sortable[i].tag.Hashtag < sortable[j].tag.Hashtag
 	})
+	out := make([]TrendingHashtag, 0, len(sortable))
+	for _, row := range sortable {
+		out = append(out, row.tag)
+	}
 	return paginateTrendingHashtags(out, limit, offset), nil
 }
 
@@ -238,6 +260,12 @@ func (s Service) collectTrustedTrending(
 		case err != nil && !IsUnsupportedCapability(err):
 			return nil, err
 		case err == nil && ready:
+			if s.discoveryScoreBoostWeight > 0 {
+				rows, err = s.enrichNoteCandidatesTrustSignals(ctx, rows)
+				if err != nil {
+					return nil, err
+				}
+			}
 			return rows, nil
 		}
 		// A missing or unsupported trust-qualified projection degrades to
@@ -325,6 +353,12 @@ func (s Service) collectTrustedTrendingProfiles(
 					trusted: row.Trusted,
 				})
 			}
+			if s.discoveryScoreBoostWeight > 0 {
+				rows, err = s.enrichProfileCandidatesTrustSignals(ctx, rows)
+				if err != nil {
+					return nil, err
+				}
+			}
 			return rows, nil
 		}
 		// A missing or unsupported trust-qualified projection degrades to
@@ -378,9 +412,12 @@ func (s Service) qualifyNoteBatch(ctx context.Context, rows []TrendingNote) ([]t
 	}
 	out := make([]trustedNoteCandidate, 0, len(rows))
 	for _, row := range rows {
+		qualification := trustRows[row.AuthorPubkey]
 		out = append(out, trustedNoteCandidate{
 			note:    row,
-			trusted: trustRows[row.AuthorPubkey].Trusted,
+			trusted: qualification.Trusted,
+			score:   qualification.Score,
+			rank:    qualification.Rank,
 		})
 	}
 	return out, nil
@@ -397,15 +434,64 @@ func (s Service) qualifyProfileBatch(ctx context.Context, rows []TrendingProfile
 	}
 	out := make([]trustedProfileCandidate, 0, len(rows))
 	for _, row := range rows {
+		qualification := trustRows[row.Pubkey]
 		out = append(out, trustedProfileCandidate{
 			profile: row,
-			trusted: trustRows[row.Pubkey].Trusted,
+			trusted: qualification.Trusted,
+			score:   qualification.Score,
+			rank:    qualification.Rank,
 		})
 	}
 	return out, nil
 }
 
-func trustedNoteRowsByMode(rows []trustedNoteCandidate, mode string) []TrendingNote {
+func (s Service) enrichNoteCandidatesTrustSignals(
+	ctx context.Context,
+	rows []trustedNoteCandidate,
+) ([]trustedNoteCandidate, error) {
+	if len(rows) == 0 {
+		return rows, nil
+	}
+	pubkeys := make([]string, 0, len(rows))
+	for _, row := range rows {
+		pubkeys = append(pubkeys, row.note.AuthorPubkey)
+	}
+	trustRows, err := s.GetTrustQualification(ctx, pubkeys, s.discoveryTrustPolicy)
+	if err != nil {
+		return nil, fmt.Errorf("enrich trending note trust signals: %w", err)
+	}
+	for i := range rows {
+		qualification := trustRows[rows[i].note.AuthorPubkey]
+		rows[i].score = qualification.Score
+		rows[i].rank = qualification.Rank
+	}
+	return rows, nil
+}
+
+func (s Service) enrichProfileCandidatesTrustSignals(
+	ctx context.Context,
+	rows []trustedProfileCandidate,
+) ([]trustedProfileCandidate, error) {
+	if len(rows) == 0 {
+		return rows, nil
+	}
+	pubkeys := make([]string, 0, len(rows))
+	for _, row := range rows {
+		pubkeys = append(pubkeys, row.profile.Pubkey)
+	}
+	trustRows, err := s.GetTrustQualification(ctx, pubkeys, s.discoveryTrustPolicy)
+	if err != nil {
+		return nil, fmt.Errorf("enrich profile discovery trust signals: %w", err)
+	}
+	for i := range rows {
+		qualification := trustRows[rows[i].profile.Pubkey]
+		rows[i].score = qualification.Score
+		rows[i].rank = qualification.Rank
+	}
+	return rows, nil
+}
+
+func trustedNoteRowsByMode(rows []trustedNoteCandidate, mode string, boostWeight float64) []TrendingNote {
 	if mode != trustModePreferTrusted {
 		out := make([]TrendingNote, 0, len(rows))
 		for _, row := range rows {
@@ -413,21 +499,28 @@ func trustedNoteRowsByMode(rows []trustedNoteCandidate, mode string) []TrendingN
 		}
 		return out
 	}
-	out := make([]TrendingNote, 0, len(rows))
+	trusted := make([]trustedNoteCandidate, 0, len(rows))
+	untrusted := make([]trustedNoteCandidate, 0, len(rows))
 	for _, row := range rows {
 		if row.trusted {
-			out = append(out, row.note)
+			trusted = append(trusted, row)
+		} else {
+			untrusted = append(untrusted, row)
 		}
 	}
-	for _, row := range rows {
-		if !row.trusted {
-			out = append(out, row.note)
-		}
+	orderNoteBucket(trusted, boostWeight)
+	orderNoteBucket(untrusted, boostWeight)
+	out := make([]TrendingNote, 0, len(rows))
+	for _, row := range trusted {
+		out = append(out, row.note)
+	}
+	for _, row := range untrusted {
+		out = append(out, row.note)
 	}
 	return out
 }
 
-func trustedProfileRowsByMode(rows []trustedProfileCandidate, mode string) []TrendingProfile {
+func trustedProfileRowsByMode(rows []trustedProfileCandidate, mode string, boostWeight float64) []TrendingProfile {
 	if mode != trustModePreferTrusted {
 		out := make([]TrendingProfile, 0, len(rows))
 		for _, row := range rows {
@@ -435,18 +528,150 @@ func trustedProfileRowsByMode(rows []trustedProfileCandidate, mode string) []Tre
 		}
 		return out
 	}
-	out := make([]TrendingProfile, 0, len(rows))
+	trusted := make([]trustedProfileCandidate, 0, len(rows))
+	untrusted := make([]trustedProfileCandidate, 0, len(rows))
 	for _, row := range rows {
 		if row.trusted {
-			out = append(out, row.profile)
+			trusted = append(trusted, row)
+		} else {
+			untrusted = append(untrusted, row)
 		}
 	}
-	for _, row := range rows {
-		if !row.trusted {
-			out = append(out, row.profile)
-		}
+	orderProfileBucket(trusted, boostWeight)
+	orderProfileBucket(untrusted, boostWeight)
+	out := make([]TrendingProfile, 0, len(rows))
+	for _, row := range trusted {
+		out = append(out, row.profile)
+	}
+	for _, row := range untrusted {
+		out = append(out, row.profile)
 	}
 	return out
+}
+
+func orderNoteBucket(rows []trustedNoteCandidate, boostWeight float64) {
+	if boostWeight <= 0 || len(rows) < 2 {
+		return
+	}
+	type keyed struct {
+		row   trustedNoteCandidate
+		index int
+		key   float64
+	}
+	items := make([]keyed, len(rows))
+	for i, row := range rows {
+		items[i] = keyed{
+			row:   row,
+			index: i,
+			key:   float64(i) + boostWeight*normalizedTrustRank(row.score, row.rank, rows),
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].key != items[j].key {
+			return items[i].key < items[j].key
+		}
+		return items[i].index < items[j].index
+	})
+	for i := range items {
+		rows[i] = items[i].row
+	}
+}
+
+func orderProfileBucket(rows []trustedProfileCandidate, boostWeight float64) {
+	if boostWeight <= 0 || len(rows) < 2 {
+		return
+	}
+	type keyed struct {
+		row   trustedProfileCandidate
+		index int
+		key   float64
+	}
+	items := make([]keyed, len(rows))
+	for i, row := range rows {
+		items[i] = keyed{
+			row:   row,
+			index: i,
+			key:   float64(i) + boostWeight*normalizedTrustRankForProfiles(row.score, row.rank, rows),
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].key != items[j].key {
+			return items[i].key < items[j].key
+		}
+		return items[i].index < items[j].index
+	})
+	for i := range items {
+		rows[i] = items[i].row
+	}
+}
+
+// normalizedTrustRank returns a [0,1] value where lower is better trust.
+// Prefer global rank when present; otherwise invert score against the bucket max.
+func normalizedTrustRank(score *float64, rank *int64, peers []trustedNoteCandidate) float64 {
+	if rank != nil && *rank > 0 {
+		maxRank := *rank
+		for _, peer := range peers {
+			if peer.rank != nil && *peer.rank > maxRank {
+				maxRank = *peer.rank
+			}
+		}
+		if maxRank <= 1 {
+			return 0
+		}
+		return float64(*rank-1) / float64(maxRank-1)
+	}
+	if score != nil {
+		maxScore := *score
+		for _, peer := range peers {
+			if peer.score != nil && *peer.score > maxScore {
+				maxScore = *peer.score
+			}
+		}
+		if maxScore <= 0 {
+			return 1
+		}
+		return 1.0 - (*score / maxScore)
+	}
+	return 1
+}
+
+func normalizedTrustRankForProfiles(score *float64, rank *int64, peers []trustedProfileCandidate) float64 {
+	if rank != nil && *rank > 0 {
+		maxRank := *rank
+		for _, peer := range peers {
+			if peer.rank != nil && *peer.rank > maxRank {
+				maxRank = *peer.rank
+			}
+		}
+		if maxRank <= 1 {
+			return 0
+		}
+		return float64(*rank-1) / float64(maxRank-1)
+	}
+	if score != nil {
+		maxScore := *score
+		for _, peer := range peers {
+			if peer.score != nil && *peer.score > maxScore {
+				maxScore = *peer.score
+			}
+		}
+		if maxScore <= 0 {
+			return 1
+		}
+		return 1.0 - (*score / maxScore)
+	}
+	return 1
+}
+
+// candidateTrustSignal is a higher-is-better weight for hashtag aggregation.
+func candidateTrustSignal(score *float64, rank *int64) float64 {
+	if score != nil && *score > 0 {
+		return *score
+	}
+	if rank != nil && *rank > 0 {
+		return 1.0 / float64(*rank)
+	}
+	return 0
 }
 
 func hashtagsFromContent(content string) []string {

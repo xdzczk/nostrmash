@@ -51,6 +51,10 @@ func (k redisKeyspace) runSeedsKey(runID int64, snapshotRef string) string {
 	return k.runPrefix(runID, snapshotRef) + ":seeds"
 }
 
+func (k redisKeyspace) runNeighborhoodKey(runID int64, snapshotRef, seedPubkey string) string {
+	return k.runPrefix(runID, snapshotRef) + ":neighborhood:" + strings.TrimSpace(seedPubkey)
+}
+
 func (k redisKeyspace) runMetaKey(runID int64, snapshotRef string) string {
 	return k.runPrefix(runID, snapshotRef) + ":meta"
 }
@@ -358,9 +362,19 @@ func (r *Runtime) loadAdjacencyFromRedis(ctx context.Context, runID int64, snaps
 }
 
 func (r *Runtime) loadAdjacencyFromPostgres(ctx context.Context) (map[string][]string, map[string]struct{}, error) {
+	return LoadAdjacencyFromPostgres(ctx, r.pool)
+}
+
+// LoadAdjacencyFromPostgres loads the full follower→followed adjacency used by
+// global and personalized ranking. Callers should treat this as expensive and
+// cache results whenever possible.
+func LoadAdjacencyFromPostgres(ctx context.Context, pool *pgxpool.Pool) (map[string][]string, map[string]struct{}, error) {
+	if pool == nil {
+		return nil, nil, fmt.Errorf("postgres pool is required")
+	}
 	adj := make(map[string][]string)
 	nodeSet := make(map[string]struct{})
-	if err := withHeavyStatementTimeout(ctx, r.pool, trustEdgeScanStatementTimeout, func(conn *pgxpool.Conn) error {
+	if err := withHeavyStatementTimeout(ctx, pool, trustEdgeScanStatementTimeout, func(conn *pgxpool.Conn) error {
 		rows, err := conn.Query(ctx, `
 			SELECT follower_pubkey, followed_pubkey
 			FROM follower_edges

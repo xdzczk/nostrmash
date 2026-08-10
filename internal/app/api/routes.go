@@ -178,6 +178,7 @@ func buildRouteDefinitions(
 		newAdminRoute("GET /admin/v1/trust/runs/{runID}", false, http.HandlerFunc(adminHandlers.GetTrustRun)),
 		newAdminRoute("POST /admin/v1/trust/runs", false, http.HandlerFunc(adminHandlers.TriggerTrustRun)),
 		newAdminRoute("GET /admin/v1/trust/scores", false, http.HandlerFunc(adminHandlers.GetTopTrustScores)),
+		newAdminRoute("GET /admin/v1/trust/interaction-rank-comparison", true, http.HandlerFunc(adminHandlers.GetTrustInteractionRankComparison)),
 
 		newAdminRoute("GET /admin/v1/relay-registry", false, http.HandlerFunc(adminHandlers.GetRelayRegistry)),
 		newAdminRoute("GET /admin/v1/relay-registry/desired", false, http.HandlerFunc(adminHandlers.GetRelayRegistryDesired)),

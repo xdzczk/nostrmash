@@ -164,6 +164,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		SearchRankingTrustMode:          cfg.Shared.TrustPolicy.SearchRankingMode,
 		DiscoveryCandidateMinimumScore:  cfg.Shared.TrustPolicy.MinimumScore,
 		DiscoveryCandidateMaxHops:       cfg.Shared.TrustPolicy.MaxHops,
+		DiscoveryScoreBoostWeight:       cfg.Shared.TrustPolicy.DiscoveryScoreBoostWeight,
 		DiscoveryProjectionMaxStaleness: cfg.Shared.TrustPolicy.RefreshInterval,
 		TrustRetentionHooks: query.TrustRetentionHooks{
 			Mode: cfg.Shared.TrustPolicy.RetentionPolicyMode,
@@ -193,6 +194,9 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 			},
 		},
 		MeilisearchSearcher: meiliSearcher,
+		PersonalizedTrustRanker: personalizedTrustAdapter{
+			inner: trust.NewPersonalizedRanker(pool, cfg.Shared.TrustPolicy.PersonalizedMaxSeedFollows),
+		},
 	}
 	discoveryCacheEnabled := cfg.DiscoveryCache.Enabled
 	handlers, err := api.NewHandlersWithOptions(queryStore, api.HandlersOptions{
@@ -483,4 +487,33 @@ func (p *meiliSyncEventPersister) PersistFallbackEvent(ctx context.Context, even
 		}
 	}
 	return nil
+}
+
+type personalizedTrustAdapter struct {
+	inner *trust.PersonalizedRanker
+}
+
+func (a personalizedTrustAdapter) GetRanking(
+	ctx context.Context,
+	viewerPubkey string,
+	limit int,
+) ([]query.PersonalizedTrustScore, error) {
+	if a.inner == nil {
+		return nil, errors.New("personalized trust ranker is not configured")
+	}
+	rows, err := a.inner.GetRanking(ctx, viewerPubkey, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]query.PersonalizedTrustScore, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, query.PersonalizedTrustScore{
+			Pubkey: row.Pubkey,
+			Score:  row.Score,
+			Rank:   row.Rank,
+			RunID:  row.RunID,
+			Source: row.Source,
+		})
+	}
+	return out, nil
 }

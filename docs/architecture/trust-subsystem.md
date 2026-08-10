@@ -137,7 +137,7 @@ Algorithm progression should be staged:
 
 1. global iterative rank
 2. trust-driven operational prioritization
-3. optional seeded trust neighborhoods (deferred)
+3. optional seeded trust neighborhoods (`TRUST_ENABLE_NEIGHBORHOODS`)
 4. optional random-walk or Monte Carlo personalized rank (deferred)
 
 ### 5. Published trust outputs in Postgres
@@ -150,8 +150,8 @@ Candidate tables:
 - `trust_scores_global`
 - `ingest_pubkey_frontier` (implemented, bounded trust-targeted fetch frontier)
 - `trust_relay_suggestions` (implemented, operator-facing recommendation state)
-- `trust_neighborhood_members` (deferred)
-- `trust_pubkeys_latest` (deferred)
+- `trust_neighborhood_members` (implemented; opt-in via `TRUST_ENABLE_NEIGHBORHOODS`)
+- `trust_pubkeys_latest` (implemented)
 - `relay_trust_scores` (deferred materialization; current implementation uses on-demand aggregation + suggestion state)
 
 Candidate properties:
@@ -248,7 +248,7 @@ Cons:
 
 Current path:
 
-- dedicated `trust_worker` runs `trust_sync_graph_redis -> trust_compute_global_scores -> trust_promote_run`
+- dedicated `trust_worker` runs `trust_sync_graph_redis -> trust_compute_global_scores -> [trust_compute_neighborhoods] -> trust_promote_run` (neighborhoods opt-in via `TRUST_ENABLE_NEIGHBORHOODS`)
 - each run is correlated with `trust_runs.redis_snapshot_ref`, which can be `postgres-only` when Redis sync is disabled
 - ingest/backfill relay ordering can be biased from `trust_scores_global` + `relay_lists_latest` while remaining bounded by configured allowlists
 - ingestor can maintain `ingest_pubkey_frontier` and perform bounded trust-targeted author fetches from configured relays
@@ -265,21 +265,33 @@ Current path:
 
 ### Phase 2: Redis Working Graph
 
-- publish graph inputs into Redis
-- compute global scores and seeded neighborhoods
-- write results back into Postgres
+Mostly implemented:
+
+- publish graph inputs into Redis (`TRUST_ENABLE_REDIS_SYNC`)
+- compute global scores and optional seeded neighborhoods (`TRUST_ENABLE_NEIGHBORHOODS`)
+- write results back into Postgres (`trust_scores_global`, `trust_pubkeys_latest`, `trust_neighborhood_members`)
+
+Still deferred: personalized/walk working state (Phase 4).
 
 ### Phase 3: Trust-Aware Product Behavior
 
-- trust-aware feed/search/profile ordering
-- trust-aware crawl prioritization
-- relay recommendation/discovery support
+Mostly implemented:
+
+- trust-aware discovery/search/fallback modes (`open` / `prefer_trusted` / `trusted_only`)
+- profile `trust_summary` (tier / hop / percentile; no raw score)
+- optional discovery soft boost via `TRUST_DISCOVERY_SCORE_BOOST_WEIGHT` (default `0`)
+- trust-aware crawl prioritization and relay recommendation/discovery support
+
+Still deferred from the original Phase 3 wording: viewer-personalized feed ordering (see Phase 4).
 
 ### Phase 4: Advanced Vertex-Style Ranking
 
-- random walks
-- Monte Carlo / personalized rank
-- richer interaction graph weighting
+Implemented (default-inert):
+
+- personalized PageRank core (`ComputePersonalizedRank`) and opt-in query capability `GetPersonalizedTrustRanking` (no default product surface)
+- optional interaction-graph merge via `TRUST_ENABLE_INTERACTION_GRAPH` plus admin comparison at `GET /admin/v1/trust/interaction-rank-comparison`
+
+Still deferred: Monte Carlo / random-walk variants.
 
 ## Decision rules
 

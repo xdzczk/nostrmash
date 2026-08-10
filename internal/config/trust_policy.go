@@ -64,6 +64,8 @@ type TrustPolicyConfig struct {
 	RetentionPolicyMode              string
 	RetentionHooks                   TrustRetentionHooksConfig
 	MinimumScore                     float64
+	DiscoveryScoreBoostWeight        float64
+	PersonalizedMaxSeedFollows       int
 	SeedPubkeys                      []string
 	MaxHops                          int
 	RefreshInterval                  time.Duration
@@ -78,11 +80,19 @@ func loadTrustPolicyConfig() (TrustPolicyConfig, error) {
 	if err != nil {
 		return TrustPolicyConfig{}, err
 	}
+	discoveryScoreBoostWeight, err := getEnvNonNegativeFloat64Strict("TRUST_DISCOVERY_SCORE_BOOST_WEIGHT", 0)
+	if err != nil {
+		return TrustPolicyConfig{}, err
+	}
 	refreshInterval, err := getEnvPositiveDurationStrict("TRUST_REFRESH_INTERVAL", 10*time.Minute)
 	if err != nil {
 		return TrustPolicyConfig{}, err
 	}
 	maxHops, err := getEnvPositiveIntStrict("TRUST_MAX_HOPS", 3)
+	if err != nil {
+		return TrustPolicyConfig{}, err
+	}
+	personalizedMaxSeedFollows, err := getEnvPositiveIntStrict("TRUST_PERSONALIZED_MAX_SEED_FOLLOWS", 2000)
 	if err != nil {
 		return TrustPolicyConfig{}, err
 	}
@@ -122,6 +132,8 @@ func loadTrustPolicyConfig() (TrustPolicyConfig, error) {
 		RetentionPolicyMode:              resolveTrustMode("TRUST_RETENTION_POLICY_MODE", TrustModeOpen),
 		RetentionHooks:                   retentionHooks,
 		MinimumScore:                     minimumScore,
+		DiscoveryScoreBoostWeight:        discoveryScoreBoostWeight,
+		PersonalizedMaxSeedFollows:       personalizedMaxSeedFollows,
 		SeedPubkeys:                      parseCSVEnv("TRUST_SEED_PUBKEYS"),
 		MaxHops:                          maxHops,
 		RefreshInterval:                  refreshInterval,
@@ -152,8 +164,14 @@ func validateTrustPolicyConfig(cfg TrustPolicyConfig) error {
 	if cfg.MinimumScore < 0 {
 		return fmt.Errorf("TRUST_MINIMUM_SCORE must be >= 0")
 	}
+	if cfg.DiscoveryScoreBoostWeight < 0 {
+		return fmt.Errorf("TRUST_DISCOVERY_SCORE_BOOST_WEIGHT must be >= 0")
+	}
 	if cfg.MaxHops <= 0 {
 		return fmt.Errorf("TRUST_MAX_HOPS must be > 0")
+	}
+	if cfg.PersonalizedMaxSeedFollows <= 0 {
+		return fmt.Errorf("TRUST_PERSONALIZED_MAX_SEED_FOLLOWS must be > 0")
 	}
 	if cfg.RefreshInterval <= 0 {
 		return fmt.Errorf("TRUST_REFRESH_INTERVAL must be > 0")

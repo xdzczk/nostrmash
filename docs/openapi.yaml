@@ -1836,6 +1836,27 @@ paths:
           description: Ranked trust score rows
         '400':
           $ref: '#/components/responses/Error'
+  /admin/v1/trust/interaction-rank-comparison:
+    get:
+      tags: [admin]
+      summary: Compare follow-only vs follow+interaction trust rankings
+      description: >
+        Operator-facing report for evaluating TRUST_ENABLE_INTERACTION_GRAPH before
+        enabling it for score publication. Expensive on large graphs.
+      security: [{ BearerToken: [] }]
+      parameters:
+        - in: query
+          name: top_n
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - in: query
+          name: refresh
+          schema: { type: boolean, default: false }
+          description: When true, rebuild trust_interaction_edge_weights before comparing.
+      responses:
+        '200':
+          description: Rank correlation and top-N overlap report
+        '400':
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     BearerToken:

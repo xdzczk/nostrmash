@@ -6,6 +6,7 @@ import (
 	"time"
 
 	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
+	"github.com/xdzczk/nostrmash/internal/trust"
 )
 
 type adminTrustRunResponse struct {
@@ -153,6 +154,19 @@ func (s *adminService) TriggerTrustRun(ctx context.Context) (adminTrustRunRespon
 		CreatedAt:      run.CreatedAt,
 		UpdatedAt:      run.UpdatedAt,
 	}, nil
+}
+
+func (s *adminService) GetTrustInteractionRankComparison(
+	ctx context.Context,
+	topN int,
+	refresh bool,
+) (trust.InteractionRankComparison, error) {
+	if refresh {
+		if _, err := trust.RefreshInteractionEdgeWeights(ctx, s.pool); err != nil {
+			return trust.InteractionRankComparison{}, err
+		}
+	}
+	return trust.CompareFollowAndInteractionRanks(ctx, s.pool, topN)
 }
 
 func (s *adminService) GetTopTrustScores(ctx context.Context, limit int) ([]adminTrustScoreResponse, error) {

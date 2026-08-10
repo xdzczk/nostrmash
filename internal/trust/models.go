@@ -10,9 +10,10 @@ const (
 )
 
 const (
-	RunPhaseSync    = "sync"
-	RunPhaseCompute = "compute"
-	RunPhasePromote = "promote"
+	RunPhaseSync          = "sync"
+	RunPhaseCompute       = "compute"
+	RunPhaseNeighborhoods = "neighborhoods"
+	RunPhasePromote       = "promote"
 )
 
 type Run struct {
@@ -51,4 +52,16 @@ type SyncGraphRedisPayload struct {
 type PromoteRunPayload struct {
 	RunID            int64  `json:"run_id"`
 	RedisSnapshotRef string `json:"redis_snapshot_ref,omitempty"`
+}
+
+type ComputeNeighborhoodsPayload struct {
+	RunID            int64  `json:"run_id"`
+	RedisSnapshotRef string `json:"redis_snapshot_ref,omitempty"`
+}
+
+type neighborhoodMember struct {
+	SeedPubkey   string
+	MemberPubkey string
+	Hops         int
+	Weight       float64
 }

@@ -12,6 +12,7 @@ var (
 	trustRunActiveOldestAgeSeconds prometheus.Gauge
 	trustSnapshotActiveAgeSeconds  prometheus.Gauge
 	trustScoreRowsPublishedTotal   prometheus.Counter
+	trustNeighborhoodMembers       *prometheus.GaugeVec
 	trustPhaseDuration             *prometheus.HistogramVec
 	trustFetchFrontierCount        *prometheus.GaugeVec
 	trustFetchCyclesTotal          *prometheus.CounterVec
@@ -49,6 +50,13 @@ func registerTrustMetrics() {
 			Name: "nostrmash_trust_score_rows_published_total",
 			Help: "Total trust score rows published during promote phases.",
 		},
+	)
+	trustNeighborhoodMembers = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_trust_neighborhood_members_total",
+			Help: "Seeded trust neighborhood member counts from the latest neighborhoods phase.",
+		},
+		[]string{"seed"},
 	)
 	trustPhaseDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -92,6 +100,7 @@ func registerTrustMetrics() {
 		trustRunActiveOldestAgeSeconds,
 		trustSnapshotActiveAgeSeconds,
 		trustScoreRowsPublishedTotal,
+		trustNeighborhoodMembers,
 		trustPhaseDuration,
 		trustFetchFrontierCount,
 		trustFetchCyclesTotal,
@@ -138,6 +147,14 @@ func AddTrustScoreRowsPublished(rows int64) {
 		return
 	}
 	trustScoreRowsPublishedTotal.Add(float64(rows))
+}
+
+func SetTrustNeighborhoodMembers(seed string, count float64) {
+	ensureRegistered()
+	if count < 0 {
+		count = 0
+	}
+	trustNeighborhoodMembers.WithLabelValues(seed).Set(count)
 }
 
 func ObserveTrustPhaseDuration(phase, outcome string, d time.Duration) {

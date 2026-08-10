@@ -17,6 +17,27 @@ func configEnvDocsTrustWorker() []EnvVarDoc {
 			Description:  "Enable trust score computation trust job phases.",
 		},
 		{
+			Name:         "TRUST_ENABLE_NEIGHBORHOODS",
+			Runtimes:     []string{"trust_worker"},
+			Required:     false,
+			DefaultValue: "false",
+			Description:  "Enable seeded trust neighborhood BFS between global score compute and promote.",
+		},
+		{
+			Name:         "TRUST_NEIGHBORHOOD_MAX_MEMBERS",
+			Runtimes:     []string{"trust_worker"},
+			Required:     false,
+			DefaultValue: "5000",
+			Description:  "Maximum members retained per seed neighborhood, including the seed itself.",
+		},
+		{
+			Name:         "TRUST_ENABLE_INTERACTION_GRAPH",
+			Runtimes:     []string{"trust_worker"},
+			Required:     false,
+			DefaultValue: "false",
+			Description:  "When true, refresh engagement-derived interaction edge weights and merge them into trust ranking adjacency. Keep false until reviewing the admin comparison report.",
+		},
+		{
 			Name:         "TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL",
 			Runtimes:     []string{"trust_worker"},
 			Required:     false,

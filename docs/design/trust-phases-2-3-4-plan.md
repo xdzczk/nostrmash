@@ -11,9 +11,9 @@ This plan does **not** fix engagement-farmed content dominating Discovery (see c
 | Phase | Status |
 | --- | --- |
 | Phase 1 (Postgres-native foundation) | Done |
-| Phase 2 (Redis working graph) | Partial — sync/compute done, opt-in; seeded neighborhoods and personalized/walk state not started |
-| Phase 3 (trust-aware product behavior) | Partial — discovery/search/fallback/ingest-gate/retention policy done; profile trust UX and score-weighted ranking not done |
-| Phase 4 (advanced Vertex-style ranking) | Not started |
+| Phase 2 (Redis working graph) | Partial — sync/compute/neighborhoods done (neighborhoods opt-in); personalized/walk state not started |
+| Phase 3 (trust-aware product behavior) | Partial — discovery/search/fallback/ingest-gate/retention/profile summary/score-boost done; viewer-personalized surfaces deferred to Phase 4 |
+| Phase 4 (advanced Vertex-style ranking) | Done for plan scope — ranking core, personalized capability, interaction graph + admin comparison (all default-inert) |
 
 ## Guiding constraints (from trust-policy-boundaries.md)
 
@@ -37,7 +37,7 @@ Denormalizes `trust_graph_snapshot` (hop/seed) + `trust_scores_global` (score/ra
 - Register as a new derivation (`DerivationTrustPubkeysLatest`, version 1) in `derivation_registry.go` and `derivation.go`.
 - Update `internal/store/migrations_test.go` table list and `internal/api/admin_storage.go` (`StorageTierDerived`).
 
-### A2. Seeded trust neighborhoods
+### A2. Seeded trust neighborhoods — **done**
 
 - New migration `migrations/000074_trust_neighborhood_members.sql`: table `trust_neighborhood_members(seed_pubkey, member_pubkey, hops, weight, source_run_id, computed_at)`, PK `(seed_pubkey, member_pubkey)`, index on `member_pubkey`.
 - New phase in `internal/trust/runtime_compute.go`: `executeNeighborhoodsRun`, running BFS-with-weight per active seed (bounded by `TRUST_NEIGHBORHOOD_MAX_MEMBERS`, default 5000) over the same adjacency already loaded for global rank — no second graph load.
@@ -73,7 +73,7 @@ Per the earlier discussion: expose hop distance / tier, not the raw float.
 - `internal/api/profile_identity.go`: add `trust_summary` to the profile JSON payload, guarded by capability presence (unsupported-capability degrades to omission, matching the existing pattern in `discovery_trust.go`).
 - Exact score/rank stays available only via the existing `/api/v1/trust/scores/{pubkey}` and admin endpoints — unchanged.
 
-### B2. Discovery soft ranking boost (notes & profiles)
+### B2. Discovery soft ranking boost (notes & profiles) — **done**
 
 Currently `trustedNoteRowsByMode`/`trustedProfileRowsByMode` in `internal/query/discovery_trust.go` only bucket trusted-first vs. untrusted in `prefer_trusted` mode; within each bucket, original engagement order is preserved. Add an optional secondary blend:
 
@@ -82,7 +82,7 @@ Currently `trustedNoteRowsByMode`/`trustedProfileRowsByMode` in `internal/query/
 - Same knob reused for hashtags/links: `getTrendingHashtagsTrustAware` already derives hashtags from trust-qualified notes; extend `hashtagAgg` with a trust-weighted secondary sort key (sum of author trust score, not just `eventCount`/`uniqueAuthors`).
 - Ship default `0.0` so this is inert until an operator opts in — matches the "additive, not breaking" constraint.
 
-### B3. Config & docs
+### B3. Config & docs — **done**
 
 - `doc_env_shared.go`: register `TRUST_DISCOVERY_SCORE_BOOST_WEIGHT` (`configdoc-check` will fail CI otherwise).
 - Update `trust-policy-boundaries.md` operator-tradeoffs table with the new knob.
@@ -94,21 +94,21 @@ Currently `trustedNoteRowsByMode`/`trustedProfileRowsByMode` in `internal/query/
 
 This is the highest-risk, most novel workstream. Ship it shadow-first.
 
-### C1. Generalize the ranking core for personalization
+### C1. Generalize the ranking core for personalization — **done**
 
-- Refactor `internal/trust/ranking.go`: `computeIterativeGlobalRank` currently hardcodes a uniform teleport vector. Extract the core iteration into `computePersonalizedRank(adjacency, nodeSet, teleport map[string]float64, damping float64)`; `computeIterativeGlobalRank` becomes a thin wrapper passing a uniform teleport vector (`1/n` for every node) — **zero behavior change** for the existing global run, verified by keeping `ranking_test.go`/`ranking_benchmark_test.go` green unmodified.
+- Refactor `internal/trust/ranking.go`: `computeIterativeGlobalRank` currently hardcodes a uniform teleport vector. Extract the core iteration into `ComputePersonalizedRank(adjacency, nodeSet, teleport map[string]float64, damping float64)`; `computeIterativeGlobalRank` becomes a thin wrapper passing a uniform teleport vector (`1/n` for every node) — **zero behavior change** for the existing global run, verified by keeping `ranking_test.go`/`ranking_benchmark_test.go` green unmodified.
 - Personalized calls concentrate teleport mass on a caller-supplied seed set (e.g. `{viewerPubkey: 1.0}` or a viewer's follow list) instead of the uniform vector.
 
-### C2. Viewer-scoped personalized trust (on-demand, cached)
+### C2. Viewer-scoped personalized trust (on-demand, cached) — **done**
 
 - Reuse the existing unauthenticated `viewer_pubkey`/`user_pubkey` client-supplied convention already used for moderation lists (`internal/api_primal/primal_moderation.go`) — no new auth mechanism needed, no session state.
 - New query capability `GetPersonalizedTrustRanking(ctx, viewerPubkey string, limit int)`, computed by loading the same Postgres/Redis adjacency already used for global rank (bounded reuse, not a new crawl), running `computePersonalizedRank` seeded on the viewer's direct follows (from `contact_lists_latest`), and caching the result in Redis keyed by `(viewerPubkey, active trust run id)` with a TTL (e.g. 1h) so repeat requests in the same run don't recompute.
 - Guardrail: only compute for viewers with a bounded follow-list size (e.g. ≤ 2000, configurable `TRUST_PERSONALIZED_MAX_SEED_FOLLOWS`); otherwise fall back to global rank. This bounds worst-case compute cost per request — the same "bounded, operator-safe" principle applied to fallback fetch elsewhere in the codebase.
 - Not wired into any default product surface in this plan — it's an opt-in capability a caller (or the separate frontend, later) can call. Wiring it into Discovery-as-viewed-by-you is a follow-up product decision, not part of this plan.
 
-### C3. Richer interaction graph (optional additional signal)
+### C3. Richer interaction graph (optional additional signal) — **done**
 
-- New derivation aggregating existing engagement tables (`reaction_events`, `repost_events`, `zap_receipts`, thread reply edges) into weighted directed edges: table `trust_interaction_edge_weights(src_pubkey, dst_pubkey, weight, updated_at)` — aggregated weights, not raw event duplication, incrementally maintained the same way `follower_edges` is.
+- New derivation aggregating existing engagement tables (`reaction_events`, `repost_events`, `zap_receipts`, thread reply edges) into weighted directed edges: table `trust_interaction_edge_weights(src_pubkey, dst_pubkey, weight, updated_at)` — aggregated weights, not raw event duplication; v1 rebuilds via full refresh on opt-in trust compute (and admin `refresh=true`).
 - New migration `migrations/000075_trust_interaction_edge_weights.sql`.
 - Config `TRUST_ENABLE_INTERACTION_GRAPH` (default `false`). When enabled, `loadAdjacencyFromPostgres`/`loadAdjacencyFromRedis` optionally merge weighted interaction edges into the follow-graph adjacency for ranking, behind the flag — global rank without the flag is byte-for-byte unchanged.
 - **Before enabling by default anywhere:** ship an admin-only comparison report (rank correlation / top-N overlap between follow-only and follow+interaction rank) so an operator can evaluate the change before it affects any product surface. Do not flip the default in this plan; that's a follow-up decision once data is in hand.

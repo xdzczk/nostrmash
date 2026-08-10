@@ -34,6 +34,7 @@ type AdminService interface {
 	GetTrustRun(context.Context, int64) (adminTrustRunResponse, error)
 	TriggerTrustRun(context.Context) (adminTrustRunResponse, error)
 	GetTopTrustScores(context.Context, int) ([]adminTrustScoreResponse, error)
+	GetTrustInteractionRankComparison(context.Context, int, bool) (trust.InteractionRankComparison, error)
 
 	GetRelayRegistry(context.Context, int) (adminRelayRegistryResponse, error)
 	GetRelayRegistryDesired(context.Context) (adminRelayRegistryDesiredResponse, error)
@@ -389,6 +390,21 @@ func (h AdminHandlers) GetTopTrustScores(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"scores": scores})
+}
+
+func (h AdminHandlers) GetTrustInteractionRankComparison(w http.ResponseWriter, r *http.Request) {
+	topN, err := parseBoundedPositiveInt(r, "top_n", 100, 500)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	refresh := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("refresh")), "true")
+	report, err := h.service.GetTrustInteractionRankComparison(r.Context(), topN, refresh)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 type triggerRebuildRequest struct {

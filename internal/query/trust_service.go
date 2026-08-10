@@ -106,6 +106,36 @@ func (s Service) GetTrustStates(ctx context.Context, pubkeys []string) (map[stri
 	return out, nil
 }
 
+// PersonalizedTrustRanker computes viewer-scoped trust rankings. Implemented by
+// internal/trust.PersonalizedRanker; optional so deployments without the
+// capability degrade cleanly.
+type PersonalizedTrustRanker interface {
+	GetRanking(ctx context.Context, viewerPubkey string, limit int) ([]PersonalizedTrustScore, error)
+}
+
+// PersonalizedTrustScore is the query-layer DTO for viewer-scoped trust ranks.
+type PersonalizedTrustScore struct {
+	Pubkey string
+	Score  float64
+	Rank   int64
+	RunID  int64
+	Source string // "personalized" | "global_fallback"
+}
+
+// GetPersonalizedTrustRanking returns a viewer-scoped trust ranking when the
+// optional personalized ranker is wired. It is not attached to any HTTP route
+// yet — callers opt in explicitly.
+func (s Service) GetPersonalizedTrustRanking(ctx context.Context, viewerPubkey string, limit int) ([]PersonalizedTrustScore, error) {
+	viewerPubkey = strings.TrimSpace(viewerPubkey)
+	if viewerPubkey == "" {
+		return nil, fmt.Errorf("viewer pubkey is required")
+	}
+	if s.personalizedTrust == nil {
+		return nil, unsupportedCapabilityError("personalized trust ranking")
+	}
+	return s.personalizedTrust.GetRanking(ctx, viewerPubkey, limit)
+}
+
 func (s Service) GetTrustScore(ctx context.Context, pubkey string) (TrustScore, error) {
 	pubkey = strings.TrimSpace(pubkey)
 	if pubkey == "" {

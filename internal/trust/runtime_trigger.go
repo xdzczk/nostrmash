@@ -113,6 +113,22 @@ func (r *Runtime) ProcessJob(ctx context.Context, job jobs.Job) error {
 			r.markRunFailed(ctx, payload.RunID, RunPhaseCompute, err)
 		}
 		return err
+	case jobs.JobTypeTrustComputeNeighborhoods:
+		if !r.enableNeighborhoods {
+			return fmt.Errorf("trust neighborhood compute is disabled")
+		}
+		var payload ComputeNeighborhoodsPayload
+		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+			return fmt.Errorf("decode trust neighborhoods payload: %w", err)
+		}
+		if payload.RunID <= 0 {
+			return fmt.Errorf("run_id is required in neighborhoods payload")
+		}
+		err := r.executeNeighborhoodsRun(ctx, payload.RunID, payload.RedisSnapshotRef)
+		if err != nil {
+			r.markRunFailed(ctx, payload.RunID, RunPhaseNeighborhoods, err)
+		}
+		return err
 	default:
 		return fmt.Errorf("trust job type %q not implemented", job.JobType)
 	}

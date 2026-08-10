@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/derivation"
+	"github.com/xdzczk/nostrmash/internal/trust"
 )
 
 type fakeAdminService struct {
@@ -108,6 +109,10 @@ func (f fakeAdminService) TriggerTrustRun(ctx context.Context) (adminTrustRunRes
 	}
 	return f.triggerTrustRunFn(ctx)
 }
+func (f fakeAdminService) GetTrustInteractionRankComparison(ctx context.Context, topN int, refresh bool) (trust.InteractionRankComparison, error) {
+	return trust.InteractionRankComparison{TopN: topN, SpearmanCorrelation: 1}, nil
+}
+
 func (f fakeAdminService) GetTopTrustScores(ctx context.Context, limit int) ([]adminTrustScoreResponse, error) {
 	if f.getTopTrustScoresFn == nil {
 		return []adminTrustScoreResponse{}, nil
@@ -687,6 +692,7 @@ func newAdminTestMux(token string, service AdminService) http.Handler {
 	adminMux.HandleFunc("GET /admin/v1/trust/runs/{runID}", handlers.GetTrustRun)
 	adminMux.HandleFunc("POST /admin/v1/trust/runs", handlers.TriggerTrustRun)
 	adminMux.HandleFunc("GET /admin/v1/trust/scores", handlers.GetTopTrustScores)
+	adminMux.HandleFunc("GET /admin/v1/trust/interaction-rank-comparison", handlers.GetTrustInteractionRankComparison)
 	return WithRequestID(RequireBearerToken(token, adminMux))
 }
 

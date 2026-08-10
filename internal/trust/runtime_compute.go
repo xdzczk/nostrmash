@@ -45,7 +45,20 @@ func (r *Runtime) executeGlobalScoresRun(ctx context.Context, runID int64, snaps
 		}
 	}
 
-	ranked := computeIterativeGlobalRank(adjacency, nodeSet)
+	var ranked []rankNode
+	if r.enableInteractionGraph {
+		if _, err := RefreshInteractionEdgeWeights(ctx, r.pool); err != nil {
+			return err
+		}
+		interaction, err := loadInteractionWeights(ctx, r.pool)
+		if err != nil {
+			return err
+		}
+		weighted := mergeWeightedAdjacency(adjacencyToWeighted(adjacency), interaction, nodeSet)
+		ranked = ComputePersonalizedRankWeighted(weighted, nodeSet, uniformTeleport(nodeSet), rankDamping)
+	} else {
+		ranked = computeIterativeGlobalRank(adjacency, nodeSet)
+	}
 	followerEdges := int64(0)
 	for _, neighbors := range adjacency {
 		followerEdges += int64(len(neighbors))
@@ -173,36 +186,63 @@ func (r *Runtime) persistComputeResults(
 		}
 	}
 
-	payload, err := json.Marshal(PromoteRunPayload{
-		RunID:            runID,
-		RedisSnapshotRef: snapshotRef,
-	})
-	if err != nil {
-		return fmt.Errorf("encode trust promote payload: %w", err)
+	nextJobType := jobs.JobTypeTrustPromoteRun
+	var nextPayload []byte
+	if r.enableNeighborhoods {
+		nextJobType = jobs.JobTypeTrustComputeNeighborhoods
+		nextPayload, err = json.Marshal(ComputeNeighborhoodsPayload{
+			RunID:            runID,
+			RedisSnapshotRef: snapshotRef,
+		})
+		if err != nil {
+			return fmt.Errorf("encode trust neighborhoods payload: %w", err)
+		}
+	} else {
+		nextPayload, err = json.Marshal(PromoteRunPayload{
+			RunID:            runID,
+			RedisSnapshotRef: snapshotRef,
+		})
+		if err != nil {
+			return fmt.Errorf("encode trust promote payload: %w", err)
+		}
 	}
-	promoteJobID, err := enqueueTrustJobTx(
+	nextJobID, err := enqueueTrustJobTx(
 		ctx,
 		tx,
-		jobs.JobTypeTrustPromoteRun,
-		payload,
-		fmt.Sprintf("%s:run:%d:%s", jobs.JobTypeTrustPromoteRun, runID, snapshotRef),
+		nextJobType,
+		nextPayload,
+		fmt.Sprintf("%s:run:%d:%s", nextJobType, runID, snapshotRef),
 	)
 	if err != nil {
-		return fmt.Errorf("enqueue trust promote job: %w", err)
+		return fmt.Errorf("enqueue trust %s job: %w", nextJobType, err)
 	}
 
-	_, err = tx.Exec(ctx, `
-		UPDATE trust_runs
-		SET status = $1,
-		    input_follower_edges_count = $2,
-		    score_rows_published = $3,
-		    redis_snapshot_ref = NULLIF($4, ''),
-		    phase_finished_at = now(),
-		    promote_job_id = $5,
-		    job_id = $5,
-		    updated_at = now()
-		WHERE id = $6
-	`, RunStatusRunning, followerEdges, int64(len(ranked)), snapshotRef, promoteJobID, runID)
+	if r.enableNeighborhoods {
+		_, err = tx.Exec(ctx, `
+			UPDATE trust_runs
+			SET status = $1,
+			    input_follower_edges_count = $2,
+			    score_rows_published = $3,
+			    redis_snapshot_ref = NULLIF($4, ''),
+			    phase_finished_at = now(),
+			    job_id = $5,
+			    updated_at = now()
+			WHERE id = $6
+		`, RunStatusRunning, followerEdges, int64(len(ranked)), snapshotRef, nextJobID, runID)
+	} else {
+		_, err = tx.Exec(ctx, `
+			UPDATE trust_runs
+			SET status = $1,
+			    input_follower_edges_count = $2,
+			    score_rows_published = $3,
+			    redis_snapshot_ref = NULLIF($4, ''),
+			    phase_finished_at = now(),
+			    promote_job_id = $5,
+			    job_id = $5,
+			    updated_at = now()
+			WHERE id = $6
+		`, RunStatusRunning, followerEdges, int64(len(ranked)), snapshotRef, nextJobID, runID)
+	}
 	if err != nil {
 		return fmt.Errorf("mark trust run computed: %w", err)
 	}

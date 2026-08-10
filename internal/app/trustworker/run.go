@@ -80,6 +80,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo) error {
 		"trust_worker_startup_mode",
 		"redis_sync_enabled", cfg.EnableRedisSync,
 		"score_compute_enabled", cfg.EnableScoreCompute,
+		"neighborhoods_enabled", cfg.EnableNeighborhoods,
 		"mode", trustWorkerModeLabel(cfg.EnableRedisSync, cfg.EnableScoreCompute),
 	)
 
@@ -98,7 +99,11 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo) error {
 		cfg.Redis.KeyPrefix,
 		cfg.EnableRedisSync,
 		cfg.EnableScoreCompute,
-	)
+	).WithNeighborhoods(
+		cfg.EnableNeighborhoods,
+		cfg.NeighborhoodMaxMembers,
+		cfg.Shared.TrustPolicy.MaxHops,
+	).WithInteractionGraph(cfg.EnableInteractionGraph)
 	workerID := resolveWorkerID()
 
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)

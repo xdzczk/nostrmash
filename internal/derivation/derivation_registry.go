@@ -55,6 +55,8 @@ var RegisteredDerivations = []RegisteredDerivation{
 	{Name: DerivationThreadSummary, Version: ThreadSummaryVersion, Description: "Project root-level thread summary counters and velocity hints"},
 	{Name: DerivationTrustScoresGlobal, Version: TrustScoresGlobalVersion, Description: "Compute global trust scores"},
 	{Name: DerivationTrustPubkeysLatest, Version: TrustPubkeysLatestVersion, Description: "Denormalize hop distance and global trust scores per pubkey"},
+	{Name: DerivationTrustNeighborhoodMembers, Version: TrustNeighborhoodMembersVersion, Description: "Compute seeded trust neighborhoods via bounded BFS"},
+	{Name: DerivationTrustInteractionEdgeWeights, Version: TrustInteractionEdgeWeightsVersion, Description: "Aggregate engagement-derived directed interaction edge weights for optional trust ranking"},
 }
 
 // EnsureRegisteredDerivations performs a one-time, process-startup

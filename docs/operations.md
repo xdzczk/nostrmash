@@ -102,6 +102,9 @@ TRUST_SEED_PUBKEYS=<hex_pubkey>,<hex_pubkey>
 TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL=10m
 TRUST_RUN_INTERVAL=1h
 TRUST_ENABLE_SCORE_COMPUTE=true
+# Optional: seeded neighborhoods between compute and promote (default off)
+# TRUST_ENABLE_NEIGHBORHOODS=true
+# TRUST_NEIGHBORHOOD_MAX_MEMBERS=5000
 ```
 
 **`ingestor` service — phase 1 (shadow, default):**

@@ -142,7 +142,10 @@ func TestLoadSharedConfig_TrustPolicyDefaults(t *testing.T) {
 		cfg.TrustPolicy.RetentionPolicyMode != TrustModeOpen {
 		t.Fatalf("expected default trust policy modes with prefer_trusted search ranking, got %#v", cfg.TrustPolicy)
 	}
-	if cfg.TrustPolicy.MinimumScore != 0 || cfg.TrustPolicy.MaxHops != 3 || cfg.TrustPolicy.RefreshInterval != 10*time.Minute {
+	if cfg.TrustPolicy.MinimumScore != 0 ||
+		cfg.TrustPolicy.DiscoveryScoreBoostWeight != 0 ||
+		cfg.TrustPolicy.MaxHops != 3 ||
+		cfg.TrustPolicy.RefreshInterval != 10*time.Minute {
 		t.Fatalf("unexpected trust policy defaults: %#v", cfg.TrustPolicy)
 	}
 	if cfg.TrustPolicy.FallbackFetchMaxAttempts != 1 ||
@@ -655,6 +658,12 @@ func TestLoadTrustWorker_DefaultsAndValidation(t *testing.T) {
 	}
 	if cfg.Redis.KeyPrefix != "nostrmash" {
 		t.Fatalf("unexpected redis key prefix: %q", cfg.Redis.KeyPrefix)
+	}
+	if cfg.EnableNeighborhoods {
+		t.Fatalf("expected TRUST_ENABLE_NEIGHBORHOODS default false")
+	}
+	if cfg.NeighborhoodMaxMembers != 5000 {
+		t.Fatalf("unexpected neighborhood max members default: %d", cfg.NeighborhoodMaxMembers)
 	}
 
 	t.Setenv("TRUST_WORKER_CONCURRENCY", "0")

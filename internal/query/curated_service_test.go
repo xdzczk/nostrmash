@@ -257,6 +257,131 @@ func TestDiscoveryTrustPolicy_TrendingNotesPreferTrusted(t *testing.T) {
 	}
 }
 
+func TestDiscoveryTrustPolicy_ScoreBoostReordersWithinTrustedBucket(t *testing.T) {
+	t.Parallel()
+	rankHigh := int64(1)
+	rankMid := int64(5)
+	rankLow := int64(10)
+	svc := mustNewServiceWithOptions(t, curatedLegacyReader{
+		fakeReader: fakeReader{
+			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+				return nil, store.ErrNotFound
+			},
+		},
+		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
+				{EventID: "n1", AuthorPubkey: "u1", Score: 100},
+				{EventID: "n2", AuthorPubkey: "u2", Score: 99},
+				{EventID: "n3", AuthorPubkey: "u3", Score: 98},
+			}, nil
+		},
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
+			for _, pubkey := range pubkeys {
+				switch pubkey {
+				case "u1":
+					out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: true, Rank: &rankLow}
+				case "u2":
+					out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: true, Rank: &rankHigh}
+				case "u3":
+					out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: true, Rank: &rankMid}
+				}
+			}
+			return out, nil
+		},
+	}, ServiceOptions{
+		DiscoveryCandidateTrustMode: trustModePreferTrusted,
+		DiscoveryScoreBoostWeight:   2,
+	})
+	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, 3, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingNotes returned error: %v", err)
+	}
+	// With boost, best trust rank (u2) should lead despite lower engagement order.
+	if len(out) != 3 || out[0].EventID != "n2" || out[1].EventID != "n1" || out[2].EventID != "n3" {
+		t.Fatalf("unexpected score-boosted note order: %#v", out)
+	}
+
+	// Weight 0 preserves engagement order inside the trusted bucket.
+	svcNoBoost := mustNewServiceWithOptions(t, curatedLegacyReader{
+		fakeReader: fakeReader{
+			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+				return nil, store.ErrNotFound
+			},
+		},
+		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
+				{EventID: "n1", AuthorPubkey: "u1", Score: 100},
+				{EventID: "n2", AuthorPubkey: "u2", Score: 99},
+				{EventID: "n3", AuthorPubkey: "u3", Score: 98},
+			}, nil
+		},
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
+			for _, pubkey := range pubkeys {
+				out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: true, Rank: &rankHigh}
+			}
+			return out, nil
+		},
+	}, ServiceOptions{
+		DiscoveryCandidateTrustMode: trustModePreferTrusted,
+		DiscoveryScoreBoostWeight:   0,
+	})
+	plain, err := svcNoBoost.GetTrendingNotes(context.Background(), 24*time.Hour, 3, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingNotes no-boost: %v", err)
+	}
+	if len(plain) != 3 || plain[0].EventID != "n1" || plain[1].EventID != "n2" || plain[2].EventID != "n3" {
+		t.Fatalf("expected engagement order with zero boost, got %#v", plain)
+	}
+}
+
+func TestDiscoveryTrustPolicy_HashtagBoostUsesAuthorTrustWeight(t *testing.T) {
+	t.Parallel()
+	scoreHigh := 0.9
+	scoreLow := 0.1
+	svc := mustNewServiceWithOptions(t, curatedLegacyReader{
+		fakeReader: fakeReader{
+			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+				return nil, store.ErrNotFound
+			},
+		},
+		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
+				{EventID: "n1", AuthorPubkey: "u1", Content: "#alpha"},
+				{EventID: "n2", AuthorPubkey: "u2", Content: "#beta"},
+				{EventID: "n3", AuthorPubkey: "u3", Content: "#alpha"},
+			}, nil
+		},
+		getTrendingHashtagsFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingHashtag, error) {
+			t.Fatal("open hashtag query path should be bypassed under trust policy")
+			return nil, nil
+		},
+		getTrustQualificationsFn: func(_ context.Context, pubkeys []string, _ readmodel.TrustQualificationPolicy) (map[string]readmodel.TrustQualification, error) {
+			out := map[string]readmodel.TrustQualification{}
+			for _, pubkey := range pubkeys {
+				switch pubkey {
+				case "u1", "u3":
+					out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: true, Score: &scoreHigh}
+				case "u2":
+					out[pubkey] = readmodel.TrustQualification{Pubkey: pubkey, Trusted: true, Score: &scoreLow}
+				}
+			}
+			return out, nil
+		},
+	}, ServiceOptions{
+		DiscoveryCandidateTrustMode: trustModePreferTrusted,
+		DiscoveryScoreBoostWeight:   1,
+	})
+	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingHashtags: %v", err)
+	}
+	if len(out) < 2 || out[0].Hashtag != "alpha" || out[0].EventCount != 2 {
+		t.Fatalf("expected alpha to lead by event count, got %#v", out)
+	}
+}
+
 func TestDiscoveryTrustPolicy_TrendingNotesTrustedOnly(t *testing.T) {
 	t.Parallel()
 	svc := mustNewServiceWithOptions(t, curatedLegacyReader{

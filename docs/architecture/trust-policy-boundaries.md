@@ -79,6 +79,7 @@ Additional defaults worth keeping:
 
 - `TRUST_FALLBACK_FETCH_ALLOW_DIRECT_LOOKUP=true` to preserve explicit direct lookup recovery.
 - bounded fallback knobs (`TRUST_FALLBACK_FETCH_MAX_ATTEMPTS`, `TRUST_FALLBACK_FETCH_MAX_RELAYS_PER_ATTEMPT`, `TRUST_FALLBACK_FETCH_MAX_TIME_BUDGET`) to prevent network fanout explosions.
+- `TRUST_DISCOVERY_SCORE_BOOST_WEIGHT=0` so discovery keeps engagement order within trusted/untrusted buckets until an operator intentionally enables a soft global-score blend.
 
 ## Retention and derived state
 
@@ -99,6 +100,11 @@ Mode tradeoffs by surface:
 - `open`: best recall and compatibility, weakest trust filtering
 - `prefer_trusted`: balanced quality/recall, good default for ranking surfaces
 - `trusted_only`: strongest filtering, highest risk of false negatives and missing long-tail content
+
+Optional ranking blend:
+
+- `TRUST_DISCOVERY_SCORE_BOOST_WEIGHT=0`: no score influence inside discovery buckets (default)
+- small positive weights: gently prefer higher global-trust authors within the same `prefer_trusted` bucket without changing open/trusted_only filtering semantics
 
 Operational implications of stricter modes:
 

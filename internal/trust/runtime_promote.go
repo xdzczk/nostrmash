@@ -85,6 +85,15 @@ func (r *Runtime) executePromoteRun(ctx context.Context, runID int64, snapshotRe
 		return err
 	}
 
+	// Neighborhoods are only published when the opt-in phase ran for this
+	// worker. Default-off keeps promote from wiping an older published set
+	// when neighborhoods were never computed in this lifecycle.
+	if r.enableNeighborhoods {
+		if err := r.publishNeighborhoodMembersTx(ctx, tx, runID); err != nil {
+			return err
+		}
+	}
+
 	// Stage rows are only needed until promote publishes them into
 	// trust_scores_global. Leaving them forever blew trust_scores_global_stage
 	// to tens of GB across many runs. Clear this run's stage in the same

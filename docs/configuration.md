@@ -135,6 +135,9 @@ Do not hand-edit this file.
 | `STORAGE_PRESSURE_WARN_PERCENT` | `api, ingestor, trust_worker, worker` | optional | `80` | Database-size-to-capacity percent at which the governor emits a warning (level 1). |
 | `TRUST_CANONICAL_INGEST_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Deprecated. Was a config placeholder for canonical ingest policy; not wired to the ingest hot path. Use INGESTOR_TRUST_GATE_MODE on the ingestor instead. |
 | `TRUST_DISCOVERY_CANDIDATE_MODE` | `api, ingestor, trust_worker, worker` | optional | `open` | Trust policy mode for discovery candidate selection: open, prefer_trusted, or trusted_only. |
+| `TRUST_DISCOVERY_SCORE_BOOST_WEIGHT` | `api, ingestor, trust_worker, worker` | optional | `0` | Soft ranking blend weight for global trust score/rank inside prefer_trusted discovery ordering. 0 keeps engagement order within trusted/untrusted buckets; higher values gently prefer higher-trust authors within each bucket. |
+| `TRUST_ENABLE_INTERACTION_GRAPH` | `trust_worker` | optional | `false` | When true, refresh engagement-derived interaction edge weights and merge them into trust ranking adjacency. Keep false until reviewing the admin comparison report. |
+| `TRUST_ENABLE_NEIGHBORHOODS` | `trust_worker` | optional | `false` | Enable seeded trust neighborhood BFS between global score compute and promote. |
 | `TRUST_ENABLE_REDIS_SYNC` | `trust_worker` | optional | `false` | Enable Redis graph synchronization trust job phases. |
 | `TRUST_ENABLE_SCORE_COMPUTE` | `trust_worker` | optional | `true` | Enable trust score computation trust job phases. |
 | `TRUST_FALLBACK_FETCH_ALLOW_DIRECT_LOOKUP` | `api, ingestor, trust_worker, worker` | optional | `true` | Allow explicitly referenced direct lookups to use strict fallback even in trusted_only mode. |
@@ -145,6 +148,8 @@ Do not hand-edit this file.
 | `TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL` | `trust_worker` | optional | `10m` | Interval between trust_graph_snapshot rebuilds (seeds + follower edges) that the ingest gate reads. |
 | `TRUST_MAX_HOPS` | `api, ingestor, trust_worker, worker` | optional | `3` | Maximum trust-graph expansion depth used by trust-aware policy surfaces. |
 | `TRUST_MINIMUM_SCORE` | `api, ingestor, trust_worker, worker` | optional | `0` | Minimum trust score threshold used by trust-aware policy surfaces. |
+| `TRUST_NEIGHBORHOOD_MAX_MEMBERS` | `trust_worker` | optional | `5000` | Maximum members retained per seed neighborhood, including the seed itself. |
+| `TRUST_PERSONALIZED_MAX_SEED_FOLLOWS` | `api, ingestor, trust_worker, worker` | optional | `2000` | Maximum follow-list size used as teleport seeds for viewer-personalized trust ranking. Larger lists fall back to global trust scores. |
 | `TRUST_REDIS_KEY_PREFIX` | `trust_worker` | optional | `nostrmash` | Prefix namespace for trust-worker Redis graph/snapshot keys. |
 | `TRUST_REDIS_URL` | `trust_worker` | optional | `-` | Redis connection string used for trust graph working state; required when TRUST_ENABLE_REDIS_SYNC=true. |
 | `TRUST_REFRESH_INTERVAL` | `api, ingestor, trust_worker, worker` | optional | `10m` | Refresh cadence for trust policy inputs (seed graph and score snapshots). |

@@ -119,6 +119,7 @@ type Service struct {
 	discoveryTrustMode              string
 	discoveryTrustPolicy            TrustQualificationPolicy
 	discoveryTrustScanSize          int
+	discoveryScoreBoostWeight       float64
 	discoveryProjectionMaxStaleness time.Duration
 	searchTrustMode                 string
 	searchTrustPolicy               TrustQualificationPolicy
@@ -126,6 +127,7 @@ type Service struct {
 	retentionHooks                  TrustRetentionHooks
 	meilisearch                     MeilisearchSearcher
 	rankedPubkeyCountCache          *rankedPubkeyCountCache
+	personalizedTrust               PersonalizedTrustRanker
 }
 
 // FallbackReader fetches entity-shaped data from configured relays on local miss.
@@ -160,9 +162,11 @@ type ServiceOptions struct {
 	SearchRankingTrustMode          string
 	DiscoveryCandidateMinimumScore  float64
 	DiscoveryCandidateMaxHops       int
+	DiscoveryScoreBoostWeight       float64
 	DiscoveryProjectionMaxStaleness time.Duration
 	TrustRetentionHooks             TrustRetentionHooks
 	MeilisearchSearcher             MeilisearchSearcher
+	PersonalizedTrustRanker         PersonalizedTrustRanker
 
 	// Optional typed capability groups. When a group is non-nil it is wired
 	// whole (the typed production path). When nil, the corresponding
@@ -306,7 +310,13 @@ func buildService(nativeReader Reader, probeSource any, options ServiceOptions) 
 		discoveryTrustMode:     mode,
 		discoveryTrustPolicy:   TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
 		// Keep trust-aware candidate scans bounded and predictable.
-		discoveryTrustScanSize:          400,
+		discoveryTrustScanSize: 400,
+		discoveryScoreBoostWeight: func() float64 {
+			if options.DiscoveryScoreBoostWeight < 0 {
+				return 0
+			}
+			return options.DiscoveryScoreBoostWeight
+		}(),
 		discoveryProjectionMaxStaleness: discoveryProjectionMaxStaleness,
 		searchTrustMode:                 searchMode,
 		searchTrustPolicy:               TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
@@ -314,6 +324,7 @@ func buildService(nativeReader Reader, probeSource any, options ServiceOptions) 
 		retentionHooks:                  retentionHooks,
 		meilisearch:                     options.MeilisearchSearcher,
 		rankedPubkeyCountCache:          &rankedPubkeyCountCache{},
+		personalizedTrust:               options.PersonalizedTrustRanker,
 	}, nil
 }
 

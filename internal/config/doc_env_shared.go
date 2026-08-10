@@ -136,6 +136,20 @@ func configEnvDocsShared() []EnvVarDoc {
 			Description:  "Minimum trust score threshold used by trust-aware policy surfaces.",
 		},
 		{
+			Name:         "TRUST_DISCOVERY_SCORE_BOOST_WEIGHT",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "0",
+			Description:  "Soft ranking blend weight for global trust score/rank inside prefer_trusted discovery ordering. 0 keeps engagement order within trusted/untrusted buckets; higher values gently prefer higher-trust authors within each bucket.",
+		},
+		{
+			Name:         "TRUST_PERSONALIZED_MAX_SEED_FOLLOWS",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "2000",
+			Description:  "Maximum follow-list size used as teleport seeds for viewer-personalized trust ranking. Larger lists fall back to global trust scores.",
+		},
+		{
 			Name:         "TRUST_REFRESH_INTERVAL",
 			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
 			Required:     false,

@@ -139,6 +139,103 @@ func TestRuntime_TriggerGlobalRunAndProcessLifecycleWithoutRedis(t *testing.T) {
 	}
 }
 
+func TestRuntime_NeighborhoodsPhasePublishesMembersWhenEnabled(t *testing.T) {
+	ctx := context.Background()
+	pool := setupTrustRuntimePool(t, ctx)
+	runtime := NewRuntime(pool, false, true).WithNeighborhoods(true, 100, 2)
+	queue := jobs.NewQueue(pool)
+
+	seedFollowerEdge(t, ctx, pool, "evt-a", "alice", "bob")
+	seedFollowerEdge(t, ctx, pool, "evt-b", "bob", "carol")
+	if _, err := pool.Exec(ctx, `INSERT INTO trust_seeds (pubkey, is_active) VALUES ('alice', true)`); err != nil {
+		t.Fatalf("insert trust seed: %v", err)
+	}
+
+	run, err := runtime.TriggerGlobalRun(ctx)
+	if err != nil {
+		t.Fatalf("trigger global run: %v", err)
+	}
+	workerID := "trust-worker-neighborhoods"
+
+	syncJob := claimSingleTrustJob(t, ctx, queue, workerID, jobs.JobTypeTrustSyncGraphRedis)
+	if err := runtime.ProcessJob(ctx, syncJob); err != nil {
+		t.Fatalf("process sync job: %v", err)
+	}
+	if err := queue.CompleteJob(ctx, syncJob.ID, workerID); err != nil {
+		t.Fatalf("complete sync job: %v", err)
+	}
+
+	computeJob := claimSingleTrustJob(t, ctx, queue, workerID, jobs.JobTypeTrustComputeGlobalScore)
+	if err := runtime.ProcessJob(ctx, computeJob); err != nil {
+		t.Fatalf("process compute job: %v", err)
+	}
+	if err := queue.CompleteJob(ctx, computeJob.ID, workerID); err != nil {
+		t.Fatalf("complete compute job: %v", err)
+	}
+
+	run, err = runtime.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("get run after compute: %v", err)
+	}
+	if run.PromoteJobID != nil {
+		t.Fatalf("expected promote job to wait until neighborhoods finish, got %+v", run)
+	}
+
+	neighborhoodJob := claimSingleTrustJob(t, ctx, queue, workerID, jobs.JobTypeTrustComputeNeighborhoods)
+	if err := runtime.ProcessJob(ctx, neighborhoodJob); err != nil {
+		t.Fatalf("process neighborhoods job: %v", err)
+	}
+	if err := queue.CompleteJob(ctx, neighborhoodJob.ID, workerID); err != nil {
+		t.Fatalf("complete neighborhoods job: %v", err)
+	}
+
+	var stagedNeighborhoods int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM trust_neighborhood_members_stage WHERE run_id = $1
+	`, run.ID).Scan(&stagedNeighborhoods); err != nil {
+		t.Fatalf("count staged neighborhoods: %v", err)
+	}
+	if stagedNeighborhoods < 3 {
+		t.Fatalf("expected staged neighborhood members for alice→bob→carol, got %d", stagedNeighborhoods)
+	}
+
+	run, err = runtime.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("get run after neighborhoods: %v", err)
+	}
+	if run.PromoteJobID == nil {
+		t.Fatalf("expected promote job after neighborhoods, got %+v", run)
+	}
+
+	promoteJob := claimSingleTrustJob(t, ctx, queue, workerID, jobs.JobTypeTrustPromoteRun)
+	if err := runtime.ProcessJob(ctx, promoteJob); err != nil {
+		t.Fatalf("process promote job: %v", err)
+	}
+	if err := queue.CompleteJob(ctx, promoteJob.ID, workerID); err != nil {
+		t.Fatalf("complete promote job: %v", err)
+	}
+
+	var publishedNeighborhoods int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM trust_neighborhood_members WHERE seed_pubkey = 'alice'
+	`).Scan(&publishedNeighborhoods); err != nil {
+		t.Fatalf("count published neighborhoods: %v", err)
+	}
+	if publishedNeighborhoods < 3 {
+		t.Fatalf("expected published neighborhood members, got %d", publishedNeighborhoods)
+	}
+
+	var remainingStage int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM trust_neighborhood_members_stage WHERE run_id = $1
+	`, run.ID).Scan(&remainingStage); err != nil {
+		t.Fatalf("count neighborhood stage after promote: %v", err)
+	}
+	if remainingStage != 0 {
+		t.Fatalf("expected neighborhood stage cleared after promote, got %d", remainingStage)
+	}
+}
+
 func TestRuntime_ComputePhaseFailureAfterSuccessfulSyncMarksRunFailedWithoutPublishing(t *testing.T) {
 	ctx := context.Background()
 	pool := setupTrustRuntimePool(t, ctx)
@@ -263,6 +360,11 @@ func TestRuntime_ProcessJobRejectsInvalidPayloadsAndUnsupportedTypes(t *testing.
 			name:    "promote missing run id",
 			job:     jobs.Job{JobType: jobs.JobTypeTrustPromoteRun, Payload: json.RawMessage(`{"run_id":0}`)},
 			wantErr: "run_id is required in promote payload",
+		},
+		{
+			name:    "neighborhoods disabled",
+			job:     jobs.Job{JobType: jobs.JobTypeTrustComputeNeighborhoods, Payload: json.RawMessage(`{"run_id":1}`)},
+			wantErr: "trust neighborhood compute is disabled",
 		},
 		{
 			name:    "unsupported job type",
