@@ -12,10 +12,10 @@ type Runtime struct {
 	redisKeyPrefix         string
 	enableRedisSync        bool
 	enableScoreCompute     bool
-	enableNeighborhoods     bool
-	neighborhoodMaxMembers  int
-	neighborhoodMaxHops     int
-	enableInteractionGraph  bool
+	enableNeighborhoods    bool
+	neighborhoodMaxMembers int
+	neighborhoodMaxHops    int
+	enableInteractionGraph bool
 }
 
 func NewRuntime(pool *pgxpool.Pool, enableRedisSync, enableScoreCompute bool) *Runtime {
