@@ -120,11 +120,25 @@ type WorkerProfileStatsSweeperConfig struct {
 // records that an event needs indexing (cheap upsert); this sweeper
 // performs the actual HTTP sync to Meilisearch out of band so a slow
 // Meilisearch never caps live-pool throughput.
+//
+// BatchTimeout bounds the entire claim+sync call the sweeper loop makes
+// per tick (DrainPendingMeilisearchSyncBatch), not just the Meilisearch
+// HTTP portion that meili.SyncEventsBatch already caps internally.
+// Production observed the sweeper goroutines going completely silent
+// for hours (zero batches observed, success or error) while Meilisearch
+// was CPU-saturated — consistent with a hang somewhere in the call path
+// that the inner Meili-only timeout never covered (e.g. the claim
+// transaction). This is the same safety net pattern as
+// WorkerAuthorAnalyticsSweeperConfig.RebuildTimeout: on timeout the
+// call returns, the batch is logged as a timed-out error, and the next
+// ticker cycle retries — a goroutine can never block longer than this
+// regardless of where in DrainPendingMeilisearchSyncBatch it stalls.
 type WorkerMeilisearchSweeperConfig struct {
-	Enabled     bool
-	Interval    time.Duration
-	BatchSize   int
-	Concurrency int
+	Enabled      bool
+	Interval     time.Duration
+	BatchSize    int
+	Concurrency  int
+	BatchTimeout time.Duration
 }
 
 type WorkerJobRetentionConfig struct {

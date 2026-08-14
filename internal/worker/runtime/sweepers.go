@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/config"
@@ -118,7 +119,7 @@ func RunMeilisearchSweeperLoop(
 				reportMeilisearchBacklogGauge(ctx, log, handlers)
 			}
 			started := time.Now()
-			processed, err := handlers.DrainPendingMeilisearchSyncBatch(ctx, cfg.BatchSize)
+			processed, err := drainMeilisearchSyncBatch(ctx, handlers, cfg)
 			outcome := "ok"
 			if err != nil {
 				outcome = "error"
@@ -138,7 +139,7 @@ func RunMeilisearchSweeperLoop(
 				default:
 				}
 				started = time.Now()
-				processed, err = handlers.DrainPendingMeilisearchSyncBatch(ctx, cfg.BatchSize)
+				processed, err = drainMeilisearchSyncBatch(ctx, handlers, cfg)
 				outcome = "ok"
 				if err != nil {
 					outcome = "error"
@@ -152,6 +153,59 @@ func RunMeilisearchSweeperLoop(
 				metrics.ObserveMeilisearchSweeperBatch(outcome, processed, time.Since(started))
 			}
 		}
+	}
+}
+
+// drainMeilisearchSyncBatch wraps DrainPendingMeilisearchSyncBatch with a
+// hard per-call deadline (cfg.BatchTimeout) covering the whole claim+sync
+// call, not just the Meilisearch HTTP portion that meili.SyncEventsBatch
+// already bounds internally. See WorkerMeilisearchSweeperConfig's doc
+// comment: without this, a stall anywhere else in the call path (e.g. the
+// claim transaction) has no backstop and can wedge the goroutine
+// indefinitely with no error ever logged. A zero/negative BatchTimeout
+// disables the wrapper (used by tests that don't set it).
+func drainMeilisearchSyncBatch(ctx context.Context, handlers *derivation.Handlers, cfg config.WorkerMeilisearchSweeperConfig) (int, error) {
+	return runWithBatchTimeout(ctx, cfg.BatchTimeout, func(callCtx context.Context) (int, error) {
+		return handlers.DrainPendingMeilisearchSyncBatch(callCtx, cfg.BatchSize)
+	})
+}
+
+// runWithBatchTimeout bounds fn by a real wall-clock timeout when
+// timeout > 0. fn runs in its own goroutine so the deadline is enforced
+// even if fn (or something deep in its call graph) never checks
+// ctx.Done() — passing a context.WithTimeout ctx into fn is not
+// sufficient on its own, since context cancellation only takes effect at
+// points that actively select on it, and the production hang this guards
+// against was precisely a call that never returned despite an
+// already-canceled context reaching it.
+//
+// On timeout, fn's goroutine is left running and its result is discarded
+// when it eventually completes (resCh is buffered so that send never
+// blocks); this trades a bounded goroutine leak per stall for guaranteeing
+// the sweeper loop itself is never wedged. A zero/negative timeout runs fn
+// on the caller's context unmodified with no goroutine indirection.
+func runWithBatchTimeout(ctx context.Context, timeout time.Duration, fn func(context.Context) (int, error)) (int, error) {
+	if timeout <= 0 {
+		return fn(ctx)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	type result struct {
+		processed int
+		err       error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		processed, err := fn(callCtx)
+		resCh <- result{processed, err}
+	}()
+
+	select {
+	case res := <-resCh:
+		return res.processed, res.err
+	case <-callCtx.Done():
+		return 0, fmt.Errorf("meilisearch sweeper batch exceeded %s hard timeout: %w", timeout, callCtx.Err())
 	}
 }
 

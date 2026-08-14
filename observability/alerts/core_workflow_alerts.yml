@@ -222,6 +222,17 @@ groups:
           description: "The oldest pending Meilisearch sync has been waiting over 5 minutes for 10m while the backlog is non-empty. The sweeper cannot keep up; check Meilisearch health, WORKER_MEILISEARCH_SWEEPER_* tuning, and derivation logs."
           runbook: "docs/operations.md#alert-response-playbook"
 
+      - alert: NostrMashMeilisearchSweeperStalled
+        expr: sum(rate(nostrmash_worker_meilisearch_sweeper_batch_duration_seconds_count[15m])) == 0 and nostrmash_pending_meilisearch_syncs > 0
+        for: 10m
+        labels:
+          severity: critical
+          slo: search-freshness
+        annotations:
+          summary: "Meilisearch sweeper has stopped completing batches entirely"
+          description: "No Meilisearch sweeper batch (success or error) has completed in 15m while pending_meilisearch_syncs is non-empty. Every sweeper goroutine is hung, not just slow or erroring — a slow-but-alive sweeper still emits batch observations every WORKER_MEILISEARCH_SWEEPER_INTERVAL even on an empty queue. Restart the worker to clear the stuck goroutines (WORKER_MEILISEARCH_SWEEPER_BATCH_TIMEOUT bounds each goroutine going forward so this should self-heal within that timeout), then check Meilisearch health/CPU."
+          runbook: "docs/operations.md#alert-response-playbook"
+
       - alert: NostrMashDatabaseGrowthSustained
         expr: nostrmash:storage:database_growth_bytes_per_hour:6h > 52428800
         for: 6h

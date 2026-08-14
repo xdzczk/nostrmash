@@ -178,6 +178,13 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Description:  "Number of concurrent Meilisearch sweeper goroutines. Each independently claims dirty events via FOR UPDATE SKIP LOCKED.",
 		},
 		{
+			Name:         "WORKER_MEILISEARCH_SWEEPER_BATCH_TIMEOUT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "10m0s",
+			Description:  "Hard cap on the entire claim+sync call a Meilisearch sweeper goroutine makes per tick, not just the Meilisearch HTTP portion (already capped internally at 8m). Safety net against the goroutine hanging anywhere in the call path — e.g. production observed sweeper goroutines going silent for hours with zero batches recorded, success or error, while Meilisearch was CPU-saturated. On timeout the call returns an error, the batch is logged, and the next cycle retries.",
+		},
+		{
 			Name:         "WORKER_JOB_RUNNING_TIMEOUT",
 			Runtimes:     []string{"trust_worker", "worker"},
 			Required:     false,

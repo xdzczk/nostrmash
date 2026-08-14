@@ -509,11 +509,22 @@ func loadMeilisearchSweeperConfig() (WorkerMeilisearchSweeperConfig, error) {
 	if err != nil {
 		return WorkerMeilisearchSweeperConfig{}, err
 	}
+	// 10m: comfortably above meili.syncEventsBatchTimeout (8m), which
+	// already bounds the Meilisearch HTTP portion of the call. The extra
+	// headroom covers the claim transaction and DB loads around it so this
+	// timeout only trips when something outside the already-instrumented
+	// Meili call path is stuck — see WorkerMeilisearchSweeperConfig doc
+	// comment for the production incident that motivated this.
+	batchTimeout, err := getEnvPositiveDurationStrict("WORKER_MEILISEARCH_SWEEPER_BATCH_TIMEOUT", 10*time.Minute)
+	if err != nil {
+		return WorkerMeilisearchSweeperConfig{}, err
+	}
 	return WorkerMeilisearchSweeperConfig{
-		Enabled:     getEnvBool("WORKER_MEILISEARCH_SWEEPER_ENABLED", true),
-		Interval:    interval,
-		BatchSize:   batch,
-		Concurrency: concurrency,
+		Enabled:      getEnvBool("WORKER_MEILISEARCH_SWEEPER_ENABLED", true),
+		Interval:     interval,
+		BatchSize:    batch,
+		Concurrency:  concurrency,
+		BatchTimeout: batchTimeout,
 	}, nil
 }
 

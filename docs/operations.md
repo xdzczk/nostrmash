@@ -728,6 +728,12 @@ Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use 
 - `NostrMashInvalidEventsGrowthHigh`
   - Meaning: `invalid_events` is growing faster than expected.
   - Check next: malformed relay/client sources, validator behavior changes, and invalid-event retention purge effectiveness.
+- `NostrMashMeilisearchSyncLagHigh`
+  - Meaning: the oldest `pending_meilisearch_syncs` row has been waiting 5m+ for 10m while the queue is non-empty — the sweeper is running but cannot keep up.
+  - Check next: Meilisearch CPU/health (`docker stats`, `GET /health`), `WORKER_MEILISEARCH_SWEEPER_*` tuning, and whether a concurrent `FullSync` is competing for the same per-index task queue.
+- `NostrMashMeilisearchSweeperStalled`
+  - Meaning: no Meilisearch sweeper batch (success or error) has completed in 15m while the queue is non-empty — every sweeper goroutine is hung, not just slow. Seen in production as `pending_meilisearch_syncs` growing for hours with the sweeper's processed counter completely flat.
+  - Check next: restart the `worker` container to clear stuck goroutines (queue should start draining within seconds); `WORKER_MEILISEARCH_SWEEPER_BATCH_TIMEOUT` bounds each goroutine so a recurrence should self-heal within that timeout instead of hanging indefinitely. If it recurs, check Meilisearch CPU/health for the underlying cause.
 
 ## Debug and build identity
 
