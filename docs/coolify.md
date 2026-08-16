@@ -143,14 +143,23 @@ TRUST_ENABLE_REDIS_SYNC=false
 # TRUST_NEIGHBORHOOD_MAX_MEMBERS=5000
 ```
 
-Build identity is stamped from the git checkout during `docker build`
-(`git rev-parse HEAD` → `main.buildVersion` / `main.buildCommit`). Do **not**
-set `APP_VERSION`, `SOURCE_COMMIT`, or `BUILD_TIME` in the Coolify UI —
+Build identity is stamped at image build time:
+
+1. `git rev-parse HEAD` when `.git` is in the build context
+2. otherwise Coolify's predefined `SOURCE_COMMIT` build-arg (the SHA of
+   the commit being deployed)
+
+Do **not** add `APP_VERSION`, `SOURCE_COMMIT`, or `BUILD_TIME` in the
+Coolify Environment UI, and do not interpolate them in Compose.
 `${APP_VERSION}` in Compose makes Coolify lock the field so you cannot
-delete a leftover SHA, and that stale value is what showed up as
-`version=23dcf1ee` in production logs. After this Compose file no longer
-references those vars, delete them from Coolify Environment if they are
-still listed.
+delete a leftover SHA (that is what showed up as `version=23dcf1ee`).
+
+Coolify injects `--build-arg SOURCE_COMMIT` on Compose builds when
+**Inject build args to Dockerfile** is on (the default). If
+`build_info` still says `commit=unknown` after a redeploy, also enable
+**Include source commit in build** under the application's Advanced
+settings — some Coolify versions default that off to preserve the
+Docker layer cache.
 
 ### Single-server memory budgets
 
