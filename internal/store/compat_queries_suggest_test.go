@@ -45,6 +45,42 @@ func TestSuggestProfiles_MatchesPrefixAndContains(t *testing.T) {
 	}
 }
 
+// TestSuggestProfiles_MatchesPendingUnprojectedMetadata verifies the
+// latest_metadata "pending" branch: a kind-0 event not yet reflected in
+// profiles_latest (ProjectProfilesLatest deliberately not called here) must
+// still surface via pubkey match. This exercises the pending_matches CTE
+// path in SuggestProfiles rather than the indexed projected_matches path
+// covered by TestSuggestProfiles_MatchesPrefixAndContains.
+func TestSuggestProfiles_MatchesPendingUnprojectedMetadata(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+
+	pgStore := NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	event := newDiscoveryEvent("meta_pending_carol", "pk_carol_pending", now.Add(-5*time.Minute), 0, nil, `{"name":"carol"}`)
+	tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+	if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+		t.Fatalf("insert event %s: %v", event.ID, err)
+	}
+	// Deliberately no ProjectProfilesLatest call: profiles_latest has no row
+	// for this pubkey, so the match must come from the pending_matches CTE
+	// scanning recent unprojected events.
+
+	out, err := pgStore.SuggestProfiles(ctx, "pk_carol_pending", 5)
+	if err != nil {
+		t.Fatalf("SuggestProfiles: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("unexpected profile suggestion count: got=%d want=1", len(out))
+	}
+	if out[0].Pubkey != "pk_carol_pending" {
+		t.Fatalf("unexpected profile suggestion: %#v", out[0])
+	}
+}
+
 func TestSuggestHashtags_MatchesPrefixAndAggregates(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

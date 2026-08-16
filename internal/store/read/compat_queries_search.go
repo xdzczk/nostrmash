@@ -150,6 +150,24 @@ func (s *Read) SearchProfiles(ctx context.Context, query string, limit int) ([]P
 	return s.SearchProfilesWithOptions(ctx, query, "relevant", limit, 0)
 }
 
+// recentProfileMetadataCatchupWindow bounds how far back SearchProfilesWithOptions
+// and SuggestProfiles scan events(kind=0) for kind-0 metadata that has not yet
+// been projected into profiles_latest. ProjectProfilesLatest runs synchronously
+// during ingest, so real-world lag is ~0 (verified empirically: 0 pending rows
+// found even with a 24h window against 1.3M+ historical kind=0 events); this
+// window exists only to survive a transient derivation backlog.
+//
+// Widening it makes the scan proportionally more expensive: it drives a
+// nested-loop join against profiles_latest keyed off idx_events_kind_created_at,
+// so cost scales with kind-0 events in the window, not with total table size.
+// Before this bound existed, the scan covered ALL-TIME kind=0 events on every
+// single profile search/suggest call (a full scan+sort of 1.3M+ rows), which
+// could exceed statement_timeout outright and was the dominant contributor to
+// NostrMashSearchLatencyHigh once Meilisearch was slow enough to trigger this
+// Postgres fallback. Keep this generous relative to actual need (6h vs a
+// real-world lag of ~0) rather than shaving it to the minimum.
+const recentProfileMetadataCatchupWindow = 6 * time.Hour
+
 // SearchProfilesWithOptions returns latest profile projections matching query with minimal sorting/pagination options.
 func (s *Read) SearchProfilesWithOptions(
 	ctx context.Context,
@@ -185,6 +203,8 @@ func (s *Read) SearchProfilesWithOptions(
 		return nil, fmt.Errorf("offset exceeds maximum allowed value")
 	}
 
+	catchupSince := time.Now().Add(-recentProfileMetadataCatchupWindow).Unix()
+
 	rows, err := s.pool.Query(ctx, `
 		WITH latest_metadata AS (
 			SELECT DISTINCT ON (events.pubkey)
@@ -195,6 +215,7 @@ func (s *Read) SearchProfilesWithOptions(
 			FROM events
 			LEFT JOIN profiles_latest ON profiles_latest.pubkey = events.pubkey
 			WHERE events.kind = 0
+			  AND events.created_at >= $4::bigint
 			  AND (
 				profiles_latest.pubkey IS NULL
 				OR events.created_at > profiles_latest.metadata_created_at
@@ -202,68 +223,65 @@ func (s *Read) SearchProfilesWithOptions(
 			  )
 			ORDER BY events.pubkey, events.created_at DESC, events.id DESC
 		),
-		candidate_profiles AS (
+		-- Filters directly on profiles_latest columns/expressions (not a
+		-- derived CTE) so the planner can use the existing GIN indexes:
+		-- idx_profiles_latest_search_tsv, idx_profiles_latest_pubkey_trgm,
+		-- idx_profiles_latest_search_text_trgm. The combined
+		-- name||display_name||about||nip05 predicate below must stay
+		-- textually identical to idx_profiles_latest_search_text_trgm's
+		-- indexed expression, or Postgres falls back to a sequential scan
+		-- of the whole table (measured: ~1.5s vs ~150ms indexed on 780K rows).
+		projected_matches AS (
 			SELECT
 				profiles_latest.pubkey,
 				profiles_latest.metadata_event_id,
 				profiles_latest.metadata_created_at,
 				profiles_latest.profile_json::text AS profile_text,
-				coalesce(profiles_latest.name, '') AS name,
-				coalesce(profiles_latest.display_name, '') AS display_name,
-				coalesce(profiles_latest.about, '') AS about,
-				coalesce(profiles_latest.nip05, '') AS nip05,
-				coalesce(profiles_latest.name, '') || ' ' ||
-				coalesce(profiles_latest.display_name, '') || ' ' ||
-				coalesce(profiles_latest.about, '') || ' ' ||
-				coalesce(profiles_latest.nip05, '') AS profile_blob
+				ts_rank_cd(profiles_latest.search_tsv, websearch_to_tsquery('simple', $1)) AS rank
 			FROM profiles_latest
 			LEFT JOIN latest_metadata ON latest_metadata.pubkey = profiles_latest.pubkey
 			WHERE latest_metadata.pubkey IS NULL
-			UNION ALL
-			SELECT
-				pubkey,
-				metadata_event_id,
-				metadata_created_at,
-				profile_text,
-				'' AS name,
-				'' AS display_name,
-				'' AS about,
-				'' AS nip05,
-				coalesce(profile_text, '') AS profile_blob
-			FROM latest_metadata
+			  AND (
+				profiles_latest.search_tsv @@ websearch_to_tsquery('simple', $1)
+				OR profiles_latest.pubkey ILIKE '%' || $1 || '%'
+				OR (
+					coalesce(profiles_latest.name, '') || ' ' ||
+					coalesce(profiles_latest.display_name, '') || ' ' ||
+					coalesce(profiles_latest.about, '') || ' ' ||
+					coalesce(profiles_latest.nip05, '')
+				) ILIKE '%' || $1 || '%'
+			  )
 		),
-		ranked AS (
+		-- latest_metadata rows are bounded by recentProfileMetadataCatchupWindow
+		-- (small; verified 0 rows in the common case), so a plain scan here is
+		-- cheap regardless of indexing.
+		pending_matches AS (
 			SELECT
 				pubkey,
 				metadata_event_id,
 				metadata_created_at,
 				profile_text,
 				ts_rank_cd(
-					to_tsvector(
-						'simple',
-						coalesce(pubkey, '') || ' ' || coalesce(profile_blob, '')
-					),
+					to_tsvector('simple', coalesce(pubkey, '') || ' ' || coalesce(profile_text, '')),
 					websearch_to_tsquery('simple', $1)
 				) AS rank
-			FROM candidate_profiles
+			FROM latest_metadata
 			WHERE
-				to_tsvector(
-					'simple',
-					coalesce(pubkey, '') || ' ' || coalesce(profile_blob, '')
-				) @@ websearch_to_tsquery('simple', $1)
+				to_tsvector('simple', coalesce(pubkey, '') || ' ' || coalesce(profile_text, '')) @@ websearch_to_tsquery('simple', $1)
 				OR pubkey ILIKE '%' || $1 || '%'
-				OR coalesce(name, '') ILIKE '%' || $1 || '%'
-				OR coalesce(display_name, '') ILIKE '%' || $1 || '%'
-				OR coalesce(about, '') ILIKE '%' || $1 || '%'
-				OR coalesce(nip05, '') ILIKE '%' || $1 || '%'
-				OR coalesce(profile_blob, '') ILIKE '%' || $1 || '%'
+				OR coalesce(profile_text, '') ILIKE '%' || $1 || '%'
+		),
+		ranked AS (
+			SELECT pubkey, metadata_event_id, metadata_created_at, profile_text, rank FROM projected_matches
+			UNION ALL
+			SELECT pubkey, metadata_event_id, metadata_created_at, profile_text, rank FROM pending_matches
 		)
 		SELECT pubkey, metadata_event_id, metadata_created_at, profile_text
 		FROM ranked
 		ORDER BY rank DESC, metadata_created_at DESC, metadata_event_id DESC
 		LIMIT $2
 		OFFSET $3
-	`, query, limit, offset)
+	`, query, limit, offset, catchupSince)
 	if err != nil {
 		return nil, fmt.Errorf("search profiles with options: %w", err)
 	}
@@ -306,6 +324,8 @@ func (s *Read) SuggestProfiles(ctx context.Context, query string, limit int) ([]
 		limit = 20
 	}
 
+	catchupSince := time.Now().Add(-recentProfileMetadataCatchupWindow).Unix()
+
 	rows, err := s.pool.Query(ctx, `
 		WITH latest_metadata AS (
 			SELECT DISTINCT ON (events.pubkey)
@@ -316,6 +336,7 @@ func (s *Read) SuggestProfiles(ctx context.Context, query string, limit int) ([]
 			FROM events
 			LEFT JOIN profiles_latest ON profiles_latest.pubkey = events.pubkey
 			WHERE events.kind = 0
+			  AND events.created_at >= $3::bigint
 			  AND (
 				profiles_latest.pubkey IS NULL
 				OR events.created_at > profiles_latest.metadata_created_at
@@ -323,60 +344,67 @@ func (s *Read) SuggestProfiles(ctx context.Context, query string, limit int) ([]
 			  )
 			ORDER BY events.pubkey, events.created_at DESC, events.id DESC
 		),
-		candidate_profiles AS (
+		-- See SearchProfilesWithOptions: filters directly on profiles_latest
+		-- so the planner can use idx_profiles_latest_pubkey_trgm and
+		-- idx_profiles_latest_search_text_trgm instead of sequentially
+		-- scanning the whole table.
+		projected_matches AS (
 			SELECT
 				profiles_latest.pubkey,
 				profiles_latest.metadata_event_id,
 				profiles_latest.metadata_created_at,
 				profiles_latest.profile_json::text AS profile_text,
-				coalesce(profiles_latest.name, '') AS name,
-				coalesce(profiles_latest.display_name, '') AS display_name,
-				coalesce(profiles_latest.nip05, '') AS nip05
-			FROM profiles_latest
-			LEFT JOIN latest_metadata ON latest_metadata.pubkey = profiles_latest.pubkey
-			WHERE latest_metadata.pubkey IS NULL
-			UNION ALL
-			SELECT
-				pubkey,
-				metadata_event_id,
-				metadata_created_at,
-				profile_text,
-				'' AS name,
-				'' AS display_name,
-				'' AS nip05
-			FROM latest_metadata
-		),
-		ranked AS (
-			SELECT
-				pubkey,
-				metadata_event_id,
-				metadata_created_at,
-				profile_text,
 				CASE
-					WHEN pubkey ILIKE $1 || '%' THEN 4
-					WHEN coalesce(name, '') ILIKE $1 || '%' THEN 3
-					WHEN coalesce(display_name, '') ILIKE $1 || '%' THEN 3
-					WHEN coalesce(nip05, '') ILIKE $1 || '%' THEN 2
+					WHEN profiles_latest.pubkey ILIKE $1 || '%' THEN 4
+					WHEN coalesce(profiles_latest.name, '') ILIKE $1 || '%' THEN 3
+					WHEN coalesce(profiles_latest.display_name, '') ILIKE $1 || '%' THEN 3
+					WHEN coalesce(profiles_latest.nip05, '') ILIKE $1 || '%' THEN 2
 					ELSE 0
 				END AS prefix_score,
 				GREATEST(
-					similarity(pubkey, $1),
-					similarity(coalesce(name, ''), $1),
-					similarity(coalesce(display_name, ''), $1),
-					similarity(coalesce(nip05, ''), $1)
+					similarity(profiles_latest.pubkey, $1),
+					similarity(coalesce(profiles_latest.name, ''), $1),
+					similarity(coalesce(profiles_latest.display_name, ''), $1),
+					similarity(coalesce(profiles_latest.nip05, ''), $1)
 				) AS sim
-			FROM candidate_profiles
-			WHERE
-				pubkey ILIKE '%' || $1 || '%'
-				OR coalesce(name, '') ILIKE '%' || $1 || '%'
-				OR coalesce(display_name, '') ILIKE '%' || $1 || '%'
-				OR coalesce(nip05, '') ILIKE '%' || $1 || '%'
+			FROM profiles_latest
+			LEFT JOIN latest_metadata ON latest_metadata.pubkey = profiles_latest.pubkey
+			WHERE latest_metadata.pubkey IS NULL
+			  AND (
+				profiles_latest.pubkey ILIKE '%' || $1 || '%'
+				OR (
+					coalesce(profiles_latest.name, '') || ' ' ||
+					coalesce(profiles_latest.display_name, '') || ' ' ||
+					coalesce(profiles_latest.about, '') || ' ' ||
+					coalesce(profiles_latest.nip05, '')
+				) ILIKE '%' || $1 || '%'
+			  )
+		),
+		-- latest_metadata rows only ever carry raw event content (no parsed
+		-- name/display_name/nip05), so only a pubkey match is meaningful here
+		-- — matches the original query's behavior, which set those fields to
+		-- '' for this branch.
+		pending_matches AS (
+			SELECT
+				pubkey,
+				metadata_event_id,
+				metadata_created_at,
+				profile_text,
+				CASE WHEN pubkey ILIKE $1 || '%' THEN 4 ELSE 0 END AS prefix_score,
+				similarity(pubkey, $1) AS sim
+			FROM latest_metadata
+			WHERE pubkey ILIKE '%' || $1 || '%'
+		),
+		ranked AS (
+			SELECT pubkey, metadata_event_id, metadata_created_at, profile_text, prefix_score, sim FROM projected_matches
+			UNION ALL
+			SELECT pubkey, metadata_event_id, metadata_created_at, profile_text, prefix_score, sim FROM pending_matches
 		)
 		SELECT pubkey, metadata_event_id, metadata_created_at, profile_text
 		FROM ranked
 		ORDER BY prefix_score DESC, sim DESC, metadata_created_at DESC, metadata_event_id DESC
 		LIMIT $2
-	`, query, limit)
+	`, query, limit, catchupSince)
 	if err != nil {
 		return nil, fmt.Errorf("suggest profiles: %w", err)
 	}
