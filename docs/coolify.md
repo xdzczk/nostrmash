@@ -63,6 +63,20 @@ The Compose file builds the repo `Dockerfile` once and starts four services:
 - `worker` via `/app/worker`
 - `trust_worker` via `/app/trust_worker`
 
+### Healthchecks (why Coolify shows "unknown")
+
+A Docker Compose application in Coolify has **no per-service Healthcheck field** in the UI. Coolify reads each service's `healthcheck` from [`../docker-compose.coolify.yml`](../docker-compose.coolify.yml). Without that block, every service stays `unknown`.
+
+The checked-in probes are liveness only (process is listening):
+
+- `api`: `GET /health` on `:8080`
+- `ingestor` / `worker` / `trust_worker`: `GET /metrics` on `:9090`
+- `meilisearch`: `GET /health` on `:7700`
+
+Do not point these at `GET /ready`. That fails when Postgres blips and would mark the API container unhealthy.
+
+After a redeploy that includes this Compose file, Coolify should show `healthy` / `unhealthy` instead of `unknown`. These checks do not replace Prometheus alerts.
+
 ## Public routing
 
 Attach the public domain only to the `api` service.

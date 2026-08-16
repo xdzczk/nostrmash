@@ -19,6 +19,15 @@ x-nostrmash-service: &nostrmash-service
   # These cgroup caps survive redeploy; override via env if needed.
   mem_limit: ${NOSTRMASH_SERVICE_MEM_LIMIT:-512m}
 
+# Liveness only (process is listening). Coolify Compose applications have no
+# per-service Healthcheck UI — they show "unknown" until Compose defines one.
+# Do not probe /ready here: a Postgres blip would mark the container unhealthy.
+x-http-healthcheck: &http-healthcheck
+  interval: 15s
+  timeout: 3s
+  retries: 5
+  start_period: 60s
+
 x-common-env: &common-env
   DATABASE_URL: ${DATABASE_URL}
   LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -45,6 +54,13 @@ services:
       MEILI_MAX_INDEXING_MEMORY: ${MEILI_MAX_INDEXING_MEMORY:-2GiB}
     volumes:
       - meili_data_v2:/meili_data
+    # Official image ships wget. /health is unauthenticated and stays 200
+    # while the process is up, including during index reopen after a restart.
+    # start_period covers the 12GB production index cold-open.
+    healthcheck:
+      <<: *http-healthcheck
+      start_period: 180s
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7700/health"]
 
   api:
     <<: *nostrmash-service
@@ -71,6 +87,9 @@ services:
       PRIMAL_WS_MAX_REQ_PER_MINUTE: ${PRIMAL_WS_MAX_REQ_PER_MINUTE:-240}
       PRIMAL_WS_MAX_SUBSCRIPTIONS: ${PRIMAL_WS_MAX_SUBSCRIPTIONS:-200}
       PRIMAL_WS_REQUEST_TIMEOUT: ${PRIMAL_WS_REQUEST_TIMEOUT:-10s}
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
 
   ingestor:
     <<: *nostrmash-service
@@ -103,6 +122,9 @@ services:
       RELAY_REGISTRY_ENABLED: ${RELAY_REGISTRY_ENABLED:-false}
       RELAY_REGISTRY_RECONCILE_POLL_INTERVAL: ${RELAY_REGISTRY_RECONCILE_POLL_INTERVAL:-30s}
       RELAY_REGISTRY_RECONCILE_DRAIN_TIMEOUT: ${RELAY_REGISTRY_RECONCILE_DRAIN_TIMEOUT:-10s}
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/metrics"]
 
   worker:
     <<: *nostrmash-service
@@ -142,6 +164,9 @@ services:
       RELAY_REGISTRY_ADMISSION_MIN_SCORE_PROBATION: ${RELAY_REGISTRY_ADMISSION_MIN_SCORE_PROBATION:-10}
       RELAY_REGISTRY_ADMISSION_MIN_SCORE_ACTIVE: ${RELAY_REGISTRY_ADMISSION_MIN_SCORE_ACTIVE:-30}
       RELAY_REGISTRY_ADMISSION_DEMOTE_FAILURE_THRESHOLD: ${RELAY_REGISTRY_ADMISSION_DEMOTE_FAILURE_THRESHOLD:-60}
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/metrics"]
 
   trust_worker:
     <<: *nostrmash-service
@@ -164,6 +189,9 @@ services:
       WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE: ${WORKER_JOB_RETENTION_SUCCEEDED_MAX_AGE:-6h}
       WORKER_JOB_RETENTION_DEAD_MAX_AGE: ${WORKER_JOB_RETENTION_DEAD_MAX_AGE:-168h}
       WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT: ${WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT:-20000}
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/metrics"]
 
 volumes:
   meili_data_v2:
