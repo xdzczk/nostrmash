@@ -16,14 +16,14 @@ Use this page for the day-to-day local workflow: starting services, replaying in
 
 Prerequisites:
 
-- Go `1.26.5` (required for exact local parity; pinned by `go.mod` toolchain and CI/Docker workflows)
+- Go `1.26.6` (required for exact local parity; pinned by `go.mod` toolchain and CI/Docker workflows)
 - Docker and Docker Compose
 - Either the Compose-managed Postgres on `localhost:5432` for local `go run` / `go test`, or the full container stack via `docker compose up --build`
 
 Toolchain rationale:
 
-- `go.mod` declares `go 1.26` plus `toolchain go1.26.5`, and CI uses `actions/setup-go` with `1.26.5`.
-- Keeping local validation on `1.26.5` avoids false diffs in `gofmt`, analyzer behavior (`vet`/`staticcheck` stack), and race/coverage output.
+- `go.mod` declares `go 1.26` plus `toolchain go1.26.6`, and CI uses `actions/setup-go` with `1.26.6`.
+- Keeping local validation on `1.26.6` avoids false diffs in `gofmt`, analyzer behavior (`vet`/`staticcheck` stack), and race/coverage output.
 - Do not downgrade checks to satisfy older local toolchains; upgrade local Go instead.
 
 Fast path:
@@ -59,7 +59,7 @@ Migrations are embedded and auto-run on startup, so you do not need a separate m
 
 ## Common loops
 
-Run the canonical reproducible verification path (pinned Go `1.26.5` container + isolated Postgres sidecar):
+Run the canonical reproducible verification path (pinned Go `1.26.6` container + isolated Postgres sidecar):
 
 ```bash
 make verify-docker
@@ -81,7 +81,7 @@ Run the same gate with clean local artifacts (recommended before PR updates):
 make verify-local
 ```
 
-Use `make verify-local` when your host is already aligned to Go `1.26.5` and you want faster iteration than containerized verification.
+Use `make verify-local` when your host is already aligned to Go `1.26.6` and you want faster iteration than containerized verification.
 
 `make verify-local` runs the full `make ci` gate with an isolated coverage profile under `.tmp/` and then cleans generated verification artifacts (`coverage.out`, `coverage-summary.txt`, `.tmp`), so repeated runs stay reproducible and do not leak junk files into export/release workflows.
 
