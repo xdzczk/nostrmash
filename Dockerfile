@@ -55,7 +55,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 	'
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata
+# wget is used by docker-compose.coolify.yml healthchecks (Coolify compose
+# apps have no per-service Healthcheck UI; they read Compose healthcheck).
+RUN apk add --no-cache ca-certificates tzdata wget
 
 WORKDIR /app
 COPY --from=build /out/api /app/api
