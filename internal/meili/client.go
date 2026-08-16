@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	ms "github.com/meilisearch/meilisearch-go"
 )
@@ -118,6 +119,16 @@ func (c *Client) Stats(ctx context.Context) (ServiceStats, error) {
 // NeedsSync compares document counts in Meilisearch against PostgreSQL and
 // returns true when any index is significantly behind (below 80% of PG count)
 // or completely empty. This catches both fresh indexes and interrupted syncs.
+//
+// The notes comparison MUST use the same indexedNotesMaxAge window that
+// streamNotes actually syncs (the notes index deliberately only ever holds
+// the last 14 days, per index_trim.go), not the all-time events count.
+// Comparing against all-time count is a bug that previously made this ratio
+// permanently sit far below the threshold once the corpus grew beyond a few
+// weeks (observed in production: ~30% with a 2.3M-row all-time count vs a
+// 700K-row 14-day window), so NeedsSync returned true on every single
+// api/worker restart forever, triggering a full nuclear resync of the notes
+// window on every deploy regardless of whether Meili was actually caught up.
 func (c *Client) NeedsSync(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	if !c.Enabled() || pool == nil {
 		return false, nil
@@ -128,16 +139,25 @@ func (c *Client) NeedsSync(ctx context.Context, pool *pgxpool.Pool) (bool, error
 	}
 	checks := []countQuery{
 		{IndexProfiles, `SELECT count(*) FROM profiles_latest`},
-		{IndexNotes, `SELECT count(*) FROM events WHERE kind IN (1, 30023)`},
+		{IndexNotes, `SELECT count(*) FROM events WHERE kind IN (1, 30023) AND created_at >= $1::bigint`},
 	}
 	const syncThreshold = 0.80
+	minNotesCreatedAt := indexedNotesMinCreatedAt(time.Now())
 	for _, check := range checks {
 		meiliStats, err := c.service.Index(check.index).GetStatsWithContext(ctx)
 		if err != nil {
 			return false, fmt.Errorf("get stats for index %s: %w", check.index, err)
 		}
-		var pgCount int64
-		if err := pool.QueryRow(ctx, check.sql).Scan(&pgCount); err != nil {
+		var (
+			pgCount int64
+			row     pgx.Row
+		)
+		if check.index == IndexNotes {
+			row = pool.QueryRow(ctx, check.sql, minNotesCreatedAt)
+		} else {
+			row = pool.QueryRow(ctx, check.sql)
+		}
+		if err := row.Scan(&pgCount); err != nil {
 			return false, fmt.Errorf("count rows for %s: %w", check.index, err)
 		}
 		if pgCount == 0 {

@@ -232,6 +232,68 @@ func (c *Client) RunStartupFullSyncIfNeeded(ctx context.Context, pool *pgxpool.P
 	return stats, true, err
 }
 
+// fullSyncPacingBatchInterval bounds how many batches FullSync enqueues
+// before pausing to wait for one of them to finish. Enqueuing every batch
+// of a multi-hundred-thousand-row stream with zero pacing (the original
+// behavior) lets Meilisearch's task queue balloon to the entire stream's
+// worth of tasks almost instantly; Meilisearch's own autobatcher then
+// coalesces long runs of queued tasks into single multi-hundred-thousand
+// document indexing operations that pin ~1 CPU core for minutes at a time,
+// starving /search reads and the incremental sweeper for the whole sync.
+// Waiting periodically caps Meilisearch's queue depth and gives it — and
+// search traffic — small breathing gaps between indexing operations instead
+// of one unbroken flood.
+const fullSyncPacingBatchInterval = 5
+
+// fullSyncPacingDelay is a small pause taken at each pacing checkpoint
+// (after fullSyncPacingBatchInterval batches, once their tasks have
+// finished) purely to leave Meilisearch idle for a beat before the next
+// burst, rather than immediately queuing the next interval's worth of work.
+const fullSyncPacingDelay = 500 * time.Millisecond
+
+// fullSyncPacer tracks enqueued-but-unwaited batches for one stream
+// (notes/profiles/documents) and periodically waits on the most recently
+// enqueued task plus a short sleep, bounding how far Meilisearch's task
+// queue can get ahead of what has actually finished.
+type fullSyncPacer struct {
+	client      *Client
+	batches     int
+	lastTaskUID int64
+}
+
+func (p *fullSyncPacer) recordTask(ctx context.Context, taskUID int64) error {
+	if taskUID != 0 {
+		p.lastTaskUID = taskUID
+	}
+	p.batches++
+	if !shouldPacingCheckpoint(p.batches) {
+		return nil
+	}
+	return p.checkpoint(ctx)
+}
+
+// shouldPacingCheckpoint reports whether the batch count just reached a
+// pacing interval boundary. Extracted as a pure function so the interval
+// arithmetic is unit-testable without a Meilisearch client.
+func shouldPacingCheckpoint(batches int) bool {
+	return batches > 0 && batches%fullSyncPacingBatchInterval == 0
+}
+
+func (p *fullSyncPacer) checkpoint(ctx context.Context) error {
+	if p.lastTaskUID == 0 {
+		return nil
+	}
+	if err := p.client.waitForTask(ctx, p.lastTaskUID); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(fullSyncPacingDelay):
+	}
+	return nil
+}
+
 func (c *Client) FullSync(ctx context.Context, pool *pgxpool.Pool, batchSize int) (SyncStats, error) {
 	if !c.Enabled() || pool == nil {
 		return SyncStats{}, nil
@@ -251,63 +313,47 @@ func (c *Client) FullSync(ctx context.Context, pool *pgxpool.Pool, batchSize int
 		return SyncStats{}, fmt.Errorf("capture meilisearch full sync start time: %w", err)
 	}
 	stats := SyncStats{}
-	// FullSync enqueues Meili tasks without waiting per batch, then waits once
-	// at the end of each stream. Per-batch WaitForTask was the dominant stall
-	// once SQL pages were cheap enough to pipeline.
-	var lastNotesTask, lastProfilesTask, lastDocumentsTask int64
+	notesPacer := &fullSyncPacer{client: c}
 	if err := streamNotes(ctx, pool, batchSize, func(rows []NoteDocument) error {
 		taskUID, err := c.enqueueNotes(ctx, rows)
 		if err != nil {
 			return err
 		}
-		if taskUID != 0 {
-			lastNotesTask = taskUID
-		}
 		stats.Notes += int64(len(rows))
-		return nil
+		return notesPacer.recordTask(ctx, taskUID)
 	}); err != nil {
 		return stats, err
 	}
-	if lastNotesTask != 0 {
-		if err := c.waitForTask(ctx, lastNotesTask); err != nil {
-			return stats, fmt.Errorf("wait notes full sync tasks: %w", err)
-		}
+	if err := notesPacer.checkpoint(ctx); err != nil {
+		return stats, fmt.Errorf("wait notes full sync tasks: %w", err)
 	}
+	profilesPacer := &fullSyncPacer{client: c}
 	if err := streamProfiles(ctx, pool, batchSize, func(rows []ProfileDocument) error {
 		taskUID, err := c.enqueueProfiles(ctx, rows)
 		if err != nil {
 			return err
 		}
-		if taskUID != 0 {
-			lastProfilesTask = taskUID
-		}
 		stats.Profiles += int64(len(rows))
-		return nil
+		return profilesPacer.recordTask(ctx, taskUID)
 	}); err != nil {
 		return stats, err
 	}
-	if lastProfilesTask != 0 {
-		if err := c.waitForTask(ctx, lastProfilesTask); err != nil {
-			return stats, fmt.Errorf("wait profiles full sync tasks: %w", err)
-		}
+	if err := profilesPacer.checkpoint(ctx); err != nil {
+		return stats, fmt.Errorf("wait profiles full sync tasks: %w", err)
 	}
+	documentsPacer := &fullSyncPacer{client: c}
 	if err := streamSearchDocuments(ctx, pool, batchSize, func(rows []SearchDocument) error {
 		taskUID, err := c.enqueueDocuments(ctx, rows)
 		if err != nil {
 			return err
 		}
-		if taskUID != 0 {
-			lastDocumentsTask = taskUID
-		}
 		stats.Documents += int64(len(rows))
-		return nil
+		return documentsPacer.recordTask(ctx, taskUID)
 	}); err != nil {
 		return stats, err
 	}
-	if lastDocumentsTask != 0 {
-		if err := c.waitForTask(ctx, lastDocumentsTask); err != nil {
-			return stats, fmt.Errorf("wait documents full sync tasks: %w", err)
-		}
+	if err := documentsPacer.checkpoint(ctx); err != nil {
+		return stats, fmt.Errorf("wait documents full sync tasks: %w", err)
 	}
 	// FullSync already upserted every note/profile/document that was in
 	// Postgres at syncStartedAt. Drop the redundant sweeper backlog so we

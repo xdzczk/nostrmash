@@ -2,7 +2,7 @@ module github.com/xdzczk/nostrmash
 
 go 1.26
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6
