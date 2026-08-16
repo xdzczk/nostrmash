@@ -1,11 +1,17 @@
 # syntax=docker/dockerfile:1.7
+# Coolify Compose builds inject --build-arg SOURCE_COMMIT automatically
+# (predefined deploy SHA). Declare it here so the value reaches this
+# stage. Do not put ${SOURCE_COMMIT} in docker-compose.coolify.yml —
+# Coolify then locks it as a UI env var that cannot be deleted.
+ARG SOURCE_COMMIT=
 FROM golang:1.26.6-alpine AS build
 
 WORKDIR /src
 
 # Optional overrides for non-git build contexts (exported tarballs, etc.).
-# When .git is present in the build context, the checkout SHA always wins for
-# COMMIT — Coolify's frozen SOURCE_COMMIT env must not label a newer binary.
+# Prefer git checkout SHA when .git is present. Otherwise use Coolify's
+# SOURCE_COMMIT build-arg, then a manual COMMIT arg.
+ARG SOURCE_COMMIT=
 ARG VERSION=
 ARG COMMIT=
 ARG BUILD_TIME=
@@ -29,6 +35,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 	sh -ec '\
 		if [ -d .git ]; then \
 			RESOLVED_COMMIT="$(git rev-parse HEAD)"; \
+		elif [ -n "${SOURCE_COMMIT}" ] && [ "${SOURCE_COMMIT}" != "unknown" ] && [ "${SOURCE_COMMIT}" != "HEAD" ]; then \
+			RESOLVED_COMMIT="${SOURCE_COMMIT}"; \
 		elif [ -n "${COMMIT}" ] && [ "${COMMIT}" != "unknown" ]; then \
 			RESOLVED_COMMIT="${COMMIT}"; \
 		else \

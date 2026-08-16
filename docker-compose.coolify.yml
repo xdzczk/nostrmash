@@ -4,11 +4,11 @@ x-nostrmash-service: &nostrmash-service
   build:
     context: .
     dockerfile: Dockerfile
-    # Do not pass APP_VERSION / SOURCE_COMMIT / BUILD_TIME as Compose
-    # interpolations. Coolify locks any ${VAR} it sees and will not let
-    # you delete the env in the UI, which is how a leftover SHA
-    # (e.g. 23dcf1ee) kept mislabeling every deploy. The Dockerfile
-    # stamps version/commit from the git checkout when .git is present.
+    # Do not interpolate ${SOURCE_COMMIT} / ${APP_VERSION} here. Coolify
+    # locks those as undeletable UI env vars. Coolify already passes
+    # --build-arg SOURCE_COMMIT on compose builds; the Dockerfile
+    # declares ARG SOURCE_COMMIT and stamps ldflags from it when .git
+    # is not in the build context.
   image: nostrmash:coolify
   restart: unless-stopped
   init: true
