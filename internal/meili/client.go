@@ -120,10 +120,7 @@ func retryUntil(ctx context.Context, timeout time.Duration, fn func(context.Cont
 		}
 		select {
 		case <-ctx.Done():
-			if last != nil {
-				return fmt.Errorf("%w: %w", ctx.Err(), last)
-			}
-			return ctx.Err()
+			return fmt.Errorf("%w: %w", ctx.Err(), last)
 		case <-time.After(delay):
 		}
 		if delay < 2*time.Second {
