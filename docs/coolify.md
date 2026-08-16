@@ -77,6 +77,12 @@ Do not point these at `GET /ready`. That fails when Postgres blips and would mar
 
 After a redeploy that includes this Compose file, Coolify should show `healthy` / `unhealthy` instead of `unknown`. These checks do not replace Prometheus alerts.
 
+### Why Coolify shows "1x restarts" after a redeploy
+
+That counter is Docker `RestartCount`, not a Coolify decoration. Compose starts `api` and `meilisearch` at the same time. The API used to call Meilisearch `Connect()` (a hard `GET /health`) during process init; Meilisearch is often still binding `:7700` for 15–20s, so the API exited and `restart: unless-stopped` brought it back once.
+
+The API and worker now construct the Meilisearch client without pinging, then retry index setup for up to 90s and continue if Meilisearch is still down (search falls back to Postgres). A leftover `1x` on an *old* container from before this change is expected; new deploys should stay at `0` restarts unless something else actually crashes.
+
 ## Public routing
 
 Attach the public domain only to the `api` service.

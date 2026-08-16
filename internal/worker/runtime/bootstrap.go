@@ -95,10 +95,10 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		return Bootstrap{}, func() {}, fmt.Errorf("init meilisearch client: %w", err)
 	}
 	if meiliClient.Enabled() {
-		if err := meiliClient.EnsureIndexes(ctx); err != nil {
-			runtimebootstrap.ShutdownTracing(log)
-			pool.Close()
-			return Bootstrap{}, func() {}, fmt.Errorf("ensure meilisearch indexes: %w", err)
+		if err := meiliClient.EnsureIndexesReady(ctx); err != nil {
+			// Same Coolify compose race as api: do not fail worker
+			// startup because Meilisearch is still binding :7700.
+			log.Error("meilisearch_prepare", "error", err)
 		}
 	}
 	incProfile := cfg.IncrementalStats.ProfilePublicStats
