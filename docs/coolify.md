@@ -141,16 +141,16 @@ TRUST_ENABLE_SCORE_COMPUTE=true
 TRUST_ENABLE_REDIS_SYNC=false
 # TRUST_ENABLE_NEIGHBORHOODS=false
 # TRUST_NEIGHBORHOOD_MAX_MEMBERS=5000
-# Optional: human release tag for build_info version (defaults to git SHA).
-# APP_VERSION=v1.2.3
 ```
 
 Build identity is stamped from the git checkout during `docker build`
-(`git rev-parse HEAD` → `main.buildCommit` / `nostrmash_build_info`). You do
-**not** need to keep `SOURCE_COMMIT` in sync across redeploys; if a leftover
-`SOURCE_COMMIT` / `APP_VERSION` env is still set in Coolify it is ignored for
-the commit label whenever `.git` is present in the build context. Set
-`APP_VERSION` only when you want a human tag (e.g. `v1.2.3`) instead of the SHA.
+(`git rev-parse HEAD` → `main.buildVersion` / `main.buildCommit`). Do **not**
+set `APP_VERSION`, `SOURCE_COMMIT`, or `BUILD_TIME` in the Coolify UI —
+`${APP_VERSION}` in Compose makes Coolify lock the field so you cannot
+delete a leftover SHA, and that stale value is what showed up as
+`version=23dcf1ee` in production logs. After this Compose file no longer
+references those vars, delete them from Coolify Environment if they are
+still listed.
 
 ### Single-server memory budgets
 
