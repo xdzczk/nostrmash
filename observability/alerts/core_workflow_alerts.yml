@@ -21,7 +21,18 @@ groups:
           slo: api-latency
         annotations:
           summary: "API critical-path p95 latency is high"
-          description: "Critical-route p95 latency exceeds 1.5s for 10m. Check DB pool pressure and query/store trace spans."
+          description: "p95 latency for pure-Postgres metadata routes (events/{id}, threads/{eventId}, profiles/{pubkey}) exceeds 1.5s for 10m. /api/v1/search is intentionally excluded (see NostrMashSearchLatencyHigh) since it fails independently on Meilisearch pressure. Check DB pool pressure and query/store trace spans."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashSearchLatencyHigh
+        expr: nostrmash:api:search_latency_p95_seconds:5m > 2
+        for: 10m
+        labels:
+          severity: warning
+          slo: search-latency
+        annotations:
+          summary: "Search API p95 latency is high"
+          description: "/api/v1/search p95 latency exceeds 2s for 10m. This route's latency is dominated by Meilisearch, not Postgres — check Meilisearch CPU/health first (docker stats, /tasks queue depth), in particular whether a FullSync is running (worker/api startup logs: meilisearch_indexes_stale) or the sweeper is behind (nostrmash_pending_meilisearch_syncs, NostrMashMeilisearchSyncLagHigh)."
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashDBPoolSaturation

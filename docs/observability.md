@@ -284,7 +284,8 @@ This first pass is intentionally conservative and SLO-aligned. The intent is act
 Recording rules provide reusable series for SLO/dashboards, including:
 
 - API error ratio (`nostrmash:api:error_ratio5m`)
-- Critical path latency p95 (`nostrmash:api:critical_path_latency_p95_seconds:5m`)
+- Critical path latency p95, Postgres metadata routes only (`nostrmash:api:critical_path_latency_p95_seconds:5m`)
+- Search latency p95, tracked separately since it is Meilisearch-bound rather than Postgres-bound (`nostrmash:api:search_latency_p95_seconds:5m`)
 - DB pool saturation helpers (`nostrmash:db_pool:max_open_usage_ratio`, `nostrmash:db_pool:wait_rate5m`)
 - Worker dead/retry ratios (`nostrmash:worker:dead_ratio30m`, `nostrmash:worker:retry_ratio15m`)
 - Ingest/checkpoint/backlog/rebuild helpers (`nostrmash:ingest:checkpoint_freshness_seconds:max`, `nostrmash:worker:queue_backlog_oldest_pending_age_seconds`, `nostrmash:rebuild:active_oldest_age_seconds`)

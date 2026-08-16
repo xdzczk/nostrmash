@@ -669,8 +669,11 @@ Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use 
   - Meaning: sustained API `5xx` ratio above SLO early-warning level.
   - Check next: per-route `status_code` mix, then `http.request -> query.* -> store.*` traces.
 - `NostrMashAPICriticalPathLatencyHigh`
-  - Meaning: core read-route p95 latency is above target.
+  - Meaning: pure-Postgres metadata read-route p95 latency (events/threads/profiles by ID) is above target. Excludes `/api/v1/search`, which has its own alert below since it fails for unrelated reasons.
   - Check next: DB pool pressure, then dominant query/store spans by `trace_id`.
+- `NostrMashSearchLatencyHigh`
+  - Meaning: `/api/v1/search` p95 latency is above target. This is a Meilisearch-latency signal, not a Postgres one.
+  - Check next: Meilisearch CPU/health and task queue depth first; check for an in-progress startup FullSync (`meilisearch_indexes_stale` in worker/api logs) or a stalled/lagging sweeper (`NostrMashMeilisearchSyncLagHigh`, `NostrMashMeilisearchSweeperStalled`) before looking at Postgres at all.
 - `NostrMashDBPoolSaturation`
   - Meaning: pool is near max-open and callers are waiting.
   - Check next: slow query paths, pool sizing, and concurrent worker/API load.
