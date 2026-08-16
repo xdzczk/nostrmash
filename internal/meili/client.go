@@ -63,14 +63,73 @@ func NewClient(cfg Config) (*Client, error) {
 	if apiKey != "" {
 		options = append(options, ms.WithAPIKey(apiKey))
 	}
-	client, err := ms.Connect(url, options...)
-	if err != nil {
-		return nil, fmt.Errorf("connect meilisearch: %w", err)
-	}
+	// Use New, not Connect. Connect pings GET /health immediately and
+	// fails if Meilisearch is not yet listening — the Coolify Compose
+	// race that produced "1x restarts" on api after every redeploy
+	// (meili and api start together; meili binds :7700 ~15-20s later).
+	// The client is still fully usable; callers that need the process
+	// up should use EnsureIndexesReady.
 	return &Client{
 		enabled: true,
-		service: client,
+		service: ms.New(url, options...),
 	}, nil
+}
+
+// startupReadyTimeout is how long EnsureIndexesReady waits for Meilisearch
+// to accept connections after a simultaneous compose start. Observed
+// production: ~19s from container start to GET /health succeeding on a
+// warm 12GB index; 90s leaves headroom for a cold reopen without making
+// api/worker crash-loop via restart: unless-stopped.
+const startupReadyTimeout = 90 * time.Second
+
+// EnsureIndexesReady waits until Meilisearch accepts connections, then
+// creates/updates indexes. Unlike NewClient this may block; unlike a
+// hard Connect() it retries instead of failing the process on the first
+// connection-refused.
+func (c *Client) EnsureIndexesReady(ctx context.Context) error {
+	if !c.Enabled() {
+		return nil
+	}
+	return retryUntil(ctx, startupReadyTimeout, func(callCtx context.Context) error {
+		return c.EnsureIndexes(callCtx)
+	})
+}
+
+func retryUntil(ctx context.Context, timeout time.Duration, fn func(context.Context) error) error {
+	if timeout <= 0 {
+		return fn(ctx)
+	}
+	deadline := time.Now().Add(timeout)
+	var last error
+	delay := 200 * time.Millisecond
+	for {
+		if err := ctx.Err(); err != nil {
+			if last != nil {
+				return fmt.Errorf("%w: %w", err, last)
+			}
+			return err
+		}
+		callCtx, cancel := context.WithTimeout(ctx, DefaultHTTPTimeout)
+		last = fn(callCtx)
+		cancel()
+		if last == nil {
+			return nil
+		}
+		if !time.Now().Add(delay).Before(deadline) {
+			return fmt.Errorf("meilisearch not ready after %s: %w", timeout, last)
+		}
+		select {
+		case <-ctx.Done():
+			if last != nil {
+				return fmt.Errorf("%w: %w", ctx.Err(), last)
+			}
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+		if delay < 2*time.Second {
+			delay *= 2
+		}
+	}
 }
 
 func (c *Client) Enabled() bool {

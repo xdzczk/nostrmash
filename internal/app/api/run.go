@@ -92,8 +92,12 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		return err
 	}
 	if meiliClient.Enabled() {
-		if err := meiliClient.EnsureIndexes(ctx); err != nil {
-			return err
+		if err := meiliClient.EnsureIndexesReady(ctx); err != nil {
+			// Meilisearch coming up a few seconds after api is the
+			// normal Coolify compose race. Search already falls back
+			// to Postgres; crashing here is what produced the
+			// dashboard "1x restarts" after every redeploy.
+			log.Error("meilisearch_prepare", "error", err)
 		}
 		stats, statsErr := meiliClient.Stats(ctx)
 		if statsErr != nil {
