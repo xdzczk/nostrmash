@@ -465,6 +465,50 @@ func (s *Store) GetActiveAndPinnedRelayURLs(ctx context.Context) ([]string, erro
 	return out, rows.Err()
 }
 
+// ListFastHealthyLookupRelays returns active/pinned relays that recently
+// connected or probed OK, ranked by connect+EOSE latency then score.
+// Popularity score is a tie-break only — slow firehoses must not win
+// event-fallback fanout. Extra rows are fetched so callers can drop
+// directory relays and still fill the fanout cap.
+func (s *Store) ListFastHealthyLookupRelays(ctx context.Context, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+	fetch := limit + 8
+	if fetch < limit*3 {
+		fetch = limit * 3
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT normalized_url
+		FROM relay_registry
+		WHERE admission_state IN ('active', 'pinned')
+		  AND manual_policy != 'blocked'
+		  AND manual_policy != 'drained'
+		  AND (
+		    last_probe_status = 'ok'
+		    OR last_connect_ok IS TRUE
+		  )
+		ORDER BY
+		  (COALESCE(avg_connect_latency_ms, 10000) + COALESCE(avg_eose_latency_ms, 0)) ASC,
+		  score DESC,
+		  normalized_url ASC
+		LIMIT $1
+	`, fetch)
+	if err != nil {
+		return nil, fmt.Errorf("list fast healthy lookup relays: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			return nil, fmt.Errorf("scan lookup relay url: %w", err)
+		}
+		out = append(out, url)
+	}
+	return out, rows.Err()
+}
+
 // ListRelaysForProbing returns relays that should be probed, ordered by probe priority.
 // Probation and active/pinned stay ahead so the live set keeps fresh health data.
 // Candidate and inactive share the next tier and are ordered by popularity so

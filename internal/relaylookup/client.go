@@ -17,33 +17,87 @@ import (
 )
 
 type Client struct {
-	relays    []string
-	timeout   time.Duration
-	maxFanout int
-	log       *slog.Logger
+	mu            sync.RWMutex
+	eventRelays   []string
+	profileRelays []string
+	timeout       time.Duration
+	maxFanout     int
+	log           *slog.Logger
+}
+
+// Config configures a split event/profile fallback client.
+type Config struct {
+	EventURLs   []string
+	ProfileURLs []string
+	Timeout     time.Duration
+	MaxFanout   int
 }
 
 func NewClient(relays []string, timeout time.Duration, maxFanout int) *Client {
-	normalized := normalizeRelays(relays)
+	return NewSplitClient(Config{
+		EventURLs:   relays,
+		ProfileURLs: relays,
+		Timeout:     timeout,
+		MaxFanout:   maxFanout,
+	})
+}
+
+func NewSplitClient(cfg Config) *Client {
+	eventRelays := WithoutDirectoryRelays(normalizeRelays(cfg.EventURLs))
+	profileRelays := normalizeRelays(cfg.ProfileURLs)
+	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
+	maxFanout := cfg.MaxFanout
 	if maxFanout <= 0 {
-		maxFanout = len(normalized)
-	}
-	if maxFanout > len(normalized) {
-		maxFanout = len(normalized)
+		maxFanout = max(len(eventRelays), len(profileRelays))
 	}
 	return &Client{
-		relays:    normalized,
-		timeout:   timeout,
-		maxFanout: maxFanout,
-		log:       logging.New("relaylookup"),
+		eventRelays:   eventRelays,
+		profileRelays: profileRelays,
+		timeout:       timeout,
+		maxFanout:     maxFanout,
+		log:           logging.New("relaylookup"),
 	}
 }
 
 func (c *Client) Enabled() bool {
-	return c != nil && len(c.relays) > 0 && c.maxFanout > 0
+	if c == nil || c.maxFanout <= 0 {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.eventRelays) > 0 || len(c.profileRelays) > 0
+}
+
+func (c *Client) EventRelays() []string {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]string(nil), c.eventRelays...)
+}
+
+func (c *Client) ProfileRelays() []string {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]string(nil), c.profileRelays...)
+}
+
+// SetEventRelays replaces the event-lookup relay list. Directory relays are dropped.
+func (c *Client) SetEventRelays(relays []string) {
+	if c == nil {
+		return
+	}
+	normalized := WithoutDirectoryRelays(normalizeRelays(relays))
+	c.mu.Lock()
+	c.eventRelays = normalized
+	c.mu.Unlock()
 }
 
 func (c *Client) FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
@@ -55,7 +109,7 @@ func (c *Client) FetchEventsByIDs(ctx context.Context, ids []string) (map[string
 		return map[string]json.RawMessage{}, nil
 	}
 
-	events, err := c.collectFromRelays(ctx, map[string]any{
+	events, err := c.collectFromRelays(ctx, c.EventRelays(), map[string]any{
 		"ids": normalizedIDs,
 	}, len(normalizedIDs))
 	if err != nil {
@@ -77,7 +131,7 @@ func (c *Client) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (
 		return map[string]store.ProfileProjection{}, nil
 	}
 
-	events, err := c.collectFromRelays(ctx, map[string]any{
+	events, err := c.collectFromRelays(ctx, c.ProfileRelays(), map[string]any{
 		"kinds":   []int{0},
 		"authors": normalizedPubkeys,
 		"limit":   len(normalizedPubkeys) * 2,
@@ -135,8 +189,7 @@ func (c *Client) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (
 	return winners, nil
 }
 
-func (c *Client) collectFromRelays(ctx context.Context, filter map[string]any, maxEvents int) ([]json.RawMessage, error) {
-	relays := c.relays
+func (c *Client) collectFromRelays(ctx context.Context, relays []string, filter map[string]any, maxEvents int) ([]json.RawMessage, error) {
 	if c.maxFanout < len(relays) {
 		relays = relays[:c.maxFanout]
 	}
