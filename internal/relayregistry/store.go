@@ -465,10 +465,16 @@ func (s *Store) GetActiveAndPinnedRelayURLs(ctx context.Context) ([]string, erro
 	return out, rows.Err()
 }
 
-// ListFastHealthyLookupRelays returns active/pinned relays that recently
-// connected or probed OK, ranked by connect+EOSE latency then score.
-// Popularity score is a tie-break only — slow firehoses must not win
-// event-fallback fanout. Extra rows are fetched so callers can drop
+// ListFastHealthyLookupRelays returns active/pinned relays whose most recent
+// probe fully succeeded (connect+subscribe+EOSE), ranked by connect+EOSE
+// latency then score. Popularity score is a tie-break only — slow firehoses
+// must not win event-fallback fanout. avg_connect_latency_ms/avg_eose_latency_ms
+// are overwritten from the latest probe only (relayprobe.Scheduler.persistResult),
+// not a true rolling average, and are set to NULL together with last_eose_ok=false
+// whenever the latest probe's EOSE step failed. Requiring last_eose_ok IS TRUE
+// guarantees both latency columns are non-null real measurements here, so a
+// relay that merely connected but failed EOSE can't win ranking via a false
+// COALESCE-to-zero latency. Extra rows are fetched so callers can drop
 // directory relays and still fill the fanout cap.
 func (s *Store) ListFastHealthyLookupRelays(ctx context.Context, limit int) ([]string, error) {
 	if limit <= 0 {
@@ -484,12 +490,9 @@ func (s *Store) ListFastHealthyLookupRelays(ctx context.Context, limit int) ([]s
 		WHERE admission_state IN ('active', 'pinned')
 		  AND manual_policy != 'blocked'
 		  AND manual_policy != 'drained'
-		  AND (
-		    last_probe_status = 'ok'
-		    OR last_connect_ok IS TRUE
-		  )
+		  AND last_eose_ok IS TRUE
 		ORDER BY
-		  (COALESCE(avg_connect_latency_ms, 10000) + COALESCE(avg_eose_latency_ms, 0)) ASC,
+		  (COALESCE(avg_connect_latency_ms, 10000) + COALESCE(avg_eose_latency_ms, 10000)) ASC,
 		  score DESC,
 		  normalized_url ASC
 		LIMIT $1
