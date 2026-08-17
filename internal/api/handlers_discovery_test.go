@@ -601,6 +601,64 @@ func TestDiscoveryHomeRoute_SectionFailureReturnsDegradedBundle(t *testing.T) {
 	}
 }
 
+func TestTrendingNotes_BackendErrorReturnsDegradedEmpty(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
+			return nil, errors.New("db timeout")
+		},
+	}, 200)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/notes/trending", h.GetTrendingNotes)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Fatalf("expected degraded payload, got %#v", body)
+	}
+	notes, ok := body["notes"].([]any)
+	if !ok || len(notes) != 0 {
+		t.Fatalf("expected empty notes, got %#v", body["notes"])
+	}
+}
+
+func TestHotConversations_BackendErrorReturnsDegradedEmpty(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		getHotConversationsFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]store.HotConversation, error) {
+			return nil, errors.New("db timeout")
+		},
+	}, 200)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/conversations/hot", h.GetHotConversations)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/conversations/hot", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Fatalf("expected degraded payload, got %#v", body)
+	}
+	conversations, ok := body["conversations"].([]any)
+	if !ok || len(conversations) != 0 {
+		t.Fatalf("expected empty conversations, got %#v", body["conversations"])
+	}
+}
+
 func TestRisingProfiles_BackendErrorReturnsDegradedEmpty(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
 		getRisingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {

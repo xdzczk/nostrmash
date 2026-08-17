@@ -51,8 +51,9 @@ type batchEventsRequest struct {
 }
 
 type batchEventsResponse struct {
-	Events  []json.RawMessage `json:"events"`
-	Missing []string          `json:"missing"`
+	Events   []json.RawMessage `json:"events"`
+	Missing  []string          `json:"missing"`
+	Degraded bool              `json:"degraded,omitempty"`
 }
 
 func (h Handlers) BatchGetEvents(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +97,14 @@ func (h Handlers) BatchGetEvents(w http.ResponseWriter, r *http.Request) {
 
 	foundByID, err := h.service.GetEventBatch(r.Context(), normalizedIDs)
 	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		recordDiscoveryDegrade(r.Context(), "events_batch", "backend", err, nil)
+		resp := batchEventsResponse{
+			Events:   []json.RawMessage{},
+			Missing:  append([]string(nil), normalizedIDs...),
+			Degraded: true,
+		}
+		slices.Sort(resp.Missing)
+		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 

@@ -34,6 +34,33 @@ func TestBatchGetProfiles_RejectsOversizedPayload(t *testing.T) {
 	}
 }
 
+func TestBatchGetEvents_BackendErrorReturnsDegradedMissing(t *testing.T) {
+	handlers := mustNewHandlers(t, fakeEventReader{
+		getEventRawsByIDs: func(_ context.Context, _ []string) (map[string]json.RawMessage, error) {
+			return nil, errors.New("db timeout")
+		},
+	}, 200)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/events/batch", strings.NewReader(`{"ids":["evt_a","evt_b"]}`))
+	rec := httptest.NewRecorder()
+	handlers.BatchGetEvents(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body batchEventsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !body.Degraded {
+		t.Fatalf("expected degraded batch, got %#v", body)
+	}
+	if len(body.Events) != 0 {
+		t.Fatalf("expected empty events, got %#v", body.Events)
+	}
+	if len(body.Missing) != 2 {
+		t.Fatalf("expected requested ids marked missing, got %#v", body.Missing)
+	}
+}
+
 func TestBatchGetProfiles_BackendErrorReturnsDegradedMissing(t *testing.T) {
 	handlers := mustNewHandlers(t, fakeEventReader{
 		getProfilesByBatch: func(_ context.Context, _ []string) (map[string]store.ProfileProjection, error) {
