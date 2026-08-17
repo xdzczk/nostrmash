@@ -538,6 +538,98 @@ func TestDiscoveryHomeRoute_RendersSparseSectionWithoutDroppingBundle(t *testing
 	}
 }
 
+func TestDiscoveryHomeRoute_SectionFailureReturnsDegradedBundle(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
+				{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hello"},
+			}, nil
+		},
+		getTrendingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {
+			return []storeread.TrendingProfile{{Pubkey: "pk_a", Score: 9}}, nil
+		},
+		getRisingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {
+			return nil, errors.New("rising snapshot timeout")
+		},
+		getHomeTrendingDomainsFn: func(_ context.Context, _ time.Duration, _ int) ([]store.DomainSummaryProjection, error) {
+			return nil, nil
+		},
+		getPublicNetworkStatsFn: func(_ context.Context, _ int) (storeread.PublicDiscoveryNetworkStats, error) {
+			return storeread.PublicDiscoveryNetworkStats{
+				EventsIngested:    1,
+				ProjectedProfiles: 1,
+				Relays:            1,
+			}, nil
+		},
+	}, 200)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/home", h.GetDiscoveryHome)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/home", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Fatalf("expected degraded bundle, got %#v", body)
+	}
+	reasons, ok := body["degraded_reasons"].([]any)
+	if !ok || len(reasons) != 1 || reasons[0] != "rising_profiles" {
+		t.Fatalf("unexpected degraded_reasons: %#v", body["degraded_reasons"])
+	}
+	sections, ok := body["sections"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing sections payload: %#v", body)
+	}
+	notes, ok := sections["trending_notes"].([]any)
+	if !ok || len(notes) != 1 {
+		t.Fatalf("expected surviving trending_notes section, got %#v", sections["trending_notes"])
+	}
+	profiles, ok := sections["profiles"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing profiles section: %#v", sections)
+	}
+	rising, ok := profiles["rising"].([]any)
+	if !ok || len(rising) != 0 {
+		t.Fatalf("expected empty rising section, got %#v", profiles["rising"])
+	}
+}
+
+func TestRisingProfiles_BackendErrorReturnsDegradedEmpty(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		getRisingProfilesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingProfile, error) {
+			return nil, errors.New("db timeout")
+		},
+	}, 200)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/profiles/rising", h.GetRisingProfiles)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/profiles/rising", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Fatalf("expected degraded payload, got %#v", body)
+	}
+	profiles, ok := body["profiles"].([]any)
+	if !ok || len(profiles) != 0 {
+		t.Fatalf("expected empty profiles list, got %#v", body["profiles"])
+	}
+}
+
 func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 	computedAt := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	h := mustNewHandlers(t, fakeEventReader{

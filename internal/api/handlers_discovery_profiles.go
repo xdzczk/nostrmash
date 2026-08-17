@@ -159,8 +159,14 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		default:
 			profilesRows, rowsErr = h.service.GetTrendingProfiles(ctx, window, limit, offset)
 		}
+		degraded := false
 		if rowsErr != nil {
-			return nil, rowsErr
+			if query.IsUnsupportedCapability(rowsErr) {
+				return nil, rowsErr
+			}
+			recordDiscoveryDegrade(ctx, "discovery_profiles", surface, rowsErr, nil)
+			profilesRows = nil
+			degraded = true
 		}
 		pubkeys := make([]string, 0, len(profilesRows))
 		for _, profile := range profilesRows {
@@ -168,7 +174,9 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		}
 		identities, identitiesErr := h.resolveProfileIdentities(ctx, pubkeys)
 		if identitiesErr != nil {
-			return nil, identitiesErr
+			recordDiscoveryDegrade(ctx, "discovery_profiles", "profile_identities", identitiesErr, nil)
+			identities = map[string]profileIdentityFields{}
+			degraded = true
 		}
 		profiles := buildDiscoveryProfileItems(profilesRows, identities)
 		payload := map[string]any{
@@ -176,6 +184,10 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 			"window":      windowLabel,
 			"profiles":    profiles,
 			"consistency": "eventual",
+		}
+		if degraded {
+			payload["degraded"] = true
+			payload["degraded_reason"] = "discovery_profiles_unavailable"
 		}
 		computedAt := time.Now().UTC()
 		addDiscoveryListMeta(payload, windowLabel, &computedAt, len(profiles))
