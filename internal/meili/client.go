@@ -155,7 +155,7 @@ func (c *Client) Stats(ctx context.Context) (ServiceStats, error) {
 	if err != nil {
 		return ServiceStats{}, fmt.Errorf("read meilisearch health: %w", err)
 	}
-	stats, err := c.service.GetStatsWithContext(ctx)
+	stats, err := c.service.GetStatsWithContext(ctx, nil)
 	if err != nil {
 		return ServiceStats{}, fmt.Errorf("read meilisearch stats: %w", err)
 	}
@@ -200,7 +200,7 @@ func (c *Client) NeedsSync(ctx context.Context, pool *pgxpool.Pool) (bool, error
 	const syncThreshold = 0.80
 	minNotesCreatedAt := indexedNotesMinCreatedAt(time.Now())
 	for _, check := range checks {
-		meiliStats, err := c.service.Index(check.index).GetStatsWithContext(ctx)
+		meiliStats, err := c.service.Index(check.index).GetStatsWithContext(ctx, nil)
 		if err != nil {
 			return false, fmt.Errorf("get stats for index %s: %w", check.index, err)
 		}
