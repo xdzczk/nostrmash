@@ -53,10 +53,13 @@ type APIRelayConfig struct {
 }
 
 type APIRelayFallbackConfig struct {
-	Enabled   bool
-	URLs      []string
-	Timeout   time.Duration
-	MaxFanout int
+	Enabled         bool
+	URLs            []string
+	ProfileURLs     []string
+	Timeout         time.Duration
+	MaxFanout       int
+	UseRegistry     bool
+	RefreshInterval time.Duration
 }
 
 type APIDiscoveryCacheConfig struct {
@@ -200,6 +203,18 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	profileFallbackURLs := parseCSVEnv("API_RELAY_FALLBACK_PROFILE_URLS")
+	if len(profileFallbackURLs) == 0 {
+		profileFallbackURLs = []string{"wss://purplepag.es"}
+	}
+	normalizedProfileFallbackURLs, err := normalizeFallbackRelayURLs(profileFallbackURLs)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	fallbackRefreshInterval, err := getEnvPositiveDurationStrict("API_RELAY_FALLBACK_REFRESH_INTERVAL", 5*time.Minute)
+	if err != nil {
+		return APIConfig{}, err
+	}
 
 	cfg := APIConfig{
 		Shared: shared,
@@ -234,10 +249,13 @@ func LoadAPI() (APIConfig, error) {
 			Disabled: parseCSVEnv("INGESTOR_RELAY_DISABLED"),
 		},
 		RelayFallback: APIRelayFallbackConfig{
-			Enabled:   getEnvBool("API_RELAY_FALLBACK_ENABLED", false),
-			URLs:      normalizedFallbackURLs,
-			Timeout:   relayFallbackTimeout,
-			MaxFanout: relayFallbackMaxFanout,
+			Enabled:         getEnvBool("API_RELAY_FALLBACK_ENABLED", false),
+			URLs:            normalizedFallbackURLs,
+			ProfileURLs:     normalizedProfileFallbackURLs,
+			Timeout:         relayFallbackTimeout,
+			MaxFanout:       relayFallbackMaxFanout,
+			UseRegistry:     getEnvBool("API_RELAY_FALLBACK_USE_REGISTRY", true),
+			RefreshInterval: fallbackRefreshInterval,
 		},
 		DiscoveryCache: APIDiscoveryCacheConfig{
 			Enabled:        getEnvBool("API_DISCOVERY_CACHE_ENABLED", true),

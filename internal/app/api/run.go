@@ -24,6 +24,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/relaylookup"
+	"github.com/xdzczk/nostrmash/internal/relayregistry"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/traceutil"
 	"github.com/xdzczk/nostrmash/internal/trust"
@@ -136,13 +137,26 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		if policyMax := cfg.Shared.TrustPolicy.FallbackFetchMaxRelaysPerAttempt; policyMax > 0 && policyMax < maxFanout {
 			maxFanout = policyMax
 		}
-		fallbackReader = relaylookup.NewClient(cfg.RelayFallback.URLs, cfg.RelayFallback.Timeout, maxFanout)
+		lookupClient := relaylookup.NewSplitClient(relaylookup.Config{
+			EventURLs:   cfg.RelayFallback.URLs,
+			ProfileURLs: cfg.RelayFallback.ProfileURLs,
+			Timeout:     cfg.RelayFallback.Timeout,
+			MaxFanout:   maxFanout,
+		})
+		fallbackReader = lookupClient
 		log.Info(
 			"relay_fallback_enabled",
-			"relay_count", len(cfg.RelayFallback.URLs),
+			"event_relays", lookupClient.EventRelays(),
+			"profile_relays", lookupClient.ProfileRelays(),
 			"timeout", cfg.RelayFallback.Timeout.String(),
 			"max_fanout", maxFanout,
+			"use_registry", cfg.RelayFallback.UseRegistry,
 		)
+		if cfg.RelayFallback.UseRegistry {
+			registry := relayregistry.NewStore(pool)
+			refreshEventFallbackRelays(ctx, log, lookupClient, registry, cfg.RelayFallback.URLs, maxFanout)
+			go runEventFallbackRefreshLoop(ctx, log, lookupClient, registry, cfg.RelayFallback.URLs, maxFanout, cfg.RelayFallback.RefreshInterval)
+		}
 	}
 	profilePersister := newMeiliSyncProfilePersister(
 		query.AdaptFallbackProfilePersister(queryStore),

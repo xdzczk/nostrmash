@@ -116,9 +116,13 @@ Relay registry seeds (worker) are a cold-start floor, not permanent pins. Prefer
 # Worker — bootstrap seeds compete for active slots via admission scoring/caps
 RELAY_REGISTRY_SEED_RELAYS=wss://relay.primal.net,wss://nos.lol,wss://relay.damus.io
 
-# Optional: on-demand profile/relay-list lookup (not firehose ingest)
+# Optional: on-demand lookup on local miss (not firehose ingest).
+# Event fallback prefers the fastest healthy active/pinned registry relays
+# and pads with this static floor (INGESTOR_RELAY_URLS if unset).
+# Profile fallback uses a directory list, not note firehoses.
 # API_RELAY_FALLBACK_ENABLED=true
-# API_RELAY_FALLBACK_URLS=wss://purplepag.es
+# API_RELAY_FALLBACK_URLS=wss://nos.lol,wss://nostr.mom
+# API_RELAY_FALLBACK_PROFILE_URLS=wss://purplepag.es
 ```
 
 Set this only when Redis sync is enabled:

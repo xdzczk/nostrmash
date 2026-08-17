@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -495,6 +496,35 @@ func TestLoadAPI_FallbackRelayURLsNormalizeAndDeduplicate(t *testing.T) {
 	}
 	if len(cfg.RelayFallback.URLs) != 1 || cfg.RelayFallback.URLs[0] != "wss://relay.example.com" {
 		t.Fatalf("unexpected normalized fallback urls: %#v", cfg.RelayFallback.URLs)
+	}
+	if len(cfg.RelayFallback.ProfileURLs) != 1 || cfg.RelayFallback.ProfileURLs[0] != "wss://purplepag.es" {
+		t.Fatalf("expected default profile fallback url, got %#v", cfg.RelayFallback.ProfileURLs)
+	}
+	if !cfg.RelayFallback.UseRegistry {
+		t.Fatalf("expected registry-backed event fallback to default on")
+	}
+	if cfg.RelayFallback.RefreshInterval != 5*time.Minute {
+		t.Fatalf("expected default refresh interval 5m, got %s", cfg.RelayFallback.RefreshInterval)
+	}
+}
+
+func TestLoadAPI_FallbackProfileURLsOverrideDefault(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("API_RELAY_FALLBACK_ENABLED", "true")
+	t.Setenv("API_RELAY_FALLBACK_URLS", "wss://nos.lol")
+	t.Setenv("API_RELAY_FALLBACK_PROFILE_URLS", "wss://directory.example,wss://purplepag.es")
+	t.Setenv("API_RELAY_FALLBACK_USE_REGISTRY", "false")
+
+	cfg, err := LoadAPI()
+	if err != nil {
+		t.Fatalf("load api profile fallback urls: %v", err)
+	}
+	if cfg.RelayFallback.UseRegistry {
+		t.Fatal("expected registry-backed event fallback to honor explicit false")
+	}
+	want := []string{"wss://directory.example", "wss://purplepag.es"}
+	if !reflect.DeepEqual(cfg.RelayFallback.ProfileURLs, want) {
+		t.Fatalf("profile urls: got %#v want %#v", cfg.RelayFallback.ProfileURLs, want)
 	}
 }
 

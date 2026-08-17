@@ -20,8 +20,11 @@ Do not hand-edit this file.
 | `API_MAX_BATCH_SIZE` | `api` | optional | `200` | Maximum IDs accepted by batch event/profile API requests. |
 | `API_RELAY_FALLBACK_ENABLED` | `api` | optional | `false` | Enable best-effort relay fallback for local event/profile misses. |
 | `API_RELAY_FALLBACK_MAX_FANOUT` | `api` | optional | `3` | Maximum number of fallback relays queried per lookup. |
+| `API_RELAY_FALLBACK_PROFILE_URLS` | `api` | optional | `wss://purplepag.es` | CSV relays used only for profile (kind 0) fallback lookups. Defaults to the purplepag.es directory. Do not point this at note firehoses. |
+| `API_RELAY_FALLBACK_REFRESH_INTERVAL` | `api` | optional | `5m0s` | How often event fallback relays are refreshed from the relay registry. |
 | `API_RELAY_FALLBACK_TIMEOUT` | `api` | optional | `2s` | Per-relay timeout budget for fallback lookups. |
-| `API_RELAY_FALLBACK_URLS` | `api` | optional | `-` | CSV fallback relay URLs. If empty, API falls back to INGESTOR_RELAY_URLS. |
+| `API_RELAY_FALLBACK_URLS` | `api` | optional | `-` | CSV static floor for event fallback relays. Used when the registry has no healthy candidates, and to pad a short ranked list. If empty, API falls back to INGESTOR_RELAY_URLS. Directory relays (e.g. purplepag.es) are excluded from event lookups. |
+| `API_RELAY_FALLBACK_USE_REGISTRY` | `api` | optional | `true` | When true, event fallback prefers the fastest healthy active/pinned registry relays (probe OK, lowest connect+EOSE latency) instead of the static URL list order. |
 | `DATABASE_MAX_CONNS` | `api, ingestor, trust_worker, worker` | optional | `per-service (api 32, worker 16, ingestor 8, trust_worker 8)` | Override pgxpool max connections. Precedence: this env var (when > 0) > pool_max_conns in DATABASE_URL > per-service default. When unset and the DSN omits pool_max_conns, a safe per-service default is applied instead of the pgx default of 4, which is dangerously low: the API deadlocks under mixed WS+API load, and worker sweeper goroutines (author_analytics, profile_stats, meilisearch) monopolize all connections and block bundle workers indefinitely. |
 | `DATABASE_URL` | `api, ingestor, trust_worker, worker` | required | `-` | PostgreSQL connection string. |
 | `DEBUG_ADDR` | `api, trust_worker, worker` | optional | `-` | Optional debug/pprof listen address. Leave empty by default; prefer localhost binding. |

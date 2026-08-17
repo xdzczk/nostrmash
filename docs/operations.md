@@ -718,7 +718,7 @@ Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use 
   - Check next: relay availability, timeout/fanout tuning, and `query_fallback_lookup_failed` logs (especially `error_class` + `degraded_to_not_found`).
 - `NostrMashFallbackLatencyHigh`
   - Meaning: per-entity fallback p95 latency is elevated.
-  - Check next: relay response speed, network path, and fallback timeout budget.
+  - Check next: confirm event fallback is using the fastest healthy registry relays (`relay_fallback_event_relays` logs), not ingest popularity or directory relays. Profile fallback should stay on `API_RELAY_FALLBACK_PROFILE_URLS` (default `wss://purplepag.es`). Then check relay response speed, network path, and the fallback timeout budget.
 - `NostrMashLocalMissRatioHigh`
   - Meaning: per-surface local cache/index hit ratio degraded for fallback-enabled lookups.
   - Check next: ingest freshness/checkpoints and recent data locality.

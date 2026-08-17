@@ -119,7 +119,8 @@ Context-completion fallback:
 Fallback is explicitly controlled by API config:
 
 - enabled flag
-- relay URL set for fallback
+- event fallback URL floor (`API_RELAY_FALLBACK_URLS`, else `INGESTOR_RELAY_URLS`) plus optional live ranking from the fastest healthy registry relays
+- profile fallback URL set (`API_RELAY_FALLBACK_PROFILE_URLS`, default `wss://purplepag.es`)
 - request timeout
 - relay fanout bound
 

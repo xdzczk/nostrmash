@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -106,7 +107,7 @@ func TestCollectFromRelays_AllowsPartialRelaySuccess(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 	client := NewClient([]string{wsURL, "ws://127.0.0.1:1"}, 500*time.Millisecond, 2)
-	got, err := client.collectFromRelays(context.Background(), map[string]any{"ids": []string{"evt_1"}}, 5)
+	got, err := client.collectFromRelays(context.Background(), client.EventRelays(), map[string]any{"ids": []string{"evt_1"}}, 5)
 	if err != nil {
 		t.Fatalf("collect from relays should succeed with one healthy relay: %v", err)
 	}
@@ -117,9 +118,77 @@ func TestCollectFromRelays_AllowsPartialRelaySuccess(t *testing.T) {
 
 func TestCollectFromRelays_AllRelayFailuresReturnError(t *testing.T) {
 	client := NewClient([]string{"ws://127.0.0.1:1"}, 200*time.Millisecond, 1)
-	_, err := client.collectFromRelays(context.Background(), map[string]any{"ids": []string{"evt_1"}}, 1)
+	_, err := client.collectFromRelays(context.Background(), client.EventRelays(), map[string]any{"ids": []string{"evt_1"}}, 1)
 	if err == nil {
 		t.Fatalf("expected all-relay-failure error")
+	}
+}
+
+func TestSplitClient_UsesSeparateRelayLists(t *testing.T) {
+	eventHits := 0
+	profileHits := 0
+	eventUpgrader := websocket.Upgrader{}
+	profileUpgrader := websocket.Upgrader{}
+	eventServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		eventHits++
+		conn, err := eventUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade event relay: %v", err)
+		}
+		defer conn.Close()
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+		_ = conn.WriteJSON([]any{"EOSE", "relay-sub"})
+	}))
+	defer eventServer.Close()
+	profileServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		profileHits++
+		conn, err := profileUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade profile relay: %v", err)
+		}
+		defer conn.Close()
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+		_ = conn.WriteJSON([]any{"EOSE", "relay-sub"})
+	}))
+	defer profileServer.Close()
+
+	client := NewSplitClient(Config{
+		EventURLs:   []string{wsURLForServer(eventServer)},
+		ProfileURLs: []string{wsURLForServer(profileServer)},
+		Timeout:     time.Second,
+		MaxFanout:   1,
+	})
+	if _, err := client.FetchEventsByIDs(context.Background(), []string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}); err != nil {
+		t.Fatalf("event fallback: %v", err)
+	}
+	if _, err := client.FetchProfilesByPubkeys(context.Background(), []string{
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}); err != nil {
+		t.Fatalf("profile fallback: %v", err)
+	}
+	if eventHits != 1 || profileHits != 1 {
+		t.Fatalf("expected one hit per list, got event=%d profile=%d", eventHits, profileHits)
+	}
+}
+
+func TestNewSplitClient_DropsDirectoryRelaysFromEventList(t *testing.T) {
+	client := NewSplitClient(Config{
+		EventURLs:   []string{"wss://purplepag.es", "wss://nos.lol"},
+		ProfileURLs: []string{"wss://purplepag.es"},
+		Timeout:     time.Second,
+		MaxFanout:   3,
+	})
+	if got := client.EventRelays(); !reflect.DeepEqual(got, []string{"wss://nos.lol"}) {
+		t.Fatalf("event relays: got %#v", got)
+	}
+	if got := client.ProfileRelays(); !reflect.DeepEqual(got, []string{"wss://purplepag.es"}) {
+		t.Fatalf("profile relays: got %#v", got)
 	}
 }
 
