@@ -41,8 +41,14 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 	})
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
 		notes, notesErr := h.service.GetTrendingNotes(ctx, window, limit, offset)
+		degraded := false
 		if notesErr != nil {
-			return nil, notesErr
+			if query.IsUnsupportedCapability(notesErr) {
+				return nil, notesErr
+			}
+			recordDiscoveryDegrade(ctx, "trending_notes", "backend", notesErr, nil)
+			notes = nil
+			degraded = true
 		}
 		noteAuthorPubkeys := make([]string, 0, len(notes))
 		for _, note := range notes {
@@ -50,7 +56,9 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		}
 		noteAuthorIdentities, identitiesErr := h.resolveProfileIdentities(ctx, noteAuthorPubkeys)
 		if identitiesErr != nil {
-			return nil, identitiesErr
+			recordDiscoveryDegrade(ctx, "trending_notes", "profile_identities", identitiesErr, nil)
+			noteAuthorIdentities = map[string]profileIdentityFields{}
+			degraded = true
 		}
 		payload := buildDiscoveryNoteItems(notes, noteAuthorIdentities)
 		payloadResponse := map[string]any{
@@ -58,6 +66,9 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 			"window":      windowLabel,
 			"notes":       payload,
 			"consistency": "eventual",
+		}
+		if degraded {
+			payloadResponse["degraded"] = true
 		}
 		computedAt := time.Now().UTC()
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
@@ -96,8 +107,14 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 	})
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
 		articles, articlesErr := h.service.GetTrendingLongForm(ctx, window, limit, offset)
+		degraded := false
 		if articlesErr != nil {
-			return nil, articlesErr
+			if query.IsUnsupportedCapability(articlesErr) {
+				return nil, articlesErr
+			}
+			recordDiscoveryDegrade(ctx, "trending_long_form", "backend", articlesErr, nil)
+			articles = nil
+			degraded = true
 		}
 		authorPubkeys := make([]string, 0, len(articles))
 		for _, article := range articles {
@@ -105,7 +122,9 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		}
 		authorIdentities, identitiesErr := h.resolveProfileIdentities(ctx, authorPubkeys)
 		if identitiesErr != nil {
-			return nil, identitiesErr
+			recordDiscoveryDegrade(ctx, "trending_long_form", "profile_identities", identitiesErr, nil)
+			authorIdentities = map[string]profileIdentityFields{}
+			degraded = true
 		}
 		payload := buildDiscoveryNoteItems(articles, authorIdentities)
 		payloadResponse := map[string]any{
@@ -113,6 +132,9 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 			"window":      windowLabel,
 			"articles":    payload,
 			"consistency": "eventual",
+		}
+		if degraded {
+			payloadResponse["degraded"] = true
 		}
 		computedAt := time.Now().UTC()
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
@@ -151,8 +173,14 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 	})
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
 		conversations, conversationsErr := h.service.GetHotConversations(ctx, window, limit, offset)
+		degraded := false
 		if conversationsErr != nil {
-			return nil, conversationsErr
+			if query.IsUnsupportedCapability(conversationsErr) {
+				return nil, conversationsErr
+			}
+			recordDiscoveryDegrade(ctx, "hot_conversations", "backend", conversationsErr, nil)
+			conversations = nil
+			degraded = true
 		}
 		items := make([]map[string]any, 0, len(conversations))
 		for index, conversation := range conversations {
@@ -183,6 +211,9 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 			"window":        windowLabel,
 			"conversations": items,
 			"consistency":   "eventual",
+		}
+		if degraded {
+			payloadResponse["degraded"] = true
 		}
 		computedAt := time.Now().UTC()
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(items))

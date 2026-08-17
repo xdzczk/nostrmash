@@ -122,6 +122,7 @@ func (h Handlers) GetNoteRelated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	related, err := h.service.GetNoteRelated(r.Context(), eventID, limit)
+	degraded := false
 	if err != nil {
 		if query.IsNotFound(err) {
 			writeError(r.Context(), w, http.StatusNotFound, "not_found", "event not found")
@@ -131,8 +132,9 @@ func (h Handlers) GetNoteRelated(w http.ResponseWriter, r *http.Request) {
 			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "related notes are not available on this deployment")
 			return
 		}
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
+		recordDiscoveryDegrade(r.Context(), "note_related", "backend", err, nil)
+		related = nil
+		degraded = true
 	}
 	items := make([]map[string]any, 0, len(related))
 	for _, note := range related {
@@ -153,11 +155,15 @@ func (h Handlers) GetNoteRelated(w http.ResponseWriter, r *http.Request) {
 			"score":   note.Score,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"event_id":    eventID,
 		"related":     items,
 		"consistency": "eventual",
-	})
+	}
+	if degraded {
+		payload["degraded"] = true
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func parseBoolQuery(r *http.Request, key string, defaultValue bool) (bool, error) {

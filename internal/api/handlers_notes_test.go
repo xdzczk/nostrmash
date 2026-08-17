@@ -177,6 +177,34 @@ func TestGetNoteRelated_UsesBoundedLimitAndReturnsPayload(t *testing.T) {
 	}
 }
 
+func TestGetNoteRelated_BackendErrorReturnsDegradedEmpty(t *testing.T) {
+	handlers := mustNewHandlers(t, fakeEventReader{
+		getRelatedNotesFn: func(context.Context, string, int) ([]storeread.RelatedNote, error) {
+			return nil, errors.New("related notes timeout")
+		},
+	}, 200)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/notes/{event_id}/related", handlers.GetNoteRelated)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/notes/evt_1/related", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Fatalf("expected degraded payload, got %#v", body)
+	}
+	related, ok := body["related"].([]any)
+	if !ok || len(related) != 0 {
+		t.Fatalf("expected empty related list, got %#v", body["related"])
+	}
+}
+
 func TestNoteEndpoints_MissingNoteReturnsNotFound(t *testing.T) {
 	handlers := mustNewHandlers(t, fakeEventReader{
 		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
