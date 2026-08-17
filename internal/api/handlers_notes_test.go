@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -201,5 +202,48 @@ func TestNoteEndpoints_MissingNoteReturnsNotFound(t *testing.T) {
 	mux.ServeHTTP(recRelated, reqRelated)
 	if recRelated.Code != http.StatusNotFound {
 		t.Fatalf("unexpected status for missing related: got %d want %d", recRelated.Code, http.StatusNotFound)
+	}
+}
+
+func TestGetNoteSummary_EnrichmentFailureReturnsPartial(t *testing.T) {
+	handlers := mustNewHandlers(t, fakeEventReader{
+		getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+			return json.RawMessage(`{
+				"id":"evt_1",
+				"pubkey":"pk_1",
+				"kind":1,
+				"created_at":1700000001,
+				"content":"hello",
+				"tags":[]
+			}`), nil
+		},
+		getEventCountsFn: func(context.Context, string) (store.EventCounts, error) {
+			return store.EventCounts{}, errors.New("counts timeout")
+		},
+		getEventAncestors: func(context.Context, string, int) ([]json.RawMessage, []string, error) {
+			return nil, nil, errors.New("ancestors timeout")
+		},
+		getProfileByPubkey: func(context.Context, string) (store.ProfileProjection, error) {
+			return store.ProfileProjection{}, errors.New("profile timeout")
+		},
+	}, 200)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/notes/{event_id}/summary", handlers.GetNoteSummary)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/notes/evt_1/summary", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode summary response: %v", err)
+	}
+	if payload["partial"] != true {
+		t.Fatalf("expected partial note summary, got %#v", payload)
+	}
+	if payload["event_id"] != "evt_1" {
+		t.Fatalf("expected core event to survive, got %#v", payload["event_id"])
 	}
 }

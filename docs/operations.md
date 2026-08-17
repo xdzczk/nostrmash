@@ -665,6 +665,12 @@ Use [slo.md](slo.md) as the reliability contract, and this page for action-orien
 
 Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use this map for first response:
 
+- `NostrMashAPIDown`
+  - Meaning: Prometheus cannot scrape `api:8080/metrics` for 2m. This is the operator-facing signal for Traefik `503 no available server`.
+  - Check next: Coolify API container status, `docker events` / OOM kills at the 512MiB default cap, then `GET /health` vs `GET /ready`.
+- `NostrMashAPIRestarted`
+  - Meaning: `process_start_time_seconds` for the API scrape job flipped in the last 15m.
+  - Check next: Coolify deploy history first (planned restarts look the same). Unexpected flips: OOM at `NOSTRMASH_SERVICE_MEM_LIMIT` (default 512MiB) or a crash-loop in API logs.
 - `NostrMashAPIHighErrorRate`
   - Meaning: sustained API `5xx` ratio above SLO early-warning level.
   - Check next: per-route `status_code` mix, then `http.request -> query.* -> store.*` traces.

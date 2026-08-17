@@ -71,6 +71,9 @@ func (h Handlers) GetNoteSummary(w http.ResponseWriter, r *http.Request) {
 		},
 		"consistency": summary.Consistency,
 	}
+	if summary.Partial {
+		payload["partial"] = true
+	}
 	if summary.QuoteRepostLinkage != nil {
 		recent := make([]map[string]any, 0, len(summary.QuoteRepostLinkage.RecentActivity))
 		for _, activity := range summary.QuoteRepostLinkage.RecentActivity {

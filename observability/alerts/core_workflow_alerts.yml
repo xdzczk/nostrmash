@@ -2,6 +2,28 @@ groups:
   - name: nostrmash-core-workflows
     interval: 30s
     rules:
+      - alert: NostrMashAPIDown
+        expr: up{job="nostrmash-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          slo: api-availability
+        annotations:
+          summary: "API scrape target is down"
+          description: "Prometheus cannot scrape api:8080/metrics for 2m. Traefik will return 503 no available server to clients. Check Coolify/API container status, OOM kills at the 512MiB default cap, and recent deploys."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashAPIRestarted
+        expr: changes(process_start_time_seconds{job="nostrmash-api"}[15m]) >= 1
+        for: 2m
+        labels:
+          severity: warning
+          slo: api-availability
+        annotations:
+          summary: "API process start time flipped"
+          description: "The API process restarted within the last 15m. Includes planned Coolify deploys; unexpected flips are usually an OOM at the 512MiB default cap or a crash-loop. Correlate with Coolify history and docker events."
+          runbook: "docs/operations.md#alert-response-playbook"
+
       - alert: NostrMashAPIHighErrorRate
         expr: nostrmash:api:error_ratio5m > 0.01
         for: 15m
