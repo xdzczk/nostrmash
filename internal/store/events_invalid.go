@@ -10,6 +10,19 @@ import (
 	"github.com/xdzczk/nostrmash/internal/model"
 )
 
+// errorCodesWithoutPayload lists invalid_events error codes whose defining
+// characteristic is the payload's size. error_message already records the
+// byte count, so keeping the (often 100KB+) raw payload adds no diagnostic
+// value and just makes quarantine storage grow with whichever relay is
+// currently resending oversized content. We drop it at insert time instead
+// of waiting on the payload-trim retention job, which otherwise keeps a full
+// copy around for WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE (7 days by
+// default) per row.
+var errorCodesWithoutPayload = map[string]bool{
+	"content_too_large": true,
+	"payload_too_large": true,
+}
+
 // InsertInvalidEvent writes one invalid payload into quarantine storage.
 // This intentionally uses an isolated write path from canonical ingest transactions.
 func (s *PostgresStore) InsertInvalidEvent(ctx context.Context, invalid model.InvalidEvent) error {
@@ -28,6 +41,11 @@ func (s *PostgresStore) InsertInvalidEvent(ctx context.Context, invalid model.In
 		seenAt = time.Now().UTC()
 	}
 
+	rawPayload := invalid.RawPayload
+	if errorCodesWithoutPayload[invalid.ErrorCode] {
+		rawPayload = nil
+	}
+
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO invalid_events (source_relay, error_code, error_message, raw_payload, seen_at)
 		VALUES ($1, $2, $3, $4, $5)
@@ -35,7 +53,7 @@ func (s *PostgresStore) InsertInvalidEvent(ctx context.Context, invalid model.In
 		invalid.SourceRelay,
 		invalid.ErrorCode,
 		invalid.ErrorMessage,
-		invalid.RawPayload,
+		rawPayload,
 		seenAt,
 	)
 	if err != nil {

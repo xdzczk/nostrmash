@@ -19,8 +19,18 @@ groups:
       # meant to watch stayed healthy the whole time, and made root-causing
       # slower because the alert gave no signal about which failure mode was
       # active. See nostrmash:api:search_latency_p95_seconds:5m for search.
+      #
+      # Sourced from nostrmash_db_operation_duration_seconds (store-level),
+      # not nostrmash_api_request_duration_seconds (handler-level), for the
+      # same reason: events/{id} and profiles/{pubkey} fall back to relay
+      # queries on a local miss, and that relay round-trip is counted in the
+      # handler's wall-clock time. That previously made this alert flap
+      # during quiet hours whenever local-miss traffic (mostly 404s) went
+      # through fallback, even though Postgres itself stayed fast the whole
+      # time. Relay-fallback latency already has its own alerts
+      # (NostrMashFallbackLatencyHigh, NostrMashFallbackFailureRatioHigh).
       - record: nostrmash:api:critical_path_latency_p95_seconds:5m
-        expr: histogram_quantile(0.95, sum by (le) (rate(nostrmash_api_request_duration_seconds_bucket{path_template=~"/api/v1/events/\\{id\\}|/api/v1/threads/\\{eventId\\}|/api/v1/profiles/\\{pubkey\\}"}[5m])))
+        expr: histogram_quantile(0.95, sum by (le) (rate(nostrmash_db_operation_duration_seconds_bucket{operation=~"get_event_raw_by_id|get_event_replies|get_event_ancestors|get_profile_by_pubkey"}[5m])))
 
       - record: nostrmash:api:search_latency_p95_seconds:5m
         expr: histogram_quantile(0.95, sum by (le) (rate(nostrmash_api_request_duration_seconds_bucket{path_template="/api/v1/search"}[5m])))
