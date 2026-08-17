@@ -669,8 +669,8 @@ Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use 
   - Meaning: sustained API `5xx` ratio above SLO early-warning level.
   - Check next: per-route `status_code` mix, then `http.request -> query.* -> store.*` traces.
 - `NostrMashAPICriticalPathLatencyHigh`
-  - Meaning: pure-Postgres metadata read-route p95 latency (events/threads/profiles by ID) is above target. Excludes `/api/v1/search`, which has its own alert below since it fails for unrelated reasons.
-  - Check next: DB pool pressure, then dominant query/store spans by `trace_id`.
+  - Meaning: p95 latency of the Postgres store operations behind events/threads/profiles by ID is above target. Measured from `nostrmash_db_operation_duration_seconds` (store layer), not the HTTP handler, so it does not include relay-fallback time on local misses — that has its own alert (`NostrMashFallbackLatencyHigh`). Excludes `/api/v1/search`, which has its own alert below since it fails for unrelated reasons.
+  - Check next: DB pool pressure, then dominant query/store spans by `trace_id`. If this alert is quiet but `profiles/{pubkey}`/`events/{id}` still feel slow end-to-end, check `NostrMashFallbackLatencyHigh` and `nostrmash_lookup_fallback_total` instead — that is very likely relay-side, not Postgres.
 - `NostrMashSearchLatencyHigh`
   - Meaning: `/api/v1/search` p95 latency is above target. This is a Meilisearch-latency signal, not a Postgres one.
   - Check next: Meilisearch CPU/health and task queue depth first; check for an in-progress startup FullSync (`meilisearch_indexes_stale` in worker/api logs) or a stalled/lagging sweeper (`NostrMashMeilisearchSyncLagHigh`, `NostrMashMeilisearchSweeperStalled`) before looking at Postgres at all.

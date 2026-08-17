@@ -21,7 +21,7 @@ groups:
           slo: api-latency
         annotations:
           summary: "API critical-path p95 latency is high"
-          description: "p95 latency for pure-Postgres metadata routes (events/{id}, threads/{eventId}, profiles/{pubkey}) exceeds 1.5s for 10m. /api/v1/search is intentionally excluded (see NostrMashSearchLatencyHigh) since it fails independently on Meilisearch pressure. Check DB pool pressure and query/store trace spans."
+          description: "p95 latency of the Postgres store operations backing events/{id}, threads/{eventId}, and profiles/{pubkey} exceeds 1.5s for 10m. Measured at the store layer (nostrmash_db_operation_duration_seconds), not the HTTP handler, so relay-fallback time on local misses is excluded — see NostrMashFallbackLatencyHigh for that. /api/v1/search is also excluded (see NostrMashSearchLatencyHigh) since it fails independently on Meilisearch pressure. Check DB pool pressure and query/store trace spans."
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashSearchLatencyHigh

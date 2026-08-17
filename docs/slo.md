@@ -31,15 +31,17 @@ Use this page to understand the reliability model built on top of NostrMash tele
 - **Objective**: `p95 <= 750ms` over `30d` for key read routes (`/api/v1/events/{id}`, `/api/v1/threads/{eventId}`, `/api/v1/profiles/{pubkey}`, `/api/v1/search`).
 - **Why it matters**: These routes represent core interactive read performance.
 - **Telemetry mapping**:
-  - `nostrmash_api_request_duration_seconds{method,path_template}`
+  - `nostrmash_api_request_duration_seconds{method,path_template}` (end-to-end, includes relay fallback on local misses).
+  - `nostrmash_db_operation_duration_seconds{operation}` (store-level only; what the alert below actually watches).
   - `trace_span` (`http.request`, `query.*`, `store.*`) for decomposition.
 - **Initial target/threshold**:
   - Long-window target: `p95 <= 750ms`.
   - Fast-burn warning: `p95 > 1.5s` for 10m.
-  - Rule mapping: `nostrmash:api:critical_path_latency_p95_seconds:5m`, alert `NostrMashAPICriticalPathLatencyHigh`.
+  - Rule mapping: `nostrmash:api:critical_path_latency_p95_seconds:5m` (sourced from `nostrmash_db_operation_duration_seconds`, not the handler-level histogram, so relay-fallback latency doesn't count against it), alert `NostrMashAPICriticalPathLatencyHigh`.
 - **Breach interpretation**:
   - If API latency rises with DB pool pressure (`nostrmash_db_pool_max_open_usage_ratio`, `nostrmash_db_pool_wait_count_total`), prioritize DB/pool tuning.
   - If API latency rises without DB pressure, inspect query orchestration and worker-side dependency load.
+  - Relay-fallback latency (local miss on `events/{id}`/`profiles/{pubkey}`) is tracked separately by `NostrMashFallbackLatencyHigh` and does not affect this rule.
 
 ## SLO 3: Ingest freshness
 
