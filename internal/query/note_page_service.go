@@ -39,14 +39,18 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 		parsed.ID = normalizedEventID
 	}
 
+	partial := false
+	engagement := NoteEngagementCounts{}
 	counts, err := s.GetEventActionCounts(ctx, normalizedEventID)
 	if err != nil {
-		return NoteSummary{}, err
-	}
-	engagement := NoteEngagementCounts{
-		ReplyCount:    counts.ReplyCount,
-		ReactionCount: counts.ReactionCount,
-		RepostCount:   counts.RepostCount,
+		metrics.IncAPIPartialResponse("note_page_summary", "action_counts")
+		partial = true
+	} else {
+		engagement = NoteEngagementCounts{
+			ReplyCount:    counts.ReplyCount,
+			ReactionCount: counts.ReactionCount,
+			RepostCount:   counts.RepostCount,
+		}
 	}
 	media := deriveNoteMediaFlags(parsed)
 	if capability := s.capabilities.notePage.noteStats; capability != nil {
@@ -69,7 +73,8 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 		if profileErr == nil {
 			author = summary
 		} else if !IsNotFound(profileErr) {
-			return NoteSummary{}, profileErr
+			metrics.IncAPIPartialResponse("note_page_summary", "author")
+			partial = true
 		}
 	}
 
@@ -90,7 +95,8 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 		}
 		missingAncestorIDs = ancestors.MissingAncestorIDs
 	} else if !IsNotFound(ancestorsErr) {
-		return NoteSummary{}, ancestorsErr
+		metrics.IncAPIPartialResponse("note_page_summary", "ancestors")
+		partial = true
 	}
 
 	var referenceEventID *string
@@ -107,6 +113,7 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 			// whole note page, but surface the degradation instead of hiding it.
 			span.SetAttr("reference_event.error", refErr.Error())
 			metrics.IncAPIPartialResponse("note_page_summary", "reference_event")
+			partial = true
 		}
 	}
 
@@ -118,7 +125,8 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 				activity := noteConversationActivityFromStore(row)
 				conversation = &activity
 			} else if !IsNotFound(activityErr) {
-				return NoteSummary{}, activityErr
+				metrics.IncAPIPartialResponse("note_page_summary", "conversation_activity")
+				partial = true
 			}
 		}
 	}
@@ -129,7 +137,8 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 			linkage := noteQuoteRepostLinkageFromStore(row)
 			quoteRepostLinkage = &linkage
 		} else if !IsNotFound(linkageErr) {
-			return NoteSummary{}, linkageErr
+			metrics.IncAPIPartialResponse("note_page_summary", "quote_repost_linkage")
+			partial = true
 		}
 	}
 
@@ -147,6 +156,7 @@ func (s Service) GetNotePageSummary(ctx context.Context, eventID string, include
 		QuoteRepostLinkage:   quoteRepostLinkage,
 		ConversationActivity: conversation,
 		Consistency:          "eventual",
+		Partial:              partial,
 	}, nil
 }
 

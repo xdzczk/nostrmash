@@ -17,13 +17,16 @@ Use this page to understand the reliability model built on top of NostrMash tele
 - **Telemetry mapping**:
   - `nostrmash_api_requests_total{path_template,status_code}`
   - Error classes from `status_code` (treat `5xx` as availability failures).
+  - `up{job="nostrmash-api"}` and `process_start_time_seconds{job="nostrmash-api"}` for scrape-down / process-restart (the Traefik `503 no available server` case never appears in request counters).
   - `trace_span` for `http.request` when localizing failures.
 - **Initial target/threshold**:
   - Availability target: `99.5%` (error budget `0.5%` / 30d).
   - Early warning: sustained `5xx` ratio `> 1%` for 15m.
+  - Fast-burn: scrape target down for 2m (`NostrMashAPIDown`) or process start time flipped in 15m (`NostrMashAPIRestarted`).
   - Rule mapping: `nostrmash:api:error_ratio5m`, alert `NostrMashAPIHighErrorRate`.
 - **Breach interpretation**:
-  - Identify failing `path_template` first.
+  - If `NostrMashAPIDown` or `NostrMashAPIRestarted` fired, treat it as an origin outage (container, OOM, deploy) before looking at per-route 5xx.
+  - Otherwise identify failing `path_template` first.
   - Then follow trace path `http.request -> query.* -> store.*` to isolate where failures propagate.
 
 ## SLO 2: API latency

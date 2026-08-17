@@ -3,9 +3,8 @@ package api
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 )
@@ -253,74 +252,73 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 
 		// The five aggregates below are mutually independent — none of
 		// them depends on another's result — so fan them out concurrently
-		// instead of paying their latencies serially. errgroup cancels
-		// buildCtx (and therefore every in-flight call) as soon as any one
-		// of them fails.
+		// instead of paying their latencies serially. A single section
+		// failure degrades that section and keeps the rest of the bundle.
 		var (
 			notes            []query.TrendingNote
 			trendingProfiles []query.TrendingProfile
 			risingProfiles   []query.TrendingProfile
 			domains          []query.DomainSummary
 			networkStats     query.PublicDiscoveryNetworkStats
+			notesErr         error
+			trendingErr      error
+			risingErr        error
+			domainsErr       error
+			networkErr       error
 		)
-		group, groupCtx := errgroup.WithContext(buildCtx)
-		group.Go(func() error {
-			rows, err := h.service.GetTrendingNotes(groupCtx, window, notesLimit, 0)
-			if err != nil {
-				return err
-			}
-			notes = rows
-			return nil
-		})
-		group.Go(func() error {
-			rows, err := h.service.GetTrendingProfiles(groupCtx, window, profilesLimit, 0)
-			if err != nil {
-				return err
-			}
-			trendingProfiles = rows
-			return nil
-		})
-		group.Go(func() error {
-			rows, err := h.service.GetRisingProfiles(groupCtx, window, profilesLimit, 0)
-			if err != nil {
-				return err
-			}
-			risingProfiles = rows
-			return nil
-		})
-		group.Go(func() error {
+		var wg sync.WaitGroup
+		wg.Add(5)
+		go func() {
+			defer wg.Done()
+			notes, notesErr = h.service.GetTrendingNotes(buildCtx, window, notesLimit, 0)
+		}()
+		go func() {
+			defer wg.Done()
+			trendingProfiles, trendingErr = h.service.GetTrendingProfiles(buildCtx, window, profilesLimit, 0)
+		}()
+		go func() {
+			defer wg.Done()
+			risingProfiles, risingErr = h.service.GetRisingProfiles(buildCtx, window, profilesLimit, 0)
+		}()
+		go func() {
+			defer wg.Done()
 			// Trending domains are served from the top_domains_24h/7d
 			// snapshot (see internal/derivation/projection_relay_window_snapshots.go)
 			// instead of the live COUNT(DISTINCT) aggregate behind the
-			// standalone /discovery/domains/trending endpoint. Domains were
-			// added to the home bundle after the original contract; keep
-			// older/partial deployments (or a still-empty snapshot) backward
-			// compatible by never failing the whole bundle on a domains
-			// error — clients fall back to the standalone domains endpoint
-			// in that case.
-			rows, err := h.service.GetHomeTrendingDomains(groupCtx, window, domainsLimit)
-			if err != nil {
-				domains = nil
-				return nil
-			}
-			domains = rows
-			return nil
-		})
-		group.Go(func() error {
+			// standalone /discovery/domains/trending endpoint.
+			domains, domainsErr = h.service.GetHomeTrendingDomains(buildCtx, window, domainsLimit)
+		}()
+		go func() {
+			defer wg.Done()
 			// Trending hashtags are served from the same top_hashtags_24h/7d
 			// snapshot that backs network_summary.top_hashtags below, rather
 			// than a second live GetTrendingHashtags aggregate. Fetch enough
 			// rows to satisfy whichever of hashtagsLimit / hashtagStatLimit
 			// is larger so both sections can slice down from one call.
-			stats, err := h.service.GetPublicDiscoveryNetworkStats(groupCtx, max(hashtagsLimit, hashtagStatLimit))
-			if err != nil {
-				return err
-			}
-			networkStats = stats
-			return nil
-		})
-		if err := group.Wait(); err != nil {
-			return nil, err
+			networkStats, networkErr = h.service.GetPublicDiscoveryNetworkStats(buildCtx, max(hashtagsLimit, hashtagStatLimit))
+		}()
+		wg.Wait()
+
+		var degraded []string
+		if notesErr != nil {
+			recordDiscoveryDegrade(reqCtx, "discovery_home", "trending_notes", notesErr, &degraded)
+			notes = nil
+		}
+		if trendingErr != nil {
+			recordDiscoveryDegrade(reqCtx, "discovery_home", "trending_profiles", trendingErr, &degraded)
+			trendingProfiles = nil
+		}
+		if risingErr != nil {
+			recordDiscoveryDegrade(reqCtx, "discovery_home", "rising_profiles", risingErr, &degraded)
+			risingProfiles = nil
+		}
+		if domainsErr != nil {
+			recordDiscoveryDegrade(reqCtx, "discovery_home", "trending_domains", domainsErr, &degraded)
+			domains = nil
+		}
+		if networkErr != nil {
+			recordDiscoveryDegrade(reqCtx, "discovery_home", "network_summary", networkErr, &degraded)
+			networkStats = query.PublicDiscoveryNetworkStats{}
 		}
 
 		hashtagItems := buildDiscoveryHashtagItems(sliceHashtags(pickHashtagWindow(networkStats.TopHashtags, windowLabel), hashtagsLimit))
@@ -337,7 +335,8 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		}
 		profileIdentities, identitiesErr := h.resolveProfileIdentities(buildCtx, identityPubkeys)
 		if identitiesErr != nil {
-			return nil, identitiesErr
+			recordDiscoveryDegrade(reqCtx, "discovery_home", "profile_identities", identitiesErr, &degraded)
+			profileIdentities = map[string]profileIdentityFields{}
 		}
 
 		noteItems := buildDiscoveryNoteItems(notes, profileIdentities)
@@ -388,6 +387,10 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 				"network_summary": network,
 			},
 			"consistency": "eventual",
+		}
+		if len(degraded) > 0 {
+			payload["degraded"] = true
+			payload["degraded_reasons"] = degraded
 		}
 		computedAt := networkStats.ComputedAt
 		if computedAt == nil {

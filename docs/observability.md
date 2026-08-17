@@ -294,6 +294,7 @@ Recording rules provide reusable series for SLO/dashboards, including:
 
 Alert rules cover:
 
+- API scrape-down (`up{job="nostrmash-api"}`) and process restart (`process_start_time_seconds` flip)
 - API error-rate and latency degradation
 - DB pool saturation pressure
 - Worker dead-letter/retry storms and queue-claim errors

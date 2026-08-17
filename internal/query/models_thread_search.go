@@ -187,6 +187,9 @@ type NoteSummary struct {
 	QuoteRepostLinkage   *NoteQuoteRepostLinkageSummary
 	ConversationActivity *NoteConversationActivity
 	Consistency          string
+	// Partial is true when enrichment (counts, author, ancestors, activity)
+	// failed for a reason other than not-found.
+	Partial bool
 }
 
 type NoteQuoteRepostLinkageSummary struct {

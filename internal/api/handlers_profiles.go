@@ -155,6 +155,7 @@ type batchProfilesRequest struct {
 type batchProfilesResponse struct {
 	Profiles       []profileResponse `json:"profiles"`
 	MissingPubkeys []string          `json:"missing_pubkeys"`
+	Degraded       bool              `json:"degraded,omitempty"`
 }
 
 func (h Handlers) BatchGetProfiles(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +198,14 @@ func (h Handlers) BatchGetProfiles(w http.ResponseWriter, r *http.Request) {
 
 	profiles, err := h.service.GetProfiles(r.Context(), normalizedPubkeys)
 	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		recordDiscoveryDegrade(r.Context(), "profiles_batch", "backend", err, nil)
+		resp := batchProfilesResponse{
+			Profiles:       []profileResponse{},
+			MissingPubkeys: append([]string(nil), normalizedPubkeys...),
+			Degraded:       true,
+		}
+		slices.Sort(resp.MissingPubkeys)
+		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 

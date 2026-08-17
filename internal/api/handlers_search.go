@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -162,9 +163,11 @@ func (h Handlers) SearchNotes(w http.ResponseWriter, r *http.Request) {
 		Language: language,
 		Window:   window,
 	})
+	degraded := false
 	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
+		recordDiscoveryDegrade(r.Context(), "search_notes", "backend", err, nil)
+		events = []json.RawMessage{}
+		degraded = true
 	}
 	response := map[string]any{
 		"query":         queryText,
@@ -174,6 +177,10 @@ func (h Handlers) SearchNotes(w http.ResponseWriter, r *http.Request) {
 		"notes":         events,
 		"search_engine": h.service.SearchEngineName(),
 		"consistency":   "eventual",
+	}
+	if degraded {
+		response["degraded"] = true
+		response["search_engine"] = "degraded"
 	}
 	if sort == "relevant" {
 		h.addSearchTrustMetadata(response)
@@ -217,9 +224,11 @@ func (h Handlers) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 		Offset: offset,
 		Sort:   sort,
 	})
+	degraded := false
 	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
+		recordDiscoveryDegrade(r.Context(), "search_profiles", "backend", err, nil)
+		profiles = nil
+		degraded = true
 	}
 	response := map[string]any{
 		"query":         queryText,
@@ -229,6 +238,10 @@ func (h Handlers) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 		"profiles":      projectProfiles(profiles),
 		"search_engine": h.service.SearchEngineName(),
 		"consistency":   "eventual",
+	}
+	if degraded {
+		response["degraded"] = true
+		response["search_engine"] = "degraded"
 	}
 	h.addSearchTrustMetadata(response)
 	writeJSON(w, http.StatusOK, response)
@@ -258,7 +271,18 @@ func (h Handlers) SearchSuggest(w http.ResponseWriter, r *http.Request) {
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
 		result, resultErr := h.service.SearchSuggestions(ctx, queryText, limit)
 		if resultErr != nil {
-			return nil, resultErr
+			if query.IsUnsupportedCapability(resultErr) {
+				return nil, resultErr
+			}
+			recordDiscoveryDegrade(ctx, "search_suggest", "backend", resultErr, nil)
+			return map[string]any{
+				"query":         queryText,
+				"profiles":      []profileResponse{},
+				"hashtags":      []map[string]any{},
+				"search_engine": "degraded",
+				"consistency":   "eventual",
+				"degraded":      true,
+			}, nil
 		}
 		hashtags := make([]map[string]any, 0, len(result.Hashtags))
 		for _, hashtag := range result.Hashtags {

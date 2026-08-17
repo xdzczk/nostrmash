@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -400,5 +401,72 @@ func TestSearchProfiles_TrustMetadataByMode(t *testing.T) {
 				t.Fatalf("unexpected result_scope: got %q want %q", body.ResultScope, tc.expectedResultScope)
 			}
 		})
+	}
+}
+
+func TestSearchNotes_BackendErrorReturnsDegradedEmpty(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		searchNotesFn: func(_ context.Context, _ string, _ string, _ *time.Duration, _ string, _ int, _ int) ([]json.RawMessage, error) {
+			return nil, errors.New("search timeout")
+		},
+	}, 200)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search/notes?q=nostr", nil)
+	rec := httptest.NewRecorder()
+	http.HandlerFunc(h.SearchNotes).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Fatalf("expected degraded payload, got %#v", body)
+	}
+}
+
+func TestSearchProfiles_BackendErrorReturnsDegradedEmpty(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		searchProfilesWithOptionsFn: func(_ context.Context, _ string, _ string, _ int, _ int) ([]store.ProfileProjection, error) {
+			return nil, errors.New("meili timeout")
+		},
+	}, 200)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search/profiles?q=alice", nil)
+	rec := httptest.NewRecorder()
+	http.HandlerFunc(h.SearchProfiles).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Fatalf("expected degraded payload, got %#v", body)
+	}
+	profiles, ok := body["profiles"].([]any)
+	if !ok || len(profiles) != 0 {
+		t.Fatalf("expected empty profiles, got %#v", body["profiles"])
+	}
+}
+
+func TestSearchSuggest_BackendErrorReturnsDegradedEmpty(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		suggestProfilesFn: func(_ context.Context, _ string, _ int) ([]store.ProfileProjection, error) {
+			return nil, errors.New("suggest timeout")
+		},
+	}, 200)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search/suggest?q=al", nil)
+	rec := httptest.NewRecorder()
+	http.HandlerFunc(h.SearchSuggest).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Fatalf("expected degraded payload, got %#v", body)
 	}
 }
