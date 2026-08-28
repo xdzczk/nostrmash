@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -123,11 +124,12 @@ func (h *Handlers) refreshThreadSummaryTx(
 	}
 	var rootCreatedAt int64
 	var rootKind int
+	var rootPubkey string
 	err := tx.QueryRow(ctx, `
-		SELECT created_at, kind
+		SELECT created_at, kind, pubkey
 		FROM events
 		WHERE id = $1
-	`, rootEventID).Scan(&rootCreatedAt, &rootKind)
+	`, rootEventID).Scan(&rootCreatedAt, &rootKind, &rootPubkey)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			if _, deleteErr := tx.Exec(ctx, `
@@ -194,6 +196,20 @@ func (h *Handlers) refreshThreadSummaryTx(
 		return fmt.Errorf("compute thread summary aggregates: %w", err)
 	}
 
+	// Velocity score inputs: unique repliers excluding the root author,
+	// optionally trust-weighted. Raw replies_24h/7d above stay as display
+	// counters; hot-conversation ranking reads these weights instead, so
+	// self-replies and repeat replies from one account buy zero velocity.
+	nowUnix := time.Now().UTC().Unix()
+	replyWeight24h, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 24*time.Hour, h.engagementWeighting)
+	if err != nil {
+		return err
+	}
+	replyWeight7d, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 7*24*time.Hour, h.engagementWeighting)
+	if err != nil {
+		return err
+	}
+
 	var maxDepth int
 	if err := tx.QueryRow(ctx, `
 		WITH RECURSIVE thread_tree(event_id, depth, path) AS (
@@ -224,9 +240,11 @@ func (h *Handlers) refreshThreadSummaryTx(
 			last_activity_at,
 			replies_24h,
 			replies_7d,
+			reply_weight_24h,
+			reply_weight_7d,
 			derivation_version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (root_event_id) DO UPDATE
 		SET reply_count = EXCLUDED.reply_count,
 		    participant_count = EXCLUDED.participant_count,
@@ -234,6 +252,8 @@ func (h *Handlers) refreshThreadSummaryTx(
 		    last_activity_at = EXCLUDED.last_activity_at,
 		    replies_24h = EXCLUDED.replies_24h,
 		    replies_7d = EXCLUDED.replies_7d,
+		    reply_weight_24h = EXCLUDED.reply_weight_24h,
+		    reply_weight_7d = EXCLUDED.reply_weight_7d,
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
 	`,
@@ -244,6 +264,8 @@ func (h *Handlers) refreshThreadSummaryTx(
 		lastActivityAt,
 		replies24h,
 		replies7d,
+		replyWeight24h,
+		replyWeight7d,
 		writeVersion,
 	); err != nil {
 		return fmt.Errorf("upsert thread summary: %w", err)

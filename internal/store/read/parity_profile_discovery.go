@@ -336,16 +336,32 @@ func (s *Read) computeRelatedProfiles(ctx context.Context, pubkey string, limit 
 				ARRAY_AGG(DISTINCT u.reason ORDER BY u.reason) AS reasons,
 				(SUM(u.score) + COUNT(*))::bigint AS rank_score
 			FROM unioned u
-			WHERE EXISTS (
-				SELECT 1
-				FROM profiles_latest pl
-				WHERE pl.pubkey = u.pubkey
+			WHERE (
+				EXISTS (
+					SELECT 1
+					FROM profiles_latest pl
+					WHERE pl.pubkey = u.pubkey
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM events metadata
+					WHERE metadata.pubkey = u.pubkey
+					  AND metadata.kind = 0
+				)
 			)
-			OR EXISTS (
-				SELECT 1
-				FROM events metadata
-				WHERE metadata.pubkey = u.pubkey
-				  AND metadata.kind = 0
+			-- Web-of-Trust gate: co-occurrence counts (shared hashtags,
+			-- replies, reactions, reposts) are free to farm, so once the
+			-- trust graph is populated only candidates inside it may be
+			-- recommended. Fail-safe open when trust_graph_snapshot is
+			-- empty (trust worker not deployed / mid-rebuild), matching
+			-- authorOutsideTrustGraph in internal/derivation/trust_gate.go.
+			AND (
+				NOT EXISTS (SELECT 1 FROM trust_graph_snapshot)
+				OR EXISTS (
+					SELECT 1
+					FROM trust_graph_snapshot tg
+					WHERE tg.pubkey = u.pubkey
+				)
 			)
 			GROUP BY u.pubkey
 			ORDER BY rank_score DESC, u.pubkey ASC

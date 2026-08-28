@@ -74,13 +74,13 @@ func TestResolveWindowHelpers(t *testing.T) {
 		t.Fatal("expected unsupported trending window error")
 	}
 
-	if col, dur, err := resolveConversationWindow(24 * time.Hour); err != nil || col != "replies_24h" || dur != 24*time.Hour {
-		t.Fatalf("resolveConversationWindow(24h) = %q %v %v", col, dur, err)
+	if col, weightCol, dur, err := resolveConversationWindow(24 * time.Hour); err != nil || col != "replies_24h" || weightCol != "reply_weight_24h" || dur != 24*time.Hour {
+		t.Fatalf("resolveConversationWindow(24h) = %q %q %v %v", col, weightCol, dur, err)
 	}
-	if col, dur, err := resolveConversationWindow(7 * 24 * time.Hour); err != nil || col != "replies_7d" || dur != 7*24*time.Hour {
-		t.Fatalf("resolveConversationWindow(7d) = %q %v %v", col, dur, err)
+	if col, weightCol, dur, err := resolveConversationWindow(7 * 24 * time.Hour); err != nil || col != "replies_7d" || weightCol != "reply_weight_7d" || dur != 7*24*time.Hour {
+		t.Fatalf("resolveConversationWindow(7d) = %q %q %v %v", col, weightCol, dur, err)
 	}
-	if _, _, err := resolveConversationWindow(time.Hour); err == nil {
+	if _, _, _, err := resolveConversationWindow(time.Hour); err == nil {
 		t.Fatal("expected unsupported conversation window error")
 	}
 }

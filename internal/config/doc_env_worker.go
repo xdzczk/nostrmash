@@ -35,14 +35,14 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "false",
-			Description:  "When true, note discovery trending scores weight each engager by trust-graph proximity (hops <= 1: 1.0, hops 2: 0.5, up to TRUST_MAX_HOPS: 0.25, outside: TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT) instead of counting every engager as 1.0. Per-engager dedup and author self-engagement exclusion apply regardless of this flag.",
+			Description:  "When true, discovery scoring (note trending, hot-conversation reply weights, profile trending/rising engagement, zap volume, and new-follower momentum) weights each engager by trust-graph proximity (hops <= 1: 1.0, hops 2: 0.5, up to TRUST_MAX_HOPS: 0.25, outside: TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT) instead of counting every engager as 1.0. Per-engager dedup and author self-engagement exclusion apply regardless of this flag.",
 		},
 		{
 			Name:         "TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT",
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "0",
-			Description:  "Score weight (0..1) of an engager outside the trust graph when TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING=true. 0 means engagement from outside the trust graph buys no trending score.",
+			Description:  "Score weight (0..1) of an engager outside the trust graph when TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING=true. 0 means engagement from outside the trust graph buys no discovery score.",
 		},
 		{
 			Name:         "WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS",

@@ -80,6 +80,158 @@ func TestProjectProfileDiscoveryStats_TracksScoresAndRisingOrder(t *testing.T) {
 	}
 }
 
+// With trust-weighted discovery engagement enabled, a bot ring farming an
+// account's profile (reactions, zaps, follower ring, self-engagement) must
+// buy exactly zero trending score and no rising momentum: the farmed
+// account scores the same as an identical account with no engagement at
+// all, while genuinely trusted engagement still lifts the score.
+func TestProjectProfileDiscoveryStats_TrustWeightedEngagement(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlersWithOptions(pool, derivation.HandlersOptions{
+		EngagementWeighting: derivation.EngagementWeightingOptions{
+			TrustWeighted:   true,
+			UntrustedWeight: 0,
+			MaxHops:         3,
+		},
+	})
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+	// All notes and all engagement share one timestamp so recency decay is
+	// identical across authors and score differences isolate engagement.
+	at := now.Add(-2 * time.Hour)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trust_pubkeys_latest (pubkey, min_hops, score, rank)
+		VALUES ('pw_hop1', 1, 0.5, 1)
+	`); err != nil {
+		t.Fatalf("seed trust_pubkeys_latest: %v", err)
+	}
+
+	events := []model.Event{
+		newEventForTest("pw_note_farmed", "pw_farmed_author", at.Unix(), 1, nil, "farmed", at),
+		newEventForTest("pw_note_baseline", "pw_baseline_author", at.Unix(), 1, nil, "baseline", at),
+		newEventForTest("pw_note_engaged", "pw_engaged_author", at.Unix(), 1, nil, "engaged", at),
+		// Bot ring engagement on the farmed profile: reactions, a zap, and a
+		// self-reaction from the author. All untrusted or self => weight 0.
+		newEventForTest("pw_bot_react_1", "pw_bot_1", at.Unix(), 7, [][]string{{"e", "pw_note_farmed"}}, "+", at),
+		newEventForTest("pw_bot_react_2", "pw_bot_2", at.Unix(), 7, [][]string{{"e", "pw_note_farmed"}}, "+", at),
+		newEventForTest("pw_self_react", "pw_farmed_author", at.Unix(), 7, [][]string{{"e", "pw_note_farmed"}}, "+", at),
+		newEventForTest("pw_bot_zap", "pw_bot_3", at.Unix(), 9735, [][]string{{"e", "pw_note_farmed"}, {"p", "pw_farmed_author"}, {"amount", "900000000"}}, "", at),
+		// Trusted engagement on the engaged profile: two reactions from the
+		// same hop-1 pubkey on the same note dedupe to one weighted vote.
+		newEventForTest("pw_hop1_react_1", "pw_hop1", at.Unix(), 7, [][]string{{"e", "pw_note_engaged"}}, "+", at),
+		newEventForTest("pw_hop1_react_2", "pw_hop1", at.Unix(), 7, [][]string{{"e", "pw_note_engaged"}}, "+", at),
+	}
+	// Untrusted follower ring on the farmed profile.
+	for i := 0; i < 6; i++ {
+		events = append(events, newEventForTest(
+			fmt.Sprintf("pw_bot_follow_%d", i),
+			fmt.Sprintf("pw_bot_follower_%d", i),
+			at.Unix(),
+			3,
+			[][]string{{"p", "pw_farmed_author"}},
+			"contacts",
+			at,
+		))
+	}
+	for _, event := range events {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
+
+	readStats := func(pubkey string) (score24h, rising24h float64, engagementDisplay int64) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `
+			SELECT score_24h, rising_score_24h, recent_engagement_received
+			FROM profile_discovery_stats
+			WHERE pubkey = $1
+		`, pubkey).Scan(&score24h, &rising24h, &engagementDisplay); err != nil {
+			t.Fatalf("query profile discovery stats for %s: %v", pubkey, err)
+		}
+		return score24h, rising24h, engagementDisplay
+	}
+
+	farmedScore, farmedRising, farmedDisplay := readStats("pw_farmed_author")
+	baselineScore, baselineRising, _ := readStats("pw_baseline_author")
+	engagedScore, _, engagedDisplay := readStats("pw_engaged_author")
+
+	// Display counters keep reflecting raw (self-excluded) activity.
+	if farmedDisplay != 3 {
+		t.Fatalf("expected farmed display engagement=3 (2 bot reactions + 1 bot zap), got %d", farmedDisplay)
+	}
+	if engagedDisplay != 2 {
+		t.Fatalf("expected engaged display engagement=2 raw reactions, got %d", engagedDisplay)
+	}
+	// Bot engagement buys zero trending score: farmed == baseline.
+	if diff := farmedScore - baselineScore; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("expected farmed score to equal no-engagement baseline, got farmed=%f baseline=%f", farmedScore, baselineScore)
+	}
+	// The untrusted follower ring must not buy rising momentum. (It may
+	// even lower rising via the audience penalty on raw follower count.)
+	if farmedRising > baselineRising {
+		t.Fatalf("expected bot follower ring to buy no rising momentum, got farmed=%f baseline=%f", farmedRising, baselineRising)
+	}
+	// Trusted engagement still lifts the score.
+	if engagedScore <= baselineScore {
+		t.Fatalf("expected trusted engagement to outrank baseline, got engaged=%f baseline=%f", engagedScore, baselineScore)
+	}
+}
+
+// The legacy full-scan metric loader (incremental stats disabled) must
+// exclude self-engagement, matching the incremental delta path: an account
+// reacting to or zapping its own notes buys no engagement input.
+func TestProjectProfileDiscoveryStats_LegacyFullScanExcludesSelfEngagement(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	incremental := false
+	handlers := derivation.NewHandlersWithOptions(pool, derivation.HandlersOptions{
+		IncrementalProfileDiscoveryStats: &incremental,
+	})
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+	at := now.Add(-90 * time.Minute)
+
+	events := []model.Event{
+		newEventForTest("pl_self_note", "pl_self_author", at.Unix(), 1, nil, "note", at),
+		newEventForTest("pl_self_react", "pl_self_author", at.Unix(), 7, [][]string{{"e", "pl_self_note"}}, "+", at),
+		newEventForTest("pl_self_repost", "pl_self_author", at.Unix(), 6, [][]string{{"e", "pl_self_note"}}, "", at),
+		newEventForTest("pl_self_zap", "pl_self_author", at.Unix(), 9735, [][]string{{"e", "pl_self_note"}, {"p", "pl_self_author"}, {"amount", "700000000"}}, "", at),
+	}
+	for _, event := range events {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
+
+	var engagement, zapMSats int64
+	if err := pool.QueryRow(ctx, `
+		SELECT recent_engagement_received, recent_zap_volume_msats
+		FROM profile_discovery_stats
+		WHERE pubkey = 'pl_self_author'
+	`).Scan(&engagement, &zapMSats); err != nil {
+		t.Fatalf("query legacy profile discovery stats: %v", err)
+	}
+	if engagement != 0 || zapMSats != 0 {
+		t.Fatalf("expected self-engagement to be excluded from legacy metrics, got engagement=%d zap_msats=%d", engagement, zapMSats)
+	}
+}
+
 func TestProjectionRebuildScopes_ProfileDiscoveryStatsFull(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

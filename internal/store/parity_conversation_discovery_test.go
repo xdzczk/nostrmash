@@ -21,9 +21,20 @@ func TestGetHotConversations_WindowsAndOrdering(t *testing.T) {
 
 	rootA := newThreadEventForHotConversations("hot_root_a", "author_a", now.Add(-10*time.Hour), nil, "root a")
 	rootB := newThreadEventForHotConversations("hot_root_b", "author_b", now.Add(-6*24*time.Hour), nil, "root b")
+	// Farmed thread: the root author replying to themselves in a loop. Raw
+	// reply counters record it, but reply weights (unique repliers excluding
+	// the root author) stay zero, so it must never surface as hot.
+	rootC := newThreadEventForHotConversations("hot_root_c", "author_c", now.Add(-8*time.Hour), nil, "farmed root")
 	events := []model.Event{
 		rootA,
 		rootB,
+		rootC,
+		newThreadEventForHotConversations("hot_c_self_1", "author_c", now.Add(-3*time.Hour),
+			[][]string{{"e", rootC.ID, "", "reply"}, {"e", rootC.ID, "", "root"}}, "self reply 1"),
+		newThreadEventForHotConversations("hot_c_self_2", "author_c", now.Add(-2*time.Hour),
+			[][]string{{"e", rootC.ID, "", "reply"}, {"e", rootC.ID, "", "root"}}, "self reply 2"),
+		newThreadEventForHotConversations("hot_c_self_3", "author_c", now.Add(-1*time.Hour),
+			[][]string{{"e", rootC.ID, "", "reply"}, {"e", rootC.ID, "", "root"}}, "self reply 3"),
 		newThreadEventForHotConversations("hot_a_reply_1", "author_a_1", now.Add(-3*time.Hour),
 			[][]string{{"e", rootA.ID, "", "reply"}, {"e", rootA.ID, "", "root"}}, "a reply 1"),
 		newThreadEventForHotConversations("hot_a_reply_2", "author_a_2", now.Add(-2*time.Hour),
@@ -65,7 +76,12 @@ func TestGetHotConversations_WindowsAndOrdering(t *testing.T) {
 		t.Fatalf("GetHotConversations 24h: %v", err)
 	}
 	if len(last24h) != 2 {
-		t.Fatalf("unexpected 24h hot conversation count: got=%d want=2", len(last24h))
+		t.Fatalf("unexpected 24h hot conversation count (farmed self-reply thread must be excluded): got=%d want=2", len(last24h))
+	}
+	for _, row := range last24h {
+		if row.RootEventID == rootC.ID {
+			t.Fatalf("farmed self-reply thread must not surface as hot: %#v", row)
+		}
 	}
 	if last24h[0].RootEventID != rootA.ID {
 		t.Fatalf("expected root_a first in 24h, got %#v", last24h[0])
@@ -85,7 +101,7 @@ func TestGetHotConversations_WindowsAndOrdering(t *testing.T) {
 		t.Fatalf("GetHotConversations 7d: %v", err)
 	}
 	if len(last7d) != 2 {
-		t.Fatalf("unexpected 7d hot conversation count: got=%d want=2", len(last7d))
+		t.Fatalf("unexpected 7d hot conversation count (farmed self-reply thread must be excluded): got=%d want=2", len(last7d))
 	}
 	if last7d[0].RootEventID != rootB.ID {
 		t.Fatalf("expected root_b first in 7d, got %#v", last7d[0])

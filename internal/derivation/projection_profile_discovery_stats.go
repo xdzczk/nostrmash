@@ -108,10 +108,29 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 
 	w24 := metrics.window24h
 	w7 := metrics.window7d
-	score24h := computeProfileTrendingScore(24*time.Hour, nowUnix, recentActivityAt, w24.postCount, w24.replyCount, w24.engagement, w24.zapVolumeMSats, w24.activeDays)
-	score7d := computeProfileTrendingScore(7*24*time.Hour, nowUnix, recentActivityAt, w7.postCount, w7.replyCount, w7.engagement, w7.zapVolumeMSats, w7.activeDays)
-	risingScore24h := computeProfileRisingScore(score24h, metrics.followerCount, w24.newFollowers, w24.engagement, w24.postCount, w24.replyCount, w24.activeDays)
-	risingScore7d := computeProfileRisingScore(score7d, metrics.followerCount, w7.newFollowers, w7.engagement, w7.postCount, w7.replyCount, w7.activeDays)
+
+	// Score inputs default to the raw window counters. With trust-weighted
+	// discovery engagement enabled they swap to deduplicated, self-excluded,
+	// trust-weighted values so engagement-farming rings buy no trending or
+	// rising score. Raw counters keep feeding the display columns and
+	// reconciliation unchanged.
+	engagement24h, engagement7d := float64(w24.engagement), float64(w7.engagement)
+	zapMSats24h, zapMSats7d := float64(w24.zapVolumeMSats), float64(w7.zapVolumeMSats)
+	newFollowers24h, newFollowers7d := float64(w24.newFollowers), float64(w7.newFollowers)
+	if h.engagementWeighting.TrustWeighted {
+		weighted, err := loadProfileWeightedScoreInputsTx(ctx, tx, pubkey, nowUnix, h.engagementWeighting)
+		if err != nil {
+			return err
+		}
+		engagement24h, engagement7d = weighted.engagement24h, weighted.engagement7d
+		zapMSats24h, zapMSats7d = weighted.zapMSats24h, weighted.zapMSats7d
+		newFollowers24h, newFollowers7d = weighted.newFollowers24h, weighted.newFollowers7d
+	}
+
+	score24h := computeProfileTrendingScore(24*time.Hour, nowUnix, recentActivityAt, w24.postCount, w24.replyCount, engagement24h, zapMSats24h, w24.activeDays)
+	score7d := computeProfileTrendingScore(7*24*time.Hour, nowUnix, recentActivityAt, w7.postCount, w7.replyCount, engagement7d, zapMSats7d, w7.activeDays)
+	risingScore24h := computeProfileRisingScore(score24h, metrics.followerCount, newFollowers24h, engagement24h, w24.postCount, w24.replyCount, w24.activeDays)
+	risingScore7d := computeProfileRisingScore(score7d, metrics.followerCount, newFollowers7d, engagement7d, w7.postCount, w7.replyCount, w7.activeDays)
 
 	if score7d <= 0 && risingScore7d <= 0 && w7.postCount == 0 && w7.replyCount == 0 && w7.engagement == 0 {
 		if _, err := tx.Exec(ctx, `DELETE FROM profile_discovery_stats WHERE pubkey = $1`, pubkey); err != nil {
@@ -324,9 +343,11 @@ type profileDualWindowMetrics struct {
 
 // loadProfileDualWindowMetricsTx collapses the previous ~20 sequential
 // COUNT round-trips (9 metrics × 2 windows + follower total) into two
-// FILTER-aggregate queries over the 7d floor (superset of 24h). Semantics
-// match the prior per-window loaders: no self-engagement exclusion, replies
-// via reply_count_contributions, zap key = receiver_pubkey.
+// FILTER-aggregate queries over the 7d floor (superset of 24h). Replies
+// come via reply_count_contributions, zap key = receiver_pubkey.
+// Self-engagement (replying to / reposting / reacting to / zapping /
+// following yourself) is excluded, matching the incremental delta path —
+// an account must never be able to farm its own trending inputs.
 func loadProfileDualWindowMetricsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -408,28 +429,33 @@ func loadProfileDualWindowMetricsTx(
 			JOIN events source_event ON source_event.id = c.source_event_id
 			JOIN events target_event ON target_event.id = c.target_event_id
 			WHERE target_event.pubkey = $1
+			  AND source_event.pubkey <> $1
 			  AND source_event.created_at >= $3
 			UNION ALL
 			SELECT 'repost', r.created_at, 0
 			FROM repost_events r
 			JOIN events target_event ON target_event.id = r.target_event_id
 			WHERE target_event.pubkey = $1
+			  AND r.reposter_pubkey <> $1
 			  AND r.created_at >= $3
 			UNION ALL
 			SELECT 'reaction', r.created_at, 0
 			FROM reaction_events r
 			JOIN events target_event ON target_event.id = r.target_event_id
 			WHERE target_event.pubkey = $1
+			  AND r.reactor_pubkey <> $1
 			  AND r.created_at >= $3
 			UNION ALL
 			SELECT 'zap', zr.created_at, zr.amount_sats * 1000
 			FROM zap_receipts zr
 			WHERE zr.receiver_pubkey = $1
+			  AND zr.sender_pubkey <> $1
 			  AND zr.created_at >= $3
 			UNION ALL
 			SELECT 'new_follow', fe.contact_list_created_at, 0
 			FROM follower_edges fe
 			WHERE fe.followed_pubkey = $1
+			  AND fe.follower_pubkey <> $1
 			  AND fe.contact_list_created_at >= $3
 		) s
 	`, pubkey, cutoff24h, cutoff7d).Scan(

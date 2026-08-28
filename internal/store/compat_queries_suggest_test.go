@@ -96,6 +96,11 @@ func TestSuggestHashtags_MatchesPrefixAndAggregates(t *testing.T) {
 		newTaggedEvent("sg_hash_2", "author_b", now.Add(-25*time.Minute), "nostr"),
 		newTaggedEvent("sg_hash_3", "author_b", now.Add(-20*time.Minute), "nostrich"),
 		newTaggedEvent("sg_hash_4", "author_c", now.Add(-15*time.Minute), "bitcoin"),
+		// One account spamming a tag: more raw events than any other tag,
+		// but only one unique author — it must not outrank organic tags.
+		newTaggedEvent("sg_hash_spam_1", "author_spam", now.Add(-14*time.Minute), "nostrspam"),
+		newTaggedEvent("sg_hash_spam_2", "author_spam", now.Add(-13*time.Minute), "nostrspam"),
+		newTaggedEvent("sg_hash_spam_3", "author_spam", now.Add(-12*time.Minute), "nostrspam"),
 	}
 	for _, event := range events {
 		tags := extractTagsForStoreTest(t, event.RawJSON)
@@ -111,13 +116,19 @@ func TestSuggestHashtags_MatchesPrefixAndAggregates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SuggestHashtags: %v", err)
 	}
-	if len(out) != 2 {
-		t.Fatalf("unexpected hashtag suggestion count: got=%d want=2", len(out))
+	if len(out) != 3 {
+		t.Fatalf("unexpected hashtag suggestion count: got=%d want=3", len(out))
 	}
-	if out[0].Hashtag != "nostr" || out[0].EventCount != 2 {
+	// nostr leads on unique authors (2) despite nostrspam having more raw
+	// events (3 from a single account).
+	if out[0].Hashtag != "nostr" || out[0].EventCount != 2 || out[0].UniqueAuthors != 2 {
 		t.Fatalf("unexpected top hashtag suggestion: %#v", out[0])
 	}
-	if out[1].Hashtag != "nostrich" {
+	// Single-author tags tie on unique authors; raw volume breaks the tie.
+	if out[1].Hashtag != "nostrspam" || out[1].UniqueAuthors != 1 {
 		t.Fatalf("unexpected second hashtag suggestion: %#v", out[1])
+	}
+	if out[2].Hashtag != "nostrich" {
+		t.Fatalf("unexpected third hashtag suggestion: %#v", out[2])
 	}
 }

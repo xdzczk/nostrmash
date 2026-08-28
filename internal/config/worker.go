@@ -61,11 +61,13 @@ type WorkerIncrementalStatsReconciliationConfig struct {
 	SampleSize int
 }
 
-// WorkerDiscoveryEngagementConfig controls trust-graph weighting of note
-// discovery trending scores. Per-engager deduplication and author
-// self-engagement exclusion are unconditional; TrustWeighted additionally
-// scales each engager's vote by trust-graph proximity (hop ladder bounded by
-// TRUST_MAX_HOPS) with UntrustedWeight for engagers outside the graph.
+// WorkerDiscoveryEngagementConfig controls trust-graph weighting of
+// discovery scoring: note trending, hot-conversation reply weights, and
+// profile trending/rising score inputs (engagement, zap volume, new-follower
+// momentum). Per-engager deduplication and author self-engagement exclusion
+// are unconditional; TrustWeighted additionally scales each engager's vote
+// by trust-graph proximity (hop ladder bounded by TRUST_MAX_HOPS) with
+// UntrustedWeight for engagers outside the graph.
 type WorkerDiscoveryEngagementConfig struct {
 	TrustWeighted   bool
 	UntrustedWeight float64

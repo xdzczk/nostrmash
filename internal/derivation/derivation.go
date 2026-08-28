@@ -83,21 +83,27 @@ const (
 	EventURLsVersion          = 2
 	// v5: trending score inputs count each engager pubkey once per signal and
 	// exclude the note author's self-engagement (optionally trust-weighted).
-	NoteDiscoveryStatsVersion          = 5
-	ProfileDiscoveryStatsVersion       = 1
-	TrustedNoteDiscoveryVersion        = 1
-	TrustedProfileDiscoveryVersion     = 1
-	DMUnreadCountsVersion              = 1
-	ZapReceiptsVersion                 = 1
-	ProfilePublicStatsVersion          = 1
-	AuthorActivityDailyVersion         = 1
-	AuthorEngagementStatsVersion       = 1
-	AuthorTopicStatsVersion            = 1
-	AuthorMediaMixStatsVersion         = 2
-	AuthorActivityWindowsVersion       = 1
-	AuthorPostingPatternsVersion       = 1
-	ThreadProjectionVersion            = 1
-	ThreadSummaryVersion               = 1
+	NoteDiscoveryStatsVersion = 5
+	// v2: score inputs exclude self-engagement in the legacy full-scan
+	// loader and, with TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING on, swap to
+	// deduplicated trust-weighted engagement / zap / new-follower votes.
+	ProfileDiscoveryStatsVersion   = 2
+	TrustedNoteDiscoveryVersion    = 1
+	TrustedProfileDiscoveryVersion = 1
+	DMUnreadCountsVersion          = 1
+	ZapReceiptsVersion             = 1
+	ProfilePublicStatsVersion      = 1
+	AuthorActivityDailyVersion     = 1
+	AuthorEngagementStatsVersion   = 1
+	AuthorTopicStatsVersion        = 1
+	AuthorMediaMixStatsVersion     = 2
+	AuthorActivityWindowsVersion   = 1
+	AuthorPostingPatternsVersion   = 1
+	ThreadProjectionVersion        = 1
+	// v2: adds reply_weight_24h/7d — unique repliers excluding the root
+	// author (optionally trust-weighted) — as the hot-conversation velocity
+	// inputs, replacing raw reply counters a single account could inflate.
+	ThreadSummaryVersion               = 2
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1

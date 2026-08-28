@@ -305,27 +305,58 @@ Still deferred: Monte Carlo / random-walk variants.
 
 ### Anti-gaming: trust-weighted discovery engagement
 
-Note discovery trending scores answer "who engaged", not "how much
-engagement": in an open network events and identities are free, so any raw
-counting metric is infinitely farmable, and the trust graph is the only
-sybil-resistant signal available.
+Discovery scoring answers "who engaged", not "how much engagement": in an
+open network events and identities are free, so any raw counting metric is
+infinitely farmable, and the trust graph is the only sybil-resistant signal
+available.
 
-Unconditional (note discovery stats derivation v5+):
+Unconditional protections (no flag required):
 
-- each engager pubkey counts once per note per signal (reply / repost /
-  reaction / zap count); thread-root reply scoring counts unique thread-wide
-  repliers via `thread_edges` instead of raw `thread_summaries` counters
-- the note author's own engagement (including self-zaps) never counts
-- raw display counters (`reply_count`, `reaction_count`, ...) still count
-  events; only score inputs are deduplicated
+- note trending (note discovery stats derivation v5+): each engager pubkey
+  counts once per note per signal (reply / repost / reaction / zap count);
+  thread-root reply scoring counts unique thread-wide repliers via
+  `thread_edges` instead of raw `thread_summaries` counters; the note
+  author's own engagement (including self-zaps) never counts
+- hot conversations (thread summary derivation v2+): velocity is scored from
+  `reply_weight_24h/7d` — unique repliers excluding the root author — so
+  self-reply loops and repeat replies from one account buy zero velocity;
+  the participant bonus also derives from the weighted replier mass instead
+  of the raw distinct-participant count
+- profile trending/rising: the legacy full-scan metric loader excludes
+  self-engagement (self-replies / reposts / reactions / zaps / follows),
+  matching the incremental delta path which always excluded it
+- hashtag typeahead suggestions order by unique authors before raw event
+  count (the underlying `event_hashtags` rows are already WoT-gated at
+  projection time)
+- related profiles: once `trust_graph_snapshot` is populated, candidates
+  outside the Web of Trust are excluded (fail-safe open on an empty
+  snapshot, same rule as the hashtag/URL projection gates), so a bot ring
+  engaging with a profile cannot surface in its recommendations
+- raw display counters (`reply_count`, `reaction_count`,
+  `recent_engagement_received`, `follower_count`, ...) still count events;
+  only score inputs are deduplicated
 
 Opt-in (`TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING`, default off): each engager's
 vote is scaled by trust-graph proximity from `trust_pubkeys_latest` (hops <= 1:
 1.0, hops 2: 0.5, up to `TRUST_MAX_HOPS`: 0.25, outside the graph:
-`TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT`, default 0). Zap msats are scaled
-per receipt by the sender's weight. A bot ring's total score contribution is
-then bounded by the follow edges real trusted users extend toward it, which is
-slow, costly, and auditable to acquire — unlike events.
+`TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT`, default 0). This applies to:
+
+- note trending engagement, with zap msats scaled per receipt by the
+  sender's weight
+- hot-conversation reply weights
+- profile trending/rising score inputs (profile discovery stats derivation
+  v2+): engagement deduplicated per (signal, engager, target event), zap
+  volume scaled per receipt, and new-follower momentum weighted per distinct
+  follower — so an untrusted follower ring buys no rising score. The raw
+  incremental counters (`author_hourly_activity` and friends) are left
+  untouched because they feed analytics and the incremental-vs-full
+  reconciliation; only the discovery score inputs swap to weighted values,
+  at the cost of a windowed engagement rescan per profile refresh while the
+  flag is on.
+
+A bot ring's total score contribution is then bounded by the follow edges
+real trusted users extend toward it, which is slow, costly, and auditable to
+acquire — unlike events.
 
 ## Decision rules
 

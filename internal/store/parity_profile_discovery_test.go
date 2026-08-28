@@ -163,6 +163,69 @@ func TestGetRelatedProfiles_RankedAndBounded(t *testing.T) {
 	}
 }
 
+// Once the Web of Trust snapshot is populated, related-profile candidates
+// outside it must be excluded: co-occurrence signals (shared hashtags,
+// replies, reactions) are free to farm, so a bot ring engaging with a focal
+// account must not surface in its "related profiles". The existing tests
+// above cover the fail-safe-open behavior with an empty trust graph.
+func TestGetRelatedProfiles_TrustGateExcludesUntrustedCandidates(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+
+	events := []model.Event{
+		newDiscoveryEvent("meta_gate_focal", "gate_focal_author", now.Add(-4*time.Hour), 0, nil, `{"name":"focal"}`),
+		newDiscoveryEvent("meta_gate_trusted", "gate_trusted_author", now.Add(-4*time.Hour), 0, nil, `{"name":"trusted"}`),
+		newDiscoveryEvent("meta_gate_bot", "gate_bot_author", now.Add(-4*time.Hour), 0, nil, `{"name":"bot"}`),
+		newDiscoveryEvent("gate_focal_note", "gate_focal_author", now.Add(-2*time.Hour), 1, [][]string{{"t", "gatetopic"}}, "focal"),
+		// Both candidates react to the focal note; the bot also piles on
+		// stronger signals (repost + reply) that must still not surface it.
+		newDiscoveryEvent("gate_trusted_react", "gate_trusted_author", now.Add(-90*time.Minute), 7, [][]string{{"e", "gate_focal_note"}}, "+"),
+		newDiscoveryEvent("gate_bot_react", "gate_bot_author", now.Add(-85*time.Minute), 7, [][]string{{"e", "gate_focal_note"}}, "+"),
+		newDiscoveryEvent("gate_bot_repost", "gate_bot_author", now.Add(-80*time.Minute), 6, [][]string{{"e", "gate_focal_note"}}, ""),
+		newDiscoveryEvent("gate_bot_reply", "gate_bot_author", now.Add(-75*time.Minute), 1, [][]string{{"e", "gate_focal_note", "", "reply"}}, "reply"),
+	}
+	for _, event := range events {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
+
+	// Populate the trust graph with the focal and trusted authors only.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed)
+		VALUES ('gate_focal_author', 0, true), ('gate_trusted_author', 1, false)
+	`); err != nil {
+		t.Fatalf("seed trust_graph_snapshot: %v", err)
+	}
+
+	related, err := pgStore.GetRelatedProfiles(ctx, "gate_focal_author", 10)
+	if err != nil {
+		t.Fatalf("GetRelatedProfiles: %v", err)
+	}
+	if len(related) == 0 {
+		t.Fatalf("expected the trusted candidate to be related, got none")
+	}
+	for _, row := range related {
+		if row.Pubkey == "gate_bot_author" {
+			t.Fatalf("untrusted candidate must be excluded once the trust graph is populated: %#v", related)
+		}
+	}
+	if related[0].Pubkey != "gate_trusted_author" {
+		t.Fatalf("expected gate_trusted_author as top related profile, got %#v", related[0])
+	}
+}
+
 func TestGetRelatedProfiles_SparseAndMissing(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

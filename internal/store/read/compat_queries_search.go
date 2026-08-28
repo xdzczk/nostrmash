@@ -443,6 +443,10 @@ func (s *Read) SuggestHashtags(ctx context.Context, query string, limit int) ([]
 	if limit > 20 {
 		limit = 20
 	}
+	// Ranked by unique authors before raw event count: event_hashtags rows
+	// are already Web-of-Trust gated at projection time, and unique-author
+	// ordering means spamming a tag from one account cannot push it up the
+	// typeahead — inflating it requires many distinct trusted authors.
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			hashtag,
@@ -451,7 +455,7 @@ func (s *Read) SuggestHashtags(ctx context.Context, query string, limit int) ([]
 		FROM event_hashtags
 		WHERE hashtag LIKE $1 || '%'
 		GROUP BY hashtag
-		ORDER BY event_count DESC, unique_authors DESC, hashtag ASC
+		ORDER BY unique_authors DESC, event_count DESC, hashtag ASC
 		LIMIT $2
 	`, query, limit)
 	if err != nil {
