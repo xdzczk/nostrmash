@@ -18,6 +18,7 @@ type WorkerConfig struct {
 	EngagementRetention        WorkerEngagementRetentionConfig
 	ReplaceableRetention       WorkerReplaceableRetentionConfig
 	DeletionRetention          WorkerDeletionRetentionConfig
+	DeletionLedgerRetention    WorkerDeletionLedgerRetentionConfig
 	UntrustedAuthorRetention   WorkerUntrustedAuthorRetentionConfig
 	AuthorRecentRetention      WorkerAuthorRecentRetentionConfig
 	SearchDocsRetention        WorkerSearchDocsRetentionConfig
@@ -334,6 +335,24 @@ type WorkerDeletionRetentionConfig struct {
 	DeleteBatchLimit int
 }
 
+// WorkerDeletionLedgerRetentionConfig configures the sweep that purges
+// deletion_events tombstone ledger rows older than MaxAge whose target event
+// is not stored. Every ledger consumer anti-joins it against stored events,
+// so orphan tombstones only matter if their target arrives later via
+// fallback/backfill — MaxAge bounds how long that window stays open.
+// Tombstones whose target is stored are never purged regardless of age.
+//
+// ScanBatchLimit bounds each keyset window (rows scanned, not rows deleted);
+// the sweep walks the whole eligible range once per RunInterval, so the
+// interval is deliberately long (daily) rather than the hourly cadence of
+// the bounded single-batch purges.
+type WorkerDeletionLedgerRetentionConfig struct {
+	Enabled        bool
+	MaxAge         time.Duration
+	RunInterval    time.Duration
+	ScanBatchLimit int
+}
+
 func LoadWorker() (WorkerConfig, error) {
 	shared, err := loadSharedConfig("worker")
 	if err != nil {
@@ -387,6 +406,7 @@ func LoadWorker() (WorkerConfig, error) {
 		EngagementRetention:        retention.Engagement,
 		ReplaceableRetention:       retention.Replaceable,
 		DeletionRetention:          retention.Deletion,
+		DeletionLedgerRetention:    retention.DeletionLedger,
 		UntrustedAuthorRetention:   retention.UntrustedAuthor,
 		AuthorRecentRetention:      retention.AuthorRecent,
 		SearchDocsRetention:        retention.SearchDocs,
@@ -541,6 +561,17 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.DeletionRetention.DeleteBatchLimit <= 0 {
 			return fmt.Errorf("WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.DeletionLedgerRetention.Enabled {
+		if cfg.DeletionLedgerRetention.MaxAge <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_DELETION_LEDGER_MAX_AGE must be > 0")
+		}
+		if cfg.DeletionLedgerRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_DELETION_LEDGER_RUN_INTERVAL must be > 0")
+		}
+		if cfg.DeletionLedgerRetention.ScanBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_DELETION_LEDGER_SCAN_BATCH_LIMIT must be > 0")
 		}
 	}
 	if cfg.UntrustedAuthorRetention.Enabled {

@@ -368,6 +368,81 @@ func (q *Queries) PurgeIdleAccountStates(ctx context.Context, arg PurgeIdleAccou
 	return result.RowsAffected(), nil
 }
 
+const purgeOrphanDeletionLedger = `-- name: PurgeOrphanDeletionLedger :one
+WITH scan AS (
+    SELECT d.event_id, d.target_event_id, d.created_at
+    FROM deletion_events d
+    WHERE (d.created_at, d.event_id) > ($1::bigint, $2::text)
+      AND d.created_at < $3::bigint
+    ORDER BY d.created_at ASC, d.event_id ASC
+    LIMIT $4
+), victims AS (
+    DELETE FROM deletion_events d
+    USING scan s
+    WHERE d.event_id = s.event_id
+      AND NOT EXISTS (
+        SELECT 1
+        FROM events e
+        WHERE e.id = s.target_event_id
+      )
+    RETURNING d.event_id
+)
+SELECT
+    (SELECT count(*) FROM scan)::bigint AS scanned,
+    (SELECT count(*) FROM victims)::bigint AS deleted,
+    (SELECT COALESCE(max(created_at), 0) FROM scan)::bigint AS last_created_at,
+    (SELECT COALESCE(
+        (SELECT s.event_id FROM scan s ORDER BY s.created_at DESC, s.event_id DESC LIMIT 1),
+        ''
+    ))::text AS last_event_id
+`
+
+type PurgeOrphanDeletionLedgerParams struct {
+	CursorUnix        int64
+	CursorEventID     string
+	CreatedBeforeUnix int64
+	RowLimit          int32
+}
+
+type PurgeOrphanDeletionLedgerRow struct {
+	Scanned       int64
+	Deleted       int64
+	LastCreatedAt int64
+	LastEventID   string
+}
+
+// Purges one keyset window of deletion_events tombstones whose target event
+// is not stored. Every consumer of the ledger (the DM parity read filters and
+// the DM-unread derivation) anti-joins it against stored events, so a
+// tombstone whose target is absent does nothing today; its only residual
+// value is suppressing a deleted event that arrives *later* via fallback or
+// backfill, which the created_at horizon (cutoff) bounds. Tombstones whose
+// target IS stored are keepers and survive regardless of age.
+//
+// Cost is bounded by the scan window (rule: retention-query-cost): the scan
+// is one idx_deletion_events_created_at range read of at most row_limit rows,
+// plus one events-PK probe per scanned row. The composite (created_at,
+// event_id) keyset cursor is exact — the caller resumes strictly after the
+// last scanned row, so keepers are never rescanned within a run and rows
+// sharing a created_at second are never skipped. Each run restarts the
+// cursor from (0, ”).
+func (q *Queries) PurgeOrphanDeletionLedger(ctx context.Context, arg PurgeOrphanDeletionLedgerParams) (PurgeOrphanDeletionLedgerRow, error) {
+	row := q.db.QueryRow(ctx, purgeOrphanDeletionLedger,
+		arg.CursorUnix,
+		arg.CursorEventID,
+		arg.CreatedBeforeUnix,
+		arg.RowLimit,
+	)
+	var i PurgeOrphanDeletionLedgerRow
+	err := row.Scan(
+		&i.Scanned,
+		&i.Deleted,
+		&i.LastCreatedAt,
+		&i.LastEventID,
+	)
+	return i, err
+}
+
 const purgeProcessedDeletionEvents = `-- name: PurgeProcessedDeletionEvents :execrows
 WITH candidates AS (
     SELECT e.id

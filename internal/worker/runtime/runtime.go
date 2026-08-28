@@ -43,6 +43,13 @@ type DeletionRetentionStore interface {
 	PurgeProcessedDeletionEvents(ctx context.Context, createdBefore time.Time, deadGraceBefore time.Time, limit int) (int64, error)
 }
 
+// DeletionLedgerRetentionStore purges orphan deletion_events tombstones
+// (target event not stored) in keyset windows. Satisfied by
+// *store.PostgresStore.
+type DeletionLedgerRetentionStore interface {
+	PurgeOrphanDeletionLedger(ctx context.Context, cursorCreatedAt int64, cursorEventID string, createdBefore time.Time, limit int) (scanned, deleted, lastCreatedAt int64, lastEventID string, err error)
+}
+
 // UntrustedRetentionStore purges author-gated raw events, plus their derived
 // links/hashtags, from authors outside trust_graph_snapshot. Satisfied by
 // *store.PostgresStore.

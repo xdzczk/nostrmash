@@ -71,6 +71,22 @@ type Querier interface {
 	// validation, metrics, and transaction shape; these are pure SQL plumbing.
 	PurgeExpiredEngagementEvents(ctx context.Context, arg PurgeExpiredEngagementEventsParams) (int64, error)
 	PurgeIdleAccountStates(ctx context.Context, arg PurgeIdleAccountStatesParams) (int64, error)
+	// Purges one keyset window of deletion_events tombstones whose target event
+	// is not stored. Every consumer of the ledger (the DM parity read filters and
+	// the DM-unread derivation) anti-joins it against stored events, so a
+	// tombstone whose target is absent does nothing today; its only residual
+	// value is suppressing a deleted event that arrives *later* via fallback or
+	// backfill, which the created_at horizon (cutoff) bounds. Tombstones whose
+	// target IS stored are keepers and survive regardless of age.
+	//
+	// Cost is bounded by the scan window (rule: retention-query-cost): the scan
+	// is one idx_deletion_events_created_at range read of at most row_limit rows,
+	// plus one events-PK probe per scanned row. The composite (created_at,
+	// event_id) keyset cursor is exact — the caller resumes strictly after the
+	// last scanned row, so keepers are never rescanned within a run and rows
+	// sharing a created_at second are never skipped. Each run restarts the
+	// cursor from (0, '').
+	PurgeOrphanDeletionLedger(ctx context.Context, arg PurgeOrphanDeletionLedgerParams) (PurgeOrphanDeletionLedgerRow, error)
 	PurgeProcessedDeletionEvents(ctx context.Context, arg PurgeProcessedDeletionEventsParams) (int64, error)
 	// Deletes duplicate provenance older than seen_before. The earliest-seen
 	// row per event (is_first_seen, maintained by triggers in migration 000070)

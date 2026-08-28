@@ -30,6 +30,7 @@ type Bootstrap struct {
 	EngagementStore        EngagementRetentionStore
 	ReplaceableStore       ReplaceableRetentionStore
 	DeletionStore          DeletionRetentionStore
+	DeletionLedgerStore    DeletionLedgerRetentionStore
 	UntrustedStore         UntrustedRetentionStore
 	AuthorRecentStore      AuthorRecentRetentionStore
 	SearchDocsStore        SearchDocsRetentionStore
@@ -140,6 +141,7 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		EngagementStore:        postgresStore,
 		ReplaceableStore:       postgresStore,
 		DeletionStore:          postgresStore,
+		DeletionLedgerStore:    postgresStore,
 		UntrustedStore:         postgresStore,
 		AuthorRecentStore:      postgresStore,
 		SearchDocsStore:        postgresStore,

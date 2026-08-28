@@ -74,6 +74,14 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		})
 	})
 	spawn(func(c context.Context) {
+		jobs.RunDeletionLedgerRetentionLoop(c, log, bootstrap.DeletionLedgerStore, jobs.DeletionLedgerRetentionConfig{
+			Enabled:        cfg.DeletionLedgerRetention.Enabled,
+			MaxAge:         cfg.DeletionLedgerRetention.MaxAge,
+			RunInterval:    cfg.DeletionLedgerRetention.RunInterval,
+			ScanBatchLimit: cfg.DeletionLedgerRetention.ScanBatchLimit,
+		})
+	})
+	spawn(func(c context.Context) {
 		jobs.RunUntrustedAuthorRetentionLoop(c, log, bootstrap.UntrustedStore, jobs.UntrustedAuthorRetentionConfig{
 			Enabled:          cfg.UntrustedAuthorRetention.Enabled,
 			MaxAge:           cfg.UntrustedAuthorRetention.MaxAge,

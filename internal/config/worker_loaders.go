@@ -45,6 +45,7 @@ type workerRetentionConfigs struct {
 	Engagement        WorkerEngagementRetentionConfig
 	Replaceable       WorkerReplaceableRetentionConfig
 	Deletion          WorkerDeletionRetentionConfig
+	DeletionLedger    WorkerDeletionLedgerRetentionConfig
 	UntrustedAuthor   WorkerUntrustedAuthorRetentionConfig
 	AuthorRecent      WorkerAuthorRecentRetentionConfig
 	SearchDocs        WorkerSearchDocsRetentionConfig
@@ -68,6 +69,9 @@ func loadWorkerRetentionConfigs() (workerRetentionConfigs, error) {
 		return workerRetentionConfigs{}, err
 	}
 	if out.Deletion, err = loadDeletionRetentionConfig(); err != nil {
+		return workerRetentionConfigs{}, err
+	}
+	if out.DeletionLedger, err = loadDeletionLedgerRetentionConfig(); err != nil {
 		return workerRetentionConfigs{}, err
 	}
 	if out.UntrustedAuthor, err = loadUntrustedAuthorRetentionConfig(); err != nil {
@@ -203,6 +207,27 @@ func loadDeletionRetentionConfig() (WorkerDeletionRetentionConfig, error) {
 		DeadGrace:        deadGrace,
 		RunInterval:      runInterval,
 		DeleteBatchLimit: deleteBatchLimit,
+	}, nil
+}
+
+func loadDeletionLedgerRetentionConfig() (WorkerDeletionLedgerRetentionConfig, error) {
+	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_LEDGER_MAX_AGE", 90*24*time.Hour)
+	if err != nil {
+		return WorkerDeletionLedgerRetentionConfig{}, err
+	}
+	runInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_LEDGER_RUN_INTERVAL", 24*time.Hour)
+	if err != nil {
+		return WorkerDeletionLedgerRetentionConfig{}, err
+	}
+	scanBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_DELETION_LEDGER_SCAN_BATCH_LIMIT", 5000)
+	if err != nil {
+		return WorkerDeletionLedgerRetentionConfig{}, err
+	}
+	return WorkerDeletionLedgerRetentionConfig{
+		Enabled:        getEnvBool("WORKER_RETENTION_DELETION_LEDGER_ENABLED", true),
+		MaxAge:         maxAge,
+		RunInterval:    runInterval,
+		ScanBatchLimit: scanBatchLimit,
 	}, nil
 }
 
