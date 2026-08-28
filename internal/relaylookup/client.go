@@ -3,6 +3,7 @@ package relaylookup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -23,7 +24,23 @@ type Client struct {
 	timeout       time.Duration
 	maxFanout     int
 	log           *slog.Logger
+
+	// dialCooldownUntil tracks relays whose last dial failed. A dead
+	// relay otherwise pins every lookup to the full per-relay timeout,
+	// because collectFromRelays waits for all fanout goroutines:
+	// production ran for days with the directory relay unreachable and
+	// every profile fallback stuck at the timeout ceiling. Relays in
+	// cooldown are skipped (freeing their fanout slot for a healthy
+	// relay) and re-probed after the cooldown expires.
+	cooldownMu        sync.Mutex
+	dialCooldownUntil map[string]time.Time
+	now               func() time.Time
 }
+
+// dialFailureCooldown is how long a relay is skipped after a failed
+// dial. Long enough to keep the timeout tax off the hot path, short
+// enough that a recovered relay rejoins quickly.
+const dialFailureCooldown = 60 * time.Second
 
 // Config configures a split event/profile fallback client.
 type Config struct {
@@ -54,12 +71,50 @@ func NewSplitClient(cfg Config) *Client {
 		maxFanout = max(len(eventRelays), len(profileRelays))
 	}
 	return &Client{
-		eventRelays:   eventRelays,
-		profileRelays: profileRelays,
-		timeout:       timeout,
-		maxFanout:     maxFanout,
-		log:           logging.New("relaylookup"),
+		eventRelays:       eventRelays,
+		profileRelays:     profileRelays,
+		timeout:           timeout,
+		maxFanout:         maxFanout,
+		log:               logging.New("relaylookup"),
+		dialCooldownUntil: make(map[string]time.Time),
+		now:               time.Now,
 	}
+}
+
+// withoutCooledDownRelays drops relays whose last dial failed within the
+// cooldown window. If every candidate is cooling down, the original list
+// is returned so lookups degrade to trying (and re-probing) dead relays
+// rather than silently skipping fallback entirely.
+func (c *Client) withoutCooledDownRelays(relays []string) []string {
+	if len(relays) == 0 {
+		return relays
+	}
+	now := c.now()
+	c.cooldownMu.Lock()
+	defer c.cooldownMu.Unlock()
+	out := make([]string, 0, len(relays))
+	for _, relay := range relays {
+		if until, ok := c.dialCooldownUntil[relay]; ok && now.Before(until) {
+			continue
+		}
+		out = append(out, relay)
+	}
+	if len(out) == 0 {
+		return relays
+	}
+	return out
+}
+
+func (c *Client) markDialFailure(relay string) {
+	c.cooldownMu.Lock()
+	c.dialCooldownUntil[relay] = c.now().Add(dialFailureCooldown)
+	c.cooldownMu.Unlock()
+}
+
+func (c *Client) markDialSuccess(relay string) {
+	c.cooldownMu.Lock()
+	delete(c.dialCooldownUntil, relay)
+	c.cooldownMu.Unlock()
 }
 
 func (c *Client) Enabled() bool {
@@ -223,6 +278,7 @@ func (c *Client) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (
 }
 
 func (c *Client) collectFromRelays(ctx context.Context, relays []string, filter map[string]any, maxEvents int) ([]json.RawMessage, error) {
+	relays = c.withoutCooledDownRelays(relays)
 	if c.maxFanout < len(relays) {
 		relays = relays[:c.maxFanout]
 	}
@@ -250,6 +306,18 @@ func (c *Client) collectFromRelays(ctx context.Context, relays []string, filter 
 			relayCallCtx, cancel := context.WithTimeout(relayCtx, c.timeout)
 			defer cancel()
 			events, err := queryRelay(relayCallCtx, relayURL, filter, maxEvents)
+			var dialErr *relayDialError
+			switch {
+			case errors.As(err, &dialErr):
+				// Don't penalize a relay when our own deadline expired
+				// mid-dial because another relay already satisfied the
+				// lookup and collectFromRelays canceled the group.
+				if relayCtx.Err() == nil {
+					c.markDialFailure(relayURL)
+				}
+			case err == nil:
+				c.markDialSuccess(relayURL)
+			}
 			results <- relayResult{events: events, err: err}
 		}(relayURL)
 	}
@@ -278,6 +346,20 @@ func (c *Client) collectFromRelays(ctx context.Context, relays []string, filter 
 	return out, nil
 }
 
+// relayDialError marks a failure to establish the websocket connection
+// (DNS, TCP, TLS, or upgrade), as opposed to protocol errors on an
+// established connection. Dial failures feed the per-relay cooldown.
+type relayDialError struct {
+	relayURL string
+	err      error
+}
+
+func (e *relayDialError) Error() string {
+	return fmt.Sprintf("dial relay %s: %v", e.relayURL, e.err)
+}
+
+func (e *relayDialError) Unwrap() error { return e.err }
+
 func queryRelay(ctx context.Context, relayURL string, filter map[string]any, maxEvents int) ([]json.RawMessage, error) {
 	dialer := websocket.Dialer{}
 	conn, resp, err := dialer.DialContext(ctx, relayURL, nil)
@@ -285,7 +367,7 @@ func queryRelay(ctx context.Context, relayURL string, filter map[string]any, max
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("dial relay %s: %w", relayURL, err)
+		return nil, &relayDialError{relayURL: relayURL, err: err}
 	}
 	defer conn.Close()
 

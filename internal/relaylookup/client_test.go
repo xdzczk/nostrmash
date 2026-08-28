@@ -376,3 +376,52 @@ func maxString(a, b string) string {
 	}
 	return b
 }
+
+func TestCollectFromRelays_DeadRelayEntersDialCooldown(t *testing.T) {
+	client := NewClient([]string{"ws://127.0.0.1:1"}, 200*time.Millisecond, 1)
+	_, err := client.collectFromRelays(context.Background(), client.EventRelays(), map[string]any{"ids": []string{"evt_1"}}, 1)
+	if err == nil {
+		t.Fatalf("expected dial failure")
+	}
+	client.cooldownMu.Lock()
+	until, ok := client.dialCooldownUntil["ws://127.0.0.1:1"]
+	client.cooldownMu.Unlock()
+	if !ok || !until.After(time.Now()) {
+		t.Fatalf("expected dead relay to be in dial cooldown, got %v (ok=%v)", until, ok)
+	}
+}
+
+func TestWithoutCooledDownRelays_SkipsAndRecovers(t *testing.T) {
+	client := NewClient([]string{"ws://dead.example", "ws://alive.example"}, time.Second, 2)
+	base := time.Now()
+	client.now = func() time.Time { return base }
+	client.markDialFailure("ws://dead.example")
+
+	got := client.withoutCooledDownRelays([]string{"ws://dead.example", "ws://alive.example"})
+	if len(got) != 1 || got[0] != "ws://alive.example" {
+		t.Fatalf("expected cooled-down relay skipped, got %v", got)
+	}
+
+	// All candidates cooling down: fall back to the original list.
+	client.markDialFailure("ws://alive.example")
+	got = client.withoutCooledDownRelays([]string{"ws://dead.example", "ws://alive.example"})
+	if len(got) != 2 {
+		t.Fatalf("expected original list when all relays cooled down, got %v", got)
+	}
+
+	// Cooldown expiry re-admits the relay.
+	client.now = func() time.Time { return base.Add(dialFailureCooldown + time.Second) }
+	got = client.withoutCooledDownRelays([]string{"ws://dead.example", "ws://alive.example"})
+	if len(got) != 2 {
+		t.Fatalf("expected relays re-admitted after cooldown, got %v", got)
+	}
+
+	// A successful dial clears the cooldown immediately.
+	client.now = func() time.Time { return base }
+	client.markDialFailure("ws://dead.example")
+	client.markDialSuccess("ws://dead.example")
+	got = client.withoutCooledDownRelays([]string{"ws://dead.example"})
+	if len(got) != 1 {
+		t.Fatalf("expected relay re-admitted after successful dial, got %v", got)
+	}
+}
