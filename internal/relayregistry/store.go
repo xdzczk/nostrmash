@@ -512,41 +512,68 @@ func (s *Store) ListFastHealthyLookupRelays(ctx context.Context, limit int) ([]s
 	return out, rows.Err()
 }
 
-// ListRelaysForProbing returns relays that should be probed, ordered by probe priority.
-// Probation and active/pinned stay ahead so the live set keeps fresh health data.
-// Candidate and inactive share the next tier and are ordered by popularity so
-// high-ref relays are not starved after a probation-cap demotion.
+// ListRelaysForProbing returns relays that should be probed this cycle.
+//
+// The probe budget is split between two pools:
+//
+//   - live (probation/active/pinned): keeps admission-relevant health data
+//     fresh, stalest relay first.
+//   - discovery (candidate/inactive): evaluates relays that have never (or
+//     least recently) been probed so candidates can actually advance.
+//
+// The previous single-tier query ordered by popularity before staleness,
+// which pinned every cycle's entire budget to the same top-N most-referenced
+// probation relays: production accumulated ~3.4k candidates of which only 4
+// had ever been probed, freezing dynamic relay discovery entirely. Ordering
+// by staleness first rotates each pool; popularity only breaks ties.
 func (s *Store) ListRelaysForProbing(ctx context.Context, limit int) ([]RelayRecord, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+	liveBudget := (limit + 1) / 2
+	discoveryBudget := limit - liveBudget
 	rows, err := s.pool.Query(ctx, `
-		SELECT url_key, normalized_url, discovered_at, last_seen_at,
-		       source_seed, source_user_list, source_manual,
-		       manual_policy, admission_state,
-		       score, distinct_user_ref_count, weighted_user_ref_score,
-		       last_probe_at, last_probe_status,
-		       last_connect_ok, last_subscribe_ok, last_eose_ok,
-		       avg_connect_latency_ms, avg_eose_latency_ms,
-		       probe_fail_rate, yield_score, duplicate_ratio,
-		       score_components_json, capability_summary_json, notes_json,
-		       updated_at
-		FROM relay_registry
-		WHERE manual_policy != 'blocked'
-		  AND admission_state NOT IN ('blocked')
-		ORDER BY
-			CASE admission_state
-				WHEN 'probation' THEN 1
-				WHEN 'active' THEN 2
-				WHEN 'pinned' THEN 2
-				WHEN 'candidate' THEN 3
-				WHEN 'inactive' THEN 3
-				ELSE 4
-			END ASC,
-			distinct_user_ref_count DESC,
-			COALESCE(last_probe_at, '1970-01-01'::timestamptz) ASC
-		LIMIT $1
-	`, limit)
+		WITH live AS (
+			SELECT url_key, normalized_url, discovered_at, last_seen_at,
+			       source_seed, source_user_list, source_manual,
+			       manual_policy, admission_state,
+			       score, distinct_user_ref_count, weighted_user_ref_score,
+			       last_probe_at, last_probe_status,
+			       last_connect_ok, last_subscribe_ok, last_eose_ok,
+			       avg_connect_latency_ms, avg_eose_latency_ms,
+			       probe_fail_rate, yield_score, duplicate_ratio,
+			       score_components_json, capability_summary_json, notes_json,
+			       updated_at
+			FROM relay_registry
+			WHERE manual_policy != 'blocked'
+			  AND admission_state IN ('probation', 'active', 'pinned')
+			ORDER BY
+				COALESCE(last_probe_at, '1970-01-01'::timestamptz) ASC,
+				distinct_user_ref_count DESC
+			LIMIT $1
+		), discovery AS (
+			SELECT url_key, normalized_url, discovered_at, last_seen_at,
+			       source_seed, source_user_list, source_manual,
+			       manual_policy, admission_state,
+			       score, distinct_user_ref_count, weighted_user_ref_score,
+			       last_probe_at, last_probe_status,
+			       last_connect_ok, last_subscribe_ok, last_eose_ok,
+			       avg_connect_latency_ms, avg_eose_latency_ms,
+			       probe_fail_rate, yield_score, duplicate_ratio,
+			       score_components_json, capability_summary_json, notes_json,
+			       updated_at
+			FROM relay_registry
+			WHERE manual_policy != 'blocked'
+			  AND admission_state IN ('candidate', 'inactive')
+			ORDER BY
+				COALESCE(last_probe_at, '1970-01-01'::timestamptz) ASC,
+				distinct_user_ref_count DESC
+			LIMIT $2
+		)
+		SELECT * FROM live
+		UNION ALL
+		SELECT * FROM discovery
+	`, liveBudget, discoveryBudget)
 	if err != nil {
 		return nil, fmt.Errorf("list relays for probing: %w", err)
 	}
