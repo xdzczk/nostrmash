@@ -710,6 +710,8 @@ type ThreadSummary struct {
 	Replies7d         int64
 	DerivationVersion int32
 	ProjectedAt       pgtype.Timestamptz
+	ReplyWeight24h    float64
+	ReplyWeight7d     float64
 }
 
 type TrustGraphSnapshot struct {
