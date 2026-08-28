@@ -436,9 +436,14 @@ func runStorageMetricsReporter(
 	}
 }
 
-// meiliSyncProfilePersister wraps a FallbackProfilePersister to also sync the
-// persisted profile to Meilisearch so that subsequent text searches can find it
-// immediately, without waiting for a full re-sync.
+// meiliSyncProfilePersister wraps a FallbackProfilePersister to also mark the
+// persisted profile for Meilisearch indexing via the worker sweeper's pending
+// queue. Marking (a single-row upsert) replaces the previous inline SyncEvent:
+// inline syncs emitted one-or-two single-document Meilisearch tasks per
+// fallback hit, and at production index sizes each tiny task costs seconds of
+// Meilisearch CPU, which kept the instance saturated. The sweeper drains the
+// queue in large batches within one sweep interval, so search visibility is
+// only marginally delayed.
 type meiliSyncProfilePersister struct {
 	inner query.FallbackProfilePersister
 	meili *meili.Client
@@ -462,7 +467,7 @@ func (p *meiliSyncProfilePersister) PersistFallbackProfile(ctx context.Context, 
 	}
 	if p.meili != nil && p.meili.Enabled() && p.pool != nil && profile.MetadataEventID != "" {
 		started := time.Now()
-		if err := p.meili.SyncEvent(ctx, p.pool, profile.MetadataEventID); err != nil {
+		if err := p.meili.MarkEventPendingSync(ctx, p.pool, profile.MetadataEventID); err != nil {
 			metrics.ObserveMeiliSync("profile_fallback", "error", time.Since(started))
 			slog.Warn("meilisearch_sync_failed", "source", "profile_fallback", "event_id", profile.MetadataEventID, "pubkey", profile.Pubkey, "error", err)
 		} else {
@@ -472,8 +477,9 @@ func (p *meiliSyncProfilePersister) PersistFallbackProfile(ctx context.Context, 
 	return nil
 }
 
-// meiliSyncEventPersister wraps a FallbackEventPersister to also sync the
-// persisted event to Meilisearch so that subsequent text searches can find it.
+// meiliSyncEventPersister wraps a FallbackEventPersister to also mark the
+// persisted event for Meilisearch indexing via the worker sweeper's pending
+// queue (see meiliSyncProfilePersister for why marking replaced inline sync).
 type meiliSyncEventPersister struct {
 	inner query.FallbackEventPersister
 	meili *meili.Client
@@ -497,7 +503,7 @@ func (p *meiliSyncEventPersister) PersistFallbackEvent(ctx context.Context, even
 	}
 	if p.meili != nil && p.meili.Enabled() && p.pool != nil && eventID != "" {
 		started := time.Now()
-		if err := p.meili.SyncEvent(ctx, p.pool, eventID); err != nil {
+		if err := p.meili.MarkEventPendingSync(ctx, p.pool, eventID); err != nil {
 			metrics.ObserveMeiliSync("event_fallback", "error", time.Since(started))
 			slog.Warn("meilisearch_sync_failed", "source", "event_fallback", "event_id", eventID, "error", err)
 		} else {

@@ -8,7 +8,8 @@ import (
 // directoryRelayHosts are kind-0 / directory relays. They are useful for
 // profile fallback and a waste of the event-fallback timeout budget.
 var directoryRelayHosts = map[string]struct{}{
-	"purplepag.es": {},
+	"purplepag.es":    {},
+	"user.kindpag.es": {},
 }
 
 // IsDirectoryRelay reports whether url is a known profile-directory relay.
@@ -20,7 +21,7 @@ func IsDirectoryRelay(raw string) bool {
 	if _, ok := directoryRelayHosts[host]; ok {
 		return true
 	}
-	return strings.HasSuffix(host, ".purplepag.es")
+	return strings.HasSuffix(host, ".purplepag.es") || strings.HasSuffix(host, ".kindpag.es")
 }
 
 // WithoutDirectoryRelays drops known directory relays from a URL list.

@@ -205,7 +205,11 @@ func LoadAPI() (APIConfig, error) {
 	}
 	profileFallbackURLs := parseCSVEnv("API_RELAY_FALLBACK_PROFILE_URLS")
 	if len(profileFallbackURLs) == 0 {
-		profileFallbackURLs = []string{"wss://purplepag.es"}
+		// Two independent directory relays: a single default was a single
+		// point of failure (purplepag.es went down for days and took 100%
+		// of profile fallback with it). The lookup client additionally
+		// pads profile lookups with general event relays at query time.
+		profileFallbackURLs = []string{"wss://purplepag.es", "wss://user.kindpag.es"}
 	}
 	normalizedProfileFallbackURLs, err := normalizeFallbackRelayURLs(profileFallbackURLs)
 	if err != nil {

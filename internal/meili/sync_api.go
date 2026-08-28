@@ -82,6 +82,39 @@ func (c *Client) SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID stri
 	return nil
 }
 
+// MarkEventPendingSync enqueues an event into pending_meilisearch_syncs
+// for the worker's Meilisearch sweeper to drain in bulk, instead of
+// syncing inline. Inline SyncEvent calls from the API fallback paths
+// each produced one-or-two single-document Meilisearch tasks; at ~1M+
+// indexed documents each task commit costs multiple seconds of CPU
+// regardless of batch size, so a steady trickle of tiny tasks kept
+// Meilisearch pinned at 100% CPU and starved the sweeper's batches.
+// Routing through the pending queue collapses that trickle into the
+// sweeper's few-large-tasks cadence at the cost of a small indexing
+// delay (one sweeper interval).
+//
+// Bumps marked_at on conflict so a re-mark during an in-flight FullSync
+// survives the post-sync prune (which only deletes marked_at <= sync
+// start).
+func (c *Client) MarkEventPendingSync(ctx context.Context, pool *pgxpool.Pool, eventID string) error {
+	if !c.Enabled() || pool == nil {
+		return nil
+	}
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return nil
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO pending_meilisearch_syncs (event_id)
+		VALUES ($1)
+		ON CONFLICT (event_id) DO UPDATE
+		SET marked_at = now()
+	`, eventID); err != nil {
+		return fmt.Errorf("mark event pending meilisearch sync: %w", err)
+	}
+	return nil
+}
+
 // syncEventsBatchTimeout bounds the entire batched sync. With ~hundreds
 // of events per batch and three sequential Meilisearch tasks per batch
 // (notes, profiles, documents — each individually waited on), the call

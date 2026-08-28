@@ -89,6 +89,39 @@ func (c *Client) ProfileRelays() []string {
 	return append([]string(nil), c.profileRelays...)
 }
 
+// profileLookupRelays returns the relays used for profile fallback:
+// directory relays first, padded with general event relays. General
+// relays also carry kind-0 metadata, so padding keeps profile fallback
+// alive when the directory relays are unreachable — production ran with
+// the default single-directory list (purplepag.es) and every profile
+// fallback returned relay_exhausted for days while that relay was down.
+// collectFromRelays caps the list at maxFanout, so directory relays
+// keep priority and padding only consumes leftover fanout slots.
+func (c *Client) profileLookupRelays() []string {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]string, 0, len(c.profileRelays)+len(c.eventRelays))
+	seen := make(map[string]struct{}, cap(out))
+	for _, relay := range c.profileRelays {
+		if _, exists := seen[relay]; exists {
+			continue
+		}
+		seen[relay] = struct{}{}
+		out = append(out, relay)
+	}
+	for _, relay := range c.eventRelays {
+		if _, exists := seen[relay]; exists {
+			continue
+		}
+		seen[relay] = struct{}{}
+		out = append(out, relay)
+	}
+	return out
+}
+
 // SetEventRelays replaces the event-lookup relay list. Directory relays are dropped.
 func (c *Client) SetEventRelays(relays []string) {
 	if c == nil {
@@ -131,7 +164,7 @@ func (c *Client) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (
 		return map[string]store.ProfileProjection{}, nil
 	}
 
-	events, err := c.collectFromRelays(ctx, c.ProfileRelays(), map[string]any{
+	events, err := c.collectFromRelays(ctx, c.profileLookupRelays(), map[string]any{
 		"kinds":   []int{0},
 		"authors": normalizedPubkeys,
 		"limit":   len(normalizedPubkeys) * 2,

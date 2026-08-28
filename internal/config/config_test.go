@@ -497,8 +497,10 @@ func TestLoadAPI_FallbackRelayURLsNormalizeAndDeduplicate(t *testing.T) {
 	if len(cfg.RelayFallback.URLs) != 1 || cfg.RelayFallback.URLs[0] != "wss://relay.example.com" {
 		t.Fatalf("unexpected normalized fallback urls: %#v", cfg.RelayFallback.URLs)
 	}
-	if len(cfg.RelayFallback.ProfileURLs) != 1 || cfg.RelayFallback.ProfileURLs[0] != "wss://purplepag.es" {
-		t.Fatalf("expected default profile fallback url, got %#v", cfg.RelayFallback.ProfileURLs)
+	if len(cfg.RelayFallback.ProfileURLs) != 2 ||
+		cfg.RelayFallback.ProfileURLs[0] != "wss://purplepag.es" ||
+		cfg.RelayFallback.ProfileURLs[1] != "wss://user.kindpag.es" {
+		t.Fatalf("expected default profile fallback urls, got %#v", cfg.RelayFallback.ProfileURLs)
 	}
 	if !cfg.RelayFallback.UseRegistry {
 		t.Fatalf("expected registry-backed event fallback to default on")
