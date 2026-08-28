@@ -25,6 +25,7 @@ type TrustWorkerConfig struct {
 	EnableNeighborhoods          bool
 	NeighborhoodMaxMembers       int
 	EnableInteractionGraph       bool
+	EnableSeedTeleport           bool
 	GraphSnapshotRefreshInterval time.Duration
 	RunSchedulerInterval         time.Duration
 }
@@ -88,6 +89,7 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 		EnableNeighborhoods:          getEnvBool("TRUST_ENABLE_NEIGHBORHOODS", false),
 		NeighborhoodMaxMembers:       neighborhoodMaxMembers,
 		EnableInteractionGraph:       getEnvBool("TRUST_ENABLE_INTERACTION_GRAPH", false),
+		EnableSeedTeleport:           getEnvBool("TRUST_ENABLE_SEED_TELEPORT", false),
 		GraphSnapshotRefreshInterval: graphSnapshotRefreshInterval,
 		RunSchedulerInterval:         runSchedulerInterval,
 	}

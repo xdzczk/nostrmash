@@ -125,7 +125,8 @@ RELAY_REGISTRY_SEED_RELAYS=wss://relay.primal.net,wss://nos.lol,wss://relay.damu
 # API_RELAY_FALLBACK_PROFILE_URLS=wss://purplepag.es
 ```
 
-Set this only when Redis sync is enabled:
+Set this when Redis sync is enabled (trust_worker), or optionally on the api
+service to cache personalized trust rankings (empty leaves the cache off):
 
 ```bash
 TRUST_REDIS_URL=<coolify-redis-internal-url>
@@ -145,6 +146,7 @@ TRUST_ENABLE_SCORE_COMPUTE=true
 TRUST_ENABLE_REDIS_SYNC=false
 # TRUST_ENABLE_NEIGHBORHOODS=false
 # TRUST_NEIGHBORHOOD_MAX_MEMBERS=5000
+# TRUST_ENABLE_SEED_TELEPORT=false
 ```
 
 Build identity is stamped at image build time:

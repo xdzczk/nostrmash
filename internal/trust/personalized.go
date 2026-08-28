@@ -84,9 +84,10 @@ func (r *PersonalizedRanker) GetRanking(ctx context.Context, viewerPubkey string
 		return nil, err
 	}
 
-	if cached, ok, err := r.readCache(ctx, runID, viewerPubkey); err != nil {
-		return nil, err
-	} else if ok {
+	// A failing cache read (e.g. Redis briefly unreachable) degrades to
+	// recomputing the ranking; the cache is an optimization, never a
+	// dependency.
+	if cached, ok, err := r.readCache(ctx, runID, viewerPubkey); err == nil && ok {
 		return truncatePersonalizedScores(cached, limit), nil
 	}
 

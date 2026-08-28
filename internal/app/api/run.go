@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/xdzczk/nostrmash/internal/api"
 	"github.com/xdzczk/nostrmash/internal/api_primal"
 	"github.com/xdzczk/nostrmash/internal/config"
@@ -158,6 +159,29 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 			go runEventFallbackRefreshLoop(ctx, log, lookupClient, registry, cfg.RelayFallback.URLs, maxFanout, cfg.RelayFallback.RefreshInterval)
 		}
 	}
+	personalizedRanker := trust.NewPersonalizedRanker(pool, cfg.Shared.TrustPolicy.PersonalizedMaxSeedFollows)
+	// Optional cache for personalized trust rankings. Without it every
+	// cache-miss request loads the full follow-graph adjacency and runs the
+	// ranking iterations, so production should point TRUST_REDIS_URL at the
+	// trust Redis instance. A missing/unreachable Redis only disables the
+	// cache; it must never block API startup.
+	if cfg.TrustRedis.URL != "" {
+		redisOpts, err := redis.ParseURL(cfg.TrustRedis.URL)
+		if err != nil {
+			log.Error("trust_redis_parse_url", "error", err)
+		} else {
+			trustRedis := redis.NewClient(redisOpts)
+			defer func() { _ = trustRedis.Close() }()
+			if err := trustRedis.Ping(ctx).Err(); err != nil {
+				log.Error("trust_redis_ping", "error", err)
+			}
+			// Attach even when the initial ping fails: Redis coming up a few
+			// seconds after api is the normal compose race, and cache
+			// reads/writes degrade gracefully per request.
+			personalizedRanker = personalizedRanker.WithRedis(trustRedis, cfg.TrustRedis.KeyPrefix)
+			log.Info("trust_personalized_cache_enabled", "key_prefix", cfg.TrustRedis.KeyPrefix)
+		}
+	}
 	profilePersister := newMeiliSyncProfilePersister(
 		query.AdaptFallbackProfilePersister(queryStore),
 		meiliClient,
@@ -213,7 +237,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		},
 		MeilisearchSearcher: meiliSearcher,
 		PersonalizedTrustRanker: personalizedTrustAdapter{
-			inner: trust.NewPersonalizedRanker(pool, cfg.Shared.TrustPolicy.PersonalizedMaxSeedFollows),
+			inner: personalizedRanker,
 		},
 	}
 	discoveryCacheEnabled := cfg.DiscoveryCache.Enabled

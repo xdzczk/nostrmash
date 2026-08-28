@@ -81,6 +81,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo) error {
 		"redis_sync_enabled", cfg.EnableRedisSync,
 		"score_compute_enabled", cfg.EnableScoreCompute,
 		"neighborhoods_enabled", cfg.EnableNeighborhoods,
+		"seed_teleport_enabled", cfg.EnableSeedTeleport,
 		"mode", trustWorkerModeLabel(cfg.EnableRedisSync, cfg.EnableScoreCompute),
 	)
 
@@ -103,7 +104,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo) error {
 		cfg.EnableNeighborhoods,
 		cfg.NeighborhoodMaxMembers,
 		cfg.Shared.TrustPolicy.MaxHops,
-	).WithInteractionGraph(cfg.EnableInteractionGraph)
+	).WithInteractionGraph(cfg.EnableInteractionGraph).WithSeedTeleport(cfg.EnableSeedTeleport)
 	workerID := resolveWorkerID()
 
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)

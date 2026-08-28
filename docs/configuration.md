@@ -143,6 +143,7 @@ Do not hand-edit this file.
 | `TRUST_ENABLE_NEIGHBORHOODS` | `trust_worker` | optional | `false` | Enable seeded trust neighborhood BFS between global score compute and promote. |
 | `TRUST_ENABLE_REDIS_SYNC` | `trust_worker` | optional | `false` | Enable Redis graph synchronization trust job phases. |
 | `TRUST_ENABLE_SCORE_COMPUTE` | `trust_worker` | optional | `true` | Enable trust score computation trust job phases. |
+| `TRUST_ENABLE_SEED_TELEPORT` | `trust_worker` | optional | `false` | When true, global trust rank teleports to active trust_seeds instead of uniformly (TrustRank), anchoring scores to the seed set. Requires active seeds; falls back to uniform teleport when none are present in the graph. |
 | `TRUST_FALLBACK_FETCH_ALLOW_DIRECT_LOOKUP` | `api, ingestor, trust_worker, worker` | optional | `true` | Allow explicitly referenced direct lookups to use strict fallback even in trusted_only mode. |
 | `TRUST_FALLBACK_FETCH_MAX_ATTEMPTS` | `api, ingestor, trust_worker, worker` | optional | `1` | Maximum bounded fallback attempts per entity lookup before giving up. |
 | `TRUST_FALLBACK_FETCH_MAX_RELAYS_PER_ATTEMPT` | `api, ingestor, trust_worker, worker` | optional | `3` | Maximum relay fanout permitted for each fallback attempt. |
@@ -153,8 +154,8 @@ Do not hand-edit this file.
 | `TRUST_MINIMUM_SCORE` | `api, ingestor, trust_worker, worker` | optional | `0` | Minimum trust score threshold used by trust-aware policy surfaces. |
 | `TRUST_NEIGHBORHOOD_MAX_MEMBERS` | `trust_worker` | optional | `5000` | Maximum members retained per seed neighborhood, including the seed itself. |
 | `TRUST_PERSONALIZED_MAX_SEED_FOLLOWS` | `api, ingestor, trust_worker, worker` | optional | `2000` | Maximum follow-list size used as teleport seeds for viewer-personalized trust ranking. Larger lists fall back to global trust scores. |
-| `TRUST_REDIS_KEY_PREFIX` | `trust_worker` | optional | `nostrmash` | Prefix namespace for trust-worker Redis graph/snapshot keys. |
-| `TRUST_REDIS_URL` | `trust_worker` | optional | `-` | Redis connection string used for trust graph working state; required when TRUST_ENABLE_REDIS_SYNC=true. |
+| `TRUST_REDIS_KEY_PREFIX` | `api, trust_worker` | optional | `nostrmash` | Prefix namespace for trust Redis keys (graph/snapshot working state and personalized ranking cache). |
+| `TRUST_REDIS_URL` | `api, trust_worker` | optional | `-` | Redis connection string for trust state. trust_worker: graph working state, required when TRUST_ENABLE_REDIS_SYNC=true. api: optional personalized trust ranking cache; empty disables the cache. |
 | `TRUST_REFRESH_INTERVAL` | `api, ingestor, trust_worker, worker` | optional | `10m` | Refresh cadence for trust policy inputs (seed graph and score snapshots). |
 | `TRUST_RETENTION_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum rows deleted per trust-retention hook purge batch. |
 | `TRUST_RETENTION_DISCOVERY_CACHE_ENABLED` | `api, ingestor, trust_worker, worker` | optional | `true` | Enable trust-aware retention hook parameters for discovery cache TTL shaping. |

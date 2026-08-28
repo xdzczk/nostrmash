@@ -16,6 +16,7 @@ type Runtime struct {
 	neighborhoodMaxMembers int
 	neighborhoodMaxHops    int
 	enableInteractionGraph bool
+	enableSeedTeleport     bool
 }
 
 func NewRuntime(pool *pgxpool.Pool, enableRedisSync, enableScoreCompute bool) *Runtime {
@@ -64,5 +65,19 @@ func (r *Runtime) WithInteractionGraph(enabled bool) *Runtime {
 		return nil
 	}
 	r.enableInteractionGraph = enabled
+	return r
+}
+
+// WithSeedTeleport switches the global rank teleport vector from uniform
+// PageRank to seed-anchored TrustRank: teleport mass lands only on active
+// trust_seeds, so scores measure trust flowing from the seed set instead of
+// global popularity. Default off keeps ranking byte-compatible with uniform
+// teleport. When no active seed is present in the ranked graph the compute
+// phase falls back to uniform teleport rather than failing the run.
+func (r *Runtime) WithSeedTeleport(enabled bool) *Runtime {
+	if r == nil {
+		return nil
+	}
+	r.enableSeedTeleport = enabled
 	return r
 }

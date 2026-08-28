@@ -16,6 +16,10 @@ type APIConfig struct {
 	DiscoveryCache APIDiscoveryCacheConfig
 	Meilisearch    MeilisearchConfig
 	Hydration      HydrationConfig
+	// TrustRedis optionally points the API at the trust Redis instance so the
+	// personalized trust ranker can cache viewer rankings. Empty URL (the
+	// default) disables the cache; rankings are then computed per request.
+	TrustRedis RedisConfig
 }
 
 type APIHTTPConfig struct {
@@ -276,6 +280,10 @@ func LoadAPI() (APIConfig, error) {
 			URL:          strings.TrimSpace(getEnv("MEILI_URL", "")),
 			MasterKey:    strings.TrimSpace(getEnv("MEILI_MASTER_KEY", "")),
 			SearchAPIKey: strings.TrimSpace(getEnv("MEILI_SEARCH_API_KEY", "")),
+		},
+		TrustRedis: RedisConfig{
+			URL:       strings.TrimSpace(getEnv("TRUST_REDIS_URL", "")),
+			KeyPrefix: strings.TrimSpace(getEnv("TRUST_REDIS_KEY_PREFIX", "nostrmash")),
 		},
 	}
 	if cfg.Meilisearch.SearchAPIKey == "" {

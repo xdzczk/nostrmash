@@ -136,9 +136,10 @@ When Redis sync is disabled, the current implementation loads adjacency directly
 Algorithm progression should be staged:
 
 1. global iterative rank
-2. trust-driven operational prioritization
-3. optional seeded trust neighborhoods (`TRUST_ENABLE_NEIGHBORHOODS`)
-4. optional random-walk or Monte Carlo personalized rank (deferred)
+2. optional seed-anchored teleport for the global rank (`TRUST_ENABLE_SEED_TELEPORT`, TrustRank-style: teleport mass lands on active `trust_seeds` instead of uniformly, so scores measure trust flowing from the seed set rather than global popularity; falls back to uniform teleport when no active seed is in the graph)
+3. trust-driven operational prioritization
+4. optional seeded trust neighborhoods (`TRUST_ENABLE_NEIGHBORHOODS`)
+5. optional random-walk or Monte Carlo personalized rank (deferred)
 
 ### 5. Published trust outputs in Postgres
 
@@ -271,6 +272,14 @@ Mostly implemented:
 - compute global scores and optional seeded neighborhoods (`TRUST_ENABLE_NEIGHBORHOODS`)
 - write results back into Postgres (`trust_scores_global`, `trust_pubkeys_latest`, `trust_neighborhood_members`)
 
+`trust_neighborhood_members` is deliberately dormant on the product side: it is
+computed and published when the flag is on, but no query capability or API
+surface reads it yet. The intended first consumer is seed-scoped discovery
+filtering or moderation tooling; wiring a consumer is a product decision, not
+an infrastructure gap. Until then the table stays rebuildable data with zero
+read dependencies, so it can be dropped or reshaped without a product
+migration.
+
 Still deferred: personalized/walk working state (Phase 4).
 
 ### Phase 3: Trust-Aware Product Behavior
@@ -288,7 +297,8 @@ Still deferred from the original Phase 3 wording: viewer-personalized feed order
 
 Implemented (default-inert):
 
-- personalized PageRank core (`ComputePersonalizedRank`) and opt-in query capability `GetPersonalizedTrustRanking` (no default product surface)
+- personalized PageRank core (`ComputePersonalizedRank`) and opt-in query capability `GetPersonalizedTrustRanking` (no default product surface); the API attaches a Redis result cache when `TRUST_REDIS_URL` is set, and without it every cache miss loads the full follow-graph adjacency, so set it before exposing any personalized route
+- optional seed-anchored global rank via `TRUST_ENABLE_SEED_TELEPORT` (see algorithm progression above)
 - optional interaction-graph merge via `TRUST_ENABLE_INTERACTION_GRAPH` plus admin comparison at `GET /admin/v1/trust/interaction-rank-comparison`
 
 Still deferred: Monte Carlo / random-walk variants.

@@ -105,6 +105,8 @@ TRUST_ENABLE_SCORE_COMPUTE=true
 # Optional: seeded neighborhoods between compute and promote (default off)
 # TRUST_ENABLE_NEIGHBORHOODS=true
 # TRUST_NEIGHBORHOOD_MAX_MEMBERS=5000
+# Optional: seed-anchored global rank (TrustRank teleport to trust_seeds, default off)
+# TRUST_ENABLE_SEED_TELEPORT=true
 ```
 
 **`ingestor` service — phase 1 (shadow, default):**

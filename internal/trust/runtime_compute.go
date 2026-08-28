@@ -45,6 +45,11 @@ func (r *Runtime) executeGlobalScoresRun(ctx context.Context, runID int64, snaps
 		}
 	}
 
+	teleport, err := r.globalTeleport(ctx, nodeSet)
+	if err != nil {
+		return err
+	}
+
 	var ranked []rankNode
 	if r.enableInteractionGraph {
 		if _, err := RefreshInteractionEdgeWeights(ctx, r.pool); err != nil {
@@ -55,9 +60,9 @@ func (r *Runtime) executeGlobalScoresRun(ctx context.Context, runID int64, snaps
 			return err
 		}
 		weighted := mergeWeightedAdjacency(adjacencyToWeighted(adjacency), interaction, nodeSet)
-		ranked = ComputePersonalizedRankWeighted(weighted, nodeSet, uniformTeleport(nodeSet), rankDamping)
+		ranked = ComputePersonalizedRankWeighted(weighted, nodeSet, teleport, rankDamping)
 	} else {
-		ranked = computeIterativeGlobalRank(adjacency, nodeSet)
+		ranked = ComputePersonalizedRank(adjacency, nodeSet, teleport, rankDamping)
 	}
 	followerEdges := int64(0)
 	for _, neighbors := range adjacency {
@@ -70,6 +75,26 @@ func (r *Runtime) executeGlobalScoresRun(ctx context.Context, runID int64, snaps
 	metrics.ObserveWorkerJobExecution(jobs.JobTypeTrustComputeGlobalScore, "success", time.Since(started))
 	metrics.ObserveTrustPhaseDuration(RunPhaseCompute, "success", time.Since(started))
 	return nil
+}
+
+// globalTeleport picks the teleport vector for the global rank: uniform
+// PageRank by default, or seed-anchored TrustRank when seed teleport is
+// enabled. Seed mass is renormalized over ranked nodes inside the ranking
+// core, which falls back to uniform teleport when no active seed is present
+// in the graph, so an empty/dormant seed set can never fail the run.
+func (r *Runtime) globalTeleport(ctx context.Context, nodeSet map[string]struct{}) (map[string]float64, error) {
+	if !r.enableSeedTeleport {
+		return uniformTeleport(nodeSet), nil
+	}
+	seeds, err := loadActiveSeeds(ctx, r.pool)
+	if err != nil {
+		return nil, err
+	}
+	teleport := make(map[string]float64, len(seeds))
+	for seed := range seeds {
+		teleport[seed] = 1
+	}
+	return teleport, nil
 }
 
 func (r *Runtime) claimComputePhase(ctx context.Context, runID int64, snapshotRef string) (string, bool, error) {

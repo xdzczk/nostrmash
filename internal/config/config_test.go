@@ -387,6 +387,9 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	if cfg.Shared.Observability.MetricsAddr != "" {
 		t.Fatalf("expected API metrics addr to be ignored, got %q", cfg.Shared.Observability.MetricsAddr)
 	}
+	if cfg.TrustRedis.URL != "" || cfg.TrustRedis.KeyPrefix != "nostrmash" {
+		t.Fatalf("expected trust redis cache disabled by default with nostrmash prefix, got %#v", cfg.TrustRedis)
+	}
 	if !cfg.DiscoveryCache.Enabled || cfg.DiscoveryCache.MaxEntries != 256 ||
 		cfg.DiscoveryCache.BundleTTL != 60*time.Second ||
 		cfg.DiscoveryCache.DiscoveryTTL != 60*time.Second ||
@@ -696,6 +699,9 @@ func TestLoadTrustWorker_DefaultsAndValidation(t *testing.T) {
 	}
 	if cfg.NeighborhoodMaxMembers != 5000 {
 		t.Fatalf("unexpected neighborhood max members default: %d", cfg.NeighborhoodMaxMembers)
+	}
+	if cfg.EnableSeedTeleport {
+		t.Fatalf("expected TRUST_ENABLE_SEED_TELEPORT default false")
 	}
 
 	t.Setenv("TRUST_WORKER_CONCURRENCY", "0")

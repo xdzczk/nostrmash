@@ -38,6 +38,13 @@ func configEnvDocsTrustWorker() []EnvVarDoc {
 			Description:  "When true, refresh engagement-derived interaction edge weights and merge them into trust ranking adjacency. Keep false until reviewing the admin comparison report.",
 		},
 		{
+			Name:         "TRUST_ENABLE_SEED_TELEPORT",
+			Runtimes:     []string{"trust_worker"},
+			Required:     false,
+			DefaultValue: "false",
+			Description:  "When true, global trust rank teleports to active trust_seeds instead of uniformly (TrustRank), anchoring scores to the seed set. Requires active seeds; falls back to uniform teleport when none are present in the graph.",
+		},
+		{
 			Name:         "TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL",
 			Runtimes:     []string{"trust_worker"},
 			Required:     false,
@@ -53,17 +60,17 @@ func configEnvDocsTrustWorker() []EnvVarDoc {
 		},
 		{
 			Name:         "TRUST_REDIS_URL",
-			Runtimes:     []string{"trust_worker"},
+			Runtimes:     []string{"api", "trust_worker"},
 			Required:     false,
 			DefaultValue: "",
-			Description:  "Redis connection string used for trust graph working state; required when TRUST_ENABLE_REDIS_SYNC=true.",
+			Description:  "Redis connection string for trust state. trust_worker: graph working state, required when TRUST_ENABLE_REDIS_SYNC=true. api: optional personalized trust ranking cache; empty disables the cache.",
 		},
 		{
 			Name:         "TRUST_REDIS_KEY_PREFIX",
-			Runtimes:     []string{"trust_worker"},
+			Runtimes:     []string{"api", "trust_worker"},
 			Required:     false,
 			DefaultValue: "nostrmash",
-			Description:  "Prefix namespace for trust-worker Redis graph/snapshot keys.",
+			Description:  "Prefix namespace for trust Redis keys (graph/snapshot working state and personalized ranking cache).",
 		},
 		{
 			Name:         "TRUST_WORKER_CLAIM_BATCH_SIZE",

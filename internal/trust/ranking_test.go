@@ -63,6 +63,36 @@ func TestComputePersonalizedRank_UniformTeleportMatchesGlobal(t *testing.T) {
 	}
 }
 
+// Seed-anchored teleport must never fail or zero out ranking when the active
+// seeds are absent from the ranked graph: normalizeTeleport falls back to
+// uniform teleport, so results match plain global PageRank exactly. The
+// compute phase's WithSeedTeleport path depends on this property.
+func TestComputePersonalizedRank_SeedTeleportOutsideGraphFallsBackToUniform(t *testing.T) {
+	adj := map[string][]string{
+		"a": {"b"},
+		"b": {"a", "c"},
+		"c": {"a"},
+	}
+	nodes := map[string]struct{}{
+		"a": {},
+		"b": {},
+		"c": {},
+	}
+	global := computeIterativeGlobalRank(adj, nodes)
+	seeded := ComputePersonalizedRank(adj, nodes, map[string]float64{"absent-seed": 1.0}, rankDamping)
+	if len(global) != len(seeded) {
+		t.Fatalf("length mismatch: global=%d seeded=%d", len(global), len(seeded))
+	}
+	for i := range global {
+		if global[i].Pubkey != seeded[i].Pubkey {
+			t.Fatalf("order mismatch at %d: global=%#v seeded=%#v", i, global, seeded)
+		}
+		if math.Abs(global[i].Score-seeded[i].Score) > 1e-12 {
+			t.Fatalf("score mismatch at %d: global=%v seeded=%v", i, global[i].Score, seeded[i].Score)
+		}
+	}
+}
+
 func TestComputePersonalizedRank_SeedTeleportBoostsSeedNeighborhood(t *testing.T) {
 	adj := map[string][]string{
 		"seed":   {"friend"},
