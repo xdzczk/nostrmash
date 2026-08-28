@@ -23,7 +23,7 @@ import (
 // always has a pending job and is therefore never purged before its
 // deletion_events ledger row has been projected.
 //
-// The (kind, created_at) scan is served by idx_events_kind_created_at; the
+// The (kind, created_at) scan is served by idx_events_kind_created; the
 // per-candidate jobs lookup is served by the unique index on
 // jobs.idempotency_key.
 func (s *Retention) PurgeProcessedDeletionEvents(

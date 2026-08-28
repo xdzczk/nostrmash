@@ -23,7 +23,7 @@ import (
 // them would silently collapse conversation totals on Discover.
 //
 // Age is enforced on BOTH the author-claimed created_at (indexable via
-// idx_events_kind_created_at) and the ingest-time first_seen_at, so a
+// idx_events_kind_created) and the ingest-time first_seen_at, so a
 // freshly-backfilled event with an ancient created_at is never purged before
 // it has actually been resident for the horizon.
 //

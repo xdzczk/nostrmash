@@ -1,0 +1,12 @@
+-- idx_events_kind_created_at (kind, created_at DESC) is a strict prefix of
+-- idx_events_kind_created (kind, created_at DESC, id DESC), so every scan it
+-- serves is equally served by the wider index. 000066 kept it because
+-- pg_stat_user_indexes showed non-zero idx_scan, but that only means the
+-- planner prefers the narrower twin while both exist — not that it is needed.
+-- Carrying both taxes every insert into events (the hottest table) and adds
+-- ~1.2 GB of index to maintain and vacuum.
+--
+-- Plain DROP INDEX (not CONCURRENTLY) because migrations run inside a
+-- transaction; operators may also DROP INDEX CONCURRENTLY out-of-band on
+-- live databases before this migration lands.
+DROP INDEX IF EXISTS idx_events_kind_created_at;

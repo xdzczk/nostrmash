@@ -23,7 +23,7 @@ import (
 // jobs older than deadGraceBefore no longer block the purge so a permanently
 // broken derivation cannot pin disk forever.
 //
-// The (kind, created_at) scan is served by idx_events_kind_created_at; the
+// The (kind, created_at) scan is served by idx_events_kind_created; the
 // per-candidate jobs lookup is served by the unique index on
 // jobs.idempotency_key.
 //

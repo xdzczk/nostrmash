@@ -158,7 +158,7 @@ func (s *Read) SearchProfiles(ctx context.Context, query string, limit int) ([]P
 // window exists only to survive a transient derivation backlog.
 //
 // Widening it makes the scan proportionally more expensive: it drives a
-// nested-loop join against profiles_latest keyed off idx_events_kind_created_at,
+// nested-loop join against profiles_latest keyed off idx_events_kind_created,
 // so cost scales with kind-0 events in the window, not with total table size.
 // Before this bound existed, the scan covered ALL-TIME kind=0 events on every
 // single profile search/suggest call (a full scan+sort of 1.3M+ rows), which

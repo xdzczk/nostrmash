@@ -46,7 +46,7 @@ var supersededReplaceableKinds = []int{0, 3, 10000, 10002, 10003, 30023}
 //     deadGraceBefore. Past deadGraceBefore a permanently-dead derivation no
 //     longer pins disk.
 //
-// The (kind, created_at) scan is served by idx_events_kind_created_at; the
+// The (kind, created_at) scan is served by idx_events_kind_created; the
 // per-candidate d_tag derivation is a bounded lookup on event_tags by
 // (event_id, tag_name) (matching the replaceable derivation's own d_tag rule);
 // the replaceable_state lookup is a primary-key probe on (pubkey, kind, d_tag);
