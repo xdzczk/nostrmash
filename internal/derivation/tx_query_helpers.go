@@ -16,6 +16,14 @@ func queryInt64Tx(ctx context.Context, tx pgx.Tx, sql string, args ...any) (int6
 	return value, nil
 }
 
+func queryFloat64Tx(ctx context.Context, tx pgx.Tx, sql string, args ...any) (float64, error) {
+	var value float64
+	if err := tx.QueryRow(ctx, sql, args...).Scan(&value); err != nil {
+		return 0, err
+	}
+	return value, nil
+}
+
 func (h *Handlers) eventPubkeyTx(ctx context.Context, tx pgx.Tx, eventID string) (string, error) {
 	var pubkey string
 	if err := tx.QueryRow(ctx, `

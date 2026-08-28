@@ -107,6 +107,11 @@ TRUST_ENABLE_SCORE_COMPUTE=true
 # TRUST_NEIGHBORHOOD_MAX_MEMBERS=5000
 # Optional: seed-anchored global rank (TrustRank teleport to trust_seeds, default off)
 # TRUST_ENABLE_SEED_TELEPORT=true
+
+# Worker: weight discovery engagement by trust-graph proximity (default off).
+# Per-engager dedup and author self-engagement exclusion always apply.
+# TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING=true
+# TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT=0
 ```
 
 **`ingestor` service — phase 1 (shadow, default):**

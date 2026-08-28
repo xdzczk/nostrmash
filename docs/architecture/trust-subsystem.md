@@ -303,6 +303,30 @@ Implemented (default-inert):
 
 Still deferred: Monte Carlo / random-walk variants.
 
+### Anti-gaming: trust-weighted discovery engagement
+
+Note discovery trending scores answer "who engaged", not "how much
+engagement": in an open network events and identities are free, so any raw
+counting metric is infinitely farmable, and the trust graph is the only
+sybil-resistant signal available.
+
+Unconditional (note discovery stats derivation v5+):
+
+- each engager pubkey counts once per note per signal (reply / repost /
+  reaction / zap count); thread-root reply scoring counts unique thread-wide
+  repliers via `thread_edges` instead of raw `thread_summaries` counters
+- the note author's own engagement (including self-zaps) never counts
+- raw display counters (`reply_count`, `reaction_count`, ...) still count
+  events; only score inputs are deduplicated
+
+Opt-in (`TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING`, default off): each engager's
+vote is scaled by trust-graph proximity from `trust_pubkeys_latest` (hops <= 1:
+1.0, hops 2: 0.5, up to `TRUST_MAX_HOPS`: 0.25, outside the graph:
+`TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT`, default 0). Zap msats are scaled
+per receipt by the sender's weight. A bot ring's total score contribution is
+then bounded by the follow edges real trusted users extend toward it, which is
+slow, costly, and auditable to acquire — unlike events.
+
 ## Decision rules
 
 When choosing where a trust feature belongs:

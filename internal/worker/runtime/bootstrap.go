@@ -116,6 +116,11 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		IncrementalAuthorActivityDaily:   &incActivity,
 		IncrementalWindowedRollups:       &incRollups,
 		IncrementalProfileDiscoveryStats: &incDiscovery,
+		EngagementWeighting: derivation.EngagementWeightingOptions{
+			TrustWeighted:   cfg.DiscoveryEngagement.TrustWeighted,
+			UntrustedWeight: cfg.DiscoveryEngagement.UntrustedWeight,
+			MaxHops:         cfg.Shared.TrustPolicy.MaxHops,
+		},
 	})
 	// Retention purges that hard-delete events (expired engagement,
 	// untrusted-author) must reverse whatever incremental author-stat

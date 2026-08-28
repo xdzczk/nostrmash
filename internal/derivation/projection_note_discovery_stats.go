@@ -159,26 +159,37 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		return fmt.Errorf("load total zap_msats: %w", err)
 	}
 
-	reply24h, repost24h, reaction24h, zapCount24h, zapMSats24h, err := loadWindowedInteractionCounts(ctx, tx, noteID, nowUnix, 24*time.Hour)
+	weighting := h.engagementWeighting
+	engagement24h, err := loadWindowedEngagementWeights(ctx, tx, noteID, authorPubkey, nowUnix, 24*time.Hour, weighting)
 	if err != nil {
 		return err
 	}
-	reply7d, repost7d, reaction7d, zapCount7d, zapMSats7d, err := loadWindowedInteractionCounts(ctx, tx, noteID, nowUnix, 7*24*time.Hour)
+	engagement7d, err := loadWindowedEngagementWeights(ctx, tx, noteID, authorPubkey, nowUnix, 7*24*time.Hour, weighting)
 	if err != nil {
 		return err
 	}
-	if threadReply24h, threadReply7d, ok, threadErr := loadThreadSummaryWindowedReplies(ctx, tx, noteID); threadErr != nil {
+	// Thread roots score by conversation size: replace the direct-reply weight
+	// with unique thread-wide repliers (same dedup / self-exclusion / trust
+	// weighting) so Discover matches other clients' conversation sizes without
+	// inheriting the raw thread_summaries counters a single account can inflate.
+	if isRoot, threadErr := hasThreadSummary(ctx, tx, noteID); threadErr != nil {
 		return threadErr
-	} else if ok {
-		reply24h = threadReply24h
-		reply7d = threadReply7d
+	} else if isRoot {
+		if engagement24h.ReplyWeight, err = loadWindowedThreadReplyWeight(ctx, tx, noteID, authorPubkey, nowUnix, 24*time.Hour, weighting); err != nil {
+			return err
+		}
+		if engagement7d.ReplyWeight, err = loadWindowedThreadReplyWeight(ctx, tx, noteID, authorPubkey, nowUnix, 7*24*time.Hour, weighting); err != nil {
+			return err
+		}
 	}
 	hasImage, hasVideo, hasLink, hasArticle, attachmentCount, err := loadNoteMediaFlagsTx(ctx, tx, noteID)
 	if err != nil {
 		return err
 	}
-	score24h := computeTrendingScore(24*time.Hour, nowUnix, noteCreatedAt, reply24h, repost24h, reaction24h, zapCount24h, zapMSats24h)
-	score7d := computeTrendingScore(7*24*time.Hour, nowUnix, noteCreatedAt, reply7d, repost7d, reaction7d, zapCount7d, zapMSats7d)
+	score24h := computeTrendingScore(24*time.Hour, nowUnix, noteCreatedAt,
+		engagement24h.ReplyWeight, engagement24h.RepostWeight, engagement24h.ReactionWeight, engagement24h.ZapWeight, engagement24h.ZapMSats)
+	score7d := computeTrendingScore(7*24*time.Hour, nowUnix, noteCreatedAt,
+		engagement7d.ReplyWeight, engagement7d.RepostWeight, engagement7d.ReactionWeight, engagement7d.ZapWeight, engagement7d.ZapMSats)
 	primaryLanguage, languageConfidence := detectPrimaryLanguage(noteContent)
 
 	if _, err := tx.Exec(ctx, `
@@ -228,82 +239,6 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		return fmt.Errorf("upsert note discovery stats: %w", err)
 	}
 	return nil
-}
-
-func loadThreadSummaryWindowedReplies(
-	ctx context.Context,
-	tx pgx.Tx,
-	noteID string,
-) (reply24h int64, reply7d int64, ok bool, err error) {
-	err = tx.QueryRow(ctx, `
-		SELECT replies_24h, replies_7d
-		FROM thread_summaries
-		WHERE root_event_id = $1
-	`, noteID).Scan(&reply24h, &reply7d)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, 0, false, nil
-		}
-		return 0, 0, false, fmt.Errorf("load thread summary windowed replies: %w", err)
-	}
-	return reply24h, reply7d, true, nil
-}
-
-func loadWindowedInteractionCounts(
-	ctx context.Context,
-	tx pgx.Tx,
-	noteID string,
-	nowUnix int64,
-	window time.Duration,
-) (int64, int64, int64, int64, int64, error) {
-	cutoff := nowUnix - int64(window/time.Second)
-	replyCount, err := queryInt64Tx(ctx, tx, `
-		SELECT COALESCE(COUNT(*), 0)
-		FROM reply_count_contributions c
-		JOIN events e ON e.id = c.source_event_id
-		WHERE c.target_event_id = $1
-		  AND e.created_at >= $2
-	`, noteID, cutoff)
-	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load windowed reply_count: %w", err)
-	}
-	repostCount, err := queryInt64Tx(ctx, tx, `
-		SELECT COALESCE(COUNT(*), 0)
-		FROM repost_events
-		WHERE target_event_id = $1
-		  AND created_at >= $2
-	`, noteID, cutoff)
-	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load windowed repost_count: %w", err)
-	}
-	reactionCount, err := queryInt64Tx(ctx, tx, `
-		SELECT COALESCE(COUNT(*), 0)
-		FROM reaction_events
-		WHERE target_event_id = $1
-		  AND created_at >= $2
-	`, noteID, cutoff)
-	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load windowed reaction_count: %w", err)
-	}
-	zapCount, err := queryInt64Tx(ctx, tx, `
-		SELECT COALESCE(COUNT(*), 0)
-		FROM zap_receipts
-		WHERE event_id = $1
-		  AND created_at >= $2
-	`, noteID, cutoff)
-	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load windowed zap_count: %w", err)
-	}
-	zapMSats, err := queryInt64Tx(ctx, tx, `
-		SELECT COALESCE(SUM(amount_sats * 1000), 0)
-		FROM zap_receipts
-		WHERE event_id = $1
-		  AND created_at >= $2
-	`, noteID, cutoff)
-	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("load windowed zap_msats: %w", err)
-	}
-	return replyCount, repostCount, reactionCount, zapCount, zapMSats, nil
 }
 
 func loadNoteMediaFlagsTx(ctx context.Context, tx pgx.Tx, noteID string) (bool, bool, bool, bool, int, error) {

@@ -66,22 +66,24 @@ const (
 )
 
 const (
-	EventRelationshipsVersion          = 1
-	ReplaceableStateVersion            = 1
-	ProfilesLatestVersion              = 1
-	AuthorRecentEventsVersion          = 1
-	ReplyCountsVersion                 = 2
-	ReactionCountsVersion              = 1
-	RepostCountsVersion                = 1
-	ReactionEventsVersion              = 1
-	RepostEventsVersion                = 1
-	DeletionEventsVersion              = 1
-	ContactListsLatestVersion          = 1
-	FollowerEdgesVersion               = 1
-	RelayListsLatestVersion            = 1
-	EventHashtagsVersion               = 1
-	EventURLsVersion                   = 2
-	NoteDiscoveryStatsVersion          = 4
+	EventRelationshipsVersion = 1
+	ReplaceableStateVersion   = 1
+	ProfilesLatestVersion     = 1
+	AuthorRecentEventsVersion = 1
+	ReplyCountsVersion        = 2
+	ReactionCountsVersion     = 1
+	RepostCountsVersion       = 1
+	ReactionEventsVersion     = 1
+	RepostEventsVersion       = 1
+	DeletionEventsVersion     = 1
+	ContactListsLatestVersion = 1
+	FollowerEdgesVersion      = 1
+	RelayListsLatestVersion   = 1
+	EventHashtagsVersion      = 1
+	EventURLsVersion          = 2
+	// v5: trending score inputs count each engager pubkey once per signal and
+	// exclude the note author's self-engagement (optionally trust-weighted).
+	NoteDiscoveryStatsVersion          = 5
 	ProfileDiscoveryStatsVersion       = 1
 	TrustedNoteDiscoveryVersion        = 1
 	TrustedProfileDiscoveryVersion     = 1

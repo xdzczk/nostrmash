@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -440,6 +441,23 @@ func loadWorkerIncrementalStatsConfig() (WorkerIncrementalStatsConfig, error) {
 		WindowedRollups:       getEnvBool("WORKER_INCREMENTAL_WINDOWED_ROLLUPS", true),
 		ProfileDiscoveryStats: getEnvBool("WORKER_INCREMENTAL_PROFILE_DISCOVERY_STATS", true),
 		Reconciliation:        reconciliation,
+	}, nil
+}
+
+// loadWorkerDiscoveryEngagementConfig reads the trust-weighted discovery
+// engagement scoring envs. Default off keeps note trending scores trust-free
+// (per-engager dedup and author self-exclusion apply regardless).
+func loadWorkerDiscoveryEngagementConfig() (WorkerDiscoveryEngagementConfig, error) {
+	untrustedWeight, err := getEnvNonNegativeFloat64Strict("TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT", 0)
+	if err != nil {
+		return WorkerDiscoveryEngagementConfig{}, err
+	}
+	if untrustedWeight > 1 {
+		return WorkerDiscoveryEngagementConfig{}, fmt.Errorf("TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT must be <= 1")
+	}
+	return WorkerDiscoveryEngagementConfig{
+		TrustWeighted:   getEnvBool("TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING", false),
+		UntrustedWeight: untrustedWeight,
 	}, nil
 }
 

@@ -147,6 +147,10 @@ TRUST_ENABLE_REDIS_SYNC=false
 # TRUST_ENABLE_NEIGHBORHOODS=false
 # TRUST_NEIGHBORHOOD_MAX_MEMBERS=5000
 # TRUST_ENABLE_SEED_TELEPORT=false
+# Worker: trust-weighted discovery engagement scoring (default off; dedup and
+# author self-engagement exclusion always apply)
+# TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING=false
+# TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT=0
 ```
 
 Build identity is stamped at image build time:

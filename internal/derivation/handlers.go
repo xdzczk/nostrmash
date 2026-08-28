@@ -29,6 +29,9 @@ type Handlers struct {
 	// windows from author_activity_daily / author_hourly_activity /
 	// follower_gains_daily instead of rescanning raw engagement tables.
 	incrementalProfileDiscoveryStats bool
+	// engagementWeighting controls trust-graph weighting of note discovery
+	// trending scores. Zero value keeps uniform per-engager weights.
+	engagementWeighting EngagementWeightingOptions
 }
 
 type EventJobPayload = jobs.EventJobPayload
@@ -59,6 +62,11 @@ type HandlersOptions struct {
 	// Requires IncrementalAuthorActivityDaily + IncrementalProfilePublicStats
 	// for complete inputs (enforced at worker config validation).
 	IncrementalProfileDiscoveryStats *bool
+	// EngagementWeighting configures trust-graph weighting of note discovery
+	// trending scores (see EngagementWeightingOptions). Zero value disables
+	// trust weighting; per-engager dedup and author self-exclusion always
+	// apply.
+	EngagementWeighting EngagementWeightingOptions
 }
 
 func NewHandlers(pool *pgxpool.Pool) *Handlers {
@@ -81,6 +89,7 @@ func NewHandlersWithOptions(pool *pgxpool.Pool, options HandlersOptions) *Handle
 		incrementalAuthorActivityDaily:   boolOptionOrDefault(options.IncrementalAuthorActivityDaily, true),
 		incrementalWindowedRollups:       boolOptionOrDefault(options.IncrementalWindowedRollups, true),
 		incrementalProfileDiscoveryStats: boolOptionOrDefault(options.IncrementalProfileDiscoveryStats, true),
+		engagementWeighting:              options.EngagementWeighting,
 	}
 }
 

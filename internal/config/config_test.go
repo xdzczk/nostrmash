@@ -571,6 +571,9 @@ func TestLoadWorker_DefaultsAndValidation(t *testing.T) {
 	if !cfg.JobRetention.Enabled {
 		t.Fatalf("expected job retention enabled by default")
 	}
+	if cfg.DiscoveryEngagement.TrustWeighted || cfg.DiscoveryEngagement.UntrustedWeight != 0 {
+		t.Fatalf("expected trust-weighted discovery engagement off by default, got %#v", cfg.DiscoveryEngagement)
+	}
 	if cfg.JobRetention.SucceededMaxAge != 6*time.Hour {
 		t.Fatalf("unexpected default retention succeeded max age: %s", cfg.JobRetention.SucceededMaxAge)
 	}

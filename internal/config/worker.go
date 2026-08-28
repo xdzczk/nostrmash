@@ -31,6 +31,7 @@ type WorkerConfig struct {
 	ProfileStatsSweeper        WorkerProfileStatsSweeperConfig
 	MeilisearchSweeper         WorkerMeilisearchSweeperConfig
 	IncrementalStats           WorkerIncrementalStatsConfig
+	DiscoveryEngagement        WorkerDiscoveryEngagementConfig
 	AccountState               WorkerAccountStateConfig
 	Hydration                  HydrationConfig
 	Meilisearch                MeilisearchConfig
@@ -58,6 +59,16 @@ type WorkerIncrementalStatsReconciliationConfig struct {
 	Enabled    bool
 	Interval   time.Duration
 	SampleSize int
+}
+
+// WorkerDiscoveryEngagementConfig controls trust-graph weighting of note
+// discovery trending scores. Per-engager deduplication and author
+// self-engagement exclusion are unconditional; TrustWeighted additionally
+// scales each engager's vote by trust-graph proximity (hop ladder bounded by
+// TRUST_MAX_HOPS) with UntrustedWeight for engagers outside the graph.
+type WorkerDiscoveryEngagementConfig struct {
+	TrustWeighted   bool
+	UntrustedWeight float64
 }
 
 // WorkerAccountStateConfig configures the derived account-state recompute loop.
@@ -390,6 +401,10 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	discoveryEngagement, err := loadWorkerDiscoveryEngagementConfig()
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	hydrationCfg, err := loadHydrationConfig()
 	if err != nil {
 		return WorkerConfig{}, err
@@ -419,6 +434,7 @@ func LoadWorker() (WorkerConfig, error) {
 		ProfileStatsSweeper:        sweepers.ProfileStats,
 		MeilisearchSweeper:         sweepers.Meilisearch,
 		IncrementalStats:           incrementalStats,
+		DiscoveryEngagement:        discoveryEngagement,
 		AccountState:               accountState,
 		Hydration:                  hydrationCfg,
 		Meilisearch:                loadWorkerMeilisearchConfig(),

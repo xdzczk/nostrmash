@@ -5,15 +5,20 @@ import (
 	"time"
 )
 
+// computeTrendingScore blends windowed engagement into a decayed trending
+// score. Engagement inputs are float64 "weights", not raw event counts: the
+// projection counts each engager pubkey once per signal (excluding the note
+// author), and optionally scales each engager by trust-graph proximity, so a
+// single account emitting many events cannot inflate the score.
 func computeTrendingScore(
 	window time.Duration,
 	nowUnix int64,
 	noteCreatedAt int64,
-	replyCount int64,
-	repostCount int64,
-	reactionCount int64,
-	zapCount int64,
-	zapMSats int64,
+	replyWeight float64,
+	repostWeight float64,
+	reactionWeight float64,
+	zapWeight float64,
+	zapMSats float64,
 ) float64 {
 	windowSeconds := int64(window / time.Second)
 	if windowSeconds <= 0 {
@@ -26,11 +31,11 @@ func computeTrendingScore(
 	if ageSeconds > windowSeconds {
 		return 0
 	}
-	base := float64(replyCount)*3.0 +
-		float64(repostCount)*2.0 +
-		float64(reactionCount)*1.0 +
-		float64(zapCount)*2.0 +
-		(float64(zapMSats) / 100000.0)
+	base := replyWeight*3.0 +
+		repostWeight*2.0 +
+		reactionWeight*1.0 +
+		zapWeight*2.0 +
+		(zapMSats / 100000.0)
 	decay := 1.0 / (1.0 + (float64(ageSeconds) / float64(windowSeconds)))
 	score := base * decay
 	if score <= 0 {
