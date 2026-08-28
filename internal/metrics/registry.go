@@ -175,9 +175,13 @@ func registerCoreMetrics() {
 	)
 	lookupFallbackLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "nostrmash_lookup_fallback_latency_seconds",
-			Help:    "Fallback lookup latency in seconds by entity.",
-			Buckets: prometheus.DefBuckets,
+			Name: "nostrmash_lookup_fallback_latency_seconds",
+			Help: "Fallback lookup latency in seconds by entity.",
+			// DefBuckets plus 1.5 and 2: the FallbackLatencyHigh alert
+			// fires on p95 > 1.5s, and with no bucket boundary between 1
+			// and 2.5 the interpolated p95 could not distinguish 1.1s from
+			// 2.4s around the threshold.
+			Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 1.5, 2, 2.5, 5, 10},
 		},
 		[]string{"entity"},
 	)
