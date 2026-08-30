@@ -315,6 +315,93 @@ func TestRefreshRelayWindowSnapshots_ExcludesFallbackRelay(t *testing.T) {
 	}
 }
 
+// TestRefreshRelayWindowSnapshots_RollupAccumulatesWithoutDoubleCounting
+// exercises the incremental relay-activity rollup that backs top_relays_7d:
+// rows older than the watermark lag must land in relay_activity_hourly
+// exactly once (repeat refreshes must not double count them), and the
+// snapshot must merge those rolled-up counts with the raw tail (rows newer
+// than the watermark) so recent activity is included exactly once too.
+func TestRefreshRelayWindowSnapshots_RollupAccumulatesWithoutDoubleCounting(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+	// Old enough to be inside the rolled-up range (behind the ~2m lag) but
+	// well inside the 7d ranking window.
+	rolledSeenAt := now.Add(-3 * time.Hour)
+
+	for i := 0; i < 3; i++ {
+		id := fmt.Sprintf("rollup_note_one_%d", i)
+		evt := newEventForTest(id, fmt.Sprintf("author_%d", i), rolledSeenAt.Unix(), 1, nil, "rolled up note", now)
+		if err := pgStore.InsertCanonicalEvent(ctx, evt, nil, "wss://relay.one", rolledSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", id, err)
+		}
+	}
+	evtTwo := newEventForTest("rollup_note_two", "author_two", rolledSeenAt.Unix(), 1, nil, "rolled up note", now)
+	if err := pgStore.InsertCanonicalEvent(ctx, evtTwo, nil, "wss://relay.two", rolledSeenAt); err != nil {
+		t.Fatalf("insert event rollup_note_two: %v", err)
+	}
+
+	if err := handlers.RefreshRelayWindowSnapshots(ctx); err != nil {
+		t.Fatalf("first refresh: %v", err)
+	}
+
+	// The old rows must be in the rollup now (watermark advanced past them).
+	var rolledCount int64
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(event_count), 0) FROM relay_activity_hourly WHERE relay_url = 'wss://relay.one'
+	`).Scan(&rolledCount); err != nil {
+		t.Fatalf("read rollup rows: %v", err)
+	}
+	if rolledCount != 3 {
+		t.Fatalf("expected 3 rolled-up events for relay.one, got %d", rolledCount)
+	}
+
+	top := readTopRelaysSnapshot(t, ctx, pool)
+	if len(top) != 2 || top[0].RelayURL != "wss://relay.one" || top[0].EventCount != 3 {
+		t.Fatalf("unexpected top relays after first refresh: %#v", top)
+	}
+	if top[0].UniqueAuthors != 3 {
+		t.Fatalf("expected 3 unique authors on relay.one, got %d", top[0].UniqueAuthors)
+	}
+
+	// A tail row (seen_at newer than the watermark) must be merged from the
+	// raw table without disturbing rolled-up counts.
+	tailEvt := newEventForTest("rollup_note_tail", "author_tail", now.Unix(), 1, nil, "tail note", now)
+	if err := pgStore.InsertCanonicalEvent(ctx, tailEvt, nil, "wss://relay.two", now); err != nil {
+		t.Fatalf("insert tail event: %v", err)
+	}
+	if err := handlers.RefreshRelayWindowSnapshots(ctx); err != nil {
+		t.Fatalf("second refresh: %v", err)
+	}
+
+	top = readTopRelaysSnapshot(t, ctx, pool)
+	if len(top) != 2 {
+		t.Fatalf("expected 2 relays in top relays, got %#v", top)
+	}
+	for _, row := range top {
+		switch row.RelayURL {
+		case "wss://relay.one":
+			if row.EventCount != 3 {
+				t.Fatalf("relay.one double counted across refreshes: %#v", row)
+			}
+		case "wss://relay.two":
+			if row.EventCount != 2 {
+				t.Fatalf("relay.two should merge 1 rolled + 1 tail event, got %#v", row)
+			}
+			if row.UniqueAuthors != 2 {
+				t.Fatalf("relay.two should count 2 distinct authors, got %#v", row)
+			}
+		default:
+			t.Fatalf("unexpected relay in top relays: %#v", row)
+		}
+	}
+}
+
 func containsString(haystack []string, needle string) bool {
 	for _, v := range haystack {
 		if v == needle {

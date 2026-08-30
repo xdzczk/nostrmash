@@ -126,9 +126,121 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
 	}
+	// The rollup feeds computeTopRelaysSnapshot. A rollup failure is not
+	// fatal to the snapshots: the top-relays query unions the rollup with
+	// the raw rows newer than the watermark, so a lagging watermark only
+	// means more raw rows in that union (degraded, not wrong).
+	rollupErr := h.refreshRelayActivityRollup(ctx)
 	coreErr := h.refreshCoreRelayWindowSnapshots(ctx)
 	trendingErr := h.refreshTrendingLinksSnapshots(ctx)
-	return errors.Join(coreErr, trendingErr)
+	return errors.Join(rollupErr, coreErr, trendingErr)
+}
+
+// Relay-activity rollup cadence knobs.
+const (
+	// relayActivityRollupLag keeps the watermark safely behind now() so
+	// in-flight ingest transactions (whose seen_at defaults were assigned
+	// at INSERT time, before commit) cannot commit behind an
+	// already-advanced watermark and be missed forever. Ingest
+	// transactions are sub-second; two minutes is comfortable margin.
+	relayActivityRollupLag = 2 * time.Minute
+	// relayActivityRollupChunk bounds how much raw event_relays range a
+	// single rollup transaction aggregates, so each statement stays well
+	// inside the statement budget even at flood-level ingest volume.
+	relayActivityRollupChunk = 6 * time.Hour
+	// relayActivityRollupRetention keeps one day of slack past the 7d
+	// ranking window so bucket pruning never races the snapshot reads.
+	relayActivityRollupRetention = 8 * 24 * time.Hour
+)
+
+// refreshRelayActivityRollup advances the relay_activity_hourly rollup to
+// now()-lag, one committed chunk transaction at a time, then prunes buckets
+// older than the retention horizon.
+//
+// Why incremental instead of recomputing per refresh: the top-relays
+// aggregation used to GROUP BY over every raw event_relays row in the 7d
+// window on each 5-minute refresh, so its cost scaled with total ingest
+// volume — at ~4.8M rows/day (the relay-cap incident) it exceeded the 100s
+// statement budget every cycle and the homepage snapshot froze for days.
+// The rollup does that aggregation once per row: each refresh only scans
+// rows with seen_at in (rolled_up_until, now()-lag], which is one refresh
+// interval's worth of ingest in steady state.
+//
+// Why one transaction per chunk: the initial catchup (the migration seeds
+// the watermark a full window back) and post-outage catchups can span many
+// chunks. Committing each chunk separately means a context timeout mid
+// catchup keeps the progress made so far; the next refresh resumes from the
+// committed watermark instead of replaying from scratch.
+func (h *Handlers) refreshRelayActivityRollup(ctx context.Context) error {
+	for {
+		caughtUp, err := h.rollupOneRelayActivityChunk(ctx)
+		if err != nil {
+			return fmt.Errorf("roll up relay activity chunk: %w", err)
+		}
+		if caughtUp {
+			break
+		}
+	}
+	if _, err := h.pool.Exec(ctx, `
+		DELETE FROM relay_activity_hourly
+		WHERE bucket_start < now() - $1::interval
+	`, relayActivityRollupRetention.String()); err != nil {
+		return fmt.Errorf("prune relay activity rollup: %w", err)
+	}
+	return nil
+}
+
+// rollupOneRelayActivityChunk aggregates one bounded slice of event_relays
+// into the hourly rollup and advances the watermark, all in one committed
+// transaction. Returns caughtUp=true when the watermark has reached
+// now()-lag (including when this chunk was the one that got it there).
+// The FOR UPDATE on the single watermark row serializes concurrent worker
+// replicas so a slice is never rolled up twice.
+func (h *Handlers) rollupOneRelayActivityChunk(ctx context.Context) (bool, error) {
+	caughtUp := false
+	err := pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
+		if err := configureRelayWindowSnapshotTx(ctx, tx); err != nil {
+			return err
+		}
+		var watermark time.Time
+		if err := tx.QueryRow(ctx, `
+			SELECT rolled_up_until FROM relay_activity_rollup_state WHERE id FOR UPDATE
+		`).Scan(&watermark); err != nil {
+			return fmt.Errorf("lock rollup watermark: %w", err)
+		}
+		safeEnd := time.Now().UTC().Add(-relayActivityRollupLag)
+		if !watermark.Before(safeEnd) {
+			caughtUp = true
+			return nil
+		}
+		chunkEnd := watermark.Add(relayActivityRollupChunk)
+		if !chunkEnd.Before(safeEnd) {
+			chunkEnd = safeEnd
+			caughtUp = true
+		}
+		// The additive ON CONFLICT is what makes the (watermark, chunkEnd]
+		// slices composable: a bucket hour usually spans multiple slices
+		// (every 5-minute refresh touches the current hour), so each slice
+		// adds its own row counts to whatever previous slices contributed.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO relay_activity_hourly (bucket_start, relay_url, event_count)
+			SELECT date_trunc('hour', seen_at), relay_url, COUNT(*)
+			FROM event_relays
+			WHERE seen_at > $1 AND seen_at <= $2
+			GROUP BY 1, 2
+			ON CONFLICT (bucket_start, relay_url)
+			DO UPDATE SET event_count = relay_activity_hourly.event_count + EXCLUDED.event_count
+		`, watermark, chunkEnd); err != nil {
+			return fmt.Errorf("aggregate slice into rollup: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE relay_activity_rollup_state SET rolled_up_until = $1 WHERE id
+		`, chunkEnd); err != nil {
+			return fmt.Errorf("advance rollup watermark: %w", err)
+		}
+		return nil
+	})
+	return caughtUp, err
 }
 
 // refreshCoreRelayWindowSnapshots recomputes the relay summary, top
@@ -654,23 +766,69 @@ func computeTopDomainsSnapshot(
 	return out, nil
 }
 
+// computeTopRelaysSnapshot ranks relays by 7d event volume using the
+// incremental relay_activity_hourly rollup instead of aggregating the raw
+// event_relays window (see refreshRelayActivityRollup for why — the raw
+// GROUP BY scaled with ingest volume and froze the snapshot during the
+// relay-cap incident).
+//
+// Exactness: the rollup covers seen_at <= rolled_up_until and the "tail"
+// branch covers seen_at > rolled_up_until from the raw table, so together
+// they count every row exactly once. The tail is at most the rollup lag
+// plus one refresh interval of ingest. Two deliberate approximations vs the
+// old query: the rollup's oldest bucket is hour-truncated, so up to one
+// extra hour of activity can count into the 7d window; and the LIMIT is
+// ranked by event_count with relay_url as tie-break (unique_authors — which
+// would need a per-relay DISTINCT for every candidate — only orders the
+// final top rows, where it is computed via bounded index-only probes of
+// idx_event_relays_relay_url_seen_at).
 func computeTopRelaysSnapshot(ctx context.Context, tx pgx.Tx, limit int) ([]relayActivityRow, error) {
 	if limit <= 0 {
 		limit = 10
 	}
+	var watermark time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT rolled_up_until FROM relay_activity_rollup_state WHERE id
+	`).Scan(&watermark); err != nil {
+		return nil, fmt.Errorf("read rollup watermark: %w", err)
+	}
 	cutoff7d := time.Now().UTC().Add(-7 * 24 * time.Hour)
 	rows, err := tx.Query(ctx, `
+		WITH rolled AS (
+			SELECT relay_url, SUM(event_count)::bigint AS event_count
+			FROM relay_activity_hourly
+			WHERE bucket_start >= date_trunc('hour', $1::timestamptz)
+			GROUP BY relay_url
+		), tail AS (
+			SELECT relay_url, COUNT(*)::bigint AS event_count
+			FROM event_relays
+			WHERE seen_at > $2
+			  AND seen_at >= $1
+			GROUP BY relay_url
+		), ranked AS (
+			SELECT relay_url, SUM(event_count)::bigint AS event_count
+			FROM (
+				SELECT relay_url, event_count FROM rolled
+				UNION ALL
+				SELECT relay_url, event_count FROM tail
+			) merged
+			WHERE relay_url <> $3
+			GROUP BY relay_url
+			ORDER BY event_count DESC, relay_url ASC
+			LIMIT $4
+		)
 		SELECT
-			er.relay_url,
-			COUNT(*)::bigint                  AS event_count,
-			COUNT(DISTINCT er.pubkey)::bigint AS unique_authors
-		FROM event_relays er
-		WHERE er.seen_at >= $1
-		  AND er.relay_url <> $2
-		GROUP BY er.relay_url
-		ORDER BY event_count DESC, unique_authors DESC, er.relay_url ASC
-		LIMIT $3
-	`, cutoff7d, model.FallbackRelayURL, limit)
+			r.relay_url,
+			r.event_count,
+			(
+				SELECT COALESCE(COUNT(DISTINCT er.pubkey), 0)
+				FROM event_relays er
+				WHERE er.relay_url = r.relay_url
+				  AND er.seen_at >= $1
+			)::bigint AS unique_authors
+		FROM ranked r
+		ORDER BY r.event_count DESC, unique_authors DESC, r.relay_url ASC
+	`, cutoff7d, watermark, model.FallbackRelayURL, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query top relays: %w", err)
 	}
