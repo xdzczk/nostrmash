@@ -35,8 +35,17 @@ const relayWindowSnapshotsRefreshInterval = 5 * time.Minute
 // the per-statement Postgres budget is raised to match (see
 // derivation.relayWindowSnapshotStatementTimeout). Bumped from the
 // original 60s to 120s after 000061_domain_window_snapshots.sql added
-// two more COUNT(DISTINCT)-shaped aggregates (top_domains_24h/7d).
-const relayWindowSnapshotsRefreshTimeout = 120 * time.Second
+// two more COUNT(DISTINCT)-shaped aggregates (top_domains_24h/7d),
+// then to 300s after the 2026-08 relay-cap incident: an 8x ingest
+// flood left a week of inflated raw rows in the 7d windows, and the
+// refresh chain (rollup catchup + summary + languages + hashtags +
+// domains) needs headroom above any single statement's 100s budget
+// to finish while that data ages out. Every statement is still
+// individually capped (SET LOCAL statement_timeout) and the phases
+// commit separately, so a large Go budget only ever adds slack, and
+// a 300s worst-case tick still finishes before the next 5-minute
+// tick would pile up meaningfully.
+const relayWindowSnapshotsRefreshTimeout = 300 * time.Second
 
 // relayWindowSnapshotsRefreshAttempts is the number of tries per tick
 // (initial + one retry on failure). Transient buffer-cache eviction
