@@ -41,6 +41,16 @@ func NewController(
 	return &Controller{log: log, store: store, cfg: cfg}
 }
 
+// enforcementListLimit bounds the listings used for tier occupancy and cap
+// enforcement. Correct enforcement requires seeing EVERY active/pinned/
+// probation row: production ran with a 500-row limit here while the
+// mid-cycle active+probation set exceeded it, so the lowest-scored ~300
+// active relays were silently truncated out of enforceCaps and escaped the
+// MaxTotalActive cap forever (337 relays ingesting against a cap of 20).
+// The capped tiers hold ~40 rows in steady state; this limit exists only as
+// a pathological-degenerate guard, not as a working assumption.
+const enforcementListLimit = 20000
+
 // Run executes one full admission cycle: score all relays, apply transitions, publish set.
 func (c *Controller) Run(ctx context.Context) error {
 	relays, err := c.store.ListRelays(ctx, relayregistry.ListFilter{Limit: 1000})
@@ -48,11 +58,25 @@ func (c *Controller) Run(ctx context.Context) error {
 		return fmt.Errorf("list relays for admission: %w", err)
 	}
 
+	// Snapshot tier occupancy before applying transitions so promotions can
+	// be gated by remaining capacity. Without this, every cycle promoted
+	// hundreds of relays into tiers that were already full and enforceCaps
+	// demoted them straight back — ~20k pointless state flips (and log
+	// lines, and index churn) per day, plus a window in which the desired
+	// active set briefly contained the whole flood.
+	occupancy, err := c.loadTierOccupancy(ctx)
+	if err != nil {
+		return fmt.Errorf("load tier occupancy for admission: %w", err)
+	}
+
 	var promotions, demotions int
 
 	for _, rec := range relays {
 		sc := ComputeScore(rec)
 		newState := c.computeTransition(rec, sc)
+		// relays is ordered by score DESC, so when capacity is scarce the
+		// highest-scored contenders win the open slots.
+		newState = occupancy.gate(c.cfg, rec.AdmissionState, newState)
 
 		if newState != rec.AdmissionState || sc.TotalScore != rec.Score {
 			if err := c.store.SetAdmissionState(
@@ -185,6 +209,99 @@ func (c *Controller) computeTransition(rec relayregistry.RelayRecord, sc ScoreCo
 	return current
 }
 
+// tierOccupancy tracks how many relays currently occupy the capped tiers so
+// the transition loop can refuse promotions into full tiers instead of
+// relying on enforceCaps to churn them back out.
+type tierOccupancy struct {
+	pinned        int
+	dynamicActive int
+	probation     int
+}
+
+// loadTierOccupancy counts the current occupants of the capped tiers.
+func (c *Controller) loadTierOccupancy(ctx context.Context) (*tierOccupancy, error) {
+	relays, err := c.store.ListRelays(ctx, relayregistry.ListFilter{
+		AdmissionStates: []relayregistry.AdmissionState{
+			relayregistry.AdmissionActive,
+			relayregistry.AdmissionPinned,
+			relayregistry.AdmissionProbation,
+		},
+		Limit: enforcementListLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	occ := &tierOccupancy{}
+	for _, r := range relays {
+		switch r.AdmissionState {
+		case relayregistry.AdmissionPinned:
+			occ.pinned++
+		case relayregistry.AdmissionActive:
+			if r.ManualPolicy == relayregistry.ManualPolicyPinned {
+				occ.pinned++
+			} else {
+				occ.dynamicActive++
+			}
+		case relayregistry.AdmissionProbation:
+			occ.probation++
+		}
+	}
+	return occ, nil
+}
+
+// gate applies tier capacity to a proposed transition: promotions into a
+// full tier are refused (the relay keeps its current state and competes
+// again next cycle), while demotions and lateral moves always pass and
+// update the occupancy so later gating decisions in the same cycle see
+// them. Manual states (pinned/blocked/draining) are never gated — they are
+// operator decisions, and pinned capacity is accounted via cfg instead.
+func (o *tierOccupancy) gate(
+	cfg config.RelayRegistryAdmissionConfig,
+	current, proposed relayregistry.AdmissionState,
+) relayregistry.AdmissionState {
+	if proposed == current {
+		return proposed
+	}
+
+	// Free the slot the relay is leaving (only matters if the move goes
+	// through; probation→active both frees and consumes, handled below).
+	switch {
+	case current == relayregistry.AdmissionProbation && proposed == relayregistry.AdmissionActive:
+		totalActive := o.pinned + o.dynamicActive
+		if totalActive >= cfg.MaxTotalActive || o.dynamicActive >= cfg.MaxDynamicActive {
+			return current
+		}
+		o.probation--
+		o.dynamicActive++
+		return proposed
+
+	case proposed == relayregistry.AdmissionProbation &&
+		(current == relayregistry.AdmissionCandidate || current == relayregistry.AdmissionInactive):
+		if o.probation >= cfg.MaxProbation {
+			return current
+		}
+		o.probation++
+		return proposed
+
+	case current == relayregistry.AdmissionActive && proposed == relayregistry.AdmissionProbation:
+		// Health demotion: always allowed — a failing relay must leave
+		// active even if probation is full (enforceCaps trims overflow).
+		o.dynamicActive--
+		o.probation++
+		return proposed
+
+	case current == relayregistry.AdmissionActive:
+		o.dynamicActive--
+		return proposed
+
+	case current == relayregistry.AdmissionProbation:
+		o.probation--
+		return proposed
+	}
+
+	return proposed
+}
+
 func (c *Controller) enforceCaps(ctx context.Context) {
 	relays, err := c.store.ListRelays(ctx, relayregistry.ListFilter{
 		AdmissionStates: []relayregistry.AdmissionState{
@@ -192,7 +309,7 @@ func (c *Controller) enforceCaps(ctx context.Context) {
 			relayregistry.AdmissionPinned,
 			relayregistry.AdmissionProbation,
 		},
-		Limit: 500,
+		Limit: enforcementListLimit,
 	})
 	if err != nil {
 		c.log.Error("relay_admission_enforce_caps_list_failed", "error", err)
