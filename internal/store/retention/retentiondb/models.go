@@ -533,6 +533,17 @@ type RelatedProfile struct {
 	UpdatedAt            pgtype.Timestamptz
 }
 
+type RelayActivityHourly struct {
+	BucketStart pgtype.Timestamptz
+	RelayUrl    string
+	EventCount  int64
+}
+
+type RelayActivityRollupState struct {
+	ID            bool
+	RolledUpUntil pgtype.Timestamptz
+}
+
 type RelayDesiredSet struct {
 	ID            int64
 	PublishedAt   pgtype.Timestamptz
