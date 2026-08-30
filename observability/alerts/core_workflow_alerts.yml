@@ -245,14 +245,22 @@ groups:
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashMeilisearchSyncLagHigh
-        expr: nostrmash_pending_meilisearch_sync_oldest_age_seconds > 300 and nostrmash_pending_meilisearch_syncs > 0
-        for: 10m
+        # Threshold 900s (was 300s): since the sweeper moved to a 60s
+        # interval with large batches (each Meilisearch commit costs
+        # seconds of CPU at production index size, so fewer/larger tasks
+        # are deliberate), oldest-age routinely sawtooths several minutes
+        # during ingest bursts and post-restart catchup while the sweeper
+        # is making steady progress — the 5m line flapped continuously.
+        # 15m sustained for 15m means search results are genuinely stale
+        # and the sweeper is not keeping up, not just batching.
+        expr: nostrmash_pending_meilisearch_sync_oldest_age_seconds > 900 and nostrmash_pending_meilisearch_syncs > 0
+        for: 15m
         labels:
           severity: warning
           slo: search-freshness
         annotations:
           summary: "Meilisearch index lag is elevated"
-          description: "The oldest pending Meilisearch sync has been waiting over 5 minutes for 10m while the backlog is non-empty. The sweeper cannot keep up; check Meilisearch health, WORKER_MEILISEARCH_SWEEPER_* tuning, and derivation logs."
+          description: "The oldest pending Meilisearch sync has been waiting over 15 minutes for 15m while the backlog is non-empty. The sweeper cannot keep up; check Meilisearch health, WORKER_MEILISEARCH_SWEEPER_* tuning, and derivation logs."
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashMeilisearchSweeperStalled
