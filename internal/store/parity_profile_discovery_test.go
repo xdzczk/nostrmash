@@ -86,8 +86,8 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 	if len(rising24h) != 2 {
 		t.Fatalf("unexpected 24h rising profile count: got=%d want=2", len(rising24h))
 	}
-	if rising24h[0].Pubkey != "big_author" {
-		t.Fatalf("expected big_author to rank above small_author in rising 24h due to follower growth, got=%#v", rising24h[0])
+	if rising24h[0].Pubkey != "small_author" {
+		t.Fatalf("expected small_author to rank above big_author in rising 24h via relative engagement vs. a larger audience, got=%#v", rising24h[0])
 	}
 
 	trending7d, err := pgStore.GetTrendingProfiles(ctx, 7*24*time.Hour, 10, 0)
