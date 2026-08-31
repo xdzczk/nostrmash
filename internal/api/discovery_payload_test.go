@@ -105,6 +105,67 @@ func TestBuildProfileRanking_RisingSurface(t *testing.T) {
 	})
 }
 
+func TestBuildProfileRanking_TrendingSurface_SinglePostIsNotPublishingMomentum(t *testing.T) {
+	// A single post with no engagement isn't meaningful "momentum" on its
+	// own; leading with it read as a weak/uninformative "why now" reason.
+	profile := query.TrendingProfile{
+		Pubkey:          "pk_one_post",
+		Score:           1.2,
+		RecentPostCount: 1,
+	}
+
+	ranking := buildProfileRanking(profile, 1, discoverySurfaceTrending)
+	codes := reasonCodes(ranking.Reasons)
+	for _, code := range codes {
+		if code == "publishing_momentum" {
+			t.Fatalf("did not expect publishing_momentum for a single post, got %v", codes)
+		}
+	}
+
+	multiPost := profile
+	multiPost.RecentPostCount = 2
+	multiRanking := buildProfileRanking(multiPost, 1, discoverySurfaceTrending)
+	multiCodes := reasonCodes(multiRanking.Reasons)
+	found := false
+	for _, code := range multiCodes {
+		if code == "publishing_momentum" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected publishing_momentum once post count is above the noise floor, got %v", multiCodes)
+	}
+}
+
+func TestBuildProfileRanking_RisingSurface_TrivialNewFollowersAreNotFollowerGrowth(t *testing.T) {
+	// A couple of new followers on a brand-new account is common noise, not
+	// a meaningful "follower growth" signal -- surfacing it made the rising
+	// list look like it was just listing every newly-created account.
+	profile := query.TrendingProfile{
+		Pubkey:             "pk_barely_new",
+		Score:              1.0,
+		RecentNewFollowers: 2,
+		FollowerCount:      2,
+	}
+
+	ranking := buildProfileRanking(profile, 1, discoverySurfaceRising)
+	codes := reasonCodes(ranking.Reasons)
+	for _, code := range codes {
+		if code == "follower_growth" {
+			t.Fatalf("did not expect follower_growth at/below the noise floor, got %v", codes)
+		}
+	}
+
+	substantial := profile
+	substantial.RecentNewFollowers = 60
+	substantial.FollowerCount = 400
+	substantialRanking := buildProfileRanking(substantial, 1, discoverySurfaceRising)
+	substantialCodes := reasonCodes(substantialRanking.Reasons)
+	if len(substantialCodes) == 0 || substantialCodes[0] != "follower_growth" {
+		t.Fatalf("expected follower_growth to lead once new followers are above the noise floor, got %v", substantialCodes)
+	}
+}
+
 func TestBuildProfileRanking_EmptyReasonsAreNonNilAndDefaultToRising(t *testing.T) {
 	profile := query.TrendingProfile{Pubkey: "pk_quiet"}
 

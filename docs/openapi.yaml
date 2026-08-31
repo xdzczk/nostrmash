@@ -866,8 +866,10 @@ paths:
         received per post), not by raw posting volume or audience size —
         intended to back a "Profiles in motion" UI surface. Leading reason
         code is `engagement_quality` (engagement-per-post ratio), followed by
-        `publishing_momentum` and `engagement_received`. Does not use
-        `follower_growth`; see `/discovery/profiles/rising` for that.
+        `publishing_momentum` (omitted for a single post, which isn't a
+        meaningful momentum signal on its own) and `engagement_received`.
+        Does not use `follower_growth`; see `/discovery/profiles/rising` for
+        that.
       parameters:
         - in: query
           name: window
@@ -897,7 +899,13 @@ paths:
         intended to back an "Up and coming" UI surface. Audience size is
         penalized continuously (no hard follower-count cutoff), so the
         ranking naturally favors smaller accounts without excluding anyone
-        outright. Reason codes in priority order: `follower_growth`,
+        outright. New-follower counts of 2 or fewer are treated as noise
+        (common for any brand-new account) and both omitted from the
+        `follower_growth` reason and discounted in the underlying score, so
+        accounts with substantial absolute growth (e.g. +60 followers on a
+        400-follower account) reliably outrank barely-started ones (e.g. +5
+        followers on a 5-follower account) rather than the reverse. Reason
+        codes in priority order: `follower_growth`,
         `relative_engagement_growth` (engagement-per-follower ratio),
         `engagement_received`, `publishing_momentum`.
       parameters:

@@ -80,6 +80,17 @@ func buildNoteRanking(note query.TrendingNote, rank int) query.DiscoveryItemRank
 	}
 }
 
+// risingFollowerGrowthReasonFloor mirrors computeProfileRisingScore's
+// risingFollowerNoiseFloor: a couple of new followers is common noise for
+// any brand-new account, so it shouldn't be surfaced as a "follower growth"
+// reason -- doing so made the rising list look like it was just listing
+// every newly-created account rather than genuine momentum.
+const risingFollowerGrowthReasonFloor = 2
+
+// trendingPublishingMomentumFloor avoids leading with "publishing momentum"
+// for a single post, which reads as a weak/uninformative reason on its own.
+const trendingPublishingMomentumFloor = 1
+
 // buildProfileRanking selects "why now" reasons and a confidence sample that
 // match what the given surface's score actually weighs (see
 // computeProfileTrendingScore / computeProfileRisingScore). Without this,
@@ -97,9 +108,9 @@ func buildProfileRanking(profile query.TrendingProfile, rank int, surface string
 		// "Profiles in motion": engagement earned per post is the primary
 		// driver of this score; follower growth isn't a factor here.
 		if profile.RecentEngagementReceived > 0 && totalPosts > 0 {
-			reasons = append(reasons, discoveryReason("engagement_quality", "engagement_per_post", engagementPerPost, "interactions_per_note"))
+			reasons = append(reasons, discoveryReason("engagement_quality", "engagement_per_post", engagementPerPost, "interactions per note"))
 		}
-		if profile.RecentPostCount > 0 {
+		if profile.RecentPostCount > trendingPublishingMomentumFloor {
 			reasons = append(reasons, discoveryReason("publishing_momentum", "recent_post_count", float64(profile.RecentPostCount), "notes"))
 		}
 		if profile.RecentEngagementReceived > 0 {
@@ -111,11 +122,11 @@ func buildProfileRanking(profile query.TrendingProfile, rank int, surface string
 		// gaining followers fast, or by earning engagement that's large
 		// relative to their (small) existing audience even with no new
 		// followers yet — surface whichever of those actually applies.
-		if profile.RecentNewFollowers > 0 {
+		if profile.RecentNewFollowers > risingFollowerGrowthReasonFloor {
 			reasons = append(reasons, discoveryReason("follower_growth", "recent_new_followers", float64(profile.RecentNewFollowers), "followers"))
 		}
 		if profile.RecentEngagementReceived > 0 {
-			reasons = append(reasons, discoveryReason("relative_engagement_growth", "engagement_per_follower", engagementPerFollower, "interactions_per_follower"))
+			reasons = append(reasons, discoveryReason("relative_engagement_growth", "engagement_per_follower", engagementPerFollower, "interactions per follower"))
 		}
 		if profile.RecentEngagementReceived > 0 {
 			reasons = append(reasons, discoveryReason("engagement_received", "recent_engagement_received", float64(profile.RecentEngagementReceived), "interactions"))

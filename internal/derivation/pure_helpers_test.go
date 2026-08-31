@@ -148,6 +148,44 @@ func TestComputeProfileRisingScore(t *testing.T) {
 			t.Fatalf("expected relative engagement to matter less for a larger audience: small %v large %v", smallAudience, largeAudience)
 		}
 	})
+
+	t.Run("substantial absolute growth outranks a trivial handful of new followers", func(t *testing.T) {
+		// A 400-follower account gaining 60 new followers should rank above
+		// a 5-follower account gaining 5 new followers: the former is a
+		// meaningfully larger absolute jump, even though the latter's
+		// growth looks bigger as a raw percentage of its (near-empty)
+		// audience. Both accounts have been posting for several days
+		// (activeDays=5) with no measured engagement, so the follower
+		// momentum term alone must carry this ordering.
+		substantialGrowth := computeProfileRisingScore(10, 400, 60, 0, 5, 0, 5)
+		trivialGrowth := computeProfileRisingScore(10, 5, 5, 0, 5, 0, 5)
+		if substantialGrowth <= trivialGrowth {
+			t.Fatalf("expected substantial absolute growth to outrank trivial growth: substantial %v trivial %v", substantialGrowth, trivialGrowth)
+		}
+	})
+
+	t.Run("a couple of new followers is treated as noise", func(t *testing.T) {
+		// Below the noise floor, extra "new followers" should barely move
+		// the score, so a brand-new account with 1-2 followers doesn't
+		// crowd out accounts with real, credited growth.
+		none := computeProfileRisingScore(10, 5, 0, 0, 5, 0, 1)
+		trivial := computeProfileRisingScore(10, 5, 2, 0, 5, 0, 1)
+		if trivial != none {
+			t.Fatalf("expected new followers at/below the noise floor not to change the score: none %v trivial %v", none, trivial)
+		}
+	})
+
+	t.Run("follower momentum is not diluted by days of sustained activity", func(t *testing.T) {
+		// A profile active for several days shouldn't lose follower-growth
+		// credit relative to an identical profile active for a single day
+		// -- multi-day sustained growth is if anything more meaningful, not
+		// less.
+		oneDayActive := computeProfileRisingScore(10, 400, 60, 0, 5, 0, 1)
+		fiveDaysActive := computeProfileRisingScore(10, 400, 60, 0, 5, 0, 5)
+		if fiveDaysActive != oneDayActive {
+			t.Fatalf("expected sustained activity not to change a purely follower-driven score: oneDay %v fiveDays %v", oneDayActive, fiveDaysActive)
+		}
+	})
 }
 
 func TestMaxInt64(t *testing.T) {

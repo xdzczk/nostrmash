@@ -129,6 +129,15 @@ func computeProfileRisingScore(
 	if audiencePenalty <= 0 {
 		audiencePenalty = 1.0
 	}
+	// A handful of new followers (1-2) is common noise for any brand-new
+	// account and isn't a meaningful momentum signal on its own -- discount
+	// it so accounts with substantial absolute growth reliably outrank
+	// barely-started ones, even though both may sit well under the
+	// audience-penalty's "small account" ceiling above.
+	const risingFollowerNoiseFloor = 2.0
+	creditedNewFollowers := math.Max(0, safeNewFollowers-risingFollowerNoiseFloor)
+	followerMomentum := 4.0 * math.Log1p(creditedNewFollowers)
+
 	// relativeEngagementMomentum gives a small account a real path into the
 	// ranking purely from getting outsized engagement relative to its own
 	// (tiny) audience, independent of whether it gained any new followers.
@@ -137,15 +146,21 @@ func computeProfileRisingScore(
 	// produces a meaningful signal instead of ~0.
 	engagementPerFollower := safeEngagement / (1.0 + float64(safeFollowerCount))
 	relativeEngagementMomentum := 3.0 * math.Log1p(engagementPerFollower*100.0)
-	followerMomentum := 4.0 * math.Log1p(safeNewFollowers)
-	momentum := followerMomentum + 0.4*math.Log1p(safeEngagement) + relativeEngagementMomentum
+	engagementMomentum := 0.4*math.Log1p(safeEngagement) + relativeEngagementMomentum
 	qualityFactor := 1.0 + math.Min(1.0, safeEngagement/(1.0+float64(totalPosts)))
 	postingPressure := float64(totalPosts) / (1.0 + safeEngagement + float64(safeActiveDays))
 	volumePenalty := 1.0 / (1.0 + math.Max(0.0, postingPressure-1.0))
-	momentum = momentum * qualityFactor * volumePenalty
+	engagementMomentum = engagementMomentum * qualityFactor * volumePenalty
+	// Dampen by days of sustained activity only for the engagement
+	// component: it counters low-quality volume spread across many days.
+	// Follower momentum is a simple lagging count and must NOT shrink just
+	// because the account has been around/active longer -- otherwise a
+	// week-old account with real growth loses to a same-day account with a
+	// trivial handful of new followers.
 	if safeActiveDays > 0 {
-		momentum = momentum / math.Sqrt(float64(safeActiveDays))
+		engagementMomentum = engagementMomentum / math.Sqrt(float64(safeActiveDays))
 	}
+	momentum := followerMomentum + engagementMomentum
 	score := (0.2*trendingScore + momentum) / audiencePenalty
 	if score <= 0 {
 		return 0
