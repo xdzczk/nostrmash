@@ -508,16 +508,18 @@ type TrendingNote struct {
 }
 
 type TrendingProfile struct {
-	Pubkey                   string  `json:"pubkey"`
-	Score                    float64 `json:"score"`
-	RecentPostCount          int64   `json:"recent_post_count"`
-	RecentReplyCount         int64   `json:"recent_reply_count"`
-	RecentEngagementReceived int64   `json:"recent_engagement_received"`
-	RecentNewFollowers       int64   `json:"recent_new_followers"`
-	RecentZapVolumeMSats     int64   `json:"recent_zap_volume_msats"`
-	RecentActiveDays         int     `json:"recent_active_days"`
-	RecentActivityAt         *int64  `json:"recent_activity_at,omitempty"`
-	FollowerCount            int64   `json:"follower_count"`
+	Pubkey                   string   `json:"pubkey"`
+	Score                    float64  `json:"score"`
+	RecentPostCount          int64    `json:"recent_post_count"`
+	RecentReplyCount         int64    `json:"recent_reply_count"`
+	RecentEngagementReceived int64    `json:"recent_engagement_received"`
+	RecentNewFollowers       int64    `json:"recent_new_followers"`
+	RecentZapVolumeMSats     int64    `json:"recent_zap_volume_msats"`
+	RecentActiveDays         int      `json:"recent_active_days"`
+	RecentActivityAt         *int64   `json:"recent_activity_at,omitempty"`
+	FollowerCount            int64    `json:"follower_count"`
+	ScoredEngagementReceived *float64 `json:"-"`
+	ScoredNewFollowers       *float64 `json:"-"`
 }
 
 type TrustGlobalScore struct {

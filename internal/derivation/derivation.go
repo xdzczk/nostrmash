@@ -84,10 +84,12 @@ const (
 	// v5: trending score inputs count each engager pubkey once per signal and
 	// exclude the note author's self-engagement (optionally trust-weighted).
 	NoteDiscoveryStatsVersion = 5
-	// v2: score inputs exclude self-engagement in the legacy full-scan
-	// loader and, with TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING on, swap to
-	// deduplicated trust-weighted engagement / zap / new-follower votes.
-	ProfileDiscoveryStatsVersion   = 2
+	// v3: persist the (optionally trust-weighted) engagement and new-follower
+	// values the scores actually used, so ranking reasons/confidence can
+	// cite the same inputs instead of raw display counters. Also requires
+	// nonzero engagement for trending eligibility and steepens the rising
+	// audience penalty above ~500 followers.
+	ProfileDiscoveryStatsVersion   = 3
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1

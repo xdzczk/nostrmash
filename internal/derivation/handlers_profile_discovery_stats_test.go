@@ -148,21 +148,22 @@ func TestProjectProfileDiscoveryStats_TrustWeightedEngagement(t *testing.T) {
 	}
 	drainPendingProfileStatsForTest(t, ctx, handlers)
 
-	readStats := func(pubkey string) (score24h, rising24h float64, engagementDisplay int64) {
+	readStats := func(pubkey string) (score24h, rising24h float64, engagementDisplay int64, scoredEngagement, scoredFollowers float64) {
 		t.Helper()
 		if err := pool.QueryRow(ctx, `
-			SELECT score_24h, rising_score_24h, recent_engagement_received
+			SELECT score_24h, rising_score_24h, recent_engagement_received,
+			       COALESCE(scored_engagement_24h, -1), COALESCE(scored_new_followers_24h, -1)
 			FROM profile_discovery_stats
 			WHERE pubkey = $1
-		`, pubkey).Scan(&score24h, &rising24h, &engagementDisplay); err != nil {
+		`, pubkey).Scan(&score24h, &rising24h, &engagementDisplay, &scoredEngagement, &scoredFollowers); err != nil {
 			t.Fatalf("query profile discovery stats for %s: %v", pubkey, err)
 		}
-		return score24h, rising24h, engagementDisplay
+		return score24h, rising24h, engagementDisplay, scoredEngagement, scoredFollowers
 	}
 
-	farmedScore, farmedRising, farmedDisplay := readStats("pw_farmed_author")
-	baselineScore, baselineRising, _ := readStats("pw_baseline_author")
-	engagedScore, _, engagedDisplay := readStats("pw_engaged_author")
+	farmedScore, farmedRising, farmedDisplay, farmedScoredEngagement, farmedScoredFollowers := readStats("pw_farmed_author")
+	baselineScore, baselineRising, _, baselineScoredEngagement, _ := readStats("pw_baseline_author")
+	engagedScore, _, engagedDisplay, engagedScoredEngagement, _ := readStats("pw_engaged_author")
 
 	// Display counters keep reflecting raw (self-excluded) activity.
 	if farmedDisplay != 3 {
@@ -170,6 +171,16 @@ func TestProjectProfileDiscoveryStats_TrustWeightedEngagement(t *testing.T) {
 	}
 	if engagedDisplay != 2 {
 		t.Fatalf("expected engaged display engagement=2 raw reactions, got %d", engagedDisplay)
+	}
+	// Scored inputs persist the trust-weighted votes the score used.
+	if farmedScoredEngagement != 0 || farmedScoredFollowers != 0 {
+		t.Fatalf("expected farmed scored inputs to be 0, got engagement=%f followers=%f", farmedScoredEngagement, farmedScoredFollowers)
+	}
+	if baselineScoredEngagement != 0 {
+		t.Fatalf("expected baseline scored engagement=0, got %f", baselineScoredEngagement)
+	}
+	if engagedScoredEngagement != 1 {
+		t.Fatalf("expected engaged scored engagement=1 (deduped hop-1 vote), got %f", engagedScoredEngagement)
 	}
 	// Bot engagement buys zero trending score: farmed == baseline.
 	if diff := farmedScore - baselineScore; diff > 1e-9 || diff < -1e-9 {
@@ -252,7 +263,7 @@ func TestProjectionRebuildScopes_ProfileDiscoveryStatsFull(t *testing.T) {
 
 	run, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
 		DerivationName: derivation.DerivationProfileDiscoveryStats,
-		TargetVersion:  2,
+		TargetVersion:  derivation.ProfileDiscoveryStatsVersion,
 		Scope: derivation.ProjectionRebuildScope{
 			Type: derivation.RebuildScopeFull,
 		},
@@ -264,7 +275,7 @@ func TestProjectionRebuildScopes_ProfileDiscoveryStatsFull(t *testing.T) {
 		t.Fatalf("execute profile discovery rebuild: %v", err)
 	}
 	assertRebuildRunSucceeded(t, ctx, handlers, run.ID)
-	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationProfileDiscoveryStats, 2, 2)
+	assertActiveAndTargetVersion(t, ctx, pool, derivation.DerivationProfileDiscoveryStats, derivation.ProfileDiscoveryStatsVersion, derivation.ProfileDiscoveryStatsVersion)
 
 	var version int
 	if err := pool.QueryRow(ctx, `
@@ -274,7 +285,7 @@ func TestProjectionRebuildScopes_ProfileDiscoveryStatsFull(t *testing.T) {
 	`, "profile_rebuild_author").Scan(&version); err != nil {
 		t.Fatalf("query profile discovery derivation version: %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("unexpected profile discovery derivation version: got=%d want=2", version)
+	if version != derivation.ProfileDiscoveryStatsVersion {
+		t.Fatalf("unexpected profile discovery derivation version: got=%d want=%d", version, derivation.ProfileDiscoveryStatsVersion)
 	}
 }

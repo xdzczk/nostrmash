@@ -345,14 +345,15 @@ vote is scaled by trust-graph proximity from `trust_pubkeys_latest` (hops <= 1:
   sender's weight
 - hot-conversation reply weights
 - profile trending/rising score inputs (profile discovery stats derivation
-  v2+): engagement deduplicated per (signal, engager, target event), zap
+  v3+): engagement deduplicated per (signal, engager, target event), zap
   volume scaled per receipt, and new-follower momentum weighted per distinct
   follower — so an untrusted follower ring buys no rising score. The raw
-  incremental counters (`author_hourly_activity` and friends) are left
-  untouched because they feed analytics and the incremental-vs-full
-  reconciliation; only the discovery score inputs swap to weighted values,
-  at the cost of a windowed engagement rescan per profile refresh while the
-  flag is on.
+  incremental counters (`author_hourly_activity` and friends) and the
+  `recent_*` display columns are left untouched because they feed analytics
+  and the incremental-vs-full reconciliation; the values the scores actually
+  used are persisted on `scored_engagement_*` / `scored_new_followers_*` so
+  ranking reasons cite the same inputs. Enabling the flag costs a windowed
+  engagement rescan per profile refresh.
 
 A bot ring's total score contribution is then bounded by the follow edges
 real trusted users extend toward it, which is slow, costly, and auditable to

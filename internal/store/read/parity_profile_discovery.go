@@ -2,6 +2,7 @@ package read
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -451,6 +452,7 @@ func (s *Read) getProfileDiscoveryRows(
 	}
 
 	minCreatedAt := time.Now().UTC().Add(-windowDuration).Unix()
+	scoredEngagementCol, scoredFollowersCol := profileScoredInputColumns(scoreColumn)
 	query := fmt.Sprintf(`
 		SELECT
 			pubkey,
@@ -471,7 +473,9 @@ func (s *Read) getProfileDiscoveryRows(
 				SELECT pps.follower_count
 				FROM profile_public_stats pps
 				WHERE pps.pubkey = profile_discovery_stats.pubkey
-			), 0)::bigint AS follower_count
+			), 0)::bigint AS follower_count,
+			%s AS scored_engagement_received,
+			%s AS scored_new_followers
 		FROM profile_discovery_stats
 		WHERE recent_activity_at IS NOT NULL
 		  AND recent_activity_at >= $1
@@ -503,7 +507,7 @@ func (s *Read) getProfileDiscoveryRows(
 		  )
 		ORDER BY score DESC, recent_engagement_received DESC, recent_activity_at DESC, pubkey ASC
 		LIMIT $2 OFFSET $3
-	`, scoreColumn, scoreColumn)
+	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, scoreColumn)
 	rows, err := s.pool.Query(ctx, query, minCreatedAt, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("get profile discovery rows: %w", err)
@@ -513,6 +517,7 @@ func (s *Read) getProfileDiscoveryRows(
 	out := make([]TrendingProfile, 0, limit)
 	for rows.Next() {
 		var row TrendingProfile
+		var scoredEngagement, scoredFollowers sql.NullFloat64
 		if err := rows.Scan(
 			&row.Pubkey,
 			&row.Score,
@@ -524,13 +529,25 @@ func (s *Read) getProfileDiscoveryRows(
 			&row.RecentActiveDays,
 			&row.RecentActivityAt,
 			&row.FollowerCount,
+			&scoredEngagement,
+			&scoredFollowers,
 		); err != nil {
 			return nil, fmt.Errorf("scan profile discovery row: %w", err)
 		}
+		row.ScoredEngagementReceived = nullFloat64Ptr(scoredEngagement)
+		row.ScoredNewFollowers = nullFloat64Ptr(scoredFollowers)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read profile discovery rows: %w", err)
 	}
 	return out, nil
+}
+
+func nullFloat64Ptr(v sql.NullFloat64) *float64 {
+	if !v.Valid {
+		return nil
+	}
+	value := v.Float64
+	return &value
 }

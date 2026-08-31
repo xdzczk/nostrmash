@@ -113,7 +113,8 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 	// discovery engagement enabled they swap to deduplicated, self-excluded,
 	// trust-weighted values so engagement-farming rings buy no trending or
 	// rising score. Raw counters keep feeding the display columns and
-	// reconciliation unchanged.
+	// reconciliation unchanged; the scored_* columns persist whatever the
+	// scores actually used so ranking reasons can cite the same numbers.
 	engagement24h, engagement7d := float64(w24.engagement), float64(w7.engagement)
 	zapMSats24h, zapMSats7d := float64(w24.zapVolumeMSats), float64(w7.zapVolumeMSats)
 	newFollowers24h, newFollowers7d := float64(w24.newFollowers), float64(w7.newFollowers)
@@ -152,10 +153,14 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 			recent_zap_volume_msats,
 			recent_active_days,
 			recent_activity_at,
+			scored_engagement_24h,
+			scored_engagement_7d,
+			scored_new_followers_24h,
+			scored_new_followers_7d,
 			last_scored_at,
 			derivation_version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now(), $16)
 		ON CONFLICT (pubkey) DO UPDATE
 		SET score_24h = EXCLUDED.score_24h,
 		    score_7d = EXCLUDED.score_7d,
@@ -167,10 +172,14 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 		    recent_zap_volume_msats = EXCLUDED.recent_zap_volume_msats,
 		    recent_active_days = EXCLUDED.recent_active_days,
 		    recent_activity_at = EXCLUDED.recent_activity_at,
+		    scored_engagement_24h = EXCLUDED.scored_engagement_24h,
+		    scored_engagement_7d = EXCLUDED.scored_engagement_7d,
+		    scored_new_followers_24h = EXCLUDED.scored_new_followers_24h,
+		    scored_new_followers_7d = EXCLUDED.scored_new_followers_7d,
 		    last_scored_at = now(),
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
-	`, pubkey, score24h, score7d, risingScore24h, risingScore7d, w24.postCount, w24.replyCount, w24.engagement, w24.zapVolumeMSats, w24.activeDays, recentActivityAt, writeVersion); err != nil {
+	`, pubkey, score24h, score7d, risingScore24h, risingScore7d, w24.postCount, w24.replyCount, w24.engagement, w24.zapVolumeMSats, w24.activeDays, recentActivityAt, engagement24h, engagement7d, newFollowers24h, newFollowers7d, writeVersion); err != nil {
 		return fmt.Errorf("upsert profile discovery stats: %w", err)
 	}
 	return nil

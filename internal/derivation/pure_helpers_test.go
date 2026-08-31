@@ -89,6 +89,16 @@ func TestComputeProfileTrendingScore(t *testing.T) {
 		}
 	})
 
+	t.Run("zero engagement is ineligible even with posts and consistency", func(t *testing.T) {
+		// A profile that only posted (or only received zaps recorded as
+		// volume, or was active for several days) must not fill a
+		// "Profiles in motion" slot. Engagement is the eligibility floor.
+		got := computeProfileTrendingScore(window, now, &activity, 12, 4, 0, 9_000_000, 6)
+		if got != 0 {
+			t.Fatalf("want 0 for zero-engagement profile, got %v", got)
+		}
+	})
+
 	t.Run("high engagement-per-post outranks high-volume low-engagement-per-post", func(t *testing.T) {
 		// Similar totals (posts+engagement in the same ballpark), but one
 		// profile earns its engagement from few posts (high ratio) and the
@@ -103,9 +113,19 @@ func TestComputeProfileTrendingScore(t *testing.T) {
 }
 
 func TestComputeProfileRisingScore(t *testing.T) {
-	t.Run("non-positive trending score yields zero", func(t *testing.T) {
-		if got := computeProfileRisingScore(0, 100, 10, 50, 5, 5, 3); got != 0 {
-			t.Fatalf("want 0 when trending score is zero, got %v", got)
+	t.Run("no trending, no credited growth, and no engagement yields zero", func(t *testing.T) {
+		if got := computeProfileRisingScore(0, 100, 2, 0, 5, 5, 3); got != 0 {
+			t.Fatalf("want 0 when every rising input is empty/noise, got %v", got)
+		}
+	})
+
+	t.Run("meaningful follower growth scores without a trending score", func(t *testing.T) {
+		// A small account gaining 60 followers with no measured
+		// engagement must still be eligible for "Up and coming" — the
+		// trending engagement floor must not also lock rising.
+		got := computeProfileRisingScore(0, 400, 60, 0, 5, 0, 5)
+		if got <= 0 {
+			t.Fatalf("expected credited follower growth to produce a rising score without trending, got %v", got)
 		}
 	})
 
@@ -172,6 +192,17 @@ func TestComputeProfileRisingScore(t *testing.T) {
 		trivial := computeProfileRisingScore(10, 5, 2, 0, 5, 0, 1)
 		if trivial != none {
 			t.Fatalf("expected new followers at/below the noise floor not to change the score: none %v trivial %v", none, trivial)
+		}
+	})
+
+	t.Run("accounts above the small-audience band are penalized much more steeply", func(t *testing.T) {
+		// Same +60 follower jump: a still-small 400-follower account
+		// should clearly outrank a 5,000-follower account. The hinge at
+		// 500 is what keeps "Up and coming" mostly sub-500.
+		small := computeProfileRisingScore(10, 400, 60, 0, 5, 0, 5)
+		mid := computeProfileRisingScore(10, 5_000, 60, 0, 5, 0, 5)
+		if small <= mid {
+			t.Fatalf("expected 400-follower growth to outrank the same jump on a 5k account: small %v mid %v", small, mid)
 		}
 	})
 

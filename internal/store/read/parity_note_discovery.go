@@ -118,3 +118,13 @@ func resolveTrendingWindow(window time.Duration) (string, time.Duration, error) 
 		return "", 0, fmt.Errorf("unsupported trending window: %s", strings.TrimSpace(window.String()))
 	}
 }
+
+// profileScoredInputColumns picks the scored engagement / new-follower
+// columns that match the requested ranking window so "why now" reasons
+// cite the same inputs the score used.
+func profileScoredInputColumns(scoreColumn string) (engagementCol, newFollowersCol string) {
+	if strings.Contains(scoreColumn, "7d") {
+		return "scored_engagement_7d", "scored_new_followers_7d"
+	}
+	return "scored_engagement_24h", "scored_new_followers_24h"
+}

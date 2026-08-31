@@ -73,6 +73,12 @@ func computeProfileTrendingScore(
 	safeZapVolume := math.Max(0, zapVolumeMSats)
 	safeActiveDays := maxInt64(0, int64(activeDays))
 	totalPosts := safePosts + safeReplies
+	// "Profiles in motion" is an engagement-per-post ranking. Posting,
+	// consistency, and zap volume are secondary signals and must not let a
+	// profile with zero (weighted) engagement occupy a slot.
+	if safeEngagement <= 0 {
+		return 0
+	}
 
 	// Posting volume and consistency are deliberately kept as minor,
 	// secondary signals: this score is meant to rank profiles by how much
@@ -112,9 +118,6 @@ func computeProfileRisingScore(
 	replyCount int64,
 	activeDays int,
 ) float64 {
-	if trendingScore <= 0 {
-		return 0
-	}
 	safeFollowerCount := maxInt64(0, followerCount)
 	safeNewFollowers := math.Max(0, newFollowers)
 	safeEngagement := math.Max(0, engagementReceived)
@@ -122,13 +125,6 @@ func computeProfileRisingScore(
 	safeReplies := maxInt64(0, replyCount)
 	safeActiveDays := maxInt64(0, int64(activeDays))
 	totalPosts := safePosts + safeReplies
-	// Steeper than a plain log10(1+followers): mid/large accounts fall off
-	// faster so "small account" is enforced through the continuous curve
-	// itself rather than a hard follower-count cutoff.
-	audiencePenalty := 1.0 + 1.3*math.Log10(1.0+float64(safeFollowerCount))
-	if audiencePenalty <= 0 {
-		audiencePenalty = 1.0
-	}
 	// A handful of new followers (1-2) is common noise for any brand-new
 	// account and isn't a meaningful momentum signal on its own -- discount
 	// it so accounts with substantial absolute growth reliably outrank
@@ -136,6 +132,27 @@ func computeProfileRisingScore(
 	// audience-penalty's "small account" ceiling above.
 	const risingFollowerNoiseFloor = 2.0
 	creditedNewFollowers := math.Max(0, safeNewFollowers-risingFollowerNoiseFloor)
+	// Rising is independently reachable via credited follower growth or
+	// relative engagement. It must not require a positive trending score:
+	// the trending floor now rejects zero-engagement posters, and a small
+	// account gaining 60 followers with no measured engagement is still a
+	// valid "Up and coming" candidate.
+	if trendingScore <= 0 && creditedNewFollowers <= 0 && safeEngagement <= 0 {
+		return 0
+	}
+	// Gentle log through the "small account" range, then a multiplicative
+	// hinge past risingAudienceSoftCap so mid/large accounts fall off
+	// quickly. A 400-follower account stays in the intended band; a
+	// 5,000- or 50,000-follower account needs far more momentum to compete.
+	// No hard cutoff: anyone can still appear if the growth is enormous.
+	const risingAudienceSoftCap = 500.0
+	audiencePenalty := 1.0 + 1.3*math.Log10(1.0+float64(safeFollowerCount))
+	if audiencePenalty <= 0 {
+		audiencePenalty = 1.0
+	}
+	if float64(safeFollowerCount) > risingAudienceSoftCap {
+		audiencePenalty *= float64(safeFollowerCount) / risingAudienceSoftCap
+	}
 	followerMomentum := 4.0 * math.Log1p(creditedNewFollowers)
 
 	// relativeEngagementMomentum gives a small account a real path into the
@@ -161,7 +178,7 @@ func computeProfileRisingScore(
 		engagementMomentum = engagementMomentum / math.Sqrt(float64(safeActiveDays))
 	}
 	momentum := followerMomentum + engagementMomentum
-	score := (0.2*trendingScore + momentum) / audiencePenalty
+	score := (0.2*math.Max(0, trendingScore) + momentum) / audiencePenalty
 	if score <= 0 {
 		return 0
 	}

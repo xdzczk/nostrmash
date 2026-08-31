@@ -2,6 +2,7 @@ package read
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -175,6 +176,7 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 		offset = 0
 	}
 	minCreatedAt := time.Now().UTC().Add(-windowDuration).Unix()
+	scoredEngagementCol, scoredFollowersCol := profileScoredInputColumns(scoreColumn)
 	trustedExpr := "(t.min_hops IS NOT NULL AND ($2::integer = 0 OR t.min_hops <= $2::integer) AND ($3::double precision <= 0 OR COALESCE(t.trust_score, 0) >= $3::double precision))"
 	whereTrusted := ""
 	orderBy := fmt.Sprintf("p.%s DESC, p.recent_engagement_received DESC, p.recent_activity_at DESC, p.pubkey ASC", scoreColumn)
@@ -200,6 +202,13 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 			p.recent_zap_volume_msats,
 			p.recent_active_days,
 			p.recent_activity_at,
+			COALESCE((
+				SELECT pps.follower_count
+				FROM profile_public_stats pps
+				WHERE pps.pubkey = p.pubkey
+			), 0)::bigint AS follower_count,
+			p.%s AS scored_engagement_received,
+			p.%s AS scored_new_followers,
 			%s AS trusted
 		FROM profile_discovery_stats p
 		INNER JOIN trusted_profile_discovery_candidates t ON t.pubkey = p.pubkey
@@ -209,7 +218,7 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 		  %s
 		ORDER BY %s
 		LIMIT $4 OFFSET $5
-	`, scoreColumn, trustedExpr, scoreColumn, whereTrusted, orderBy)
+	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, trustedExpr, scoreColumn, whereTrusted, orderBy)
 	rows, err := s.pool.Query(ctx, query, minCreatedAt, policy.MaxHops, policy.MinimumScore, limit, offset)
 	if err != nil {
 		return nil, false, fmt.Errorf("get trust-qualified trending profiles: %w", err)
@@ -218,6 +227,7 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 	out := make([]TrustQualifiedTrendingProfile, 0, limit)
 	for rows.Next() {
 		var row TrustQualifiedTrendingProfile
+		var scoredEngagement, scoredFollowers sql.NullFloat64
 		if err := rows.Scan(
 			&row.Profile.Pubkey,
 			&row.Profile.Score,
@@ -228,10 +238,15 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 			&row.Profile.RecentZapVolumeMSats,
 			&row.Profile.RecentActiveDays,
 			&row.Profile.RecentActivityAt,
+			&row.Profile.FollowerCount,
+			&scoredEngagement,
+			&scoredFollowers,
 			&row.Trusted,
 		); err != nil {
 			return nil, false, fmt.Errorf("scan trust-qualified trending profile row: %w", err)
 		}
+		row.Profile.ScoredEngagementReceived = nullFloat64Ptr(scoredEngagement)
+		row.Profile.ScoredNewFollowers = nullFloat64Ptr(scoredFollowers)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {

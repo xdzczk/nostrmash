@@ -1,6 +1,7 @@
 package api
 
 import (
+	"math"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/query"
@@ -96,45 +97,64 @@ const trendingPublishingMomentumFloor = 1
 // computeProfileTrendingScore / computeProfileRisingScore). Without this,
 // both surfaces defaulted to the same follower_growth-first reason list even
 // though the rising score is the only one that cares about follower growth.
+func profileRankingEngagement(profile query.TrendingProfile) float64 {
+	if profile.ScoredEngagementReceived != nil {
+		return *profile.ScoredEngagementReceived
+	}
+	return float64(profile.RecentEngagementReceived)
+}
+
+func profileRankingNewFollowers(profile query.TrendingProfile) float64 {
+	if profile.ScoredNewFollowers != nil {
+		return *profile.ScoredNewFollowers
+	}
+	return float64(profile.RecentNewFollowers)
+}
+
 func buildProfileRanking(profile query.TrendingProfile, rank int, surface string) query.DiscoveryItemRanking {
 	totalPosts := profile.RecentPostCount + profile.RecentReplyCount
-	engagementPerPost := float64(profile.RecentEngagementReceived) / (1.0 + float64(totalPosts))
-	engagementPerFollower := float64(profile.RecentEngagementReceived) / (1.0 + float64(profile.FollowerCount))
+	engagement := profileRankingEngagement(profile)
+	newFollowers := profileRankingNewFollowers(profile)
+	engagementPerPost := engagement / (1.0 + float64(totalPosts))
+	engagementPerFollower := engagement / (1.0 + float64(profile.FollowerCount))
 
 	var reasons []query.DiscoveryReason
-	var sample int64
+	var sample float64
 
 	if surface == discoverySurfaceTrending {
 		// "Profiles in motion": engagement earned per post is the primary
 		// driver of this score; follower growth isn't a factor here.
-		if profile.RecentEngagementReceived > 0 && totalPosts > 0 {
+		// Evidence uses scored (optionally trust-weighted) engagement so a
+		// farmed raw count cannot be advertised as the reason the profile
+		// ranked.
+		if engagement > 0 && totalPosts > 0 {
 			reasons = append(reasons, discoveryReason("engagement_quality", "engagement_per_post", engagementPerPost, "interactions per note"))
 		}
 		if profile.RecentPostCount > trendingPublishingMomentumFloor {
 			reasons = append(reasons, discoveryReason("publishing_momentum", "recent_post_count", float64(profile.RecentPostCount), "notes"))
 		}
-		if profile.RecentEngagementReceived > 0 {
-			reasons = append(reasons, discoveryReason("engagement_received", "recent_engagement_received", float64(profile.RecentEngagementReceived), "interactions"))
+		if engagement > 0 {
+			reasons = append(reasons, discoveryReason("engagement_received", "recent_engagement_received", engagement, "interactions"))
 		}
-		sample = profile.RecentPostCount + profile.RecentReplyCount + profile.RecentEngagementReceived
+		sample = float64(profile.RecentPostCount+profile.RecentReplyCount) + engagement
 	} else {
 		// "Up and coming" (rising, default): small accounts get in either by
 		// gaining followers fast, or by earning engagement that's large
 		// relative to their (small) existing audience even with no new
 		// followers yet — surface whichever of those actually applies.
-		if profile.RecentNewFollowers > risingFollowerGrowthReasonFloor {
-			reasons = append(reasons, discoveryReason("follower_growth", "recent_new_followers", float64(profile.RecentNewFollowers), "followers"))
+		if newFollowers > float64(risingFollowerGrowthReasonFloor) {
+			reasons = append(reasons, discoveryReason("follower_growth", "recent_new_followers", newFollowers, "followers"))
 		}
-		if profile.RecentEngagementReceived > 0 {
+		if engagement > 0 {
 			reasons = append(reasons, discoveryReason("relative_engagement_growth", "engagement_per_follower", engagementPerFollower, "interactions per follower"))
 		}
-		if profile.RecentEngagementReceived > 0 {
-			reasons = append(reasons, discoveryReason("engagement_received", "recent_engagement_received", float64(profile.RecentEngagementReceived), "interactions"))
+		if engagement > 0 {
+			reasons = append(reasons, discoveryReason("engagement_received", "recent_engagement_received", engagement, "interactions"))
 		}
 		if profile.RecentPostCount > 0 {
 			reasons = append(reasons, discoveryReason("publishing_momentum", "recent_post_count", float64(profile.RecentPostCount), "notes"))
 		}
-		sample = profile.RecentNewFollowers + profile.RecentEngagementReceived
+		sample = newFollowers + engagement
 	}
 	if reasons == nil {
 		reasons = make([]query.DiscoveryReason, 0)
@@ -144,7 +164,7 @@ func buildProfileRanking(profile query.TrendingProfile, rank int, surface string
 		Rank:       rank,
 		Score:      profile.Score,
 		Reasons:    reasons,
-		Confidence: discoveryConfidence(sample),
+		Confidence: discoveryConfidence(int64(math.Round(sample))),
 	}
 }
 

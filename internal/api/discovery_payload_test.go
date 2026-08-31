@@ -166,6 +166,37 @@ func TestBuildProfileRanking_RisingSurface_TrivialNewFollowersAreNotFollowerGrow
 	}
 }
 
+func TestBuildProfileRanking_UsesScoredInputsWhenPresent(t *testing.T) {
+	// Raw counters look impressive (bot farm), but the score credited
+	// nothing. Reasons and confidence must follow the scored values so the
+	// card cannot advertise engagement the ranking did not use.
+	zero := 0.0
+	profile := query.TrendingProfile{
+		Pubkey:                   "pk_farmed",
+		Score:                    0.8,
+		RecentPostCount:          2,
+		RecentEngagementReceived: 50,
+		RecentNewFollowers:       40,
+		FollowerCount:            40,
+		ScoredEngagementReceived: &zero,
+		ScoredNewFollowers:       &zero,
+	}
+
+	trending := buildProfileRanking(profile, 1, discoverySurfaceTrending)
+	for _, code := range reasonCodes(trending.Reasons) {
+		if code == "engagement_quality" || code == "engagement_received" {
+			t.Fatalf("did not expect engagement reasons when scored engagement is 0, got %v", reasonCodes(trending.Reasons))
+		}
+	}
+
+	rising := buildProfileRanking(profile, 1, discoverySurfaceRising)
+	for _, code := range reasonCodes(rising.Reasons) {
+		if code == "follower_growth" || code == "relative_engagement_growth" || code == "engagement_received" {
+			t.Fatalf("did not expect growth/engagement reasons when scored inputs are 0, got %v", reasonCodes(rising.Reasons))
+		}
+	}
+}
+
 func TestBuildProfileRanking_EmptyReasonsAreNonNilAndDefaultToRising(t *testing.T) {
 	profile := query.TrendingProfile{Pubkey: "pk_quiet"}
 

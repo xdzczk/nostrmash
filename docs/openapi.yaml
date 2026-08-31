@@ -864,12 +864,15 @@ paths:
       description: >
         Ranks profiles by how much engagement their posts earn (engagement
         received per post), not by raw posting volume or audience size —
-        intended to back a "Profiles in motion" UI surface. Leading reason
-        code is `engagement_quality` (engagement-per-post ratio), followed by
-        `publishing_momentum` (omitted for a single post, which isn't a
-        meaningful momentum signal on its own) and `engagement_received`.
-        Does not use `follower_growth`; see `/discovery/profiles/rising` for
-        that.
+        intended to back a "Profiles in motion" UI surface. Profiles with
+        no (optionally trust-weighted) engagement in the window are
+        ineligible, so posting volume or consistency alone cannot occupy a
+        slot. Leading reason code is `engagement_quality` (engagement-per-post
+        ratio), followed by `publishing_momentum` (omitted for a single
+        post, which isn't a meaningful momentum signal on its own) and
+        `engagement_received`. Reason evidence cites the same scored
+        engagement the ranking used. Does not use `follower_growth`; see
+        `/discovery/profiles/rising` for that.
       parameters:
         - in: query
           name: window
@@ -897,15 +900,19 @@ paths:
         followers quickly or earning engagement that's large relative to
         their own (small) audience, even without new followers yet —
         intended to back an "Up and coming" UI surface. Audience size is
-        penalized continuously (no hard follower-count cutoff), so the
-        ranking naturally favors smaller accounts without excluding anyone
-        outright. New-follower counts of 2 or fewer are treated as noise
+        penalized continuously (no hard follower-count cutoff), with a
+        steeper hinge above ~500 followers so the list stays mostly
+        sub-500 without excluding larger accounts that have enormous
+        growth. New-follower counts of 2 or fewer are treated as noise
         (common for any brand-new account) and both omitted from the
         `follower_growth` reason and discounted in the underlying score, so
         accounts with substantial absolute growth (e.g. +60 followers on a
         400-follower account) reliably outrank barely-started ones (e.g. +5
-        followers on a 5-follower account) rather than the reverse. Reason
-        codes in priority order: `follower_growth`,
+        followers on a 5-follower account) rather than the reverse.
+        Meaningful follower growth can rank even when the profile has no
+        trending engagement. Reason evidence cites the same scored
+        (optionally trust-weighted) engagement and new-follower values the
+        ranking used. Reason codes in priority order: `follower_growth`,
         `relative_engagement_growth` (engagement-per-follower ratio),
         `engagement_received`, `publishing_momentum`.
       parameters:
