@@ -372,8 +372,8 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 
 		noteItems := buildDiscoveryNoteItems(notes, profileIdentities)
 		domainItems := buildDiscoveryDomainItems(domains, windowLabel)
-		trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities)
-		risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities)
+		trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities, discoverySurfaceTrending)
+		risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities, discoverySurfaceRising)
 		network := map[string]any{
 			"totals": map[string]any{
 				"events_ingested":    networkStats.EventsIngested,

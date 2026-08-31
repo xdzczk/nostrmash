@@ -74,13 +74,21 @@ func computeProfileTrendingScore(
 	safeActiveDays := maxInt64(0, int64(activeDays))
 	totalPosts := safePosts + safeReplies
 
+	// Posting volume and consistency are deliberately kept as minor,
+	// secondary signals: this score is meant to rank profiles by how much
+	// engagement their posts earn, not by how often they post. Volume
+	// mostly matters through engagementPerPost/qualityBoost below.
 	engagementSignal := 3.0 * math.Log1p(safeEngagement)
-	postingSignal := 1.0 * math.Log1p(float64(totalPosts))
+	postingSignal := 0.35 * math.Log1p(float64(totalPosts))
 	zapSignal := math.Log1p(safeZapVolume / 100000.0)
-	consistencySignal := 0.9 * math.Log1p(float64(safeActiveDays))
+	consistencySignal := 0.5 * math.Log1p(float64(safeActiveDays))
 
+	// qualityBoost rewards engagement-per-post with diminishing (sqrt)
+	// returns instead of a hard cap, so accounts with exceptional per-post
+	// engagement keep pulling ahead of merely-good ones rather than
+	// flattening out at the same boost.
 	engagementPerPost := safeEngagement / (1.0 + float64(totalPosts))
-	qualityBoost := 1.0 + math.Min(1.5, engagementPerPost)
+	qualityBoost := 1.0 + math.Min(6.0, math.Sqrt(engagementPerPost))
 	postingPressure := float64(totalPosts) / (1.0 + safeEngagement + float64(safeActiveDays))
 	volumePenalty := 1.0 / (1.0 + math.Max(0.0, postingPressure-1.0))
 
@@ -114,12 +122,23 @@ func computeProfileRisingScore(
 	safeReplies := maxInt64(0, replyCount)
 	safeActiveDays := maxInt64(0, int64(activeDays))
 	totalPosts := safePosts + safeReplies
-	audiencePenalty := 1.0 + math.Log10(1.0+float64(safeFollowerCount))
+	// Steeper than a plain log10(1+followers): mid/large accounts fall off
+	// faster so "small account" is enforced through the continuous curve
+	// itself rather than a hard follower-count cutoff.
+	audiencePenalty := 1.0 + 1.3*math.Log10(1.0+float64(safeFollowerCount))
 	if audiencePenalty <= 0 {
 		audiencePenalty = 1.0
 	}
+	// relativeEngagementMomentum gives a small account a real path into the
+	// ranking purely from getting outsized engagement relative to its own
+	// (tiny) audience, independent of whether it gained any new followers.
+	// The *100 scale-up keeps typical fractional engagement/follower
+	// ratios (e.g. 0.5 engagement per follower) in a range where log1p
+	// produces a meaningful signal instead of ~0.
+	engagementPerFollower := safeEngagement / (1.0 + float64(safeFollowerCount))
+	relativeEngagementMomentum := 3.0 * math.Log1p(engagementPerFollower*100.0)
 	followerMomentum := 4.0 * math.Log1p(safeNewFollowers)
-	momentum := followerMomentum + 0.4*math.Log1p(safeEngagement)
+	momentum := followerMomentum + 0.4*math.Log1p(safeEngagement) + relativeEngagementMomentum
 	qualityFactor := 1.0 + math.Min(1.0, safeEngagement/(1.0+float64(totalPosts)))
 	postingPressure := float64(totalPosts) / (1.0 + safeEngagement + float64(safeActiveDays))
 	volumePenalty := 1.0 / (1.0 + math.Max(0.0, postingPressure-1.0))

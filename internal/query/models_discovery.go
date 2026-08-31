@@ -254,6 +254,7 @@ type TrendingProfile struct {
 	RecentZapVolumeMSats     int64   `json:"recent_zap_volume_msats"`
 	RecentActiveDays         int     `json:"recent_active_days"`
 	RecentActivityAt         *int64  `json:"recent_activity_at,omitempty"`
+	FollowerCount            int64   `json:"follower_count"`
 }
 
 type RelatedProfile struct {

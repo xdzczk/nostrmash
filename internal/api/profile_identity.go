@@ -107,6 +107,7 @@ func applyProfileIdentity(item map[string]any, identity profileIdentityFields) m
 func buildDiscoveryProfileItems(
 	rows []query.TrendingProfile,
 	identities map[string]profileIdentityFields,
+	surface string,
 ) []map[string]any {
 	items := make([]map[string]any, 0, len(rows))
 	for index, profile := range rows {
@@ -120,7 +121,8 @@ func buildDiscoveryProfileItems(
 			"recent_zap_volume_msats":    profile.RecentZapVolumeMSats,
 			"recent_active_days":         profile.RecentActiveDays,
 			"recent_activity_at":         profile.RecentActivityAt,
-			"ranking":                    buildProfileRanking(profile, index+1),
+			"follower_count":             profile.FollowerCount,
+			"ranking":                    buildProfileRanking(profile, index+1, surface),
 		}
 		if npub := encodeNpub(profile.Pubkey); npub != "" {
 			item["npub"] = npub

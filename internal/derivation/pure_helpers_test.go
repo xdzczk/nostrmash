@@ -88,6 +88,18 @@ func TestComputeProfileTrendingScore(t *testing.T) {
 			t.Fatalf("score must never be negative, got %v", got)
 		}
 	})
+
+	t.Run("high engagement-per-post outranks high-volume low-engagement-per-post", func(t *testing.T) {
+		// Similar totals (posts+engagement in the same ballpark), but one
+		// profile earns its engagement from few posts (high ratio) and the
+		// other spreads the same engagement across many more posts (low
+		// ratio). The "Profiles in motion" score should favor the former.
+		highRatio := computeProfileTrendingScore(window, now, &activity, 5, 0, 400, 0, 4)
+		lowRatio := computeProfileTrendingScore(window, now, &activity, 80, 0, 400, 0, 4)
+		if highRatio <= lowRatio {
+			t.Fatalf("expected high engagement-per-post to outrank high-volume/low-ratio: highRatio %v lowRatio %v", highRatio, lowRatio)
+		}
+	})
 }
 
 func TestComputeProfileRisingScore(t *testing.T) {
@@ -110,6 +122,30 @@ func TestComputeProfileRisingScore(t *testing.T) {
 		large := computeProfileRisingScore(10, 1_000_000, 20, 100, 10, 10, 5)
 		if large >= small {
 			t.Fatalf("expected audience penalty: small %v large %v", small, large)
+		}
+	})
+
+	t.Run("small account with high relative engagement scores well without new followers", func(t *testing.T) {
+		// Zero new followers, but engagement is large relative to a tiny
+		// audience (50 followers) — the relative-engagement path should
+		// still produce a meaningfully positive score.
+		zeroFollowers := computeProfileRisingScore(10, 50, 0, 200, 10, 5, 5)
+		if zeroFollowers <= 0 {
+			t.Fatalf("expected relative engagement to raise score above zero with no new followers, got %v", zeroFollowers)
+		}
+		// The same relative-engagement profile should score higher than an
+		// otherwise-identical profile with negligible engagement.
+		negligibleEngagement := computeProfileRisingScore(10, 50, 0, 1, 10, 5, 5)
+		if zeroFollowers <= negligibleEngagement {
+			t.Fatalf("expected high relative engagement to raise score: high %v low %v", zeroFollowers, negligibleEngagement)
+		}
+	})
+
+	t.Run("same engagement counts for more with a smaller audience", func(t *testing.T) {
+		smallAudience := computeProfileRisingScore(10, 50, 0, 200, 10, 5, 5)
+		largeAudience := computeProfileRisingScore(10, 50_000, 0, 200, 10, 5, 5)
+		if smallAudience <= largeAudience {
+			t.Fatalf("expected relative engagement to matter less for a larger audience: small %v large %v", smallAudience, largeAudience)
 		}
 	})
 }

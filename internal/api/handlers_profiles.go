@@ -365,7 +365,7 @@ func (h Handlers) loadProfileRelatedDiscovery(r *http.Request, pubkey string) (p
 		if identityErr != nil {
 			identities = map[string]profileIdentityFields{}
 		}
-		out.RisingProfiles = buildDiscoveryProfileItems(rising, identities)
+		out.RisingProfiles = buildDiscoveryProfileItems(rising, identities, discoverySurfaceRising)
 	}
 	return out, partial
 }

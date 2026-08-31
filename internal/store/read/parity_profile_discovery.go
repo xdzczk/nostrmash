@@ -466,7 +466,12 @@ func (s *Read) getProfileDiscoveryRows(
 			), 0)::bigint AS recent_new_followers,
 			recent_zap_volume_msats,
 			recent_active_days,
-			recent_activity_at
+			recent_activity_at,
+			COALESCE((
+				SELECT pps.follower_count
+				FROM profile_public_stats pps
+				WHERE pps.pubkey = profile_discovery_stats.pubkey
+			), 0)::bigint AS follower_count
 		FROM profile_discovery_stats
 		WHERE recent_activity_at IS NOT NULL
 		  AND recent_activity_at >= $1
@@ -518,6 +523,7 @@ func (s *Read) getProfileDiscoveryRows(
 			&row.RecentZapVolumeMSats,
 			&row.RecentActiveDays,
 			&row.RecentActivityAt,
+			&row.FollowerCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan profile discovery row: %w", err)
 		}

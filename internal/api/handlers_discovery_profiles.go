@@ -178,7 +178,7 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 			identities = map[string]profileIdentityFields{}
 			degraded = true
 		}
-		profiles := buildDiscoveryProfileItems(profilesRows, identities)
+		profiles := buildDiscoveryProfileItems(profilesRows, identities, surface)
 		payload := map[string]any{
 			"surface":     surface,
 			"window":      windowLabel,

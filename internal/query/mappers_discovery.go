@@ -239,6 +239,7 @@ func trendingProfileFromStore(row readmodel.TrendingProfile) TrendingProfile {
 		RecentZapVolumeMSats:     row.RecentZapVolumeMSats,
 		RecentActiveDays:         row.RecentActiveDays,
 		RecentActivityAt:         row.RecentActivityAt,
+		FollowerCount:            row.FollowerCount,
 	}
 }
 

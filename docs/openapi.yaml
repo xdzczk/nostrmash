@@ -860,7 +860,14 @@ paths:
   /api/v1/discovery/profiles/trending:
     get:
       tags: [public]
-      summary: Trending profiles from projection-backed discovery stats
+      summary: Profiles ranked by engagement earned per post ("Profiles in motion")
+      description: >
+        Ranks profiles by how much engagement their posts earn (engagement
+        received per post), not by raw posting volume or audience size —
+        intended to back a "Profiles in motion" UI surface. Leading reason
+        code is `engagement_quality` (engagement-per-post ratio), followed by
+        `publishing_momentum` and `engagement_received`. Does not use
+        `follower_growth`; see `/discovery/profiles/rising` for that.
       parameters:
         - in: query
           name: window
@@ -873,7 +880,7 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Ranked trending profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) and profile discovery metrics (`recent_post_count`, `recent_reply_count`, `recent_engagement_received`, `recent_new_followers`, `recent_zap_volume_msats`, `recent_active_days`, `recent_activity_at`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Ranked trending profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) and profile discovery metrics (`recent_post_count`, `recent_reply_count`, `recent_engagement_received`, `recent_new_followers`, `recent_zap_volume_msats`, `recent_active_days`, `recent_activity_at`, `follower_count`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
@@ -882,7 +889,17 @@ paths:
   /api/v1/discovery/profiles/rising:
     get:
       tags: [public]
-      summary: Rising profiles from projection-backed discovery stats
+      summary: Small accounts gaining momentum fast ("Up and coming")
+      description: >
+        Ranks small/lower-follower profiles that are either gaining
+        followers quickly or earning engagement that's large relative to
+        their own (small) audience, even without new followers yet —
+        intended to back an "Up and coming" UI surface. Audience size is
+        penalized continuously (no hard follower-count cutoff), so the
+        ranking naturally favors smaller accounts without excluding anyone
+        outright. Reason codes in priority order: `follower_growth`,
+        `relative_engagement_growth` (engagement-per-follower ratio),
+        `engagement_received`, `publishing_momentum`.
       parameters:
         - in: query
           name: window
@@ -895,7 +912,7 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Ranked rising profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) and profile discovery metrics (`recent_post_count`, `recent_reply_count`, `recent_engagement_received`, `recent_new_followers`, `recent_zap_volume_msats`, `recent_active_days`, `recent_activity_at`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Ranked rising profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) and profile discovery metrics (`recent_post_count`, `recent_reply_count`, `recent_engagement_received`, `recent_new_followers`, `recent_zap_volume_msats`, `recent_active_days`, `recent_activity_at`, `follower_count`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
