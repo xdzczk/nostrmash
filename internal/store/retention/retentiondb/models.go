@@ -451,6 +451,10 @@ type ProfileDiscoveryStat struct {
 	LastScoredAt             pgtype.Timestamptz
 	DerivationVersion        int32
 	ProjectedAt              pgtype.Timestamptz
+	ScoredEngagement24h      pgtype.Float8
+	ScoredEngagement7d       pgtype.Float8
+	ScoredNewFollowers24h    pgtype.Float8
+	ScoredNewFollowers7d     pgtype.Float8
 }
 
 type ProfilePublicStat struct {
@@ -519,6 +523,7 @@ type ReactionEvent struct {
 	CreatedAt         int64
 	DerivationVersion int32
 	ProjectedAt       pgtype.Timestamptz
+	TargetPubkey      pgtype.Text
 }
 
 type RelatedProfile struct {
@@ -635,6 +640,9 @@ type ReplyCountContribution struct {
 	TargetEventID     string
 	DerivationVersion int32
 	ProjectedAt       pgtype.Timestamptz
+	TargetPubkey      pgtype.Text
+	SourcePubkey      pgtype.Text
+	SourceCreatedAt   pgtype.Int8
 }
 
 type RepostCount struct {
@@ -659,6 +667,7 @@ type RepostEvent struct {
 	CreatedAt         int64
 	DerivationVersion int32
 	ProjectedAt       pgtype.Timestamptz
+	TargetPubkey      pgtype.Text
 }
 
 type SchemaMigrationsAudit struct {
