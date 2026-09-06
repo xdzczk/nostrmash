@@ -325,6 +325,14 @@ type FollowerGainEvent struct {
 	CreatedAt         pgtype.Timestamptz
 }
 
+type FollowerGainsDaily struct {
+	Pubkey            string
+	ActivityDate      pgtype.Date
+	Gained            int64
+	DerivationVersion int32
+	UpdatedAt         pgtype.Timestamptz
+}
+
 type IngestCheckpoint struct {
 	RelayUrl           string
 	Mode               string

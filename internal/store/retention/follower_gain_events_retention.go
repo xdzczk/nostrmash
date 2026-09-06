@@ -10,7 +10,7 @@ import (
 )
 
 // PruneExpiredFollowerGainEvents deletes a bounded batch of
-// follower_gain_events rows (see migrations/000085_follower_gain_events.sql)
+// follower_gain_events rows (see migrations/000086_follower_gain_events.sql)
 // whose insert time is older than createdBefore. Nothing reads gains past
 // the widest (7d) discovery window, so the horizon is a hygiene bound, not
 // a correctness one — the only behavioral effect of pruning is that a

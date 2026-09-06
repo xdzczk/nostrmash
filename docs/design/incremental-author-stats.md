@@ -39,7 +39,7 @@ Implemented (cutover defaults on):
   sweeper rolls `profile_discovery_stats` 24h/7d windows from these tables
   (O(dozens of indexed rows)) instead of rescanning raw engagement tables /
   the unbounded `MAX(created_at)` UNION.
-- Migration `000085_follower_gain_events.sql` replaced `follower_gains_daily`
+- Migration `000086_follower_gain_events.sql` superseded `follower_gains_daily`
   with `follower_gain_events`: one row per true kind=3 edge-diff gain, keyed
   `(followed, follower)` so list rewrites and unfollow/refollow churn never
   re-count, retaining the gained follower's identity for trust-weighted
@@ -49,7 +49,12 @@ Implemented (cutover defaults on):
   `contact_list_created_at` edge scan re-counted every follower whose latest
   list rewrite fell in-window). Rows are pruned by insert age via
   `WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_*` once older than the widest (7d)
-  read window.
+  read window. The migration is deliberately DDL-only (a withdrawn 000085
+  variant bulk-seeded from `follower_edges` and dropped
+  `follower_gains_daily` inside the single boot-blocking migration
+  transaction, which wedged startup): counts warm up from zero, and the
+  now-unused `follower_gains_daily` table is left in place for a later
+  release to drop.
 - Retention decrement path: `derivation.Handlers.ReverseIncrementalAuthorStatsTx`
   undoes the exact deltas `ApplyIncrementalAuthorStats` applied for an event,
   gated by the same `applied_stat_deltas` ledger (unclaim-then-decrement

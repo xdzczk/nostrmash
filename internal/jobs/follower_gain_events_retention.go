@@ -9,7 +9,7 @@ const followerGainEventsRetentionTarget = "follower_gain_events"
 
 // FollowerGainEventsRetentionPurger deletes follower_gain_events rows older
 // than the retention horizon (see
-// migrations/000085_follower_gain_events.sql). Satisfied by
+// migrations/000086_follower_gain_events.sql). Satisfied by
 // *store.PostgresStore.
 type FollowerGainEventsRetentionPurger interface {
 	PruneExpiredFollowerGainEvents(ctx context.Context, createdBefore time.Time, limit int) (int64, error)
