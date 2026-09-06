@@ -513,7 +513,6 @@ func computeActivityDailyDeltas(
 		}
 		if isReply {
 			d.replyCount = 1
-			d.engagementGiven = 1
 		} else {
 			d.noteCount = 1
 		}
@@ -523,16 +522,20 @@ func computeActivityDailyDeltas(
 			if err != nil {
 				return nil, err
 			}
+			// engagement_given only counts when the reply target resolves to
+			// a known, different author — the same rule kinds 6/7 apply and
+			// the same projection-time semantics the full recompute reads
+			// via reply_count_contributions.target_pubkey. Counting replies
+			// to unknown targets inflated mass-repliers (one bot accrued
+			// 35k phantom engagement_given vs 6.6k real) and made every
+			// reconciliation heal drift right back.
 			if ok && targetPubkey != "" && targetPubkey != pubkey {
+				deltas[0].engagementGiven = 1
 				deltas = append(deltas, activityDailyDelta{
 					pubkey:             targetPubkey,
 					activityDate:       activityDate,
 					engagementReceived: 1,
 				})
-			} else if ok && targetPubkey == pubkey {
-				// Self-reply: cancel the given increment to match full-rebuild
-				// semantics (e.pubkey <> $1 / target.pubkey <> $1 filters).
-				deltas[0].engagementGiven = 0
 			}
 		}
 	case 6, 7:
