@@ -77,10 +77,35 @@ func runIncrementalStatsReconciliationOnce(ctx context.Context, log Logger, hand
 			"recomputed_value", mismatch.Recomputed,
 		)
 	}
+
+	// Self-heal drifted pubkeys via the projections' own rebuild paths so a
+	// mismatch is logged once and repaired, not re-logged on every pass.
+	healed := 0
+	for _, heal := range handlers.HealReconciliationMismatches(ctx, report.Mismatches) {
+		if heal.Err != nil {
+			metrics.IncIncrementalStatsReconciliationHeal(heal.Action, "error")
+			log.Error(
+				"incremental_stats_reconciliation_heal_failed",
+				"pubkey", heal.Pubkey,
+				"action", heal.Action,
+				"error", heal.Err,
+			)
+			continue
+		}
+		metrics.IncIncrementalStatsReconciliationHeal(heal.Action, "ok")
+		healed++
+		log.Info(
+			"incremental_stats_reconciliation_healed",
+			"pubkey", heal.Pubkey,
+			"action", heal.Action,
+		)
+	}
+
 	log.Info(
 		"incremental_stats_reconciliation_completed",
 		"sampled_pubkeys", report.SampledPubkeys,
 		"mismatches", len(report.Mismatches),
+		"healed", healed,
 		"duration_s", time.Since(started).Seconds(),
 	)
 }

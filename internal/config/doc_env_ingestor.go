@@ -313,6 +313,13 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Description:  "Maximum brand-new candidate relays to insert per discovery run. Existing registry relays always have their user-ref counts refreshed.",
 		},
 		{
+			Name:         "RELAY_REGISTRY_DISCOVERY_MAX_VARIANTS_PER_HOST",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "3",
+			Description:  "Maximum registry entries sharing one hostname before discovery refuses new URL variants of that host. Guards the candidate pool against junk path-variant relay URLs from user relay lists.",
+		},
+		{
 			Name:         "RELAY_REGISTRY_PROBING_ENABLED",
 			Runtimes:     []string{"worker"},
 			Required:     false,

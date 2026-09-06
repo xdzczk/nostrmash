@@ -138,6 +138,39 @@ func (s *Store) ListURLKeys(ctx context.Context) (map[string]struct{}, error) {
 	return out, nil
 }
 
+// CountRelaysByHost returns how many registry rows exist per hostname
+// (lowercased, port included when present). Discovery uses this to cap junk
+// path-variant URLs of one host from flooding the candidate pool.
+func (s *Store) CountRelaysByHost(ctx context.Context) (map[string]int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT split_part(split_part(normalized_url, '://', 2), '/', 1) AS host,
+		       COUNT(*)::int
+		FROM relay_registry
+		GROUP BY 1
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("count relay registry hosts: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]int)
+	for rows.Next() {
+		var host string
+		var count int
+		if err := rows.Scan(&host, &count); err != nil {
+			return nil, fmt.Errorf("scan relay registry host count: %w", err)
+		}
+		if host == "" {
+			continue
+		}
+		out[host] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read relay registry host counts: %w", err)
+	}
+	return out, nil
+}
+
 // UpsertDiscoveredRelay inserts or updates a candidate relay discovered from user relay lists.
 func (s *Store) UpsertDiscoveredRelay(
 	ctx context.Context,

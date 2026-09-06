@@ -316,6 +316,39 @@ func (c *Client) enqueueDocuments(ctx context.Context, docs []SearchDocument) (i
 	return task.TaskUID, nil
 }
 
+// PurgeAgedNotes deletes note documents older than the indexed-notes age
+// horizon (indexedNotesMaxAge). FullSync already refuses to index notes past
+// that age, but incremental syncs index every fresh note and nothing removed
+// them as they aged, so the live notes index grew without bound between full
+// rebuilds — at production scale that standing document count is what kept
+// Meilisearch task commits expensive (each commit cost scales with index
+// size) and the instance pinned at 100% CPU. One delete-by-filter task per
+// purge tick keeps the index at its designed working set.
+//
+// Returns the number of documents the delete task reports removing.
+func (c *Client) PurgeAgedNotes(ctx context.Context) (int64, error) {
+	if !c.Enabled() {
+		return 0, nil
+	}
+	cutoff := indexedNotesMinCreatedAt(time.Now())
+	filter := fmt.Sprintf("created_at < %d", cutoff)
+	taskInfo, err := c.service.Index(IndexNotes).DeleteDocumentsByFilterWithContext(ctx, filter, nil)
+	if err != nil {
+		return 0, fmt.Errorf("delete aged notes from meilisearch: %w", err)
+	}
+	task, err := c.service.WaitForTaskWithContext(ctx, taskInfo.TaskUID, 250*time.Millisecond)
+	if err != nil {
+		return 0, fmt.Errorf("wait for aged-notes delete task: %w", err)
+	}
+	if task.Status != ms.TaskStatusSucceeded {
+		if task.Error.Code != "" {
+			return 0, fmt.Errorf("aged-notes delete task %d ended with status=%s: [%s] %s", taskInfo.TaskUID, task.Status, task.Error.Code, task.Error.Message)
+		}
+		return 0, fmt.Errorf("aged-notes delete task %d ended with status=%s", taskInfo.TaskUID, task.Status)
+	}
+	return task.Details.DeletedDocuments, nil
+}
+
 // ResetIndexes deletes the NostrMash Meilisearch indexes so the next
 // EnsureIndexes + FullSync rebuilds them with the current document shape.
 // Meilisearch only reclaims disk after index deletion/recreation.

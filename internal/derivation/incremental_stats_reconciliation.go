@@ -95,6 +95,14 @@ func (h *Handlers) reconcileProfileDiscoveryStatsForPubkey(ctx context.Context, 
 	if err := tx.QueryRow(ctx, `SELECT EXTRACT(EPOCH FROM now())::bigint`).Scan(&nowUnix); err != nil {
 		return nil, fmt.Errorf("load reconciliation now: %w", err)
 	}
+	// Hour-align the comparison instant. The incremental loader rolls hourly
+	// buckets (a bucket is in-window when its hour start is >= the cutoff)
+	// while the legacy loader filters exact created_at, so with a mid-hour
+	// cutoff the two can never agree on the boundary hour and every
+	// comparison carried a built-in ±(partial hour) false-mismatch band.
+	// With cutoffs on an hour boundary the two window definitions select
+	// exactly the same events, so any difference is real drift.
+	nowUnix -= nowUnix % 3600
 
 	incremental, err := loadProfileDualWindowMetricsIncrementalTx(ctx, tx, pubkey, int64(nowUnix))
 	if err != nil {
@@ -145,8 +153,130 @@ func (h *Handlers) reconcileProfileDiscoveryStatsForPubkey(ctx context.Context, 
 	if fullRecent != nil {
 		fullActivity = *fullRecent
 	}
-	appendIfDiff("recent_activity_at", incActivity, fullActivity)
+	// Only a *stale* incremental marker is a mismatch. The incremental value
+	// deliberately never rolls back when retention purges the raw events
+	// behind it (GREATEST-only updates), so incremental > recomputed is the
+	// documented steady state after purges, not drift.
+	if incActivity < fullActivity {
+		appendIfDiff("recent_activity_at", incActivity, fullActivity)
+	}
 	return mismatches, nil
+}
+
+// maxReconciliationHealsPerRun bounds how many drifted pubkey projections a
+// single reconciliation pass will rebuild. Heals for whales run the full
+// per-pubkey rebuild queries, which can be expensive; anything past the cap
+// is left for a later pass (the sampler will re-find it).
+const maxReconciliationHealsPerRun = 8
+
+// ReconciliationHealResult reports one attempted self-heal rebuild.
+type ReconciliationHealResult struct {
+	Pubkey string
+	// Action identifies which rebuild ran: "profile_public_stats",
+	// "author_analytics", or "discovery_recent_activity".
+	Action string
+	Err    error
+}
+
+// HealReconciliationMismatches repairs drifted pubkeys using the
+// projections' own exact rebuild paths, so a detected mismatch is logged
+// once and then fixed instead of being re-logged forever. Without healing,
+// historical drift (flood incidents, purge paths that miss a delta
+// reversal) plus the recency-biased sampler meant the same whale pubkeys
+// produced the same mismatch log lines every pass, ~2k/day of standing
+// noise that buried real regressions.
+//
+// Heal routing:
+//   - profile_public_stats fields (and the discovery follower_count, which
+//     reads from that table) → full profile_public_stats rebuild;
+//   - author_activity_daily totals → full author-analytics rebuild
+//     (recomputes daily rows plus every windowed author projection);
+//   - discovery recent_activity_at → GREATEST-upsert of the recomputed
+//     marker (stale-only by construction, so raising it is always safe);
+//   - discovery window fields (hourly-bucket sourced) have no rebuild path
+//     and are intentionally left as log-only signals.
+//
+// Adopting the recompute is consistent with system semantics: an operator
+// rebuild would produce exactly the same values.
+func (h *Handlers) HealReconciliationMismatches(ctx context.Context, mismatches []ReconciliationMismatch) []ReconciliationHealResult {
+	if h == nil || h.pool == nil || len(mismatches) == 0 {
+		return nil
+	}
+	type healJob struct {
+		pubkey string
+		action string
+		// recomputed carries the target value for discovery_recent_activity.
+		recomputed int64
+	}
+	seen := make(map[string]struct{}, len(mismatches))
+	jobs := make([]healJob, 0, len(mismatches))
+	add := func(job healJob) {
+		key := job.action + "\x00" + job.pubkey
+		if _, dup := seen[key]; dup {
+			return
+		}
+		seen[key] = struct{}{}
+		jobs = append(jobs, job)
+	}
+	for _, m := range mismatches {
+		switch m.Projection {
+		case "profile_public_stats":
+			add(healJob{pubkey: m.Pubkey, action: "profile_public_stats"})
+		case "author_activity_daily":
+			add(healJob{pubkey: m.Pubkey, action: "author_analytics"})
+		case "profile_discovery_stats":
+			switch m.Field {
+			case "follower_count":
+				add(healJob{pubkey: m.Pubkey, action: "profile_public_stats"})
+			case "recent_activity_at":
+				add(healJob{pubkey: m.Pubkey, action: "discovery_recent_activity", recomputed: m.Recomputed})
+			}
+		}
+	}
+	if len(jobs) > maxReconciliationHealsPerRun {
+		jobs = jobs[:maxReconciliationHealsPerRun]
+	}
+
+	results := make([]ReconciliationHealResult, 0, len(jobs))
+	for _, job := range jobs {
+		var err error
+		switch job.action {
+		case "profile_public_stats":
+			err = h.rebuildProfilePublicStatsForPubkey(ctx, job.pubkey)
+		case "author_analytics":
+			err = h.projectAuthorAnalyticsForPubkey(ctx, job.pubkey, nil)
+		case "discovery_recent_activity":
+			_, err = h.pool.Exec(ctx, `
+				INSERT INTO profile_discovery_recent_activity (pubkey, recent_activity_at)
+				VALUES ($1, $2)
+				ON CONFLICT (pubkey) DO UPDATE
+				SET recent_activity_at = GREATEST(
+						profile_discovery_recent_activity.recent_activity_at,
+						EXCLUDED.recent_activity_at
+					),
+				    updated_at = now()
+			`, job.pubkey, job.recomputed)
+		}
+		results = append(results, ReconciliationHealResult{Pubkey: job.pubkey, Action: job.action, Err: err})
+	}
+	return results
+}
+
+// rebuildProfilePublicStatsForPubkey runs the projection's own full rebuild
+// for one pubkey in a fresh transaction.
+func (h *Handlers) rebuildProfilePublicStatsForPubkey(ctx context.Context, pubkey string) error {
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin profile public stats heal tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := h.projectProfilePublicStatsForPubkeysTx(ctx, tx, []string{pubkey}, nil); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit profile public stats heal tx: %w", err)
+	}
+	return nil
 }
 
 // sampleReconciliationPubkeys draws up to sampleSize distinct pubkeys from
@@ -268,7 +398,11 @@ func (h *Handlers) reconcileProfilePublicStatsForPubkey(ctx context.Context, pub
 	if recomputed.RecentActivityAt != nil {
 		recomputedActivity = *recomputed.RecentActivityAt
 	}
-	appendIfDiff("recent_activity_at", incrementalActivity, recomputedActivity)
+	// Stale-only, matching the discovery recency check: retention purges
+	// lower the recompute but deliberately never roll the live value back.
+	if incrementalActivity < recomputedActivity {
+		appendIfDiff("recent_activity_at", incrementalActivity, recomputedActivity)
+	}
 
 	return mismatches, nil
 }

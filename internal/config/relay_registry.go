@@ -33,6 +33,13 @@ type RelayRegistryDiscoveryConfig struct {
 	// MaxNewCandidatesPerRun limits brand-new registry inserts only.
 	// Existing relays are always refreshed with current user-ref counts.
 	MaxNewCandidatesPerRun int
+	// MaxVariantsPerHost caps how many registry entries may share one
+	// hostname before discovery stops admitting new URL variants of that
+	// host. User relay lists are full of junk path variants
+	// (wss://host/random-words) that all resolve to the same relay, probe
+	// successfully, and pollute the candidate pool; distinct real relays
+	// virtually always live on distinct hostnames.
+	MaxVariantsPerHost int
 }
 
 // RelayRegistryProbingConfig controls local health probing of relay candidates.
@@ -100,6 +107,7 @@ func LoadRelayRegistryConfig() (RelayRegistryConfig, error) {
 			Enabled:                getEnvBool("RELAY_REGISTRY_DISCOVERY_ENABLED", false),
 			MinDistinctUserRefs:    getEnvInt("RELAY_REGISTRY_DISCOVERY_MIN_DISTINCT_USER_REFS", 3),
 			MaxNewCandidatesPerRun: getEnvInt("RELAY_REGISTRY_DISCOVERY_MAX_NEW_CANDIDATES", 25),
+			MaxVariantsPerHost:     getEnvInt("RELAY_REGISTRY_DISCOVERY_MAX_VARIANTS_PER_HOST", 3),
 		},
 		Probing: RelayRegistryProbingConfig{
 			Enabled:        getEnvBool("RELAY_REGISTRY_PROBING_ENABLED", false),

@@ -22,6 +22,19 @@ type relayCandidateAgg struct {
 	WeightedScore float64
 }
 
+// candidateHost extracts the lowercased hostname (with port when present)
+// from a normalized relay URL, matching the SQL split used by
+// relayregistry.CountRelaysByHost. Normalized URLs are always
+// scheme://host[/path], so plain string splitting is exact.
+func candidateHost(normalizedURL string) string {
+	_, rest, ok := strings.Cut(normalizedURL, "://")
+	if !ok {
+		return ""
+	}
+	host, _, _ := strings.Cut(rest, "/")
+	return host
+}
+
 // Runner extracts relay URLs from projected user relay lists and upserts
 // them into the relay registry as discovery candidates.
 type Runner struct {
@@ -66,13 +79,21 @@ func (r *Runner) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list existing registry relays: %w", err)
 	}
+	hostCounts, err := r.registryStore.CountRelaysByHost(ctx)
+	if err != nil {
+		return fmt.Errorf("count registry relays by host: %w", err)
+	}
 
 	limit := r.cfg.MaxNewCandidatesPerRun
 	if limit <= 0 {
 		limit = 25
 	}
+	maxVariantsPerHost := r.cfg.MaxVariantsPerHost
+	if maxVariantsPerHost <= 0 {
+		maxVariantsPerHost = 3
+	}
 
-	planned := planDiscoveryUpserts(candidates, existing, r.cfg.MinDistinctUserRefs, limit)
+	planned := planDiscoveryUpserts(candidates, existing, hostCounts, r.cfg.MinDistinctUserRefs, limit, maxVariantsPerHost)
 	var refreshed, inserted int
 	for _, c := range planned {
 		_, alreadyTracked := existing[c.URLKey]
@@ -108,16 +129,27 @@ func (r *Runner) Run(ctx context.Context) error {
 
 // planDiscoveryUpserts chooses which aggregated candidates to write.
 // Existing registry relays are always refreshed (including below the min-ref
-// threshold, so counts can fall). New inserts must meet minDistinctUserRefs and
-// are capped by maxNewInserts, preferring higher distinct-user counts first.
+// threshold, so counts can fall). New inserts must meet minDistinctUserRefs,
+// are capped by maxNewInserts (preferring higher distinct-user counts
+// first), and are refused once their hostname already has
+// maxVariantsPerHost registry entries — user relay lists carry endless junk
+// path variants of popular hosts (wss://host/random-words) that all resolve
+// to the same relay, probe successfully, and would otherwise pollute the
+// candidate pool and waste probe budget indefinitely. hostCounts is mutated
+// as inserts are planned so one run cannot blow past the cap either.
 func planDiscoveryUpserts(
 	candidates []relayCandidateAgg,
 	existing map[string]struct{},
+	hostCounts map[string]int,
 	minDistinctUserRefs int,
 	maxNewInserts int,
+	maxVariantsPerHost int,
 ) []relayCandidateAgg {
 	if maxNewInserts < 0 {
 		maxNewInserts = 0
+	}
+	if hostCounts == nil {
+		hostCounts = make(map[string]int)
 	}
 	out := make([]relayCandidateAgg, 0, len(candidates))
 	newInserts := 0
@@ -133,6 +165,14 @@ func planDiscoveryUpserts(
 		if newInserts >= maxNewInserts {
 			continue
 		}
+		host := candidateHost(c.NormalizedURL)
+		if host == "" {
+			continue
+		}
+		if maxVariantsPerHost > 0 && hostCounts[host] >= maxVariantsPerHost {
+			continue
+		}
+		hostCounts[host]++
 		out = append(out, c)
 		newInserts++
 	}

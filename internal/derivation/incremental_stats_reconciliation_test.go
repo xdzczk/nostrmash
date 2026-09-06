@@ -157,4 +157,27 @@ func TestReconcileIncrementalAuthorStatsSample_DetectsInjectedDrift(t *testing.T
 	if !foundActivityMismatch {
 		t.Fatalf("expected an author_activity_daily post_count_total mismatch, got %#v", report.Mismatches)
 	}
+
+	// Self-heal must rebuild the drifted projections so the next pass is
+	// clean — without healing, the same drift would be re-detected and
+	// re-logged on every pass forever (the production noise this fixes).
+	heals := handlers.HealReconciliationMismatches(ctx, report.Mismatches)
+	if len(heals) == 0 {
+		t.Fatal("expected at least one heal for the injected drift")
+	}
+	for _, heal := range heals {
+		if heal.Err != nil {
+			t.Fatalf("heal %s for %s failed: %v", heal.Action, heal.Pubkey, heal.Err)
+		}
+	}
+
+	report, err = handlers.ReconcileIncrementalAuthorStatsSample(ctx, 50)
+	if err != nil {
+		t.Fatalf("reconcile after heal: %v", err)
+	}
+	for _, m := range report.Mismatches {
+		if m.Pubkey == driftNote.Pubkey {
+			t.Fatalf("expected drift to be healed, still mismatching: %#v", m)
+		}
+	}
 }

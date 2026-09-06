@@ -1160,9 +1160,17 @@ func upsertAuthorHourlyActivityDeltaTx(
 
 // applyIncrementalProfileDiscoveryRecentActivityTx maintains
 // profile_discovery_recent_activity with O(1) GREATEST updates for every
-// pubkey whose discovery recency is affected by this event (author on
-// kind=1, plus reply/reaction/repost/zap targets). Replaces the unbounded
+// pubkey whose discovery recency is affected by this event: the author on
+// every kind, plus reply/reaction/repost/zap targets. Replaces the unbounded
 // MAX(created_at) UNION scan in the discovery sweeper.
+//
+// The author bumps on every kind (not just kind=1) because the legacy full
+// scan this replaces takes MAX(created_at) over all of the author's stored
+// events — a profile update or contact-list rewrite counts as activity
+// there, and profile_public_stats.recent_activity_at already uses the same
+// all-kinds rule. Restricting the incremental path to engagement kinds made
+// accounts whose latest event was e.g. kind 0/3 look permanently stale to
+// discovery and produced a steady stream of reconciliation mismatches.
 //
 // Deliberately not ledger-gated: GREATEST against the same created_at is
 // naturally idempotent under at-least-once redelivery, and retention does
@@ -1179,9 +1187,9 @@ func (h *Handlers) applyIncrementalProfileDiscoveryRecentActivityTx(
 ) error {
 	_ = eventID
 	targets := make([]string, 0, 2)
+	targets = append(targets, pubkey)
 	switch kind {
 	case 1:
-		targets = append(targets, pubkey)
 		if isReply && replyTargetEventID != "" {
 			targetPubkey, ok, err := lookupEventPubkeyTx(ctx, tx, replyTargetEventID)
 			if err != nil {
@@ -1193,23 +1201,20 @@ func (h *Handlers) applyIncrementalProfileDiscoveryRecentActivityTx(
 		}
 	case 6, 7:
 		targetEventID := firstReferencedEventID(tags)
-		if targetEventID == "" {
-			return nil
-		}
-		targetPubkey, ok, err := lookupEventPubkeyTx(ctx, tx, targetEventID)
-		if err != nil {
-			return err
-		}
-		if ok && targetPubkey != "" {
-			targets = append(targets, targetPubkey)
+		if targetEventID != "" {
+			targetPubkey, ok, err := lookupEventPubkeyTx(ctx, tx, targetEventID)
+			if err != nil {
+				return err
+			}
+			if ok && targetPubkey != "" {
+				targets = append(targets, targetPubkey)
+			}
 		}
 	case 9735:
 		receiver := firstTagValue(tags, "p")
 		if receiver != "" {
 			targets = append(targets, receiver)
 		}
-	default:
-		return nil
 	}
 
 	seen := make(map[string]struct{}, len(targets))

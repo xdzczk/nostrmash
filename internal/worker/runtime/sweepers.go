@@ -7,6 +7,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/derivation"
+	"github.com/xdzczk/nostrmash/internal/meili"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
@@ -152,6 +153,51 @@ func RunMeilisearchSweeperLoop(
 				}
 				metrics.ObserveMeilisearchSweeperBatch(outcome, processed, time.Since(started))
 			}
+		}
+	}
+}
+
+// meilisearchIndexRetentionInterval is how often aged note documents are
+// purged from the Meilisearch notes index. The purge is one delete-by-filter
+// task per tick, so a few ticks a day is plenty — the horizon itself
+// (indexedNotesMaxAge) moves only with wall-clock time.
+const meilisearchIndexRetentionInterval = 6 * time.Hour
+
+// RunMeilisearchIndexRetentionLoop keeps the notes index bounded to its
+// designed age window. FullSync never indexes notes older than the horizon,
+// but incremental syncs add every fresh note and nothing deleted them as
+// they aged, so the live index grew without bound between full rebuilds and
+// Meilisearch's per-commit CPU cost (proportional to index size) grew with
+// it. Runs an immediate purge on startup, then ticks.
+func RunMeilisearchIndexRetentionLoop(ctx context.Context, log Logger, client *meili.Client) {
+	if client == nil || !client.Enabled() {
+		return
+	}
+	purge := func() {
+		started := time.Now()
+		deleted, err := client.PurgeAgedNotes(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Error("meilisearch_index_retention_failed", "error", err, "duration_s", time.Since(started).Seconds())
+			return
+		}
+		log.Info(
+			"meilisearch_index_retention_purged",
+			"deleted_documents", deleted,
+			"duration_s", time.Since(started).Seconds(),
+		)
+	}
+	purge()
+	ticker := time.NewTicker(meilisearchIndexRetentionInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			purge()
 		}
 	}
 }

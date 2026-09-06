@@ -335,7 +335,7 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Name:         "WORKER_RETENTION_DELETION_LEDGER_MAX_AGE",
 			Runtimes:     []string{"worker"},
 			Required:     false,
-			DefaultValue: "2160h0m0s",
+			DefaultValue: "720h0m0s",
 			Description:  "Age (by tombstone created_at) beyond which a deletion_events ledger row with no stored target event becomes eligible for purge. Bounds how long an orphan tombstone can still suppress its target if the target later arrives via fallback/backfill.",
 		},
 		{

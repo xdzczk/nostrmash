@@ -22,17 +22,23 @@ func (h *Handlers) projectReactionEventsWithVersion(ctx context.Context, eventID
 		"Project reaction_events records from kind=7 references",
 		versionOverride,
 		func(tx pgx.Tx, source interactionSource, targetEventID string, writeVersion int) error {
+			// target_pubkey denormalizes the engaged author so profile
+			// engagement aggregation needs no events join (see migration
+			// 000082); NULL when the target event is not stored, which the
+			// aggregation treats as "target unknown, don't count" — the
+			// same rows the old INNER JOIN skipped.
 			_, err := tx.Exec(ctx, `
 				INSERT INTO reaction_events (
-					event_id, target_event_id, reactor_pubkey, content, created_at, derivation_version
+					event_id, target_event_id, reactor_pubkey, content, created_at, derivation_version, target_pubkey
 				)
-				VALUES ($1, $2, $3, $4, $5, $6)
+				VALUES ($1, $2, $3, $4, $5, $6, (SELECT pubkey FROM events WHERE id = $2))
 				ON CONFLICT (event_id) DO UPDATE
 				SET target_event_id = EXCLUDED.target_event_id,
 				    reactor_pubkey = EXCLUDED.reactor_pubkey,
 				    content = EXCLUDED.content,
 				    created_at = EXCLUDED.created_at,
 				    derivation_version = EXCLUDED.derivation_version,
+				    target_pubkey = EXCLUDED.target_pubkey,
 				    projected_at = now()
 			`, source.EventID, targetEventID, source.Pubkey, source.Content, source.CreatedAt, writeVersion)
 			if err != nil {
@@ -58,17 +64,19 @@ func (h *Handlers) projectRepostEventsWithVersion(ctx context.Context, eventID s
 		versionOverride,
 		func(tx pgx.Tx, source interactionSource, targetEventID string, writeVersion int) error {
 			quote := nullIfBlank(source.Content)
+			// target_pubkey: see the reaction upserter / migration 000082.
 			_, err := tx.Exec(ctx, `
 				INSERT INTO repost_events (
-					event_id, target_event_id, reposter_pubkey, quote, created_at, derivation_version
+					event_id, target_event_id, reposter_pubkey, quote, created_at, derivation_version, target_pubkey
 				)
-				VALUES ($1, $2, $3, $4, $5, $6)
+				VALUES ($1, $2, $3, $4, $5, $6, (SELECT pubkey FROM events WHERE id = $2))
 				ON CONFLICT (event_id) DO UPDATE
 				SET target_event_id = EXCLUDED.target_event_id,
 				    reposter_pubkey = EXCLUDED.reposter_pubkey,
 				    quote = EXCLUDED.quote,
 				    created_at = EXCLUDED.created_at,
 				    derivation_version = EXCLUDED.derivation_version,
+				    target_pubkey = EXCLUDED.target_pubkey,
 				    projected_at = now()
 			`, source.EventID, targetEventID, source.Pubkey, quote, source.CreatedAt, writeVersion)
 			if err != nil {

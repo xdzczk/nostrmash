@@ -116,6 +116,7 @@ Do not hand-edit this file.
 | `RELAY_REGISTRY_ALLOW_PRIVATE_NETWORK` | `ingestor, worker` | optional | `false` | Allow private/local network addresses in relay URLs. |
 | `RELAY_REGISTRY_DISCOVERY_ENABLED` | `worker` | optional | `false` | Enable relay discovery from user relay lists. |
 | `RELAY_REGISTRY_DISCOVERY_MAX_NEW_CANDIDATES` | `worker` | optional | `25` | Maximum brand-new candidate relays to insert per discovery run. Existing registry relays always have their user-ref counts refreshed. |
+| `RELAY_REGISTRY_DISCOVERY_MAX_VARIANTS_PER_HOST` | `worker` | optional | `3` | Maximum registry entries sharing one hostname before discovery refuses new URL variants of that host. Guards the candidate pool against junk path-variant relay URLs from user relay lists. |
 | `RELAY_REGISTRY_DISCOVERY_MIN_DISTINCT_USER_REFS` | `worker` | optional | `3` | Minimum distinct user references required to consider a relay candidate. |
 | `RELAY_REGISTRY_ENABLED` | `ingestor, worker` | optional | `false` | Enable the dynamic relay registry subsystem. |
 | `RELAY_REGISTRY_PROBING_ENABLED` | `worker` | optional | `false` | Enable periodic relay health probing. |
@@ -242,7 +243,7 @@ Do not hand-edit this file.
 | `WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum raw deletion events (kind 5) deleted per retention purge batch. |
 | `WORKER_RETENTION_DELETION_ENABLED` | `worker` | optional | `true` | Enable periodic retention purge of processed raw deletion events (kind 5). The distilled deletion_events tombstone ledger survives; only the raw rows and cascade-cleaned tags/references are removed. |
 | `WORKER_RETENTION_DELETION_LEDGER_ENABLED` | `worker` | optional | `true` | Enable the periodic sweep that purges deletion_events tombstone ledger rows older than the max age whose target event is not stored. Tombstones whose target is stored are never purged regardless of age. |
-| `WORKER_RETENTION_DELETION_LEDGER_MAX_AGE` | `worker` | optional | `2160h0m0s` | Age (by tombstone created_at) beyond which a deletion_events ledger row with no stored target event becomes eligible for purge. Bounds how long an orphan tombstone can still suppress its target if the target later arrives via fallback/backfill. |
+| `WORKER_RETENTION_DELETION_LEDGER_MAX_AGE` | `worker` | optional | `720h0m0s` | Age (by tombstone created_at) beyond which a deletion_events ledger row with no stored target event becomes eligible for purge. Bounds how long an orphan tombstone can still suppress its target if the target later arrives via fallback/backfill. |
 | `WORKER_RETENTION_DELETION_LEDGER_RUN_INTERVAL` | `worker` | optional | `24h0m0s` | Interval between deletion-ledger sweep runs. Each run walks the entire eligible tombstone range in keyset windows, so the cadence is deliberately long. |
 | `WORKER_RETENTION_DELETION_LEDGER_SCAN_BATCH_LIMIT` | `worker` | optional | `5000` | Maximum deletion_events ledger rows scanned (not deleted) per sweep window. |
 | `WORKER_RETENTION_DELETION_MAX_AGE` | `worker` | optional | `336h0m0s` | Age (by event created_at) beyond which processed raw deletion events become eligible for retention purge. |

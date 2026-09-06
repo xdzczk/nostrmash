@@ -212,7 +212,11 @@ func loadDeletionRetentionConfig() (WorkerDeletionRetentionConfig, error) {
 }
 
 func loadDeletionLedgerRetentionConfig() (WorkerDeletionLedgerRetentionConfig, error) {
-	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_LEDGER_MAX_AGE", 90*24*time.Hour)
+	// 30d default: production data showed ~24M ledger rows (~17 GB) where
+	// 23.7M were already-orphaned tombstones younger than the original 90d
+	// horizon — targets that never arrived within 30d essentially never
+	// arrive, so the longer window only held disk hostage.
+	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_DELETION_LEDGER_MAX_AGE", 30*24*time.Hour)
 	if err != nil {
 		return WorkerDeletionLedgerRetentionConfig{}, err
 	}

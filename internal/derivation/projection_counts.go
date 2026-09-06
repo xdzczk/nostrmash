@@ -32,6 +32,10 @@ func (h *Handlers) projectReplyCountsWithVersion(ctx context.Context, eventID st
 			return []string{parent}
 		},
 		versionOverride,
+		// reply_count_contributions doubles as the reply-engagement source
+		// for profile discovery scoring, which needs the replier, reply
+		// time, and engaged author without events joins (migration 000082).
+		true,
 	)
 }
 
@@ -78,6 +82,7 @@ func (h *Handlers) projectReactionCountsWithVersion(ctx context.Context, eventID
 			return ids
 		},
 		versionOverride,
+		false,
 	)
 }
 
@@ -105,6 +110,7 @@ func (h *Handlers) projectRepostCountsWithVersion(ctx context.Context, eventID s
 			return ids
 		},
 		versionOverride,
+		false,
 	)
 }
 
@@ -118,6 +124,7 @@ func (h *Handlers) projectCounts(
 	countsTable string,
 	projector func(kind int, refs []derivedReference) []string,
 	versionOverride *int,
+	withEngagementDenorm bool,
 ) error {
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
@@ -131,11 +138,13 @@ func (h *Handlers) projectCounts(
 	}
 
 	var kind int
+	var sourcePubkey string
+	var sourceCreatedAt int64
 	err := h.pool.QueryRow(ctx, `
-		SELECT kind
+		SELECT kind, pubkey, created_at
 		FROM events
 		WHERE id = $1
-	`, eventID).Scan(&kind)
+	`, eventID).Scan(&kind, &sourcePubkey, &sourceCreatedAt)
 	if err != nil {
 		return fmt.Errorf("load event kind for %s: %w", derivationName, err)
 	}
@@ -175,15 +184,36 @@ func (h *Handlers) projectCounts(
 	}
 
 	for _, targetEventID := range referencedIDs {
-		_, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s (
-				source_event_id, target_event_id, derivation_version
-			)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (source_event_id, target_event_id) DO UPDATE
-			SET derivation_version = EXCLUDED.derivation_version,
-			    projected_at = now()
-		`, contributionTable), eventID, targetEventID, writeVersion)
+		var err error
+		if withEngagementDenorm {
+			// Denormalized engagement columns (migration 000082): the
+			// engager, engagement time, and engaged author, so profile
+			// discovery scoring aggregates replies without events joins.
+			// target_pubkey is NULL when the target event is not stored.
+			_, err = tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s (
+					source_event_id, target_event_id, derivation_version,
+					source_pubkey, source_created_at, target_pubkey
+				)
+				VALUES ($1, $2, $3, $4, $5, (SELECT pubkey FROM events WHERE id = $2))
+				ON CONFLICT (source_event_id, target_event_id) DO UPDATE
+				SET derivation_version = EXCLUDED.derivation_version,
+				    source_pubkey = EXCLUDED.source_pubkey,
+				    source_created_at = EXCLUDED.source_created_at,
+				    target_pubkey = EXCLUDED.target_pubkey,
+				    projected_at = now()
+			`, contributionTable), eventID, targetEventID, writeVersion, sourcePubkey, sourceCreatedAt)
+		} else {
+			_, err = tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s (
+					source_event_id, target_event_id, derivation_version
+				)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (source_event_id, target_event_id) DO UPDATE
+				SET derivation_version = EXCLUDED.derivation_version,
+				    projected_at = now()
+			`, contributionTable), eventID, targetEventID, writeVersion)
+		}
 		if err != nil {
 			return fmt.Errorf("insert contribution into %s: %w", contributionTable, err)
 		}

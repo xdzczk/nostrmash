@@ -228,6 +228,12 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 			"interval", cfg.MeilisearchSweeper.Interval.String(),
 			"batch_size", cfg.MeilisearchSweeper.BatchSize,
 		)
+		// Index retention rides the sweeper enablement: both exist to keep
+		// steady-state Meilisearch load bounded, and a deployment that syncs
+		// documents also needs the aged ones removed.
+		spawn(func(c context.Context) {
+			RunMeilisearchIndexRetentionLoop(c, log, bootstrap.MeiliClient)
+		})
 	} else {
 		log.Info("meilisearch_sweeper_disabled")
 	}

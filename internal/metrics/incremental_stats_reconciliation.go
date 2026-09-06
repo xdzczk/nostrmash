@@ -10,6 +10,7 @@ var (
 	incrementalStatsReconciliationRunDuration  *prometheus.HistogramVec
 	incrementalStatsReconciliationSampledTotal *prometheus.CounterVec
 	incrementalStatsReconciliationMismatches   *prometheus.CounterVec
+	incrementalStatsReconciliationHeals        *prometheus.CounterVec
 )
 
 func registerIncrementalStatsReconciliationMetrics() {
@@ -36,10 +37,19 @@ func registerIncrementalStatsReconciliationMetrics() {
 		[]string{"projection", "field"},
 	)
 
+	incrementalStatsReconciliationHeals = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_worker_incremental_stats_reconciliation_heals_total",
+			Help: "Drifted pubkey projections rebuilt by the reconciliation loop after a detected mismatch, by heal action and result.",
+		},
+		[]string{"action", "result"},
+	)
+
 	registry.MustRegister(
 		incrementalStatsReconciliationRunDuration,
 		incrementalStatsReconciliationSampledTotal,
 		incrementalStatsReconciliationMismatches,
+		incrementalStatsReconciliationHeals,
 	)
 }
 
@@ -58,4 +68,11 @@ func ObserveIncrementalStatsReconciliationRun(result string, sampled int, d time
 func IncIncrementalStatsReconciliationMismatch(projection, field string) {
 	ensureRegistered()
 	incrementalStatsReconciliationMismatches.WithLabelValues(projection, field).Inc()
+}
+
+// IncIncrementalStatsReconciliationHeal records one attempted self-heal
+// rebuild of a drifted projection ("ok" or "error").
+func IncIncrementalStatsReconciliationHeal(action, result string) {
+	ensureRegistered()
+	incrementalStatsReconciliationHeals.WithLabelValues(action, result).Inc()
 }

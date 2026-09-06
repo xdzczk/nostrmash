@@ -36,6 +36,14 @@ type profileWeightedScoreInputs struct {
 // profile and aggregates deduplicated, self-excluded, trust-weighted score
 // inputs. This rescans raw engagement tables bounded by the 7d window, so it
 // only runs when TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING is enabled.
+//
+// Every branch drives off the denormalized target_pubkey columns (migration
+// 000082) instead of joining events: the old join plans scanned the whole 7d
+// engagement window and probed the events table per row to test the target
+// author, which blew the statement timeout for high-engagement profiles and
+// permanently wedged their stats rebuilds. Rows with NULL target_pubkey
+// (target event not stored at projection time) are skipped, matching the old
+// INNER JOIN semantics.
 func loadProfileWeightedScoreInputsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -58,25 +66,21 @@ func loadProfileWeightedScoreInputsTx(
 		WITH tuples AS (
 			SELECT src, engager, MAX(ts) AS last_ts
 			FROM (
-				SELECT 'reply'::text AS src, source_event.pubkey AS engager, c.target_event_id AS target, source_event.created_at AS ts
+				SELECT 'reply'::text AS src, c.source_pubkey AS engager, c.target_event_id AS target, c.source_created_at AS ts
 				FROM reply_count_contributions c
-				JOIN events source_event ON source_event.id = c.source_event_id
-				JOIN events target_event ON target_event.id = c.target_event_id
-				WHERE target_event.pubkey = $1
-				  AND source_event.pubkey <> $1
-				  AND source_event.created_at >= $2
+				WHERE c.target_pubkey = $1
+				  AND c.source_pubkey <> $1
+				  AND c.source_created_at >= $2
 				UNION ALL
 				SELECT 'repost', r.reposter_pubkey, r.target_event_id, r.created_at
 				FROM repost_events r
-				JOIN events target_event ON target_event.id = r.target_event_id
-				WHERE target_event.pubkey = $1
+				WHERE r.target_pubkey = $1
 				  AND r.reposter_pubkey <> $1
 				  AND r.created_at >= $2
 				UNION ALL
 				SELECT 'reaction', r.reactor_pubkey, r.target_event_id, r.created_at
 				FROM reaction_events r
-				JOIN events target_event ON target_event.id = r.target_event_id
-				WHERE target_event.pubkey = $1
+				WHERE r.target_pubkey = $1
 				  AND r.reactor_pubkey <> $1
 				  AND r.created_at >= $2
 				UNION ALL

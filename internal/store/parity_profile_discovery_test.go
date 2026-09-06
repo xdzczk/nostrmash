@@ -433,8 +433,11 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTrendingProfiles: %v", err)
 	}
-	if len(trending) < 2 {
-		t.Fatalf("expected at least 2 profiles, got %#v", trending)
+	// Trending requires real engagement received: growth_author (follower
+	// gains only, zero engagement) scores 0 and is excluded entirely, not
+	// just outranked. Only the engagement-led profile qualifies.
+	if len(trending) != 1 {
+		t.Fatalf("expected only the engagement-led profile in trending, got %#v", trending)
 	}
 	if trending[0].Pubkey != "engaged_author" {
 		t.Fatalf("expected engagement-led profile first in trending, got %#v", trending[0])
@@ -444,6 +447,7 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRisingProfiles: %v", err)
 	}
+	// Rising momentum still counts follower growth, so both profiles rank.
 	if len(rising) < 2 {
 		t.Fatalf("expected at least 2 profiles, got %#v", rising)
 	}

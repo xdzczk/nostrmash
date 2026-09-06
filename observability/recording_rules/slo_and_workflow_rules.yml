@@ -110,8 +110,12 @@ groups:
       - record: nostrmash:storage:database_growth_bytes_per_hour:6h
         expr: deriv(nostrmash_storage_database_bytes[6h]) * 3600
 
+      # All tracked tables, not a hand-picked subset: the original
+      # five-table filter missed the actual top growers during the 2026-09
+      # capacity review (event_references and author_recent_events bloat).
+      # Cardinality is bounded by trackedStorageTables (~37 series).
       - record: nostrmash:storage:heavy_table_growth_bytes_per_hour:6h
-        expr: deriv(nostrmash_storage_table_bytes{table=~"events|event_tags|invalid_events|jobs|trust_scores_global"}[6h]) * 3600
+        expr: deriv(nostrmash_storage_table_bytes[6h]) * 3600
 
       - record: nostrmash:retention:purge_error_rate5m
         expr: sum(rate(nostrmash_retention_purge_runs_total{result="error"}[5m]))

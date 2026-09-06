@@ -50,7 +50,7 @@ func TestPlanDiscoveryUpserts_RefreshesExistingBeyondNewInsertBudget(t *testing.
 		"inactive-small": {},
 	}
 
-	planned := planDiscoveryUpserts(candidates, existing, 3, 1)
+	planned := planDiscoveryUpserts(candidates, existing, nil, 3, 1, 3)
 	keys := make([]string, len(planned))
 	for i, c := range planned {
 		keys[i] = c.URLKey
@@ -76,7 +76,7 @@ func TestPlanDiscoveryUpserts_SkipsUnknownBelowMinRefs(t *testing.T) {
 	}
 	existing := map[string]struct{}{"known": {}}
 
-	planned := planDiscoveryUpserts(candidates, existing, 3, 25)
+	planned := planDiscoveryUpserts(candidates, existing, nil, 3, 25, 3)
 	if len(planned) != 1 || planned[0].URLKey != "known" {
 		t.Fatalf("expected only known refresh, got %+v", planned)
 	}
@@ -89,8 +89,61 @@ func TestPlanDiscoveryUpserts_RespectsZeroNewInsertBudget(t *testing.T) {
 	}
 	existing := map[string]struct{}{"known": {}}
 
-	planned := planDiscoveryUpserts(candidates, existing, 3, 0)
+	planned := planDiscoveryUpserts(candidates, existing, nil, 3, 0, 3)
 	if len(planned) != 1 || planned[0].URLKey != "known" {
 		t.Fatalf("expected only refreshes when new-insert budget is 0, got %+v", planned)
+	}
+}
+
+// TestPlanDiscoveryUpserts_CapsVariantsPerHost locks in the junk-variant
+// guard: once a hostname has maxVariantsPerHost registry entries (existing
+// plus planned this run), further new URL variants of that host are refused
+// while distinct hosts and refreshes of known variants still pass. Without
+// this cap, user relay lists steadily fed path-variant junk
+// (wss://host/random-words) into the candidate pool — production accumulated
+// thousands of candidates that probe fine but are all the same few relays.
+func TestPlanDiscoveryUpserts_CapsVariantsPerHost(t *testing.T) {
+	candidates := []relayCandidateAgg{
+		{URLKey: "spam-1", NormalizedURL: "wss://popular.example/one", DistinctUsers: 50},
+		{URLKey: "spam-2", NormalizedURL: "wss://popular.example/two", DistinctUsers: 40},
+		{URLKey: "fresh-host", NormalizedURL: "wss://fresh.example", DistinctUsers: 30},
+		{URLKey: "known-variant", NormalizedURL: "wss://popular.example/known", DistinctUsers: 5},
+	}
+	existing := map[string]struct{}{"known-variant": {}}
+	// Host already at the cap of 2 (the known variant plus the bare host).
+	hostCounts := map[string]int{"popular.example": 2}
+
+	planned := planDiscoveryUpserts(candidates, existing, hostCounts, 3, 25, 2)
+	keys := make([]string, len(planned))
+	for i, c := range planned {
+		keys[i] = c.URLKey
+	}
+	want := []string{"fresh-host", "known-variant"}
+	if len(keys) != len(want) {
+		t.Fatalf("planned keys=%v want=%v", keys, want)
+	}
+	for i := range want {
+		if keys[i] != want[i] {
+			t.Fatalf("planned keys=%v want=%v", keys, want)
+		}
+	}
+
+	// Below the cap, variants of one host are admitted until the cap fills.
+	hostCounts = map[string]int{}
+	planned = planDiscoveryUpserts(candidates, existing, hostCounts, 3, 25, 2)
+	keys = keys[:0]
+	for _, c := range planned {
+		keys = append(keys, c.URLKey)
+	}
+	// spam-1 and spam-2 fill popular.example's cap of 2; fresh-host has its
+	// own host; known-variant refreshes regardless.
+	want = []string{"spam-1", "spam-2", "fresh-host", "known-variant"}
+	if len(keys) != len(want) {
+		t.Fatalf("planned keys=%v want=%v", keys, want)
+	}
+	for i := range want {
+		if keys[i] != want[i] {
+			t.Fatalf("planned keys=%v want=%v", keys, want)
+		}
 	}
 }
