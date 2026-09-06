@@ -484,6 +484,11 @@ type relaySummarySnapshotPayload struct {
 	Events7d   int64 `json:"events_7d"`
 	Authors24h int64 `json:"authors_24h"`
 	Authors7d  int64 `json:"authors_7d"`
+	// AuthorsComputedAt (unix seconds) records when the COUNT(DISTINCT
+	// pubkey) author aggregates were last recomputed from raw event_relays.
+	// Internal bookkeeping for the throttled refresh below; the store-layer
+	// reader ignores unknown fields.
+	AuthorsComputedAt int64 `json:"authors_computed_at,omitempty"`
 }
 
 type relayActivityRow struct {
@@ -527,30 +532,110 @@ func computeRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySn
 	cutoff24h := now.Add(-24 * time.Hour)
 	cutoff7d := now.Add(-7 * 24 * time.Hour)
 
+	// Active relay and event-volume counts come from the incrementally
+	// maintained relay_activity_hourly rollup instead of scanning the raw
+	// 24h/7d event_relays windows (~8.5s combined) on every 5-minute
+	// refresh. Rows newer than the rollup watermark are merged in from the
+	// raw table — the same rolled+tail pattern computeTopRelaysSnapshot
+	// uses — so the counts stay exact despite the rollup's ingest lag.
+	var watermark time.Time
 	if err := tx.QueryRow(ctx, `
+		SELECT rolled_up_until FROM relay_activity_rollup_state WHERE id
+	`).Scan(&watermark); err != nil {
+		return out, fmt.Errorf("read rollup watermark: %w", err)
+	}
+	const windowFromRollupQuery = `
 		SELECT
 			COALESCE(COUNT(DISTINCT relay_url), 0)::bigint AS active,
-			COALESCE(COUNT(*), 0)::bigint                  AS events,
-			COALESCE(COUNT(DISTINCT pubkey), 0)::bigint    AS authors
-		FROM event_relays
-		WHERE seen_at >= $1
-		  AND relay_url <> $2
-	`, cutoff24h, model.FallbackRelayURL).Scan(&out.Active24h, &out.Events24h, &out.Authors24h); err != nil {
-		return out, fmt.Errorf("query 24h window: %w", err)
+			COALESCE(SUM(event_count), 0)::bigint          AS events
+		FROM (
+			SELECT relay_url, SUM(event_count)::bigint AS event_count
+			FROM relay_activity_hourly
+			WHERE bucket_start >= date_trunc('hour', $1::timestamptz)
+			GROUP BY relay_url
+			UNION ALL
+			SELECT relay_url, COUNT(*)::bigint
+			FROM event_relays
+			WHERE seen_at > $2
+			  AND seen_at >= $1
+			GROUP BY relay_url
+		) merged
+		WHERE relay_url <> $3
+	`
+	if err := tx.QueryRow(ctx, windowFromRollupQuery, cutoff24h, watermark, model.FallbackRelayURL).
+		Scan(&out.Active24h, &out.Events24h); err != nil {
+		return out, fmt.Errorf("query 24h window rollup: %w", err)
+	}
+	if err := tx.QueryRow(ctx, windowFromRollupQuery, cutoff7d, watermark, model.FallbackRelayURL).
+		Scan(&out.Active7d, &out.Events7d); err != nil {
+		return out, fmt.Errorf("query 7d window rollup: %w", err)
+	}
+
+	// The distinct-author counts have no rollup (a per-relay-author rollup
+	// would be nearly as large as the raw table), so they still scan raw
+	// event_relays — but only once per relaySummaryAuthorsRefreshInterval.
+	// In between, the values from the previous snapshot are carried
+	// forward: a distinct count over a 24h/7d window moves far too slowly
+	// for hourly staleness to matter.
+	prev, hasPrev, err := loadPreviousRelaySummarySnapshot(ctx, tx)
+	if err != nil {
+		return out, err
+	}
+	if hasPrev && prev.AuthorsComputedAt > 0 &&
+		now.Unix()-prev.AuthorsComputedAt < int64(relaySummaryAuthorsRefreshInterval/time.Second) {
+		out.Authors24h = prev.Authors24h
+		out.Authors7d = prev.Authors7d
+		out.AuthorsComputedAt = prev.AuthorsComputedAt
+		return out, nil
 	}
 
 	if err := tx.QueryRow(ctx, `
-		SELECT
-			COALESCE(COUNT(DISTINCT relay_url), 0)::bigint AS active,
-			COALESCE(COUNT(*), 0)::bigint                  AS events,
-			COALESCE(COUNT(DISTINCT pubkey), 0)::bigint    AS authors
+		SELECT COALESCE(COUNT(DISTINCT pubkey), 0)::bigint
 		FROM event_relays
 		WHERE seen_at >= $1
 		  AND relay_url <> $2
-	`, cutoff7d, model.FallbackRelayURL).Scan(&out.Active7d, &out.Events7d, &out.Authors7d); err != nil {
-		return out, fmt.Errorf("query 7d window: %w", err)
+	`, cutoff24h, model.FallbackRelayURL).Scan(&out.Authors24h); err != nil {
+		return out, fmt.Errorf("query 24h window authors: %w", err)
 	}
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(COUNT(DISTINCT pubkey), 0)::bigint
+		FROM event_relays
+		WHERE seen_at >= $1
+		  AND relay_url <> $2
+	`, cutoff7d, model.FallbackRelayURL).Scan(&out.Authors7d); err != nil {
+		return out, fmt.Errorf("query 7d window authors: %w", err)
+	}
+	out.AuthorsComputedAt = now.Unix()
 	return out, nil
+}
+
+// relaySummaryAuthorsRefreshInterval is how often the raw COUNT(DISTINCT
+// pubkey) author aggregates in the relay summary are recomputed. See
+// computeRelaySummarySnapshot for why they are throttled independently of
+// the 5-minute snapshot cadence.
+const relaySummaryAuthorsRefreshInterval = time.Hour
+
+// loadPreviousRelaySummarySnapshot reads the currently stored summary
+// payload (if any) so throttled fields can be carried forward.
+func loadPreviousRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySnapshotPayload, bool, error) {
+	var payload []byte
+	err := tx.QueryRow(ctx, `
+		SELECT payload
+		FROM relay_window_snapshots
+		WHERE snapshot_label = $1
+	`, relaySnapshotLabelSummary).Scan(&payload)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return relaySummarySnapshotPayload{}, false, nil
+		}
+		return relaySummarySnapshotPayload{}, false, fmt.Errorf("read previous relay summary snapshot: %w", err)
+	}
+	var prev relaySummarySnapshotPayload
+	if err := json.Unmarshal(payload, &prev); err != nil {
+		// A corrupt or legacy payload just means we recompute everything.
+		return relaySummarySnapshotPayload{}, false, nil
+	}
+	return prev, true, nil
 }
 
 // homeWindowSnapshotPayload mirrors the JSONB shape stored under
