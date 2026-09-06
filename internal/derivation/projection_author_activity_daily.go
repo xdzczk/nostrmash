@@ -461,20 +461,22 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(
 			GROUP BY to_timestamp(e.created_at)::date
 		),
 		received_sources AS (
-			SELECT to_timestamp(e.created_at)::date AS activity_date, COUNT(*) AS count_value
-			FROM thread_edges te
-			INNER JOIN events e ON e.id = te.child_event_id
-			INNER JOIN events target ON target.id = te.parent_event_id
-			WHERE target.pubkey = $1
-			  AND e.pubkey <> $1
-			  AND e.created_at >= $4
-			  AND e.created_at <= $3
-			GROUP BY to_timestamp(e.created_at)::date
+			-- Engagement sources read the denormalized target/source pubkeys
+			-- (migration 000082) instead of joining events per row: the join
+			-- plans heap-scanned every event a prolific author wrote, and the
+			-- denormalized columns match what the incremental deltas saw at
+			-- projection time (see computeTrueAuthorActivityTotals).
+			SELECT to_timestamp(rcc.source_created_at)::date AS activity_date, COUNT(*) AS count_value
+			FROM reply_count_contributions rcc
+			WHERE rcc.target_pubkey = $1
+			  AND rcc.source_pubkey <> $1
+			  AND rcc.source_created_at >= $4
+			  AND rcc.source_created_at <= $3
+			GROUP BY to_timestamp(rcc.source_created_at)::date
 			UNION ALL
 			SELECT to_timestamp(re.created_at)::date AS activity_date, COUNT(*) AS count_value
 			FROM reaction_events re
-			INNER JOIN events target ON target.id = re.target_event_id
-			WHERE target.pubkey = $1
+			WHERE re.target_pubkey = $1
 			  AND re.reactor_pubkey <> $1
 			  AND re.created_at >= $4
 			  AND re.created_at <= $3
@@ -482,8 +484,7 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(
 			UNION ALL
 			SELECT to_timestamp(re.created_at)::date AS activity_date, COUNT(*) AS count_value
 			FROM repost_events re
-			INNER JOIN events target ON target.id = re.target_event_id
-			WHERE target.pubkey = $1
+			WHERE re.target_pubkey = $1
 			  AND re.reposter_pubkey <> $1
 			  AND re.created_at >= $4
 			  AND re.created_at <= $3
@@ -504,30 +505,29 @@ func (h *Handlers) rebuildAuthorActivityDailyTx(
 			GROUP BY activity_date
 		),
 		given_sources AS (
-			SELECT to_timestamp(e.created_at)::date AS activity_date, COUNT(*) AS count_value
-			FROM thread_edges te
-			INNER JOIN events e ON e.id = te.child_event_id
-			INNER JOIN events target ON target.id = te.parent_event_id
-			WHERE e.pubkey = $1
-			  AND target.pubkey <> $1
-			  AND e.created_at >= $4
-			  AND e.created_at <= $3
-			GROUP BY to_timestamp(e.created_at)::date
+			SELECT to_timestamp(rcc.source_created_at)::date AS activity_date, COUNT(*) AS count_value
+			FROM reply_count_contributions rcc
+			WHERE rcc.source_pubkey = $1
+			  AND rcc.target_pubkey IS NOT NULL
+			  AND rcc.target_pubkey <> $1
+			  AND rcc.source_created_at >= $4
+			  AND rcc.source_created_at <= $3
+			GROUP BY to_timestamp(rcc.source_created_at)::date
 			UNION ALL
 			SELECT to_timestamp(re.created_at)::date AS activity_date, COUNT(*) AS count_value
 			FROM reaction_events re
-			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE re.reactor_pubkey = $1
-			  AND target.pubkey <> $1
+			  AND re.target_pubkey IS NOT NULL
+			  AND re.target_pubkey <> $1
 			  AND re.created_at >= $4
 			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date
 			UNION ALL
 			SELECT to_timestamp(re.created_at)::date AS activity_date, COUNT(*) AS count_value
 			FROM repost_events re
-			INNER JOIN events target ON target.id = re.target_event_id
 			WHERE re.reposter_pubkey = $1
-			  AND target.pubkey <> $1
+			  AND re.target_pubkey IS NOT NULL
+			  AND re.target_pubkey <> $1
 			  AND re.created_at >= $4
 			  AND re.created_at <= $3
 			GROUP BY to_timestamp(re.created_at)::date

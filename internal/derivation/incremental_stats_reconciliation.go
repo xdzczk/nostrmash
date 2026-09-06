@@ -19,11 +19,23 @@ type ReconciliationMismatch struct {
 	Recomputed  int64
 }
 
+// ReconciliationFailure records a pubkey whose reconciliation checks could
+// not be completed (e.g. a recompute query timed out). Failures are reported
+// rather than aborting the pass so one pathological account can't starve the
+// correctness backstop for every other sampled pubkey.
+type ReconciliationFailure struct {
+	Pubkey string
+	Err    error
+}
+
 // ReconciliationReport summarizes one reconciliation pass.
 type ReconciliationReport struct {
 	// SampledPubkeys is the number of distinct pubkeys checked.
 	SampledPubkeys int
 	Mismatches     []ReconciliationMismatch
+	// Failures lists sampled pubkeys that were skipped because a check
+	// errored; the remaining pubkeys were still reconciled.
+	Failures []ReconciliationFailure
 }
 
 // ReconcileIncrementalAuthorStatsSample is the correctness backstop for the
@@ -55,27 +67,48 @@ func (h *Handlers) ReconcileIncrementalAuthorStatsSample(ctx context.Context, sa
 
 	report := ReconciliationReport{SampledPubkeys: len(pubkeys)}
 	for _, pubkey := range pubkeys {
-		profileMismatches, err := h.reconcileProfilePublicStatsForPubkey(ctx, pubkey)
+		// A failing pubkey (e.g. a recompute that times out on a
+		// pathological account) is recorded and skipped, not fatal:
+		// aborting would silently drop the checks and heals for every
+		// remaining pubkey in the sample. Context cancellation is still
+		// fatal — every remaining check would fail the same way.
+		mismatches, err := h.reconcilePubkey(ctx, pubkey)
 		if err != nil {
-			return ReconciliationReport{}, fmt.Errorf("reconcile profile public stats for %s: %w", pubkey, err)
-		}
-		report.Mismatches = append(report.Mismatches, profileMismatches...)
-
-		activityMismatches, err := h.reconcileAuthorActivityTotalsForPubkey(ctx, pubkey)
-		if err != nil {
-			return ReconciliationReport{}, fmt.Errorf("reconcile author activity totals for %s: %w", pubkey, err)
-		}
-		report.Mismatches = append(report.Mismatches, activityMismatches...)
-
-		if h.incrementalProfileDiscoveryStats {
-			discoveryMismatches, err := h.reconcileProfileDiscoveryStatsForPubkey(ctx, pubkey)
-			if err != nil {
-				return ReconciliationReport{}, fmt.Errorf("reconcile profile discovery stats for %s: %w", pubkey, err)
+			if ctx.Err() != nil {
+				return ReconciliationReport{}, err
 			}
-			report.Mismatches = append(report.Mismatches, discoveryMismatches...)
+			report.Failures = append(report.Failures, ReconciliationFailure{Pubkey: pubkey, Err: err})
+			continue
 		}
+		report.Mismatches = append(report.Mismatches, mismatches...)
 	}
 	return report, nil
+}
+
+// reconcilePubkey runs every reconciliation check for one pubkey.
+func (h *Handlers) reconcilePubkey(ctx context.Context, pubkey string) ([]ReconciliationMismatch, error) {
+	var mismatches []ReconciliationMismatch
+
+	profileMismatches, err := h.reconcileProfilePublicStatsForPubkey(ctx, pubkey)
+	if err != nil {
+		return nil, fmt.Errorf("reconcile profile public stats for %s: %w", pubkey, err)
+	}
+	mismatches = append(mismatches, profileMismatches...)
+
+	activityMismatches, err := h.reconcileAuthorActivityTotalsForPubkey(ctx, pubkey)
+	if err != nil {
+		return nil, fmt.Errorf("reconcile author activity totals for %s: %w", pubkey, err)
+	}
+	mismatches = append(mismatches, activityMismatches...)
+
+	if h.incrementalProfileDiscoveryStats {
+		discoveryMismatches, err := h.reconcileProfileDiscoveryStatsForPubkey(ctx, pubkey)
+		if err != nil {
+			return nil, fmt.Errorf("reconcile profile discovery stats for %s: %w", pubkey, err)
+		}
+		mismatches = append(mismatches, discoveryMismatches...)
+	}
+	return mismatches, nil
 }
 
 // reconcileProfileDiscoveryStatsForPubkey compares the incremental daily/hourly
@@ -522,6 +555,14 @@ func (h *Handlers) reconcileAuthorActivityTotalsForPubkey(ctx context.Context, p
 // computeTrueAuthorActivityTotals independently recomputes the all-history
 // totals rebuildAuthorActivityDailyTx would produce (summed across every
 // day), without grouping by date and without writing anything.
+//
+// Engagement counts read the target/source pubkeys denormalized onto the
+// projection tables (migration 000082) rather than joining events per row.
+// Beyond speed (the join plan heap-scanned every event a prolific author
+// wrote, timing out on hot accounts), the denormalized columns capture what
+// the projection knew at write time — exactly the information the
+// incremental deltas were computed from — so comparing against them is the
+// more faithful reconciliation baseline.
 func (h *Handlers) computeTrueAuthorActivityTotals(ctx context.Context, pubkey string) (authorActivityTotalsSnapshot, error) {
 	var out authorActivityTotalsSnapshot
 	if err := h.pool.QueryRow(ctx, `
@@ -534,24 +575,20 @@ func (h *Handlers) computeTrueAuthorActivityTotals(ctx context.Context, pubkey s
 			), 0) AS post_count,
 			COALESCE((
 				SELECT COUNT(*)
-				FROM thread_edges te
-				INNER JOIN events e ON e.id = te.child_event_id
-				INNER JOIN events target ON target.id = te.parent_event_id
-				WHERE target.pubkey = $1
-				  AND e.pubkey <> $1
+				FROM reply_count_contributions rcc
+				WHERE rcc.target_pubkey = $1
+				  AND rcc.source_pubkey <> $1
 			), 0)
 			+ COALESCE((
 				SELECT COUNT(*)
 				FROM reaction_events re
-				INNER JOIN events target ON target.id = re.target_event_id
-				WHERE target.pubkey = $1
+				WHERE re.target_pubkey = $1
 				  AND re.reactor_pubkey <> $1
 			), 0)
 			+ COALESCE((
 				SELECT COUNT(*)
 				FROM repost_events re
-				INNER JOIN events target ON target.id = re.target_event_id
-				WHERE target.pubkey = $1
+				WHERE re.target_pubkey = $1
 				  AND re.reposter_pubkey <> $1
 			), 0)
 			+ COALESCE((
@@ -563,25 +600,24 @@ func (h *Handlers) computeTrueAuthorActivityTotals(ctx context.Context, pubkey s
 			), 0) AS engagement_received,
 			COALESCE((
 				SELECT COUNT(*)
-				FROM thread_edges te
-				INNER JOIN events e ON e.id = te.child_event_id
-				INNER JOIN events target ON target.id = te.parent_event_id
-				WHERE e.pubkey = $1
-				  AND target.pubkey <> $1
+				FROM reply_count_contributions rcc
+				WHERE rcc.source_pubkey = $1
+				  AND rcc.target_pubkey IS NOT NULL
+				  AND rcc.target_pubkey <> $1
 			), 0)
 			+ COALESCE((
 				SELECT COUNT(*)
 				FROM reaction_events re
-				INNER JOIN events target ON target.id = re.target_event_id
 				WHERE re.reactor_pubkey = $1
-				  AND target.pubkey <> $1
+				  AND re.target_pubkey IS NOT NULL
+				  AND re.target_pubkey <> $1
 			), 0)
 			+ COALESCE((
 				SELECT COUNT(*)
 				FROM repost_events re
-				INNER JOIN events target ON target.id = re.target_event_id
 				WHERE re.reposter_pubkey = $1
-				  AND target.pubkey <> $1
+				  AND re.target_pubkey IS NOT NULL
+				  AND re.target_pubkey <> $1
 			), 0)
 			+ COALESCE((
 				SELECT COUNT(*)

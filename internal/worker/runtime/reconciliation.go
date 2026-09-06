@@ -66,6 +66,17 @@ func runIncrementalStatsReconciliationOnce(ctx context.Context, log Logger, hand
 	}
 	metrics.ObserveIncrementalStatsReconciliationRun("ok", report.SampledPubkeys, time.Since(started))
 
+	// Per-pubkey failures (e.g. a recompute timing out on one pathological
+	// account) are logged but don't abort the pass: mismatch checks and
+	// heals for the rest of the sample already ran.
+	for _, failure := range report.Failures {
+		log.Error(
+			"incremental_stats_reconciliation_pubkey_failed",
+			"pubkey", failure.Pubkey,
+			"error", failure.Err,
+		)
+	}
+
 	for _, mismatch := range report.Mismatches {
 		metrics.IncIncrementalStatsReconciliationMismatch(mismatch.Projection, mismatch.Field)
 		log.Error(
@@ -105,6 +116,7 @@ func runIncrementalStatsReconciliationOnce(ctx context.Context, log Logger, hand
 		"incremental_stats_reconciliation_completed",
 		"sampled_pubkeys", report.SampledPubkeys,
 		"mismatches", len(report.Mismatches),
+		"failed_pubkeys", len(report.Failures),
 		"healed", healed,
 		"duration_s", time.Since(started).Seconds(),
 	)
