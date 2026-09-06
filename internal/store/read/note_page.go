@@ -220,15 +220,29 @@ func (s *Read) GetRelatedNotes(ctx context.Context, eventID string, limit int) (
 			WHERE e.id = $1
 		),
 		tag_overlap AS (
+			-- Bounded per-hashtag fan-out: an unbounded self-join scored
+			-- every note sharing a hashtag with the focal note, which for
+			-- popular tags (#bitcoin alone has ~100k rows) aggregated
+			-- hundreds of thousands of rows per request and hit the
+			-- statement timeout. Only the most recent candidates per shared
+			-- hashtag compete instead — for a discovery surface, recent
+			-- notes are the better candidates anyway.
 			SELECT
-				h2.event_id,
+				cand.event_id,
 				'shared_hashtag'::text AS reason,
 				(30 + (COUNT(*) * 5))::bigint AS score
 			FROM event_hashtags h1
-			JOIN event_hashtags h2 ON h1.hashtag = h2.hashtag AND h2.event_id <> h1.event_id
+			CROSS JOIN LATERAL (
+				SELECT h2.event_id
+				FROM event_hashtags h2
+				WHERE h2.hashtag = h1.hashtag
+				  AND h2.event_id <> h1.event_id
+				ORDER BY h2.created_at DESC
+				LIMIT 200
+			) cand
 			WHERE h1.event_id = $1
-			GROUP BY h2.event_id
-			ORDER BY score DESC, h2.event_id ASC
+			GROUP BY cand.event_id
+			ORDER BY score DESC, cand.event_id ASC
 			LIMIT 60
 		),
 		author_adj AS (
