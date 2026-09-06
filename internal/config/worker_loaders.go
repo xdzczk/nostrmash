@@ -42,18 +42,19 @@ func loadWorkerConcurrency() (workerConcurrency, error) {
 // workerRetentionConfigs bundles every worker retention/purge sub-config so the
 // retention module can be loaded and reasoned about as one unit.
 type workerRetentionConfigs struct {
-	InvalidEvent      WorkerInvalidEventRetentionConfig
-	Engagement        WorkerEngagementRetentionConfig
-	Replaceable       WorkerReplaceableRetentionConfig
-	Deletion          WorkerDeletionRetentionConfig
-	DeletionLedger    WorkerDeletionLedgerRetentionConfig
-	UntrustedAuthor   WorkerUntrustedAuthorRetentionConfig
-	AuthorRecent      WorkerAuthorRecentRetentionConfig
-	SearchDocs        WorkerSearchDocsRetentionConfig
-	EventRelays       WorkerEventRelaysRetentionConfig
-	EventTags         WorkerEventTagsRetentionConfig
-	AppliedStatDeltas WorkerAppliedStatDeltasRetentionConfig
-	TrustRetention    WorkerTrustRetentionLoopConfig
+	InvalidEvent       WorkerInvalidEventRetentionConfig
+	Engagement         WorkerEngagementRetentionConfig
+	Replaceable        WorkerReplaceableRetentionConfig
+	Deletion           WorkerDeletionRetentionConfig
+	DeletionLedger     WorkerDeletionLedgerRetentionConfig
+	UntrustedAuthor    WorkerUntrustedAuthorRetentionConfig
+	AuthorRecent       WorkerAuthorRecentRetentionConfig
+	SearchDocs         WorkerSearchDocsRetentionConfig
+	EventRelays        WorkerEventRelaysRetentionConfig
+	EventTags          WorkerEventTagsRetentionConfig
+	AppliedStatDeltas  WorkerAppliedStatDeltasRetentionConfig
+	FollowerGainEvents WorkerFollowerGainEventsRetentionConfig
+	TrustRetention     WorkerTrustRetentionLoopConfig
 }
 
 func loadWorkerRetentionConfigs() (workerRetentionConfigs, error) {
@@ -91,6 +92,9 @@ func loadWorkerRetentionConfigs() (workerRetentionConfigs, error) {
 		return workerRetentionConfigs{}, err
 	}
 	if out.AppliedStatDeltas, err = loadAppliedStatDeltasRetentionConfig(); err != nil {
+		return workerRetentionConfigs{}, err
+	}
+	if out.FollowerGainEvents, err = loadFollowerGainEventsRetentionConfig(); err != nil {
 		return workerRetentionConfigs{}, err
 	}
 	if out.TrustRetention, err = loadTrustRetentionLoopConfig(); err != nil {
@@ -392,6 +396,31 @@ func loadAppliedStatDeltasRetentionConfig() (WorkerAppliedStatDeltasRetentionCon
 	return WorkerAppliedStatDeltasRetentionConfig{
 		Enabled:          getEnvBool("WORKER_RETENTION_APPLIED_STAT_DELTAS_ENABLED", true),
 		GracePeriod:      gracePeriod,
+		RunInterval:      runInterval,
+		DeleteBatchLimit: deleteBatchLimit,
+	}, nil
+}
+
+// loadFollowerGainEventsRetentionConfig reads the
+// WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_* envs. The default max age (8d)
+// is the widest read window (7d) plus a day of grace; run interval matches
+// the other low-priority hygiene loops.
+func loadFollowerGainEventsRetentionConfig() (WorkerFollowerGainEventsRetentionConfig, error) {
+	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE", 8*24*time.Hour)
+	if err != nil {
+		return WorkerFollowerGainEventsRetentionConfig{}, err
+	}
+	runInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_RUN_INTERVAL", 6*time.Hour)
+	if err != nil {
+		return WorkerFollowerGainEventsRetentionConfig{}, err
+	}
+	deleteBatchLimit, err := getEnvPositiveIntStrict("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_DELETE_BATCH_LIMIT", 20000)
+	if err != nil {
+		return WorkerFollowerGainEventsRetentionConfig{}, err
+	}
+	return WorkerFollowerGainEventsRetentionConfig{
+		Enabled:          getEnvBool("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_ENABLED", true),
+		MaxAge:           maxAge,
 		RunInterval:      runInterval,
 		DeleteBatchLimit: deleteBatchLimit,
 	}, nil

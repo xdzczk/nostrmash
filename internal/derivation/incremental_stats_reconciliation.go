@@ -113,9 +113,9 @@ func (h *Handlers) reconcilePubkey(ctx context.Context, pubkey string) ([]Reconc
 
 // reconcileProfileDiscoveryStatsForPubkey compares the incremental daily/hourly
 // rollup against the legacy full-scan metric loaders for the fields that share
-// semantics. new_followers is intentionally excluded: incremental path uses
-// true kind=3 edge-diff gains, while the legacy scan counts edges whose
-// contact_list_created_at falls in the window (rewrites re-count).
+// semantics. new_followers is intentionally excluded: both loaders now read
+// the same follower_gain_events rows (true kind=3 edge-diff gains), so
+// comparing them would be a vacuous same-table check, not a drift signal.
 func (h *Handlers) reconcileProfileDiscoveryStatsForPubkey(ctx context.Context, pubkey string) ([]ReconciliationMismatch, error) {
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {

@@ -202,7 +202,7 @@ func loadProfileDiscoveryRecentActivityAtTx(ctx context.Context, tx pgx.Tx, pubk
 }
 
 // loadProfileDualWindowMetricsIncrementalTx rolls 24h/7d discovery windows
-// from author_hourly_activity / author_activity_daily / follower_gains_daily
+// from author_hourly_activity / author_activity_daily / follower_gain_events
 // and reads follower_count from profile_public_stats. Bounded to a few dozen
 // indexed rows per pubkey instead of scanning raw engagement tables.
 func loadProfileDualWindowMetricsIncrementalTx(
@@ -214,7 +214,6 @@ func loadProfileDualWindowMetricsIncrementalTx(
 	cutoff24h := nowUnix - int64((24*time.Hour)/time.Second)
 	cutoff7d := nowUnix - int64((7*24*time.Hour)/time.Second)
 	cutoff7dDate := time.Unix(cutoff7d, 0).UTC().Truncate(24 * time.Hour)
-	cutoff24hDate := time.Unix(cutoff24h, 0).UTC().Truncate(24 * time.Hour)
 
 	var out profileDualWindowMetrics
 	var activeDays24h, activeDays7d int64
@@ -273,24 +272,25 @@ func loadProfileDualWindowMetricsIncrementalTx(
 	out.window24h.activeDays = int(activeDays24h)
 	out.window7d.activeDays = int(activeDays7d)
 
-	// Follower gains use calendar-day buckets (kind=3 created_at date). That
-	// matches how gains are written and is the intended rising-score input;
-	// it is deliberately NOT reconciled against the legacy
-	// contact_list_created_at edge scan (rewrites re-count there).
+	// Follower gains come from follower_gain_events: one row per true
+	// kind=3 edge-diff gain, so contact-list rewrites by existing followers
+	// don't re-count and the windows are exact rolling cutoffs instead of
+	// calendar days.
 	if err := tx.QueryRow(ctx, `
 		SELECT
-			COALESCE((
-				SELECT SUM(gained) FROM follower_gains_daily
-				WHERE pubkey = $1 AND activity_date >= $2::date
-			), 0),
-			COALESCE((
-				SELECT SUM(gained) FROM follower_gains_daily
-				WHERE pubkey = $1 AND activity_date >= $3::date
-			), 0),
+			COALESCE(g.gained_24h, 0),
+			COALESCE(g.gained_7d, 0),
 			COALESCE((
 				SELECT follower_count FROM profile_public_stats WHERE pubkey = $1
 			), 0)
-	`, pubkey, cutoff24hDate, cutoff7dDate).Scan(
+		FROM (
+			SELECT
+				COUNT(*) FILTER (WHERE gained_at >= $2) AS gained_24h,
+				COUNT(*) FILTER (WHERE gained_at >= $3) AS gained_7d
+			FROM follower_gain_events
+			WHERE followed_pubkey = $1
+		) g
+	`, pubkey, cutoff24h, cutoff7d).Scan(
 		&out.window24h.newFollowers,
 		&out.window7d.newFollowers,
 		&out.followerCount,
@@ -461,11 +461,10 @@ func loadProfileDualWindowMetricsTx(
 			  AND zr.sender_pubkey <> $1
 			  AND zr.created_at >= $3
 			UNION ALL
-			SELECT 'new_follow', fe.contact_list_created_at, 0
-			FROM follower_edges fe
-			WHERE fe.followed_pubkey = $1
-			  AND fe.follower_pubkey <> $1
-			  AND fe.contact_list_created_at >= $3
+			SELECT 'new_follow', fge.gained_at, 0
+			FROM follower_gain_events fge
+			WHERE fge.followed_pubkey = $1
+			  AND fge.gained_at >= $3
 		) s
 	`, pubkey, cutoff24h, cutoff7d).Scan(
 		&engagement24h,

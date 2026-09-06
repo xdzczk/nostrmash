@@ -23,6 +23,7 @@ const (
 	statDeltaAuthorMediaDaily     = "author_media_daily"
 	statDeltaAuthorHourlyActivity = "author_hourly_activity"
 	statDeltaFollowerCounts       = "profile_public_stats_followers"
+	statDeltaFollowerGainEvents   = "follower_gain_events"
 )
 
 // ApplyIncrementalAuthorStats applies O(1) counter deltas for the
@@ -357,7 +358,6 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 	tx pgx.Tx,
 	eventID, authorPubkey string,
 	previousFollowed, contacts []string,
-	contactListCreatedAt int64,
 	versionOverride *int,
 ) error {
 	if !h.incrementalProfilePublicStats {
@@ -431,7 +431,6 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 		bump(followed, -1, 0)
 	}
 
-	activityDate := time.Unix(contactListCreatedAt, 0).UTC().Truncate(24 * time.Hour)
 	for _, d := range deltas {
 		if d.followerDelta == 0 && d.followingDelta == 0 {
 			continue
@@ -454,22 +453,6 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 			    updated_at = now()
 		`, d.pubkey, d.followerDelta, d.followingDelta, writeVersion); err != nil {
 			return fmt.Errorf("apply follower count delta for %s: %w", d.pubkey, err)
-		}
-		// True edge-diff gains feed profile_discovery_stats rising scores.
-		// Only positive follower deltas count (newly followed pubkeys).
-		if d.followerDelta > 0 {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO follower_gains_daily (
-					pubkey, activity_date, gained, derivation_version
-				)
-				VALUES ($1, $2::date, $3, $4)
-				ON CONFLICT (pubkey, activity_date) DO UPDATE
-				SET gained = GREATEST(follower_gains_daily.gained + EXCLUDED.gained, 0),
-				    derivation_version = EXCLUDED.derivation_version,
-				    updated_at = now()
-			`, d.pubkey, activityDate, d.followerDelta, writeVersion); err != nil {
-				return fmt.Errorf("apply follower gains daily for %s: %w", d.pubkey, err)
-			}
 		}
 	}
 	return nil

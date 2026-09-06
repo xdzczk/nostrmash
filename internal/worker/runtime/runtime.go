@@ -90,6 +90,14 @@ type AppliedStatDeltasRetentionStore interface {
 	PruneOrphanedAppliedStatDeltas(ctx context.Context, appliedBefore time.Time, limit int) (int64, error)
 }
 
+// FollowerGainEventsRetentionStore prunes aged follower_gain_events rows
+// (true kind=3 edge-diff follower gains, see
+// migrations/000085_follower_gain_events.sql). Satisfied by
+// *store.PostgresStore.
+type FollowerGainEventsRetentionStore interface {
+	PruneExpiredFollowerGainEvents(ctx context.Context, createdBefore time.Time, limit int) (int64, error)
+}
+
 // TrustRetentionStore performs the durable trust-retention hook deletes.
 // Satisfied by *store.PostgresStore.
 type TrustRetentionStore interface {

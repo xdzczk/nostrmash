@@ -20,7 +20,7 @@ import (
 // window scans + unbounded MAX(created_at) UNION for discovery). With
 // WORKER_INCREMENTAL_* defaults on, the sweeper skips the public-stats
 // rebuild entirely and rolls discovery scores from
-// author_hourly_activity / follower_gains_daily /
+// author_hourly_activity / follower_gain_events /
 // profile_discovery_recent_activity. The mark-and-sweep path remains so
 // bursts still coalesce and the flag-off / rebuild escape hatches keep
 // working.

@@ -96,14 +96,74 @@ func TestIncrementalProfileDiscoveryStats_RollsFromDailyTables(t *testing.T) {
 		t.Fatalf("expected recent_activity_at to be set, got %#v", recentActivityAt)
 	}
 
-	var gained int64
-	if err := pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(gained), 0) FROM follower_gains_daily WHERE pubkey = 'disc_author'
-	`).Scan(&gained); err != nil {
-		t.Fatalf("query follower_gains_daily: %v", err)
+	countGains := func(pubkey string) int64 {
+		t.Helper()
+		var gained int64
+		if err := pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM follower_gain_events WHERE followed_pubkey = $1
+		`, pubkey).Scan(&gained); err != nil {
+			t.Fatalf("query follower_gain_events: %v", err)
+		}
+		return gained
 	}
-	if gained != 5 {
+	if gained := countGains("disc_author"); gained != 5 {
 		t.Fatalf("expected 5 follower gains, got %d", gained)
+	}
+
+	// A contact-list rewrite that still follows disc_author must not
+	// re-count as a new follower: only the genuinely new edge gains.
+	rewrite := newEventForTest(
+		"inc_disc_follow_0_rewrite",
+		"inc_disc_follower_0",
+		now.Add(-30*time.Minute).Unix(),
+		3,
+		[][]string{{"p", "disc_author"}, {"p", "disc_other"}},
+		"contacts",
+		now.Add(-30*time.Minute),
+	)
+	if err := pgStore.InsertCanonicalEvent(ctx, rewrite, extractTagsFromRaw(t, rewrite.RawJSON), "wss://relay.one", rewrite.FirstSeenAt); err != nil {
+		t.Fatalf("insert rewrite event: %v", err)
+	}
+	if err := handlers.DeriveEventBundle(ctx, rewrite.ID); err != nil {
+		t.Fatalf("derive rewrite bundle: %v", err)
+	}
+	if gained := countGains("disc_author"); gained != 5 {
+		t.Fatalf("expected rewrite to not re-count disc_author gains, got %d", gained)
+	}
+	if gained := countGains("disc_other"); gained != 1 {
+		t.Fatalf("expected 1 gain for newly-followed disc_other, got %d", gained)
+	}
+
+	// Unfollow then refollow inside the retention horizon dedupes on the
+	// (followed, follower) primary key: no second gain row.
+	unfollow := newEventForTest(
+		"inc_disc_follow_0_unfollow",
+		"inc_disc_follower_0",
+		now.Add(-20*time.Minute).Unix(),
+		3,
+		[][]string{{"p", "disc_other"}},
+		"contacts",
+		now.Add(-20*time.Minute),
+	)
+	refollow := newEventForTest(
+		"inc_disc_follow_0_refollow",
+		"inc_disc_follower_0",
+		now.Add(-10*time.Minute).Unix(),
+		3,
+		[][]string{{"p", "disc_author"}, {"p", "disc_other"}},
+		"contacts",
+		now.Add(-10*time.Minute),
+	)
+	for _, event := range []model.Event{unfollow, refollow} {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+	if gained := countGains("disc_author"); gained != 5 {
+		t.Fatalf("expected refollow churn to dedupe, got %d gains", gained)
 	}
 
 	var discoveryRecent int64

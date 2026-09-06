@@ -176,6 +176,40 @@ func (q *Queries) PruneAuthorRecentEventsByCap(ctx context.Context, arg PruneAut
 	return result.RowsAffected(), nil
 }
 
+const pruneExpiredFollowerGainEvents = `-- name: PruneExpiredFollowerGainEvents :execrows
+WITH candidates AS (
+    SELECT g.followed_pubkey, g.follower_pubkey
+    FROM follower_gain_events g
+    WHERE g.created_at < $1
+    LIMIT $2
+)
+DELETE FROM follower_gain_events f
+USING candidates c
+WHERE f.followed_pubkey = c.followed_pubkey
+  AND f.follower_pubkey = c.follower_pubkey
+`
+
+type PruneExpiredFollowerGainEventsParams struct {
+	CreatedBefore pgtype.Timestamptz
+	RowLimit      int32
+}
+
+// Deletes follower_gain_events rows older than the retention horizon.
+// Nothing reads gains past the widest (7d) discovery window, so any row
+// whose insert time has aged past that plus a grace buffer is garbage.
+// Pruning keys off created_at (the insert time, served by
+// idx_follower_gain_events_created_at) rather than the event-supplied
+// gained_at, which a hostile contact list could post-date to dodge an
+// age-based prune forever. Cost is bounded by the batch: one index range
+// read of at most row_limit rows.
+func (q *Queries) PruneExpiredFollowerGainEvents(ctx context.Context, arg PruneExpiredFollowerGainEventsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneExpiredFollowerGainEvents, arg.CreatedBefore, arg.RowLimit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const pruneFilteredEventTagsDisallowedNames = `-- name: PruneFilteredEventTagsDisallowedNames :execrows
 WITH candidates AS (
     SELECT et.event_id, et.tag_index, et.value_index

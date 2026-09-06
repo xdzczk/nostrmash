@@ -38,9 +38,18 @@ Implemented (cutover defaults on):
   `profile_discovery_recent_activity`, plus 90d backfills. The profile-stats
   sweeper rolls `profile_discovery_stats` 24h/7d windows from these tables
   (O(dozens of indexed rows)) instead of rescanning raw engagement tables /
-  the unbounded `MAX(created_at)` UNION. Rising-score `new_followers` uses
-  true kind=3 edge-diff gains going forward (legacy scan counted edges whose
-  `contact_list_created_at` fell in-window, so list rewrites re-counted).
+  the unbounded `MAX(created_at)` UNION.
+- Migration `000085_follower_gain_events.sql` replaced `follower_gains_daily`
+  with `follower_gain_events`: one row per true kind=3 edge-diff gain, keyed
+  `(followed, follower)` so list rewrites and unfollow/refollow churn never
+  re-count, retaining the gained follower's identity for trust-weighted
+  scoring. Every `new_followers` reader — the discovery payload's
+  `recent_new_followers`, the incremental and legacy full-scan score loaders,
+  and the trust-weighted input — reads it (the legacy
+  `contact_list_created_at` edge scan re-counted every follower whose latest
+  list rewrite fell in-window). Rows are pruned by insert age via
+  `WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_*` once older than the widest (7d)
+  read window.
 - Retention decrement path: `derivation.Handlers.ReverseIncrementalAuthorStatsTx`
   undoes the exact deltas `ApplyIncrementalAuthorStats` applied for an event,
   gated by the same `applied_stat_deltas` ledger (unclaim-then-decrement
@@ -81,8 +90,9 @@ Implemented (cutover defaults on):
 the author-stats cutover; with `000065` +
 `WORKER_INCREMENTAL_PROFILE_DISCOVERY_STATS` it is on the same O(1) /
 bounded-rollup footing. Full-scan loaders remain as the flag-off escape
-hatch and as the reconciliation oracle (except `new_followers`, which has
-intentionally tighter semantics).
+hatch and as the reconciliation oracle (except `new_followers`, where both
+loaders read the same `follower_gain_events` rows, so the comparison would
+be vacuous).
 
 ## Current state (why the sweeper coalescing wasn't enough)
 

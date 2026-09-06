@@ -25,6 +25,7 @@ type WorkerConfig struct {
 	EventRelaysRetention       WorkerEventRelaysRetentionConfig
 	EventTagsRetention         WorkerEventTagsRetentionConfig
 	AppliedStatDeltasRetention WorkerAppliedStatDeltasRetentionConfig
+	FollowerGainRetention      WorkerFollowerGainEventsRetentionConfig
 	TrustRetentionHooks        TrustRetentionHooksConfig
 	TrustRetentionLoop         WorkerTrustRetentionLoopConfig
 	AuthorAnalyticsSweeper     WorkerAuthorAnalyticsSweeperConfig
@@ -331,6 +332,19 @@ type WorkerAppliedStatDeltasRetentionConfig struct {
 	DeleteBatchLimit int
 }
 
+// WorkerFollowerGainEventsRetentionConfig configures the pruner that deletes
+// follower_gain_events rows (true kind=3 edge-diff follower gains, see
+// migrations/000085_follower_gain_events.sql) whose insert time has aged
+// past MaxAge. Every reader windows gains to at most 7 days, so MaxAge only
+// needs to exceed that; the prune is hygiene that keeps the table bounded
+// by roughly one horizon of gains, not a correctness horizon.
+type WorkerFollowerGainEventsRetentionConfig struct {
+	Enabled          bool
+	MaxAge           time.Duration
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
 // WorkerDeletionRetentionConfig configures the purger that deletes raw deletion
 // events (kind 5) older than MaxAge once their derivation has completed. The
 // distilled deletion_events ledger row survives (migration 000050 dropped the
@@ -430,6 +444,7 @@ func LoadWorker() (WorkerConfig, error) {
 		EventRelaysRetention:       retention.EventRelays,
 		EventTagsRetention:         retention.EventTags,
 		AppliedStatDeltasRetention: retention.AppliedStatDeltas,
+		FollowerGainRetention:      retention.FollowerGainEvents,
 		TrustRetentionHooks:        trustRetentionHooks,
 		TrustRetentionLoop:         retention.TrustRetention,
 		AuthorAnalyticsSweeper:     sweepers.AuthorAnalytics,
@@ -668,6 +683,17 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.AppliedStatDeltasRetention.DeleteBatchLimit <= 0 {
 			return fmt.Errorf("WORKER_RETENTION_APPLIED_STAT_DELTAS_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.FollowerGainRetention.Enabled {
+		if cfg.FollowerGainRetention.MaxAge < 7*24*time.Hour {
+			return fmt.Errorf("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE must be >= 168h (rows feed the 7d discovery window)")
+		}
+		if cfg.FollowerGainRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_RUN_INTERVAL must be > 0")
+		}
+		if cfg.FollowerGainRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_DELETE_BATCH_LIMIT must be > 0")
 		}
 	}
 	if cfg.AuthorAnalyticsSweeper.Enabled {

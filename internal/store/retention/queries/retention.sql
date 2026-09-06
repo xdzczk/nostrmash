@@ -440,6 +440,26 @@ DELETE FROM account_states a
 USING candidates c
 WHERE a.pubkey = c.pubkey;
 
+-- name: PruneExpiredFollowerGainEvents :execrows
+-- Deletes follower_gain_events rows older than the retention horizon.
+-- Nothing reads gains past the widest (7d) discovery window, so any row
+-- whose insert time has aged past that plus a grace buffer is garbage.
+-- Pruning keys off created_at (the insert time, served by
+-- idx_follower_gain_events_created_at) rather than the event-supplied
+-- gained_at, which a hostile contact list could post-date to dodge an
+-- age-based prune forever. Cost is bounded by the batch: one index range
+-- read of at most row_limit rows.
+WITH candidates AS (
+    SELECT g.followed_pubkey, g.follower_pubkey
+    FROM follower_gain_events g
+    WHERE g.created_at < @created_before
+    LIMIT @row_limit
+)
+DELETE FROM follower_gain_events f
+USING candidates c
+WHERE f.followed_pubkey = c.followed_pubkey
+  AND f.follower_pubkey = c.follower_pubkey;
+
 -- name: PruneFilteredEventTagsDisallowedNames :execrows
 -- Drop event_tags rows whose tag_name is outside the ingest allowlist
 -- (internal/eventtags.ShouldPersist). ingest already refuses to write

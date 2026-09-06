@@ -23,6 +23,15 @@ type Querier interface {
 	// (idx_author_recent_events_projected_at) keeps per-tick cost proportional to
 	// recent write volume instead of total table size.
 	PruneAuthorRecentEventsByCap(ctx context.Context, arg PruneAuthorRecentEventsByCapParams) (int64, error)
+	// Deletes follower_gain_events rows older than the retention horizon.
+	// Nothing reads gains past the widest (7d) discovery window, so any row
+	// whose insert time has aged past that plus a grace buffer is garbage.
+	// Pruning keys off created_at (the insert time, served by
+	// idx_follower_gain_events_created_at) rather than the event-supplied
+	// gained_at, which a hostile contact list could post-date to dodge an
+	// age-based prune forever. Cost is bounded by the batch: one index range
+	// read of at most row_limit rows.
+	PruneExpiredFollowerGainEvents(ctx context.Context, arg PruneExpiredFollowerGainEventsParams) (int64, error)
 	// Drop event_tags rows whose tag_name is outside the ingest allowlist
 	// (internal/eventtags.ShouldPersist). ingest already refuses to write
 	// these, so idx_event_tags_disallowed_tag_name only ever holds legacy

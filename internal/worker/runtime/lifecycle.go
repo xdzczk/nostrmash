@@ -133,6 +133,14 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		})
 	})
 	spawn(func(c context.Context) {
+		jobs.RunFollowerGainEventsRetentionLoop(c, log, bootstrap.FollowerGainStore, jobs.FollowerGainEventsRetentionConfig{
+			Enabled:          cfg.FollowerGainRetention.Enabled,
+			MaxAge:           cfg.FollowerGainRetention.MaxAge,
+			RunInterval:      cfg.FollowerGainRetention.RunInterval,
+			DeleteBatchLimit: cfg.FollowerGainRetention.DeleteBatchLimit,
+		})
+	})
+	spawn(func(c context.Context) {
 		jobs.RunTrustRetentionHooksLoop(c, log, bootstrap.TrustRetention, jobs.TrustRetentionHooksLoopConfig{
 			DiscoveryCandidates: jobs.TrustRetentionHookScope{
 				Enabled:          cfg.TrustRetentionHooks.DiscoveryProjectionCandidates.Enabled,

@@ -27,7 +27,7 @@ type Handlers struct {
 	incrementalWindowedRollups bool
 	// incrementalProfileDiscoveryStats rolls profile_discovery_stats 24h/7d
 	// windows from author_activity_daily / author_hourly_activity /
-	// follower_gains_daily instead of rescanning raw engagement tables.
+	// follower_gain_events instead of rescanning raw engagement tables.
 	incrementalProfileDiscoveryStats bool
 	// engagementWeighting controls trust-graph weighting of note discovery
 	// trending scores. Zero value keeps uniform per-engager weights.

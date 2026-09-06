@@ -195,9 +195,9 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 			p.recent_engagement_received,
 			COALESCE((
 				SELECT COUNT(*)
-				FROM follower_edges fe
-				WHERE fe.followed_pubkey = p.pubkey
-				  AND fe.contact_list_created_at >= $1
+				FROM follower_gain_events fge
+				WHERE fge.followed_pubkey = p.pubkey
+				  AND fge.gained_at >= $1
 			), 0)::bigint AS recent_new_followers,
 			p.recent_zap_volume_msats,
 			p.recent_active_days,

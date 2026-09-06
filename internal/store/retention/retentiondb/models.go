@@ -317,12 +317,12 @@ type FollowerEdge struct {
 	UpdatedAt            pgtype.Timestamptz
 }
 
-type FollowerGainsDaily struct {
-	Pubkey            string
-	ActivityDate      pgtype.Date
-	Gained            int64
+type FollowerGainEvent struct {
+	FollowedPubkey    string
+	FollowerPubkey    string
+	GainedAt          int64
 	DerivationVersion int32
-	UpdatedAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
 }
 
 type IngestCheckpoint struct {

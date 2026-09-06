@@ -37,6 +37,7 @@ type Bootstrap struct {
 	EventRelaysStore       EventRelaysRetentionStore
 	EventTagsStore         EventTagsRetentionStore
 	AppliedStatDeltasStore AppliedStatDeltasRetentionStore
+	FollowerGainStore      FollowerGainEventsRetentionStore
 	TrustRetention         TrustRetentionStore
 	ProcessJob             ProcessJobFn
 	Handlers               *derivation.Handlers
@@ -153,6 +154,7 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		EventRelaysStore:       postgresStore,
 		EventTagsStore:         postgresStore,
 		AppliedStatDeltasStore: postgresStore,
+		FollowerGainStore:      postgresStore,
 		TrustRetention:         postgresStore,
 		ProcessJob: func(jobCtx context.Context, job jobs.Job) error {
 			if job.JobType == jobs.JobTypeHydrateAccount {

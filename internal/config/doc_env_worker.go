@@ -70,7 +70,7 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "true",
-			Description:  "Roll profile_discovery_stats 24h/7d windows from author_activity_daily / author_hourly_activity / follower_gains_daily instead of rescanning raw engagement tables. Requires WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS and WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY.",
+			Description:  "Roll profile_discovery_stats 24h/7d windows from author_activity_daily / author_hourly_activity / follower_gain_events instead of rescanning raw engagement tables. Requires WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS and WORKER_INCREMENTAL_AUTHOR_ACTIVITY_DAILY.",
 		},
 		{
 			Name:         "WORKER_INCREMENTAL_STATS_RECONCILIATION_ENABLED",
@@ -750,6 +750,34 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Required:     false,
 			DefaultValue: "5000",
 			Description:  "Maximum applied_stat_deltas rows deleted per retention purge batch.",
+		},
+		{
+			Name:         "WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_ENABLED",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Enable pruning of follower_gain_events rows (true kind=3 edge-diff follower gains feeding discovery new-follower counts and rising scores) whose insert time has aged past WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE. Nothing reads gains past the 7d discovery window; the prune keeps the table bounded by roughly one horizon of gains.",
+		},
+		{
+			Name:         "WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "192h0m0s",
+			Description:  "Insert-age horizon after which follower_gain_events rows are pruned. Must be >= 168h (the widest discovery read window is 7d); the default adds a day of grace. Also bounds the unfollow/refollow dedupe: a pruned (followed, follower) pair counts as a new gain again if re-followed after this horizon.",
+		},
+		{
+			Name:         "WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_RUN_INTERVAL",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "6h0m0s",
+			Description:  "How often the follower_gain_events retention loop runs.",
+		},
+		{
+			Name:         "WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_DELETE_BATCH_LIMIT",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "20000",
+			Description:  "Maximum follower_gain_events rows deleted per retention purge batch.",
 		},
 		{
 			Name:         "TRUST_RETENTION_RUN_INTERVAL",

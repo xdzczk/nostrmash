@@ -122,20 +122,21 @@ func loadProfileWeightedScoreInputsTx(
 		return out, fmt.Errorf("load weighted profile zap volume: %w", err)
 	}
 
-	// New followers: one weighted vote per distinct follower whose current
-	// edge appeared in the window. A ring of fresh untrusted accounts
-	// following a bot buys zero rising momentum.
+	// New followers: one weighted vote per follower gained in the window.
+	// follower_gain_events holds true kind=3 edge-diff gains (self-follows
+	// excluded at write), so contact-list rewrites by existing followers buy
+	// nothing, and a ring of fresh untrusted accounts following a bot buys
+	// zero rising momentum.
 	if err := tx.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(w) FILTER (WHERE ts >= $3), 0),
 			COALESCE(SUM(w), 0)
 		FROM (
-			SELECT fe.contact_list_created_at AS ts, `+engagerWeightCaseSQL+` AS w
-			FROM follower_edges fe
-			LEFT JOIN trust_pubkeys_latest t ON t.pubkey = fe.follower_pubkey
-			WHERE fe.followed_pubkey = $1
-			  AND fe.follower_pubkey <> $1
-			  AND fe.contact_list_created_at >= $2
+			SELECT fge.gained_at AS ts, `+engagerWeightCaseSQL+` AS w
+			FROM follower_gain_events fge
+			LEFT JOIN trust_pubkeys_latest t ON t.pubkey = fge.follower_pubkey
+			WHERE fge.followed_pubkey = $1
+			  AND fge.gained_at >= $2
 		) weighted
 	`, args...).Scan(&out.newFollowers24h, &out.newFollowers7d); err != nil {
 		return out, fmt.Errorf("load weighted profile new followers: %w", err)

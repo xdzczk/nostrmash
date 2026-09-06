@@ -139,15 +139,21 @@ func (h *Handlers) projectContactListsLatestWithVersion(ctx context.Context, eve
 			}
 			// A kind=3 contact list rewrite changes follower_edges for
 			// (the author + every previously-followed pubkey + every
-			// newly-followed pubkey). When incremental profile stats are
-			// enabled we apply ±1 follower/following deltas directly from
-			// the edge diff. Otherwise (and always for discovery-stats)
-			// we enqueue dirty markers for out-of-band recompute.
+			// newly-followed pubkey). True edge-diff gains are always
+			// recorded to follower_gain_events (every "new followers"
+			// reader uses them). When incremental profile stats are
+			// enabled we additionally apply ±1 follower/following deltas
+			// directly from the edge diff. Otherwise (and always for
+			// discovery-stats) we enqueue dirty markers for out-of-band
+			// recompute.
 			//
 			// Dirty markers are written inside the same transaction as
 			// the contact_lists_latest / follower_edges writes so that a
 			// rollback of the bundle step also rolls back the markers.
-			if err := h.applyFollowerCountDeltasTx(ctx, tx, winnerID, pubkey, previousFollowed, contacts, winnerCreatedAt, versionOverride); err != nil {
+			if err := h.recordFollowerGainEventsTx(ctx, tx, winnerID, pubkey, previousFollowed, contacts, winnerCreatedAt, followerWriteVersion); err != nil {
+				return err
+			}
+			if err := h.applyFollowerCountDeltasTx(ctx, tx, winnerID, pubkey, previousFollowed, contacts, versionOverride); err != nil {
 				return err
 			}
 			impactedPubkeys := make([]string, 0, 1+len(previousFollowed)+len(contacts))
