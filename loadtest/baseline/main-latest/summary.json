@@ -1,0 +1,80 @@
+{
+  "started_at": "2026-09-07T10:05:40.805714703Z",
+  "duration_ms": 30037,
+  "ws_clients": 32,
+  "api_clients": 32,
+  "base_url": "http://localhost:8080",
+  "ws_url": "ws://localhost:8080/primal/ws",
+  "channels": [
+    {
+      "name": "ws",
+      "total": 111035,
+      "ok": 85407,
+      "errors": 25628,
+      "error_rate": 0.23081010492187148,
+      "throughput_rps": 3696.4970374585537,
+      "latency": {
+        "count": 111035,
+        "min_ns": 65857,
+        "max_ns": 61030573,
+        "mean_ns": 8645278,
+        "p50_ns": 7310995,
+        "p95_ns": 20548503,
+        "p99_ns": 28749126
+      },
+      "by_class": {
+        "eose": 85407,
+        "notice": 25628
+      },
+      "by_request": {
+        "contact_list": 8542,
+        "events": 8536,
+        "feed": 8538,
+        "get_bookmarks": 8540,
+        "net_stats": 8539,
+        "search": 8541,
+        "server_name": 8542,
+        "thread_view": 8541,
+        "user_followers": 8542,
+        "user_infos": 8543,
+        "user_mentions": 8543,
+        "user_profile": 8545,
+        "user_zaps": 8543
+      }
+    },
+    {
+      "name": "api",
+      "total": 116723,
+      "ok": 116708,
+      "errors": 15,
+      "error_rate": 0.00012850937690086787,
+      "throughput_rps": 3885.857825940242,
+      "latency": {
+        "count": 116723,
+        "min_ns": 75992,
+        "max_ns": 70767160,
+        "mean_ns": 8194062,
+        "p50_ns": 6512310,
+        "p95_ns": 21935900,
+        "p99_ns": 30944650
+      },
+      "by_class": {
+        "2xx": 81710,
+        "4xx": 34998,
+        "transport": 15
+      },
+      "by_request": {
+        "author_events": 11670,
+        "event_by_id": 11669,
+        "followers": 11679,
+        "health": 11670,
+        "network_stats": 11676,
+        "profile_by_pubkey": 11667,
+        "search": 11677,
+        "thread": 11668,
+        "trending_hashtags": 11670,
+        "trending_notes": 11677
+      }
+    }
+  ]
+}
