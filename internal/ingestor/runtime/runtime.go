@@ -123,6 +123,7 @@ func buildRunner(
 		log.Error("ingestor_processor", "error", err)
 		return runner{}, err
 	}
+	processor.SetDedupCache(cfg.Runtime.DedupCacheSize)
 
 	// Always wire the trust gate. In "open" mode it only records shadow
 	// metrics; in "trusted_only" it enforces. Keeping it always wired lets

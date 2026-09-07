@@ -59,6 +59,13 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Description:  "Optional inclusive upper timestamp bound for backfill.",
 		},
 		{
+			Name:         "INGESTOR_DEDUP_CACHE_SIZE",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "100000",
+			Description:  "Entries in the in-memory duplicate short-circuit cache; repeat relay sightings of already-persisted events skip validation and the canonical insert (a provenance upsert still runs). 0 disables.",
+		},
+		{
 			Name:         "INGESTOR_FILTER_GROUP",
 			Runtimes:     []string{"ingestor"},
 			Required:     false,

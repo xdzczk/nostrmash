@@ -67,6 +67,7 @@ Do not hand-edit this file.
 | `INGESTOR_BACKFILL_PAGE_LIMIT` | `ingestor` | optional | `500` | Page size used by backfill fetches. |
 | `INGESTOR_BACKFILL_SINCE` | `ingestor` | optional | `-` | Optional inclusive lower timestamp bound for backfill. |
 | `INGESTOR_BACKFILL_UNTIL` | `ingestor` | optional | `-` | Optional inclusive upper timestamp bound for backfill. |
+| `INGESTOR_DEDUP_CACHE_SIZE` | `ingestor` | optional | `100000` | Entries in the in-memory duplicate short-circuit cache; repeat relay sightings of already-persisted events skip validation and the canonical insert (a provenance upsert still runs). 0 disables. |
 | `INGESTOR_FILTER_GROUP` | `ingestor` | optional | `default_v1` | Active relay filter group name. |
 | `INGESTOR_FILTER_GROUPS_JSON` | `ingestor` | optional | `-` | Optional JSON map of relay filter groups; `default_v1` remains required and must keep the built-in live-ingest kind set. |
 | `INGESTOR_LIVE_BOOTSTRAP_LOOKBACK_SECONDS` | `ingestor` | optional | `300` | Live mode lookback window in seconds before tailing. |

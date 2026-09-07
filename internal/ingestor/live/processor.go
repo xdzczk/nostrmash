@@ -26,6 +26,16 @@ type EventStore interface {
 		relaySeenAt time.Time,
 	) (store.CanonicalInsertResult, error)
 	InsertInvalidEvent(ctx context.Context, invalid model.InvalidEvent) error
+	// InsertEventRelayProvenance records a relay sighting of an event that is
+	// already canonical, without touching the events/event_tags rows. Used by
+	// the dedup cache fast path so relay activity stats stay accurate.
+	InsertEventRelayProvenance(
+		ctx context.Context,
+		eventID string,
+		relayURL string,
+		seenAt time.Time,
+		pubkey string,
+	) error
 }
 
 // CheckpointWriter persists durable live checkpoint progress.
@@ -65,6 +75,11 @@ type Processor struct {
 	// observationSink (optional) records that a pubkey was seen at ingest
 	// (including gated/blocked events). Must be cheap and non-blocking.
 	observationSink ObservationSink
+
+	// dedup (optional) short-circuits repeat sightings of already-persisted
+	// events before signature verification and the canonical insert
+	// transaction. Nil when disabled.
+	dedup *dedupCache
 }
 
 // BlockedAuthors reports whether a pubkey is explicitly blocked. Satisfied by
@@ -133,6 +148,61 @@ func (p *Processor) SetObservationSink(sink ObservationSink) {
 	p.observationSink = sink
 }
 
+// SetDedupCache enables the in-memory duplicate short-circuit with the given
+// capacity (entries). Size <= 0 disables it.
+func (p *Processor) SetDedupCache(size int) {
+	if p == nil {
+		return
+	}
+	p.dedup = newDedupCache(size)
+}
+
+// dedupProbe is the minimal payload shape needed to consult the dedup cache
+// before paying for full validation.
+type dedupProbe struct {
+	ID        string `json:"id"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// handleCachedDuplicate short-circuits a payload whose event ID is already
+// known to be canonical. Returns true when the payload was fully handled.
+//
+// The probe fields are unverified, but a cache hit proves an event with this
+// ID already passed validation and was persisted — and the ID is the content
+// hash, so whatever body this payload carries is irrelevant. Provenance is
+// written with the pubkey cached from the verified first sighting, never with
+// anything the incoming payload claims. The checkpoint advance trusts the
+// probe's created_at the same way the gated-drop path trusts a relay's frames:
+// a relay lying about its own stream can only skew its own resume window.
+func (p *Processor) handleCachedDuplicate(ctx context.Context, relayURL string, payload []byte, seenAt time.Time) (bool, error) {
+	if p.dedup == nil {
+		return false, nil
+	}
+	var probe dedupProbe
+	if err := json.Unmarshal(payload, &probe); err != nil || probe.ID == "" {
+		return false, nil
+	}
+	pubkey, hit := p.dedup.Get(probe.ID)
+	if !hit {
+		return false, nil
+	}
+	if p.observationSink != nil {
+		p.observationSink.Observe(pubkey)
+	}
+	if err := p.store.InsertEventRelayProvenance(ctx, probe.ID, relayURL, seenAt, pubkey); err != nil {
+		return true, fmt.Errorf("store duplicate provenance: %w", err)
+	}
+	if p.checkpointWriter != nil {
+		if err := p.checkpointWriter.MarkEventProcessed(ctx, relayURL, probe.ID, probe.CreatedAt); err != nil {
+			return true, fmt.Errorf("persist live checkpoint (cached duplicate): %w", err)
+		}
+	}
+	p.dupeCount.Add(1)
+	metrics.IncIngestOutcome("duplicate_cached")
+	p.log.Debug("ingest_event_duplicate_cached", "relay_url", relayURL, "event_id", probe.ID)
+	return true, nil
+}
+
 func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte) (err error) {
 	ctx, span := traceutil.StartSpan(ctx, "ingest.live.handle_event",
 		traceutil.KV("relay.url", relayURL),
@@ -141,6 +211,9 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 		span.End(err)
 	}()
 	seenAt := time.Now().UTC()
+	if handled, dedupErr := p.handleCachedDuplicate(ctx, relayURL, payload, seenAt); handled {
+		return dedupErr
+	}
 	result := nostr.ParseAndValidate(payload, p.validateOpts)
 	if result.Valid() {
 		if p.observationSink != nil {
@@ -228,6 +301,11 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 				return fmt.Errorf("persist live checkpoint: %w", err)
 			}
 		}
+
+		// Cache only IDs that reached the store with a verified signature —
+		// whether newly inserted or confirmed duplicates — so a hit can never
+		// be poisoned by an unvalidated payload.
+		p.dedup.Add(event.ID, event.Pubkey)
 
 		if outcome.EventInserted {
 			p.validCount.Add(1)

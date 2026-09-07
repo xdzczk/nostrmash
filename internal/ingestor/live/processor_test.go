@@ -94,6 +94,7 @@ type fakeStore struct {
 	canonicalOutcomes []bool
 	canonicalWrites   int
 	invalidWrites     []model.InvalidEvent
+	provenanceWrites  []string
 }
 
 func (f *fakeStore) InsertCanonicalEventWithResult(
@@ -113,6 +114,17 @@ func (f *fakeStore) InsertCanonicalEventWithResult(
 
 func (f *fakeStore) InsertInvalidEvent(ctx context.Context, invalid model.InvalidEvent) error {
 	f.invalidWrites = append(f.invalidWrites, invalid)
+	return nil
+}
+
+func (f *fakeStore) InsertEventRelayProvenance(
+	ctx context.Context,
+	eventID string,
+	relayURL string,
+	seenAt time.Time,
+	pubkey string,
+) error {
+	f.provenanceWrites = append(f.provenanceWrites, eventID+"|"+relayURL+"|"+pubkey)
 	return nil
 }
 
@@ -143,6 +155,16 @@ func (s *replaySafeStore) InsertCanonicalEventWithResult(
 }
 
 func (s *replaySafeStore) InsertInvalidEvent(ctx context.Context, invalid model.InvalidEvent) error {
+	return nil
+}
+
+func (s *replaySafeStore) InsertEventRelayProvenance(
+	ctx context.Context,
+	eventID string,
+	relayURL string,
+	seenAt time.Time,
+	pubkey string,
+) error {
 	return nil
 }
 

@@ -10,6 +10,9 @@ import (
 // IngestorRuntimeConfig owns ingestor-only runtime switches.
 type IngestorRuntimeConfig struct {
 	Mode string
+	// DedupCacheSize bounds the in-memory LRU of recently persisted event
+	// IDs consulted before validation on the live hot path. 0 disables.
+	DedupCacheSize int
 }
 
 // IngestorConfig owns ingestor runtime configuration plus shared settings.
@@ -105,11 +108,16 @@ func LoadIngestor() (IngestorConfig, error) {
 	if err != nil {
 		return IngestorConfig{}, err
 	}
+	dedupCacheSize, err := getEnvNonNegativeIntStrict("INGESTOR_DEDUP_CACHE_SIZE", 100000)
+	if err != nil {
+		return IngestorConfig{}, err
+	}
 
 	cfg := IngestorConfig{
 		Shared: shared,
 		Runtime: IngestorRuntimeConfig{
-			Mode: strings.ToLower(strings.TrimSpace(getEnv("INGESTOR_MODE", "live"))),
+			Mode:           strings.ToLower(strings.TrimSpace(getEnv("INGESTOR_MODE", "live"))),
+			DedupCacheSize: dedupCacheSize,
 		},
 		Relay: RelayConfig{
 			URLs:           parseCSVEnv("INGESTOR_RELAY_URLS"),
