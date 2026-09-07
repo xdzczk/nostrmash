@@ -119,6 +119,52 @@ func TestComputeProfileRisingScore(t *testing.T) {
 		}
 	})
 
+	t.Run("a positive trending score alone no longer qualifies for rising", func(t *testing.T) {
+		// Trending measures engagement-per-post quality; rising requires
+		// credited momentum of its own. An account with a decent trending
+		// score but zero credited follower growth and only a single
+		// (noise-floor) interaction must not ride trending into
+		// "Up and coming".
+		if got := computeProfileRisingScore(50, 100, 0, 1, 5, 0, 3); got != 0 {
+			t.Fatalf("want 0 when trending is the only positive signal, got %v", got)
+		}
+	})
+
+	t.Run("a lone interaction is noise, not rising momentum", func(t *testing.T) {
+		// One stray boost/reaction on a tiny account (the bridged-bot
+		// pattern) must not make it eligible by itself.
+		if got := computeProfileRisingScore(0, 5, 0, 1, 2, 0, 1); got != 0 {
+			t.Fatalf("want 0 for a single interaction with no credited growth, got %v", got)
+		}
+	})
+
+	t.Run("single-day engagement burst earns less than the same engagement sustained", func(t *testing.T) {
+		// The consistency multiplier discounts drive-by boost bursts:
+		// identical totals concentrated in one active day score below the
+		// same totals spread over 3+ days of authored activity.
+		burst := computeProfileRisingScore(0, 20, 0, 12, 3, 0, 1)
+		sustained := computeProfileRisingScore(0, 20, 0, 12, 3, 0, 3)
+		if sustained <= burst {
+			t.Fatalf("expected sustained engagement to outrank a single-day burst: burst %v sustained %v", burst, sustained)
+		}
+	})
+
+	t.Run("one boosted note on a tiny account stays below sustained small-account momentum", func(t *testing.T) {
+		// The bot pattern: a 3-follower account picks up 12 boosts on a
+		// single note in one day. The quality pattern: a 300-follower
+		// account gains ~30 followers and 60 interactions across several
+		// days. Shrinkage, the audience prior, and the consistency
+		// multiplier together must keep the burst clearly below.
+		botBurst := computeProfileRisingScore(0, 3, 0, 12, 3, 0, 1)
+		sustainedQuality := computeProfileRisingScore(0, 300, 30, 60, 10, 2, 5)
+		if botBurst <= 0 {
+			t.Fatalf("a real 12-interaction burst should still be eligible (tiny accounts can surface), got %v", botBurst)
+		}
+		if botBurst >= sustainedQuality {
+			t.Fatalf("expected sustained quality momentum to outrank a one-note burst: burst %v sustained %v", botBurst, sustainedQuality)
+		}
+	})
+
 	t.Run("meaningful follower growth scores without a trending score", func(t *testing.T) {
 		// A small account gaining 60 followers with no measured
 		// engagement must still be eligible for "Up and coming" — the

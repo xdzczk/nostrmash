@@ -75,8 +75,11 @@ func TestProjectProfileDiscoveryStats_TracksScoresAndRisingOrder(t *testing.T) {
 	`).Scan(&topRisingPubkey); err != nil {
 		t.Fatalf("query top rising pubkey: %v", err)
 	}
-	if topRisingPubkey != "small_author" {
-		t.Fatalf("expected small_author to lead rising ranking via relative engagement vs. a larger audience, got %s", topRisingPubkey)
+	// big_author gained 20 real followers; small_author only has two
+	// single-day interactions. Credited follower growth must outrank a
+	// tiny engagement burst.
+	if topRisingPubkey != "big_author" {
+		t.Fatalf("expected big_author's credited follower growth to lead the rising ranking, got %s", topRisingPubkey)
 	}
 }
 

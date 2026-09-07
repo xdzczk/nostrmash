@@ -909,12 +909,21 @@ paths:
         accounts with substantial absolute growth (e.g. +60 followers on a
         400-follower account) reliably outrank barely-started ones (e.g. +5
         followers on a 5-follower account) rather than the reverse.
-        Meaningful follower growth can rank even when the profile has no
-        trending engagement. Reason evidence cites the same scored
-        (optionally trust-weighted) engagement and new-follower values the
-        ranking used. Reason codes in priority order: `follower_growth`,
-        `relative_engagement_growth` (engagement-per-follower ratio),
-        `engagement_received`, `publishing_momentum`.
+        Engagement has a matching noise floor: a single (weighted)
+        interaction contributes nothing, and the engagement-momentum term
+        is shrunk for small samples and discounted when concentrated in a
+        single day of activity, so a lone boosted note (the bridged-bot
+        pattern) cannot carry an account into the list -- while sustained,
+        multi-account engagement on a tiny account still can. Eligibility
+        requires above-noise follower growth or engagement of the
+        account's own; a trending score alone does not qualify. Meaningful
+        follower growth can rank even when the profile has no trending
+        engagement. Reason evidence cites the same scored (optionally
+        trust-weighted) engagement and new-follower values the ranking
+        used. Reason codes in priority order: `follower_growth`,
+        `relative_engagement_growth` (engagement-per-follower ratio,
+        omitted for a single interaction), `engagement_received`,
+        `publishing_momentum`.
       parameters:
         - in: query
           name: window

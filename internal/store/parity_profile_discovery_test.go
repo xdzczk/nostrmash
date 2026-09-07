@@ -86,8 +86,11 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 	if len(rising24h) != 2 {
 		t.Fatalf("unexpected 24h rising profile count: got=%d want=2", len(rising24h))
 	}
-	if rising24h[0].Pubkey != "small_author" {
-		t.Fatalf("expected small_author to rank above big_author in rising 24h via relative engagement vs. a larger audience, got=%#v", rising24h[0])
+	// big_author gained 25 real followers; small_author only has a handful
+	// of single-day interactions. Sample-size shrinkage and the consistency
+	// multiplier keep that burst below genuine credited follower growth.
+	if rising24h[0].Pubkey != "big_author" {
+		t.Fatalf("expected big_author's credited follower growth to outrank small_author's single-day engagement burst in rising 24h, got=%#v", rising24h[0])
 	}
 
 	trending7d, err := pgStore.GetTrendingProfiles(ctx, 7*24*time.Hour, 10, 0)
@@ -373,11 +376,14 @@ func TestTrendingAndRisingProfiles_PenalizeHighVolumeLowEngagement(t *testing.T)
 	if err != nil {
 		t.Fatalf("GetRisingProfiles: %v", err)
 	}
-	if len(rising) < 2 {
-		t.Fatalf("expected at least 2 profiles, got %#v", rising)
+	// spammy_author's single reaction sits at the rising engagement noise
+	// floor and it gained no followers, so it is ineligible for rising
+	// entirely -- not merely outranked.
+	if len(rising) != 1 {
+		t.Fatalf("expected only organic_author in rising (spammy's lone interaction is noise), got %#v", rising)
 	}
 	if rising[0].Pubkey != "organic_author" {
-		t.Fatalf("expected organic_author to outrank spammy_author in rising, got %#v", rising[0])
+		t.Fatalf("expected organic_author to lead rising, got %#v", rising[0])
 	}
 }
 

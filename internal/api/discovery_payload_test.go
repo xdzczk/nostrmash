@@ -82,6 +82,26 @@ func TestBuildProfileRanking_RisingSurface(t *testing.T) {
 		}
 	})
 
+	t.Run("a single interaction is below the engagement reason floor", func(t *testing.T) {
+		// Mirrors the score's risingEngagementNoiseFloor: one (weighted)
+		// interaction contributes nothing to the rising score, so it must
+		// not be advertised as an engagement-based reason either.
+		profile := query.TrendingProfile{
+			Pubkey:                   "pk_lone_boost",
+			Score:                    0.5,
+			RecentPostCount:          2,
+			RecentEngagementReceived: 1,
+			FollowerCount:            3,
+		}
+
+		ranking := buildProfileRanking(profile, 3, discoverySurfaceRising)
+		for _, code := range reasonCodes(ranking.Reasons) {
+			if code == "relative_engagement_growth" || code == "engagement_received" {
+				t.Fatalf("did not expect engagement reasons for a single interaction, got %v", reasonCodes(ranking.Reasons))
+			}
+		}
+	})
+
 	t.Run("no new followers still surfaces relative engagement growth, not follower_growth", func(t *testing.T) {
 		profile := query.TrendingProfile{
 			Pubkey:                   "pk_no_followers",

@@ -132,12 +132,19 @@ func computeProfileRisingScore(
 	// audience-penalty's "small account" ceiling above.
 	const risingFollowerNoiseFloor = 2.0
 	creditedNewFollowers := math.Max(0, safeNewFollowers-risingFollowerNoiseFloor)
-	// Rising is independently reachable via credited follower growth or
-	// relative engagement. It must not require a positive trending score:
-	// the trending floor now rejects zero-engagement posters, and a small
-	// account gaining 60 followers with no measured engagement is still a
-	// valid "Up and coming" candidate.
-	if trendingScore <= 0 && creditedNewFollowers <= 0 && safeEngagement <= 0 {
+	// Same idea for engagement: a single (weighted) interaction is not
+	// evidence of momentum -- any account can pick up one stray boost or
+	// reaction. With trust weighting live, engagement inputs are already
+	// deduplicated per-engager and scaled by trust proximity, so clearing
+	// this floor requires interactions from more than one real account.
+	const risingEngagementNoiseFloor = 1.0
+	creditedEngagement := math.Max(0, safeEngagement-risingEngagementNoiseFloor)
+	// Rising requires credited momentum of its own: either real follower
+	// growth or above-noise engagement. A positive trending score alone is
+	// NOT enough -- trending measures engagement-per-post quality, and
+	// letting it qualify a profile here would re-admit exactly the
+	// "one boosted note, nothing else" accounts the floors exist to block.
+	if creditedNewFollowers <= 0 && creditedEngagement <= 0 {
 		return 0
 	}
 	// Gentle log through the "small account" range, then a multiplicative
@@ -161,21 +168,34 @@ func computeProfileRisingScore(
 	// The *100 scale-up keeps typical fractional engagement/follower
 	// ratios (e.g. 0.5 engagement per follower) in a range where log1p
 	// produces a meaningful signal instead of ~0.
-	engagementPerFollower := safeEngagement / (1.0 + float64(safeFollowerCount))
-	relativeEngagementMomentum := 3.0 * math.Log1p(engagementPerFollower*100.0)
-	engagementMomentum := 0.4*math.Log1p(safeEngagement) + relativeEngagementMomentum
+	//
+	// Two guards keep this from being the bot backdoor it used to be:
+	//   - Audience prior: the denominator is (10 + followers), not
+	//     (1 + followers), so a 3-follower account can't turn a dozen
+	//     boosts on one note into an enormous ratio. Genuinely small
+	//     accounts still benefit -- the prior only caps how explosive the
+	//     ratio can get at near-zero audience.
+	//   - Sample-size shrinkage: the signal is scaled by
+	//     credited/(credited+15), so a 12-interaction burst keeps ~45% of
+	//     its value while 60+ sustained interactions keep 80%+. Small
+	//     evidence earns proportionally small trust.
+	engagementPerFollower := creditedEngagement / (10.0 + float64(safeFollowerCount))
+	sampleShrinkage := creditedEngagement / (creditedEngagement + 15.0)
+	relativeEngagementMomentum := 3.0 * math.Log1p(engagementPerFollower*100.0) * sampleShrinkage
+	engagementMomentum := 0.4*math.Log1p(creditedEngagement) + relativeEngagementMomentum
 	qualityFactor := 1.0 + math.Min(1.0, safeEngagement/(1.0+float64(totalPosts)))
 	postingPressure := float64(totalPosts) / (1.0 + safeEngagement + float64(safeActiveDays))
 	volumePenalty := 1.0 / (1.0 + math.Max(0.0, postingPressure-1.0))
 	engagementMomentum = engagementMomentum * qualityFactor * volumePenalty
-	// Dampen by days of sustained activity only for the engagement
-	// component: it counters low-quality volume spread across many days.
-	// Follower momentum is a simple lagging count and must NOT shrink just
-	// because the account has been around/active longer -- otherwise a
-	// week-old account with real growth loses to a same-day account with a
-	// trivial handful of new followers.
+	// Consistency multiplier: engagement concentrated in a single day of
+	// activity (the classic drive-by bot boost pattern) earns a third of
+	// the credit; 3+ days of authored activity earn full credit. Unlike
+	// the old sqrt(activeDays) division this never punishes sustained
+	// activity -- it only discounts single-burst evidence. Follower
+	// momentum stays untouched: a lagging growth count must not shrink
+	// because the account has been active longer.
 	if safeActiveDays > 0 {
-		engagementMomentum = engagementMomentum / math.Sqrt(float64(safeActiveDays))
+		engagementMomentum *= math.Min(1.0, float64(safeActiveDays)/3.0)
 	}
 	momentum := followerMomentum + engagementMomentum
 	score := (0.2*math.Max(0, trendingScore) + momentum) / audiencePenalty

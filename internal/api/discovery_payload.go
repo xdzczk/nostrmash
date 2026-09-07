@@ -92,6 +92,12 @@ const risingFollowerGrowthReasonFloor = 2
 // for a single post, which reads as a weak/uninformative reason on its own.
 const trendingPublishingMomentumFloor = 1
 
+// risingEngagementReasonFloor mirrors computeProfileRisingScore's
+// risingEngagementNoiseFloor: a single (weighted) interaction contributes
+// nothing to the rising score, so it must not be advertised as an
+// engagement-based reason either.
+const risingEngagementReasonFloor = 1
+
 // buildProfileRanking selects "why now" reasons and a confidence sample that
 // match what the given surface's score actually weighs (see
 // computeProfileTrendingScore / computeProfileRisingScore). Without this,
@@ -145,10 +151,8 @@ func buildProfileRanking(profile query.TrendingProfile, rank int, surface string
 		if newFollowers > float64(risingFollowerGrowthReasonFloor) {
 			reasons = append(reasons, discoveryReason("follower_growth", "recent_new_followers", newFollowers, "followers"))
 		}
-		if engagement > 0 {
+		if engagement > float64(risingEngagementReasonFloor) {
 			reasons = append(reasons, discoveryReason("relative_engagement_growth", "engagement_per_follower", engagementPerFollower, "interactions per follower"))
-		}
-		if engagement > 0 {
 			reasons = append(reasons, discoveryReason("engagement_received", "recent_engagement_received", engagement, "interactions"))
 		}
 		if profile.RecentPostCount > 0 {

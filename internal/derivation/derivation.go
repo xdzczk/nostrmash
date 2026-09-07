@@ -89,7 +89,12 @@ const (
 	// cite the same inputs instead of raw display counters. Also requires
 	// nonzero engagement for trending eligibility and steepens the rising
 	// audience penalty above ~500 followers.
-	ProfileDiscoveryStatsVersion   = 3
+	// v4: rising momentum requires credited (above-noise) follower growth or
+	// engagement -- trending alone no longer qualifies. Engagement gets a
+	// 1-interaction noise floor, sample-size shrinkage, an audience prior in
+	// the relative-engagement ratio, and a consistency multiplier that
+	// discounts single-day bursts instead of dividing by sqrt(activeDays).
+	ProfileDiscoveryStatsVersion   = 4
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1
