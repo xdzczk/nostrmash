@@ -15,6 +15,7 @@ type workerQueue interface {
 	CompleteJob(ctx context.Context, jobID int64, workerID string) error
 	FailJob(ctx context.Context, jobID int64, workerID string, errMsg string, retryDelay time.Duration) (jobs.FailureResult, error)
 	RecoverStaleRunningJobs(ctx context.Context, workerPool string, olderThan time.Time, limit int) (jobs.RecoveryResult, error)
+	WaitForWork(ctx context.Context, max time.Duration)
 }
 
 func runClaimLoop(
@@ -87,20 +88,14 @@ func runClaimLoop(
 		claimed, err := queue.ClaimAvailableForPool(ctx, workerID, workerPool, batchSize)
 		if err != nil {
 			log.Error("job_claim_failed", "error", err)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(pollInterval):
-				continue
-			}
+			queue.WaitForWork(ctx, pollInterval)
+			continue
 		}
 		if len(claimed) == 0 {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(pollInterval):
-				continue
-			}
+			// Wake on LISTEN/NOTIFY (or the poll-interval safety net) instead
+			// of always sleeping a full second after an empty claim.
+			queue.WaitForWork(ctx, pollInterval)
+			continue
 		}
 		for _, job := range claimed {
 			select {

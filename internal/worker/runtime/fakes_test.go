@@ -199,3 +199,4 @@ func (f *fakeQueue) RecoverStaleRunningJobs(context.Context, string, time.Time, 
 func (f *fakeQueue) PurgeTerminalJobs(context.Context, time.Time, time.Time, int) (int64, error) {
 	return 0, nil
 }
+func (f *fakeQueue) WaitForWork(context.Context, time.Duration) {}
