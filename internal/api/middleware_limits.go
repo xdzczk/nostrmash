@@ -65,10 +65,21 @@ type rateLimitPlan struct {
 }
 
 type rateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]rateBucket
-	opts    HTTPRateLimitOptions
+	mu        sync.Mutex
+	buckets   map[string]rateBucket
+	opts      HTTPRateLimitOptions
+	lastSweep time.Time
 }
+
+// Bucket eviction bounds are chosen so eviction is semantically lossless: any
+// configured class refills a full burst well within bucketIdleEviction, so a
+// re-created bucket is indistinguishable from the evicted one. Without
+// eviction the map grows one entry per client IP + class forever, which is an
+// unbounded-memory path exposed to the public internet.
+const (
+	bucketSweepInterval = time.Minute
+	bucketIdleEviction  = 10 * time.Minute
+)
 
 func newRateLimiter(opts HTTPRateLimitOptions) *rateLimiter {
 	if opts.DefaultBurst <= 0 {
@@ -77,6 +88,21 @@ func newRateLimiter(opts HTTPRateLimitOptions) *rateLimiter {
 	return &rateLimiter{
 		buckets: make(map[string]rateBucket),
 		opts:    opts,
+	}
+}
+
+// sweepLocked drops buckets idle long enough to be fully refilled. Callers
+// must hold l.mu. Runs at most once per bucketSweepInterval so the map scan
+// cost is amortized across requests instead of needing a janitor goroutine.
+func (l *rateLimiter) sweepLocked(now time.Time) {
+	if now.Sub(l.lastSweep) < bucketSweepInterval {
+		return
+	}
+	l.lastSweep = now
+	for key, b := range l.buckets {
+		if now.Sub(b.last) >= bucketIdleEviction {
+			delete(l.buckets, key)
+		}
 	}
 }
 
@@ -128,6 +154,7 @@ func (l *rateLimiter) allow(key string, rpm int, burst int, now time.Time) bool 
 	refillPerSecond := float64(rpm) / 60.0
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.sweepLocked(now)
 	b := l.buckets[key]
 	if b.last.IsZero() {
 		b.last = now
