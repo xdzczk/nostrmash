@@ -100,13 +100,16 @@ jobs:
 
       - name: Commit updated baseline
         run: |
-          if git diff --quiet -- "${PROTECTED_BASELINE_DIR}" "${PROTECTED_HISTORY_FILE}"; then
+          # Stage first: `git diff --quiet` ignores untracked files, so checking
+          # before `git add` skipped the very first baseline forever and the PR
+          # compare job never found a committed baseline.
+          git add "${PROTECTED_BASELINE_DIR}" "${PROTECTED_HISTORY_FILE}"
+          if git diff --cached --quiet; then
             echo "No baseline changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${PROTECTED_BASELINE_DIR}" "${PROTECTED_HISTORY_FILE}"
           git commit -m "chore(perf): refresh protected benchmark baseline [skip ci]"
           git push
 
@@ -426,13 +429,16 @@ jobs:
 
       - name: Commit updated baseline
         run: |
-          if git diff --quiet -- "${LOADTEST_BASELINE_DIR}/summary.json" "${LOADTEST_HISTORY_FILE}"; then
+          # Stage first: `git diff --quiet` ignores untracked files, so checking
+          # before `git add` skipped the very first baseline forever and the PR
+          # compare job never found a committed baseline.
+          git add "${LOADTEST_BASELINE_DIR}/summary.json" "${LOADTEST_HISTORY_FILE}"
+          if git diff --cached --quiet; then
             echo "No load-harness baseline changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${LOADTEST_BASELINE_DIR}/summary.json" "${LOADTEST_HISTORY_FILE}"
           git commit -m "chore(loadtest): refresh WS+API harness baseline [skip ci]"
           git push
 
