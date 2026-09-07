@@ -44,7 +44,10 @@ func TestWaitForWorkWakesOnEnqueue(t *testing.T) {
 			Payload:        []byte(`{"event_id":"notify-test"}`),
 			IdempotencyKey: "notify-test",
 			MaxAttempts:    1,
-			RunAfter:       time.Now().UTC().Add(-time.Second),
+			// Far future: this test only needs the NOTIFY, not a claimable
+			// row. A past RunAfter leaked into later ClaimAvailable tests
+			// on the shared CI database.
+			RunAfter: time.Now().UTC().Add(time.Hour),
 		}); err != nil {
 			t.Fatalf("enqueue: %v", err)
 		}

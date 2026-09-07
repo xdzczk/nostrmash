@@ -106,7 +106,7 @@ func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 		t.Fatalf("expected one claimed job, got %d", len(claimed))
 	}
 
-	firstFailure, err := queue.FailJob(ctx, job.ID, "worker-a", "temporary failure", 20*time.Millisecond)
+	firstFailure, err := queue.FailJob(ctx, job.ID, "worker-a", "temporary failure", 250*time.Millisecond)
 	if err != nil {
 		t.Fatalf("first failure mark: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestFailJobRetriesThenDeadLettersAtMaxAttempts(t *testing.T) {
 		t.Fatalf("expected no immediate retry claim, got %d jobs", len(immediate))
 	}
 
-	time.Sleep(30 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	secondClaim, err := queue.ClaimAvailable(ctx, "worker-a", 1)
 	if err != nil {
