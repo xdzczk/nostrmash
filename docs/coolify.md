@@ -60,7 +60,7 @@ The Compose file builds the repo `Dockerfile` **once** (only the `api` service h
 
 - `migrate` via `/app/migrate` (one-shot, applies schema migrations and exits)
 - `api` via `/app/api` (internal)
-- `edge` via `nginx:1.27-alpine` (public HTTP/WS entry; caches `GET /api/v1/discovery/*`)
+- `edge` via `nostrmash-edge:coolify` (nginx image with the checked-in config baked in; public HTTP/WS entry; caches `GET /api/v1/discovery/*`)
 - `ingestor` via `/app/ingestor`
 - `worker` via `/app/worker`
 - `trust_worker` via `/app/trust_worker`
@@ -77,7 +77,7 @@ Attach the Coolify public domain to the `edge` service, not `api`. `edge` is a s
 - proxies `/primal/ws` with Upgrade headers and no cache
 - proxies everything else through to `api` uncached
 
-A cache hit is visible as `X-Edge-Cache: HIT`. Existing deploys that already point the domain at `api` keep working; they just miss the local cache until the domain is moved.
+A cache hit is visible as `X-Edge-Cache: HIT`. Existing deploys that already point the domain at `api` keep working; they just miss the local cache until the domain is moved. The nginx config is copied into `nostrmash-edge:coolify` at image build time — do not bind-mount it from the host (Coolify's persistent app directory is not a git checkout; deploy #189 failed that way).
 
 ### Cloudflare in front (the real CDN)
 
@@ -111,8 +111,9 @@ After a redeploy that includes this Compose file, Coolify should show `healthy` 
 
 Coolify has no auto-retry for a failed Compose deploy. Two build flakes have aborted `nostrmash-prod` while the previous stack stayed up:
 
-1. **Four-way image unpack race.** All four binaries used to declare `build:` against the same `nostrmash:coolify` tag. Coolify's `docker compose build` then compiled the Dockerfile in parallel and raced on unpack (deploy #186: `DeploymentException` mid-`unpacking to docker.io/library/nostrmash:coolify`). Only `api` now has `build:`.
+1. **Four-way image unpack race.** All four binaries used to declare `build:` against the same `nostrmash:coolify` tag. Coolify's `docker compose build` then compiled the Dockerfile in parallel and raced on unpack (deploy #186: `DeploymentException` mid-`unpacking to docker.io/library/nostrmash:coolify`). Only `api` now has `build:` for that image; `edge` builds a separate `nostrmash-edge:coolify` tag.
 2. **Alpine CDN blip** during `apk add` (deploy #181: DNS to `dl-cdn.alpinelinux.org`). The build stage retries `apk add git` and fails over to `mirror.alpinelinux.org`. The runtime stage does not call `apk` at all.
+3. **Host bind-mount of `nginx.conf`.** Coolify resolved `./deploy/edge-cache/nginx.conf` against the persistent app directory, which is not the git checkout. Docker created that path as a directory and runc refused to mount it over the image file (deploy #189). The config is now `COPY`ed in `deploy/edge-cache/Dockerfile`.
 
 If a webhook deploy still fails, Redeploy in the Coolify UI (or the same deploy API). The running containers are not replaced until a deploy finishes.
 

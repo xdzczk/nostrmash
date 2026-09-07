@@ -116,8 +116,16 @@ services:
   # Local edge cache. Attach the public Coolify domain here (not to api) so
   # GET /api/v1/discovery/* is absorbed from nginx's disk cache. Cloudflare
   # in front of this service is the real CDN; see docs/coolify.md.
+  #
+  # Do not bind-mount nginx.conf: Coolify resolves compose volumes against
+  # the persistent app directory, which does not contain the git checkout.
+  # A missing host file is created as a directory and the container fails
+  # to start (deploy #189). Bake the config into a tiny image instead.
   edge:
-    image: nginx:1.27-alpine
+    image: nostrmash-edge:coolify
+    build:
+      context: ./deploy/edge-cache
+      dockerfile: Dockerfile
     restart: unless-stopped
     init: true
     mem_limit: ${EDGE_MEM_LIMIT:-128m}
@@ -126,8 +134,6 @@ services:
         condition: service_healthy
     expose:
       - "8080"
-    volumes:
-      - ./deploy/edge-cache/nginx.conf:/etc/nginx/nginx.conf:ro
     healthcheck:
       <<: *http-healthcheck
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
