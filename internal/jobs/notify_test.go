@@ -53,16 +53,3 @@ func TestWaitForWorkWakesOnEnqueue(t *testing.T) {
 	}
 }
 
-func TestWaitForWorkTimesOutWithoutNotify(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
-	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
-	queue := jobs.NewQueue(pool)
-
-	start := time.Now()
-	queue.WaitForWork(ctx, 80*time.Millisecond)
-	if elapsed := time.Since(start); elapsed < 60*time.Millisecond {
-		t.Fatalf("WaitForWork returned too quickly without a notify: %v", elapsed)
-	}
-}

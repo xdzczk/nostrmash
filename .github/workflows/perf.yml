@@ -75,6 +75,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v7
@@ -111,7 +113,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -m "chore(perf): refresh protected benchmark baseline [skip ci]"
-          git push
+          bash ./scripts/git_push_rebase.sh main
 
   compare:
     name: Compare protected benchmarks (PR)
@@ -391,6 +393,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v7
@@ -440,7 +444,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -m "chore(loadtest): refresh WS+API harness baseline [skip ci]"
-          git push
+          bash ./scripts/git_push_rebase.sh main
 
       - name: Upload baseline artifacts
         if: always()
