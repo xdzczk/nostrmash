@@ -199,6 +199,83 @@ func shouldRetryRelayWindowSnapshotRefresh(parent context.Context, err error) bo
 	return true
 }
 
+// Profile discovery re-score cadence. Serving-window-eligible profiles whose
+// scores are older than profileDiscoveryRescoreStaleAfter are re-enqueued for
+// the profile-stats sweeper every tick, bounded per tick so a large stale
+// backlog (e.g. right after a scoring-formula deploy) drains gradually instead
+// of flooding the pending queue.
+//
+// Sizing: ~21k profiles were window-eligible when this loop was introduced.
+// At 5k/tick every 10 minutes the loop can re-score 30k/hour — comfortably
+// above the ~10.5k/hour needed to keep every eligible profile within the 2h
+// staleness bound, while each recompute is a cheap incremental-rollup read.
+const (
+	profileDiscoveryRescoreInterval   = 10 * time.Minute
+	profileDiscoveryRescoreStaleAfter = 2 * time.Hour
+	profileDiscoveryRescoreBatchLimit = 5000
+)
+
+// RunProfileDiscoveryRescoreLoop keeps stored discovery scores honest for
+// profiles that stopped producing events. Scores are otherwise recomputed
+// only when a new event dirty-marks the pubkey, so quiet profiles keep
+// stale scores (with stale freshness decay, computed by possibly obsolete
+// formulas) for up to the full 7d serving window. This loop re-enqueues
+// them into pending_profile_stats_recomputes; the profile-stats sweeper
+// does the actual recompute, so the loop itself is one cheap INSERT..SELECT
+// per tick. It must only run when that sweeper is enabled, otherwise the
+// queue grows without a consumer (lifecycle wiring enforces this).
+func RunProfileDiscoveryRescoreLoop(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	if handlers == nil {
+		log.Error("profile_discovery_rescore_no_handlers")
+		return
+	}
+	log.Info(
+		"profile_discovery_rescore_enabled",
+		"interval", profileDiscoveryRescoreInterval.String(),
+		"stale_after", profileDiscoveryRescoreStaleAfter.String(),
+		"batch_limit", profileDiscoveryRescoreBatchLimit,
+	)
+	// Fire once immediately: after a deploy that changes the scoring
+	// formula, this is what propagates the new formula to already-stored
+	// rows instead of waiting for organic events to touch them.
+	enqueueProfileDiscoveryRescoresOnce(ctx, log, handlers)
+
+	ticker := time.NewTicker(profileDiscoveryRescoreInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			enqueueProfileDiscoveryRescoresOnce(ctx, log, handlers)
+		}
+	}
+}
+
+func enqueueProfileDiscoveryRescoresOnce(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	// Same rationale as refreshRelayWindowSnapshotsOnce: a panicking tick
+	// must not take down the shared background-loop goroutine group.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("profile_discovery_rescore_panicked", "panic", r)
+		}
+	}()
+	tickCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	enqueued, err := handlers.EnqueueStaleProfileDiscoveryRescores(
+		tickCtx,
+		profileDiscoveryRescoreStaleAfter,
+		profileDiscoveryRescoreBatchLimit,
+	)
+	if err != nil {
+		log.Error("profile_discovery_rescore_enqueue_failed", "error", err)
+		return
+	}
+	if enqueued > 0 {
+		log.Info("profile_discovery_rescore_enqueued", "pubkeys", enqueued)
+	}
+}
+
 // RunMeilisearchStartupSync performs a one-shot reconciliation between
 // PostgreSQL and Meilisearch in the background. It MUST NOT block the worker
 // lifecycle: with hundreds of thousands of notes/profiles a full reindex can

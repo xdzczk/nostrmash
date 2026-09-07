@@ -337,6 +337,60 @@ func (h *Handlers) releasePendingProfileStatsClaim(ctx context.Context, pubkey, 
 	return nil
 }
 
+// profileDiscoveryServingWindow mirrors the widest window the profile
+// discovery read queries serve (7d): rows whose recent_activity_at is
+// older than this can never appear in a trending/rising list, so
+// re-scoring them is wasted work.
+const profileDiscoveryServingWindow = 7 * 24 * time.Hour
+
+// EnqueueStaleProfileDiscoveryRescores marks window-eligible profiles whose
+// discovery scores have not been recomputed for staleAfter as dirty, so the
+// profile-stats sweeper re-scores them with the current formula.
+//
+// Why this exists: scores are otherwise recomputed only when a new event
+// dirty-marks the pubkey. A profile that goes quiet keeps its last stored
+// score for as long as it stays inside the serving window — the score's
+// built-in freshness decay never re-applies, and scoring-formula changes
+// (derivation version bumps) never reach rows nobody touches. In production
+// this left hundreds of thousands of rows ranked by formulas several
+// versions old, with bot accounts pinned to the top of "Up and coming" by
+// scores from weeks earlier.
+//
+// ON CONFLICT DO NOTHING (unlike MarkProfileStatsDirty's DO UPDATE):
+// a row already pending will be recomputed anyway, and bumping marked_at
+// here would interfere with the sweeper's re-mark CAS for no benefit.
+func (h *Handlers) EnqueueStaleProfileDiscoveryRescores(
+	ctx context.Context,
+	staleAfter time.Duration,
+	limit int,
+) (int64, error) {
+	if h == nil || h.pool == nil {
+		return 0, fmt.Errorf("handlers are not initialized")
+	}
+	if staleAfter <= 0 || limit <= 0 {
+		return 0, nil
+	}
+	tag, err := h.pool.Exec(ctx, `
+		INSERT INTO pending_profile_stats_recomputes (pubkey)
+		SELECT pubkey
+		FROM profile_discovery_stats
+		WHERE recent_activity_at IS NOT NULL
+		  AND recent_activity_at >= extract(epoch FROM now() - make_interval(secs => $1::bigint))::bigint
+		  AND last_scored_at < now() - make_interval(secs => $2::bigint)
+		ORDER BY last_scored_at ASC
+		LIMIT $3
+		ON CONFLICT (pubkey) DO NOTHING
+	`,
+		int64(profileDiscoveryServingWindow.Seconds()),
+		int64(staleAfter.Seconds()),
+		limit,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("enqueue stale profile discovery rescores: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // PendingProfileStatsBacklog returns the current depth of the dirty
 // queue. Exposed for metrics / admin observability.
 func (h *Handlers) PendingProfileStatsBacklog(ctx context.Context) (int64, error) {

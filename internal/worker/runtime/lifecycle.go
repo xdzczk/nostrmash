@@ -213,6 +213,12 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 			"interval", cfg.ProfileStatsSweeper.Interval.String(),
 			"batch_size", cfg.ProfileStatsSweeper.BatchSize,
 		)
+		// The re-score loop only produces pending-queue rows; it rides the
+		// sweeper's enablement because without the sweeper nothing would
+		// consume them.
+		spawn(func(c context.Context) {
+			RunProfileDiscoveryRescoreLoop(c, log, bootstrap.Handlers)
+		})
 	} else {
 		log.Info("profile_stats_sweeper_disabled")
 	}
