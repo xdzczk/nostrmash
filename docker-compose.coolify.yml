@@ -113,6 +113,25 @@ services:
       <<: *http-healthcheck
       test: ["CMD", "busybox", "wget", "-qO-", "http://127.0.0.1:8080/health"]
 
+  # Local edge cache. Attach the public Coolify domain here (not to api) so
+  # GET /api/v1/discovery/* is absorbed from nginx's disk cache. Cloudflare
+  # in front of this service is the real CDN; see docs/coolify.md.
+  edge:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    init: true
+    mem_limit: ${EDGE_MEM_LIMIT:-128m}
+    depends_on:
+      api:
+        condition: service_healthy
+    expose:
+      - "8080"
+    volumes:
+      - ./deploy/edge-cache/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+
   ingestor:
     <<: *nostrmash-service
     command: ["/app/ingestor"]

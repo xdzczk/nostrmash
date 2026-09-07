@@ -369,10 +369,16 @@ func setPublicCacheControl(w http.ResponseWriter, ttl time.Duration) {
 	}
 	seconds := int(ttl.Seconds())
 	grace := int(staleGraceFor(ttl).Seconds())
-	w.Header().Set(
-		"Cache-Control",
-		fmt.Sprintf("public, max-age=%d, s-maxage=%d, stale-while-revalidate=%d", seconds, seconds, grace),
-	)
+	directive := fmt.Sprintf("public, max-age=%d, s-maxage=%d, stale-while-revalidate=%d", seconds, seconds, grace)
+	w.Header().Set("Cache-Control", directive)
+	// Cloudflare honors CDN-Cache-Control for edge TTL independently of
+	// browser max-age. Surrogate-Control is the Fastly/varnish equivalent.
+	// Same values as Cache-Control so a CDN is never staler than the
+	// in-process cache. JSON is not in Cloudflare's default cacheable
+	// extensions; a Cache Rule still has to mark the path eligible (see
+	// docs/coolify.md).
+	w.Header().Set("CDN-Cache-Control", directive)
+	w.Header().Set("Surrogate-Control", directive)
 }
 
 func (h Handlers) newPublicCachePolicy(family publicCacheFamily, endpoint string, params map[string]any) publicResponseCachePolicy {

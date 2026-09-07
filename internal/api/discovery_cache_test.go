@@ -144,5 +144,11 @@ func TestDiscoveryCache_SetsCacheControlFromFamilyTTL(t *testing.T) {
 		if got := rec.Header().Get("Cache-Control"); got != want {
 			t.Fatalf("request %d: unexpected Cache-Control: got %q want %q", i, got, want)
 		}
+		if got := rec.Header().Get("CDN-Cache-Control"); got != want {
+			t.Fatalf("request %d: unexpected CDN-Cache-Control: got %q want %q", i, got, want)
+		}
+		if got := rec.Header().Get("Surrogate-Control"); got != want {
+			t.Fatalf("request %d: unexpected Surrogate-Control: got %q want %q", i, got, want)
+		}
 	}
 }
