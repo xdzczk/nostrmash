@@ -1,14 +1,12 @@
 name: nostrmash
 
 x-nostrmash-service: &nostrmash-service
-  build:
-    context: .
-    dockerfile: Dockerfile
-    # Do not interpolate ${SOURCE_COMMIT} / ${APP_VERSION} here. Coolify
-    # locks those as undeletable UI env vars. Coolify already passes
-    # --build-arg SOURCE_COMMIT on compose builds; the Dockerfile
-    # declares ARG SOURCE_COMMIT and stamps ldflags from it when .git
-    # is not in the build context.
+  # Only `api` declares `build:` below. The four runtime services share
+  # this image tag; if every service also has a build block, Coolify's
+  # `docker compose build` compiles the same Dockerfile four times in
+  # parallel and races on unpacking `nostrmash:coolify` — that is what
+  # aborted deploy #186 mid-unpack. `docker compose up` still starts all
+  # four from the image `api` produced.
   image: nostrmash:coolify
   restart: unless-stopped
   init: true
@@ -60,6 +58,14 @@ services:
 
   api:
     <<: *nostrmash-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Do not interpolate ${SOURCE_COMMIT} / ${APP_VERSION} here. Coolify
+      # locks those as undeletable UI env vars. Coolify already passes
+      # --build-arg SOURCE_COMMIT on compose builds; the Dockerfile
+      # declares ARG SOURCE_COMMIT and stamps ldflags from it when .git
+      # is not in the build context.
     command: ["/app/api"]
     expose:
       - "8080"
@@ -85,7 +91,7 @@ services:
       PRIMAL_WS_REQUEST_TIMEOUT: ${PRIMAL_WS_REQUEST_TIMEOUT:-10s}
     healthcheck:
       <<: *http-healthcheck
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      test: ["CMD", "busybox", "wget", "-qO-", "http://127.0.0.1:8080/health"]
 
   ingestor:
     <<: *nostrmash-service
@@ -120,7 +126,7 @@ services:
       RELAY_REGISTRY_RECONCILE_DRAIN_TIMEOUT: ${RELAY_REGISTRY_RECONCILE_DRAIN_TIMEOUT:-10s}
     healthcheck:
       <<: *http-healthcheck
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/metrics"]
+      test: ["CMD", "busybox", "wget", "-qO-", "http://127.0.0.1:9090/metrics"]
 
   worker:
     <<: *nostrmash-service
@@ -162,7 +168,7 @@ services:
       RELAY_REGISTRY_ADMISSION_DEMOTE_FAILURE_THRESHOLD: ${RELAY_REGISTRY_ADMISSION_DEMOTE_FAILURE_THRESHOLD:-60}
     healthcheck:
       <<: *http-healthcheck
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/metrics"]
+      test: ["CMD", "busybox", "wget", "-qO-", "http://127.0.0.1:9090/metrics"]
 
   trust_worker:
     <<: *nostrmash-service
@@ -187,7 +193,7 @@ services:
       WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT: ${WORKER_JOB_RETENTION_DELETE_BATCH_LIMIT:-20000}
     healthcheck:
       <<: *http-healthcheck
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/metrics"]
+      test: ["CMD", "busybox", "wget", "-qO-", "http://127.0.0.1:9090/metrics"]
 
 volumes:
   meili_data_v2:

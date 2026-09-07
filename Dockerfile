@@ -21,7 +21,20 @@ ARG GOSUMDB=sum.golang.org
 ENV GOPROXY=${GOPROXY}
 ENV GOSUMDB=${GOSUMDB}
 
-RUN apk add --no-cache git
+# Alpine's CDN flakes under Coolify (DNS / brief 5xx). Retry, then swap
+# to the geographic mirror pool before giving up. VERSION_ID is e.g. 3.22.1.
+RUN sh -ec '\
+	. /etc/os-release; \
+	for i in 1 2 3 4 5; do \
+		apk add --no-cache git && exit 0; \
+		echo "apk add git failed, retry ${i}/5"; \
+		if [ "$i" = 3 ]; then \
+			echo "https://mirror.alpinelinux.org/alpine/v${VERSION_ID%.*}/main" > /etc/apk/repositories; \
+			echo "https://mirror.alpinelinux.org/alpine/v${VERSION_ID%.*}/community" >> /etc/apk/repositories; \
+		fi; \
+		sleep $((i * 2)); \
+	done; \
+	exit 1'
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -63,9 +76,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 	'
 
 FROM alpine:3.20
-# wget is used by docker-compose.coolify.yml healthchecks (Coolify compose
-# apps have no per-service Healthcheck UI; they read Compose healthcheck).
-RUN apk add --no-cache ca-certificates tzdata wget
+# No apk in the runtime stage: Coolify deploys have failed on Alpine CDN
+# fetches, and the Go binaries are static. alpine ships
+# ca-certificates-bundle plus busybox wget (used by Compose healthchecks).
 
 WORKDIR /app
 COPY --from=build /out/api /app/api

@@ -56,7 +56,7 @@ Create a Docker Compose application from this repository and point Coolify at:
 docker-compose.coolify.yml
 ```
 
-The Compose file builds the repo `Dockerfile` once and starts four services:
+The Compose file builds the repo `Dockerfile` **once** (only the `api` service has a `build:` block) and starts four services from the shared `nostrmash:coolify` image:
 
 - `api` via `/app/api`
 - `ingestor` via `/app/ingestor`
@@ -69,13 +69,22 @@ A Docker Compose application in Coolify has **no per-service Healthcheck field**
 
 The checked-in probes are liveness only (process is listening):
 
-- `api`: `GET /health` on `:8080`
-- `ingestor` / `worker` / `trust_worker`: `GET /metrics` on `:9090`
-- `meilisearch`: `GET /health` on `:7700`
+- `api`: `GET /health` on `:8080` (`busybox wget`; the runtime image does not install GNU wget)
+- `ingestor` / `worker` / `trust_worker`: `GET /metrics` on `:9090` (same)
+- `meilisearch`: `GET /health` on `:7700` (official image ships `wget`)
 
 Do not point these at `GET /ready`. That fails when Postgres blips and would mark the API container unhealthy.
 
 After a redeploy that includes this Compose file, Coolify should show `healthy` / `unhealthy` instead of `unknown`. These checks do not replace Prometheus alerts.
+
+### Redeploy reliability
+
+Coolify has no auto-retry for a failed Compose deploy. Two build flakes have aborted `nostrmash-prod` while the previous stack stayed up:
+
+1. **Four-way image unpack race.** All four binaries used to declare `build:` against the same `nostrmash:coolify` tag. Coolify's `docker compose build` then compiled the Dockerfile in parallel and raced on unpack (deploy #186: `DeploymentException` mid-`unpacking to docker.io/library/nostrmash:coolify`). Only `api` now has `build:`.
+2. **Alpine CDN blip** during `apk add` (deploy #181: DNS to `dl-cdn.alpinelinux.org`). The build stage retries `apk add git` and fails over to `mirror.alpinelinux.org`. The runtime stage does not call `apk` at all.
+
+If a webhook deploy still fails, Redeploy in the Coolify UI (or the same deploy API). The running containers are not replaced until a deploy finishes.
 
 ### Why Coolify shows "1x restarts" after a redeploy
 
