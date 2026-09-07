@@ -160,6 +160,52 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 	return outcome, nil
 }
 
+// InsertEventRelayProvenance upserts only the relay-sighting row for an event
+// that is already canonical. The live ingest dedup cache uses this on repeat
+// sightings so relay activity rollups and author relay analytics (both fed
+// from event_relays) stay accurate without re-running validation or the full
+// canonical insert transaction.
+func (s *PostgresStore) InsertEventRelayProvenance(
+	ctx context.Context,
+	eventID string,
+	relayURL string,
+	seenAt time.Time,
+	pubkey string,
+) (err error) {
+	started := time.Now()
+	defer func() {
+		metrics.ObserveDBOperation("insert_event_relay_provenance", dbResultFromErr(err), time.Since(started))
+	}()
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	if strings.TrimSpace(eventID) == "" {
+		return fmt.Errorf("event id is required")
+	}
+	if strings.TrimSpace(relayURL) == "" {
+		return fmt.Errorf("relay url is required")
+	}
+	if seenAt.IsZero() {
+		seenAt = time.Now().UTC()
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO event_relays (event_id, relay_url, seen_at, pubkey)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (event_id, relay_url) DO UPDATE
+		SET seen_at = LEAST(event_relays.seen_at, EXCLUDED.seen_at),
+		    pubkey = EXCLUDED.pubkey
+	`,
+		eventID,
+		relayURL,
+		seenAt,
+		pubkey,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert event relay provenance: %w", err)
+	}
+	return nil
+}
+
 // ExpandEventTags deterministically expands raw Nostr tags into event_tags
 // rows, applying the internal/eventtags persistence policy (allowlist +
 // kind scope). Filtered tags remain available via events.raw_json.

@@ -67,6 +67,7 @@ Do not hand-edit this file.
 | `INGESTOR_BACKFILL_PAGE_LIMIT` | `ingestor` | optional | `500` | Page size used by backfill fetches. |
 | `INGESTOR_BACKFILL_SINCE` | `ingestor` | optional | `-` | Optional inclusive lower timestamp bound for backfill. |
 | `INGESTOR_BACKFILL_UNTIL` | `ingestor` | optional | `-` | Optional inclusive upper timestamp bound for backfill. |
+| `INGESTOR_DEDUP_CACHE_SIZE` | `ingestor` | optional | `100000` | Entries in the in-memory duplicate short-circuit cache; repeat relay sightings of already-persisted events skip validation and the canonical insert (a provenance upsert still runs). 0 disables. |
 | `INGESTOR_FILTER_GROUP` | `ingestor` | optional | `default_v1` | Active relay filter group name. |
 | `INGESTOR_FILTER_GROUPS_JSON` | `ingestor` | optional | `-` | Optional JSON map of relay filter groups; `default_v1` remains required and must keep the built-in live-ingest kind set. |
 | `INGESTOR_LIVE_BOOTSTRAP_LOOKBACK_SECONDS` | `ingestor` | optional | `300` | Live mode lookback window in seconds before tailing. |
@@ -101,6 +102,7 @@ Do not hand-edit this file.
 | `MEILI_SEARCH_API_KEY` | `api, worker` | optional | `-` | Optional search-only Meilisearch API key. Falls back to MEILI_MASTER_KEY when omitted. |
 | `MEILI_URL` | `api, worker` | optional | `-` | Meilisearch endpoint URL (http or https). Required when MEILI_ENABLED=true; for the checked-in Docker Compose stack use http://meilisearch:7700. |
 | `METRICS_ADDR` | `ingestor, trust_worker, worker` | optional | `:9090` | Prometheus metrics listen address for ingestor, worker, and trust_worker. API exposes /metrics on HTTP_ADDR. |
+| `MIGRATE_ON_BOOT` | `api, ingestor, trust_worker, worker` | optional | `true` | Apply pending schema migrations during process startup. Set to false in production so a dedicated pre-deploy step (the cmd/migrate one-shot binary) owns migrations; the process then waits up to 5 minutes for the schema to reach head before failing. Prevents a slow boot-blocking migration from being killed mid-flight by container health checks. |
 | `PRIMAL_WS_ALLOWED_ORIGINS` | `api` | optional | `-` | CSV allowlist of browser origins for Primal WS. |
 | `PRIMAL_WS_ALLOW_ANY_ORIGIN` | `api` | optional | `false` | Allow all WS origins, bypassing PRIMAL_WS_ALLOWED_ORIGINS validation. |
 | `PRIMAL_WS_MAX_MESSAGE_BYTES` | `api` | optional | `1048576` | Maximum inbound WebSocket message size in bytes. |

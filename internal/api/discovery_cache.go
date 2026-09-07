@@ -288,7 +288,7 @@ func (h Handlers) servePublicCached(ctx context.Context, w http.ResponseWriter, 
 		if !fresh {
 			h.refreshStaleAsync(policy, build)
 		}
-		h.writeCachedPayload(w, payload)
+		h.writeCachedPayload(w, policy, payload)
 		return nil
 	}
 	if h.cacheLookupObserver != nil {
@@ -298,7 +298,7 @@ func (h Handlers) servePublicCached(ctx context.Context, w http.ResponseWriter, 
 	if err != nil {
 		return err
 	}
-	h.writeCachedPayload(w, encoded)
+	h.writeCachedPayload(w, policy, encoded)
 	return nil
 }
 
@@ -351,10 +351,28 @@ func (h Handlers) buildAndCachePayload(ctx context.Context, policy publicRespons
 	return encoded.([]byte), nil
 }
 
-func (h Handlers) writeCachedPayload(w http.ResponseWriter, payload []byte) {
+func (h Handlers) writeCachedPayload(w http.ResponseWriter, policy publicResponseCachePolicy, payload []byte) {
 	w.Header().Set("Content-Type", discoveryCacheContentTypeJSONName)
+	setPublicCacheControl(w, h.cacheConfig.ttlForFamily(policy.family))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(payload)
+}
+
+// setPublicCacheControl mirrors the in-process cache policy as HTTP cache
+// semantics so browsers, shared proxies, and CDNs can absorb repeat traffic
+// for these public, unauthenticated responses. s-maxage matches the family
+// TTL and stale-while-revalidate matches the in-process stale grace, keeping
+// downstream caches no staler than the process's own cache would be.
+func setPublicCacheControl(w http.ResponseWriter, ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
+	seconds := int(ttl.Seconds())
+	grace := int(staleGraceFor(ttl).Seconds())
+	w.Header().Set(
+		"Cache-Control",
+		fmt.Sprintf("public, max-age=%d, s-maxage=%d, stale-while-revalidate=%d", seconds, seconds, grace),
+	)
 }
 
 func (h Handlers) newPublicCachePolicy(family publicCacheFamily, endpoint string, params map[string]any) publicResponseCachePolicy {

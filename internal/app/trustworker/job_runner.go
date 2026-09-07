@@ -54,7 +54,11 @@ func runClaimLoop(
 					metrics.ObserveWorkerJobExecution(job.JobType, "succeeded", time.Since(started))
 					continue
 				}
-				failState, failErr := queue.FailJob(workerCtx, job.ID, workerID, err.Error(), retryDelay)
+				// Scale the retry delay with how often this job has already
+				// failed, so persistent failures back off instead of
+				// hammering the queue in lockstep every fixed interval.
+				backoff := jobs.RetryDelay(job.Attempts, retryDelay, jobs.DefaultMaxRetryDelay)
+				failState, failErr := queue.FailJob(workerCtx, job.ID, workerID, err.Error(), backoff)
 				if failErr != nil {
 					log.Error("job_fail_mark_failed", "job_id", job.ID, "error", failErr)
 					continue

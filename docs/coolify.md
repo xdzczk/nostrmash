@@ -56,12 +56,17 @@ Create a Docker Compose application from this repository and point Coolify at:
 docker-compose.coolify.yml
 ```
 
-The Compose file builds the repo `Dockerfile` **once** (only the `api` service has a `build:` block) and starts four services from the shared `nostrmash:coolify` image:
+The Compose file builds the repo `Dockerfile` **once** (only the `api` service has a `build:` block) and starts the services from the shared `nostrmash:coolify` image:
 
+- `migrate` via `/app/migrate` (one-shot, applies schema migrations and exits)
 - `api` via `/app/api`
 - `ingestor` via `/app/ingestor`
 - `worker` via `/app/worker`
 - `trust_worker` via `/app/trust_worker`
+
+### Migrations run before serving
+
+The four long-running services set `MIGRATE_ON_BOOT=false` and declare `depends_on: migrate: condition: service_completed_successfully`. Each deploy therefore applies pending migrations exactly once, in a container that has **no healthcheck racing it**, before any serving process starts; the serving processes additionally verify the schema is at head (waiting up to 5 minutes) before accepting work. See [migrations.md](migrations.md) for the full posture. A failed migration fails the deploy while the previous stack stays up.
 
 ### Healthchecks (why Coolify shows "unknown")
 

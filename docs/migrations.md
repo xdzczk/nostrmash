@@ -1,12 +1,27 @@
 # Migration Safety Guide
 
-Use this page when a change affects schema, rebuild posture, startup safety, or rollback assumptions. NostrMash runs embedded migrations on service startup, so migration design is part of the production surface, not a side task.
+Use this page when a change affects schema, rebuild posture, startup safety, or rollback assumptions. Migration design is part of the production surface, not a side task.
 
 Use this guide with:
 
 - `../RELEASE.md` for release/rollback notes
 - `operations.md` for runtime validation and incident triage
 - `../VERSIONING.md` and `compatibility.md` when schema changes alter external behavior
+
+## Who applies migrations
+
+There are two supported modes, controlled by `MIGRATE_ON_BOOT` (default `true`):
+
+- **Migrate on boot** (default, dev/test): every service applies pending embedded migrations during startup, serialized by a Postgres advisory lock. Simple, but a slow migration blocks boot and can be killed mid-flight by container health checks.
+- **Dedicated migrate step** (production): the one-shot `cmd/migrate` binary applies all pending migrations and exits; serving processes boot with `MIGRATE_ON_BOOT=false` and only *wait* (up to 5 minutes, polling the `schema_migrations_audit` table) until the schema reaches head, then proceed. The Coolify compose file wires this up: a `migrate` service runs first and api/ingestor/worker/trust_worker `depends_on` its successful completion.
+
+Run the migrate step manually with:
+
+```bash
+DATABASE_URL=postgres://... go run ./cmd/migrate   # or /app/migrate in the container image
+```
+
+A process booting with `MIGRATE_ON_BOOT=false` against a schema that never reaches head fails after the wait timeout with the list of pending migrations, rather than serving against a stale schema.
 
 ## Choosing the right rollout posture
 

@@ -72,7 +72,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 		CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="$LDFLAGS" -o /out/api ./cmd/api; \
 		CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="$LDFLAGS" -o /out/ingestor ./cmd/ingestor; \
 		CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="$LDFLAGS" -o /out/worker ./cmd/worker; \
-		CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="$LDFLAGS" -o /out/trust_worker ./cmd/trust_worker \
+		CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="$LDFLAGS" -o /out/trust_worker ./cmd/trust_worker; \
+		CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="$LDFLAGS" -o /out/migrate ./cmd/migrate \
 	'
 
 FROM alpine:3.20
@@ -85,6 +86,7 @@ COPY --from=build /out/api /app/api
 COPY --from=build /out/ingestor /app/ingestor
 COPY --from=build /out/worker /app/worker
 COPY --from=build /out/trust_worker /app/trust_worker
+COPY --from=build /out/migrate /app/migrate
 
 USER nobody
 EXPOSE 8080

@@ -72,7 +72,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo) error {
 		build.Time,
 	)
 
-	if err := store.Migrate(ctx, pool, appVersion); err != nil {
+	if err := store.EnsureSchemaReady(ctx, pool, appVersion, cfg.Shared.MigrateOnBoot); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 

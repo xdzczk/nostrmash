@@ -74,7 +74,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		"build_time", strings.TrimSpace(build.Time),
 		"environment", cfg.Shared.Environment,
 	)
-	if err := store.Migrate(ctx, pool, appVersion); err != nil {
+	if err := store.EnsureSchemaReady(ctx, pool, appVersion, cfg.Shared.MigrateOnBoot); err != nil {
 		return err
 	}
 
@@ -303,6 +303,9 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 	mux.Handle("/admin/", api.RequireBearerToken(strings.TrimSpace(cfg.HTTP.AdminBearerToken), adminMux))
 
 	var handler http.Handler = mux
+	// Innermost wrap: compression sees final response bodies; upgrade
+	// requests (Primal WS) bypass it so hijacking stays untouched.
+	handler = api.WithGzip(handler)
 	handler = api.WithPublicRequestGuards(api.PublicRequestGuardOptions{
 		MaxResultLimit:          cfg.HTTP.PublicMaxResultLimit,
 		MaxPageSize:             cfg.HTTP.PublicMaxPageSize,

@@ -86,7 +86,7 @@ func BootstrapRuntime(
 		build.Commit,
 		build.Time,
 	)
-	if err := store.Migrate(ctx, pool, appVersion); err != nil {
+	if err := store.EnsureSchemaReady(ctx, pool, appVersion, cfg.Shared.MigrateOnBoot); err != nil {
 		log.Error("migrate", "error", err)
 		runtimebootstrap.ShutdownTracing(log)
 		pool.Close()
@@ -123,6 +123,7 @@ func buildRunner(
 		log.Error("ingestor_processor", "error", err)
 		return runner{}, err
 	}
+	processor.SetDedupCache(cfg.Runtime.DedupCacheSize)
 
 	// Always wire the trust gate. In "open" mode it only records shadow
 	// metrics; in "trusted_only" it enforces. Keeping it always wired lets

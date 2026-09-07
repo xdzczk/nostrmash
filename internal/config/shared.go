@@ -17,6 +17,14 @@ type SharedConfig struct {
 	Observability   ObservabilityConfig
 	TrustPolicy     TrustPolicyConfig
 	StoragePressure StoragePressureConfig
+	// MigrateOnBoot controls whether this process applies pending schema
+	// migrations during startup (the default) or merely waits until another
+	// process — e.g. the one-shot cmd/migrate binary run as a pre-deploy
+	// step — has brought the schema to head. Boot-blocking migrations
+	// interact badly with container health checks (see migration 000086's
+	// postmortem), so production deployments should run cmd/migrate first
+	// and set MIGRATE_ON_BOOT=false on serving processes.
+	MigrateOnBoot bool
 }
 
 // DatabaseConfig owns database connectivity settings.
@@ -67,6 +75,7 @@ func loadSharedConfig(serviceName string) (SharedConfig, error) {
 		},
 		TrustPolicy:     trustPolicy,
 		StoragePressure: storagePressure,
+		MigrateOnBoot:   getEnvBool("MIGRATE_ON_BOOT", true),
 	}
 	if cfg.ServiceName == "" {
 		return SharedConfig{}, fmt.Errorf("service name is required")
