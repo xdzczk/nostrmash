@@ -1,11 +1,11 @@
 goos: linux
 goarch: amd64
 pkg: github.com/xdzczk/nostrmash/internal/trust
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkComputeIterativeGlobalRankLarge-4   	    2275	    521706 ns/op	  318179 B/op	    1050 allocs/op
-BenchmarkComputeIterativeGlobalRankLarge-4   	    2262	    520915 ns/op	  318176 B/op	    1050 allocs/op
-BenchmarkComputeIterativeGlobalRankLarge-4   	    1852	    633192 ns/op	  318177 B/op	    1050 allocs/op
-BenchmarkComputeIterativeGlobalRankLarge-4   	    2290	    524945 ns/op	  318176 B/op	    1050 allocs/op
-BenchmarkComputeIterativeGlobalRankLarge-4   	    2271	    526224 ns/op	  318177 B/op	    1050 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2361	    506273 ns/op	  318176 B/op	    1050 allocs/op
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2328	    507724 ns/op	  318176 B/op	    1050 allocs/op
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2305	    503335 ns/op	  318176 B/op	    1050 allocs/op
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2324	    505900 ns/op	  318176 B/op	    1050 allocs/op
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2329	    505325 ns/op	  318176 B/op	    1050 allocs/op
 PASS
-ok  	github.com/xdzczk/nostrmash/internal/trust	6.235s
+ok  	github.com/xdzczk/nostrmash/internal/trust	6.171s
