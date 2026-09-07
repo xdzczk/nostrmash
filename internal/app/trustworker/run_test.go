@@ -57,6 +57,15 @@ func (f *fakeTrustWorkerQueue) FailJob(_ context.Context, jobID int64, _ string,
 	return jobs.FailureResult{Status: jobs.StatusPending, Attempts: 1, MaxAttempts: 5}, nil
 }
 
+func (f *fakeTrustWorkerQueue) WaitForWork(ctx context.Context, max time.Duration) {
+	timer := time.NewTimer(max)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
 func (f *fakeTrustWorkerQueue) RecoverStaleRunningJobs(_ context.Context, workerPool string, _ time.Time, _ int) (jobs.RecoveryResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

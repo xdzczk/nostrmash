@@ -61,6 +61,15 @@ func (f *fakeWorkerQueue) PurgeTerminalJobs(_ context.Context, _ time.Time, _ ti
 	return 0, nil
 }
 
+func (f *fakeWorkerQueue) WaitForWork(ctx context.Context, max time.Duration) {
+	timer := time.NewTimer(max)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
 func (f *fakeWorkerQueue) RecoverStaleRunningJobs(_ context.Context, workerPool string, _ time.Time, _ int) (jobs.RecoveryResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
