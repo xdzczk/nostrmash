@@ -332,41 +332,13 @@ func (s *PostgresStore) GetEventAncestors(
 		return nil, nil, ErrNotFound
 	}
 
-	ancestorIDs := make([]string, 0, maxDepth)
-	missingSet := map[string]struct{}{}
-	current := eventID
-	visited := map[string]struct{}{
-		eventID: {},
+	ancestorIDs, missingFromEdges, err := s.walkAncestorIDs(ctx, eventID, maxDepth)
+	if err != nil {
+		return nil, nil, err
 	}
-
-	for i := 0; i < maxDepth; i++ {
-		var parentID string
-		var parentMissing bool
-		err := s.pool.QueryRow(ctx, `
-			SELECT parent_event_id, parent_missing
-			FROM thread_edges
-			WHERE child_event_id = $1
-		`, current).Scan(&parentID, &parentMissing)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				break
-			}
-			return nil, nil, fmt.Errorf("lookup thread edge for ancestors: %w", err)
-		}
-		parentID = strings.TrimSpace(parentID)
-		if parentID == "" {
-			break
-		}
-		if _, seen := visited[parentID]; seen {
-			break
-		}
-		visited[parentID] = struct{}{}
-		ancestorIDs = append(ancestorIDs, parentID)
-		if parentMissing {
-			missingSet[parentID] = struct{}{}
-			break
-		}
-		current = parentID
+	missingSet := map[string]struct{}{}
+	for _, id := range missingFromEdges {
+		missingSet[id] = struct{}{}
 	}
 
 	foundByID, err := s.GetEventRawsByIDs(ctx, ancestorIDs)
@@ -390,6 +362,70 @@ func (s *PostgresStore) GetEventAncestors(
 	}
 	slices.Sort(missingIDs)
 	return ancestors, missingIDs, nil
+}
+
+// walkAncestorIDs returns parent-first ancestor ids (immediate parent at
+// index 0) and any ids the projection already marked parent_missing. A
+// single recursive CTE replaces the previous one-round-trip-per-hop walk,
+// so a 12-deep reply chain is one query instead of 12.
+func (s *PostgresStore) walkAncestorIDs(ctx context.Context, eventID string, maxDepth int) ([]string, []string, error) {
+	rows, err := s.pool.Query(ctx, `
+		WITH RECURSIVE walk AS (
+			SELECT
+				e.parent_event_id,
+				e.parent_missing,
+				1 AS depth,
+				ARRAY[e.child_event_id, e.parent_event_id] AS seen
+			FROM thread_edges e
+			WHERE e.child_event_id = $1
+			  AND e.parent_event_id IS NOT NULL
+			  AND e.parent_event_id <> ''
+
+			UNION ALL
+
+			SELECT
+				e.parent_event_id,
+				e.parent_missing,
+				w.depth + 1,
+				w.seen || e.parent_event_id
+			FROM walk w
+			JOIN thread_edges e ON e.child_event_id = w.parent_event_id
+			WHERE w.depth < $2
+			  AND NOT w.parent_missing
+			  AND e.parent_event_id IS NOT NULL
+			  AND e.parent_event_id <> ''
+			  AND NOT (e.parent_event_id = ANY (w.seen))
+		)
+		SELECT parent_event_id, parent_missing
+		FROM walk
+		ORDER BY depth ASC
+	`, eventID, maxDepth)
+	if err != nil {
+		return nil, nil, fmt.Errorf("walk ancestor edges: %w", err)
+	}
+	defer rows.Close()
+
+	ancestorIDs := make([]string, 0, maxDepth)
+	var missing []string
+	for rows.Next() {
+		var parentID string
+		var parentMissing bool
+		if err := rows.Scan(&parentID, &parentMissing); err != nil {
+			return nil, nil, fmt.Errorf("scan ancestor edge: %w", err)
+		}
+		parentID = strings.TrimSpace(parentID)
+		if parentID == "" {
+			continue
+		}
+		ancestorIDs = append(ancestorIDs, parentID)
+		if parentMissing {
+			missing = append(missing, parentID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("iterate ancestor edges: %w", err)
+	}
+	return ancestorIDs, missing, nil
 }
 
 // GetThreadSummary returns projection-backed root-level thread summary primitives.

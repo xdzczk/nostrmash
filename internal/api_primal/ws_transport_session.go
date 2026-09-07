@@ -18,13 +18,13 @@ type wsConnSession struct {
 	remoteAddr string
 
 	mu                  sync.Mutex
-	writeMu             sync.Mutex
 	subscriptions       map[string]struct{}
 	dmLiveSubscriptions map[string]dmLiveSubscription
 	windowStarted       time.Time
 	reqInWindow         int
 	dmReqInWindow       int
 	done                chan struct{}
+	writeQueue          chan []byte
 	closeOnce           sync.Once
 }
 
@@ -38,11 +38,13 @@ func newWSConnSession(requestCtx context.Context, g WSGateway, conn *websocket.C
 		dmLiveSubscriptions: make(map[string]dmLiveSubscription),
 		windowStarted:       time.Now().UTC(),
 		done:                make(chan struct{}),
+		writeQueue:          make(chan []byte, wsWriteQueueSize),
 	}
 }
 
 func (s *wsConnSession) run() {
 	defer close(s.done)
+	go s.writePump()
 	s.startDMLiveCountLoop()
 	for {
 		_, payload, err := s.conn.ReadMessage()
@@ -74,23 +76,63 @@ func (s *wsConnSession) run() {
 }
 
 func (s *wsConnSession) sendFrame(frame any) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if err := writeFrame(s.conn, frame); err != nil {
-		// A failed write means the connection is broken. Tear it down so the
-		// read loop unblocks and the session ends promptly, rather than
-		// silently continuing to operate on a dead connection.
-		s.teardown()
+	raw, err := encodeFrame(frame)
+	if err != nil {
 		return err
 	}
-	return nil
+	select {
+	case <-s.done:
+		return errSessionClosed
+	default:
+	}
+	select {
+	case s.writeQueue <- raw:
+		return nil
+	case <-s.done:
+		return errSessionClosed
+	default:
+	}
+	// Queue is full: wait briefly so a legitimate burst (a large thread_view)
+	// still lands, then disconnect a client that cannot keep up.
+	timer := time.NewTimer(wsWriteQueueWait)
+	defer timer.Stop()
+	select {
+	case s.writeQueue <- raw:
+		return nil
+	case <-timer.C:
+		s.teardown()
+		return errWriteBackpressure
+	case <-s.done:
+		return errSessionClosed
+	}
+}
+
+// writePump is the only goroutine that writes to the socket. Concurrent
+// WriteMessage calls are undefined in gorilla/websocket; a slow client
+// previously blocked the request goroutine (and the DM live-count loop)
+// on the write mutex for the duration of the TCP send.
+func (s *wsConnSession) writePump() {
+	defer s.teardown()
+	for {
+		select {
+		case raw := <-s.writeQueue:
+			_ = s.conn.SetWriteDeadline(time.Now().Add(wsWriteDeadline))
+			if err := s.conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+				return
+			}
+		case <-s.done:
+			return
+		}
+	}
 }
 
 // teardown closes the underlying connection exactly once. Closing unblocks the
 // blocking ReadMessage in run(), which then returns and drives full cleanup.
 func (s *wsConnSession) teardown() {
 	s.closeOnce.Do(func() {
-		_ = s.conn.Close()
+		if s.conn != nil {
+			_ = s.conn.Close()
+		}
 	})
 }
 

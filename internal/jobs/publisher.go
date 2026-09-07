@@ -84,5 +84,8 @@ func EnqueueEventJobTx(
 	if err != nil {
 		return fmt.Errorf("enqueue %s for event %s: %w", jobType, eventID, err)
 	}
+	// NOTIFY is transactional: it fires only if this tx commits, so a
+	// rolled-back ingest never wakes a worker for a job that isn't there.
+	notifyJobsAvailable(ctx, tx, workerPool)
 	return nil
 }
