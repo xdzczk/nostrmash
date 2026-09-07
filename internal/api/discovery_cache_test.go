@@ -110,3 +110,39 @@ func TestDiscoveryCache_HitMissObserver(t *testing.T) {
 		t.Fatalf("unexpected lookup observer sequence: %#v", lookups)
 	}
 }
+
+func TestDiscoveryCache_SetsCacheControlFromFamilyTTL(t *testing.T) {
+	cacheEnabled := true
+	h := mustNewHandlersWithOptions(t, fakeEventReader{
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{
+				{EventID: "evt_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "ok"},
+			}, nil
+		},
+	}, HandlersOptions{
+		MaxBatchSize: 200,
+		DiscoveryCache: &DiscoveryCacheOptions{
+			Enabled:      &cacheEnabled,
+			MaxEntries:   8,
+			DiscoveryTTL: time.Minute,
+		},
+	})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/notes/trending", h.GetTrendingNotes)
+
+	// Both the build (miss) path and the cached (hit) path must carry the
+	// same HTTP cache semantics mirroring the 60s family TTL.
+	want := "public, max-age=60, s-maxage=60, stale-while-revalidate=60"
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending?window=24h&limit=1&offset=0", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("unexpected status: got %d want %d", rec.Code, http.StatusOK)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != want {
+			t.Fatalf("request %d: unexpected Cache-Control: got %q want %q", i, got, want)
+		}
+	}
+}

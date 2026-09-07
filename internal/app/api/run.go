@@ -303,6 +303,9 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 	mux.Handle("/admin/", api.RequireBearerToken(strings.TrimSpace(cfg.HTTP.AdminBearerToken), adminMux))
 
 	var handler http.Handler = mux
+	// Innermost wrap: compression sees final response bodies; upgrade
+	// requests (Primal WS) bypass it so hijacking stays untouched.
+	handler = api.WithGzip(handler)
 	handler = api.WithPublicRequestGuards(api.PublicRequestGuardOptions{
 		MaxResultLimit:          cfg.HTTP.PublicMaxResultLimit,
 		MaxPageSize:             cfg.HTTP.PublicMaxPageSize,
