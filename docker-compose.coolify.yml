@@ -31,8 +31,26 @@ x-common-env: &common-env
   MEILI_URL: ${MEILI_URL:-http://meilisearch:7700}
   MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-}
   MEILI_SEARCH_API_KEY: ${MEILI_SEARCH_API_KEY:-}
+  # The one-shot migrate service owns schema migrations; serving processes
+  # only wait for the schema to reach head. A boot-blocking migration inside
+  # a health-checked container gets killed and rolled back mid-flight.
+  MIGRATE_ON_BOOT: ${MIGRATE_ON_BOOT:-false}
+
+# Serving services start only after the one-shot migrate service has applied
+# all pending migrations and exited 0.
+x-depends-on-migrate: &depends-on-migrate
+  migrate:
+    condition: service_completed_successfully
 
 services:
+  migrate:
+    <<: *nostrmash-service
+    restart: "no"
+    command: ["/app/migrate"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
   meilisearch:
     image: getmeili/meilisearch:v1.42.1
     restart: unless-stopped
@@ -67,6 +85,8 @@ services:
       # declares ARG SOURCE_COMMIT and stamps ldflags from it when .git
       # is not in the build context.
     command: ["/app/api"]
+    depends_on:
+      <<: *depends-on-migrate
     expose:
       - "8080"
     environment:
@@ -96,6 +116,8 @@ services:
   ingestor:
     <<: *nostrmash-service
     command: ["/app/ingestor"]
+    depends_on:
+      <<: *depends-on-migrate
     environment:
       <<: *common-env
       METRICS_ADDR: ${INGESTOR_METRICS_ADDR:-:9090}
@@ -131,6 +153,8 @@ services:
   worker:
     <<: *nostrmash-service
     command: ["/app/worker"]
+    depends_on:
+      <<: *depends-on-migrate
     environment:
       <<: *common-env
       METRICS_ADDR: ${WORKER_METRICS_ADDR:-:9090}
@@ -173,6 +197,8 @@ services:
   trust_worker:
     <<: *nostrmash-service
     command: ["/app/trust_worker"]
+    depends_on:
+      <<: *depends-on-migrate
     # Redis graph sync + in-memory score compute stream ~5M follower_edges;
     # 256m OOMs / Redis client timeouts mid-compute. Keep under the single-server
     # RAM budget but large enough for a full adjacency load.

@@ -15,6 +15,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -123,6 +124,109 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, appVersion string) error {
 	}
 
 	return tx.Commit(ctx)
+}
+
+// Pending returns the embedded migration files not yet recorded in the audit
+// table, in apply order. A missing audit table means every migration is
+// pending. Checksum mismatches on already-applied migrations are reported as
+// errors so a waiting process fails loudly instead of serving against a
+// diverged schema.
+func Pending(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	entries, err := fs.ReadDir(migrations.Files, ".")
+	if err != nil {
+		return nil, fmt.Errorf("read migrations fs: %w", err)
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), ".sql") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+
+	var auditExists bool
+	err = pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = current_schema() AND table_name = 'schema_migrations_audit'
+		)
+	`).Scan(&auditExists)
+	if err != nil {
+		return nil, fmt.Errorf("check audit table: %w", err)
+	}
+	if !auditExists {
+		return names, nil
+	}
+
+	applied := make(map[string]string, len(names))
+	rows, err := pool.Query(ctx, `SELECT migration_id, checksum FROM schema_migrations_audit`)
+	if err != nil {
+		return nil, fmt.Errorf("load applied migrations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, checksum string
+		if err := rows.Scan(&id, &checksum); err != nil {
+			return nil, fmt.Errorf("scan applied migration: %w", err)
+		}
+		applied[id] = checksum
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate applied migrations: %w", err)
+	}
+
+	var pending []string
+	for _, name := range names {
+		fullID := path.Join("migrations", name)
+		appliedChecksum, ok := applied[fullID]
+		if !ok {
+			pending = append(pending, name)
+			continue
+		}
+		data, err := migrations.Files.ReadFile(name)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", name, err)
+		}
+		sum := sha256.Sum256(data)
+		if appliedChecksum != hex.EncodeToString(sum[:]) {
+			return nil, fmt.Errorf("migration checksum mismatch for %s", name)
+		}
+	}
+	return pending, nil
+}
+
+// WaitUntilApplied blocks until every embedded migration is recorded as
+// applied, polling at pollInterval. It exists for processes booting with
+// MIGRATE_ON_BOOT=false: they must not serve against a stale schema, but they
+// also must not run migrations themselves (a separate migrate step owns
+// that). Returns the context's error on cancellation/timeout, annotated with
+// the migrations still pending so operators see what the process is stuck on.
+func WaitUntilApplied(ctx context.Context, pool *pgxpool.Pool, pollInterval time.Duration) error {
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+	var lastPending []string
+	for {
+		pending, err := Pending(ctx, pool)
+		if err != nil {
+			return err
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		lastPending = pending
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf(
+				"schema not at head after wait (%d migrations pending, first %s): %w",
+				len(lastPending), lastPending[0], ctx.Err(),
+			)
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 // SetMigrationSearchPath scopes migration DDL to schemaName, optionally also

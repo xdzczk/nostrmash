@@ -38,6 +38,13 @@ func configEnvDocsShared() []EnvVarDoc {
 			Description:  "Prometheus metrics listen address for ingestor, worker, and trust_worker. API exposes /metrics on HTTP_ADDR.",
 		},
 		{
+			Name:         "MIGRATE_ON_BOOT",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Apply pending schema migrations during process startup. Set to false in production so a dedicated pre-deploy step (the cmd/migrate one-shot binary) owns migrations; the process then waits up to 5 minutes for the schema to reach head before failing. Prevents a slow boot-blocking migration from being killed mid-flight by container health checks.",
+		},
+		{
 			Name:         "MEILI_ENABLED",
 			Runtimes:     []string{"api", "worker"},
 			Required:     false,

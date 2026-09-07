@@ -86,7 +86,7 @@ func BootstrapRuntime(
 		build.Commit,
 		build.Time,
 	)
-	if err := store.Migrate(ctx, pool, appVersion); err != nil {
+	if err := store.EnsureSchemaReady(ctx, pool, appVersion, cfg.Shared.MigrateOnBoot); err != nil {
 		log.Error("migrate", "error", err)
 		runtimebootstrap.ShutdownTracing(log)
 		pool.Close()

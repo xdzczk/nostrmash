@@ -74,7 +74,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		"build_time", strings.TrimSpace(build.Time),
 		"environment", cfg.Shared.Environment,
 	)
-	if err := store.Migrate(ctx, pool, appVersion); err != nil {
+	if err := store.EnsureSchemaReady(ctx, pool, appVersion, cfg.Shared.MigrateOnBoot); err != nil {
 		return err
 	}
 

@@ -6,8 +6,10 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xdzczk/nostrmash/internal/dbmigrate"
 	"github.com/xdzczk/nostrmash/internal/testutil/dbtest"
 	"github.com/xdzczk/nostrmash/migrations"
 )
@@ -367,6 +369,53 @@ func TestMigratePgTrgmExtensionIsPublicAcrossSchemas(t *testing.T) {
 	var trigramComparable bool
 	if err := secondPool.QueryRow(ctx, `SELECT 'nostr'::text % 'nostrmash'::text`).Scan(&trigramComparable); err != nil {
 		t.Fatalf("evaluate trigram operator from second schema: %v", err)
+	}
+}
+
+func TestEnsureSchemaReadyWaitsForSeparateMigrator(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+
+	// Fresh schema, no migrator running: the wait path must fail with a
+	// descriptive pending-migrations error instead of hanging or serving.
+	waitCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	err := dbmigrate.WaitUntilApplied(waitCtx, pool, 50*time.Millisecond)
+	cancel()
+	if err == nil {
+		t.Fatal("expected wait on unmigrated schema to fail")
+	}
+	if !strings.Contains(err.Error(), "migrations pending") {
+		t.Fatalf("expected pending-migrations detail in error, got: %v", err)
+	}
+
+	// A waiter must unblock once a separate process applies migrations.
+	waiterErr := make(chan error, 1)
+	go func() {
+		waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		waiterErr <- dbmigrate.WaitUntilApplied(waitCtx, pool, 50*time.Millisecond)
+	}()
+	if err := Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := <-waiterErr; err != nil {
+		t.Fatalf("waiter should unblock after migrate, got: %v", err)
+	}
+
+	// Migrated schema: both boot modes succeed immediately.
+	if err := EnsureSchemaReady(ctx, pool, "test-v1", false); err != nil {
+		t.Fatalf("wait-only boot on migrated schema: %v", err)
+	}
+	if err := EnsureSchemaReady(ctx, pool, "test-v1", true); err != nil {
+		t.Fatalf("migrate-on-boot rerun on migrated schema: %v", err)
+	}
+
+	pending, err := dbmigrate.Pending(ctx, pool)
+	if err != nil {
+		t.Fatalf("pending after migrate: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("expected no pending migrations, got %v", pending)
 	}
 }
 
