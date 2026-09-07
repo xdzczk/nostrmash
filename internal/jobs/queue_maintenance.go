@@ -116,6 +116,9 @@ func (q *Queue) RecoverStaleRunningJobs(
 	if rowsErr := rows.Err(); rowsErr != nil {
 		return result, fmt.Errorf("read stale recovery results: %w", rowsErr)
 	}
+	if result.Recovered > 0 {
+		notifyJobsAvailable(ctx, q.pool, workerPool)
+	}
 	return result, nil
 }
 

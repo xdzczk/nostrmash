@@ -18,6 +18,7 @@ type Queue interface {
 	FailJob(ctx context.Context, jobID int64, workerID string, errMsg string, retryDelay time.Duration) (jobs.FailureResult, error)
 	RecoverStaleRunningJobs(ctx context.Context, workerPool string, olderThan time.Time, limit int) (jobs.RecoveryResult, error)
 	PurgeTerminalJobs(ctx context.Context, succeededBefore, deadBefore time.Time, limit int) (int64, error)
+	WaitForWork(ctx context.Context, max time.Duration)
 }
 
 type InvalidEventRetentionStore interface {

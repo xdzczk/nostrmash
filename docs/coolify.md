@@ -18,7 +18,7 @@ For Coolify production deployments:
 - let Coolify manage `Postgres`
 - let Coolify manage `Redis`
 - run only the NostrMash binaries in the application stack
-- expose only the `api` service publicly
+- expose the `edge` service publicly (nginx cache in front of `api`); keep `api` internal
 
 ## Coolify resources
 
@@ -59,7 +59,8 @@ docker-compose.coolify.yml
 The Compose file builds the repo `Dockerfile` **once** (only the `api` service has a `build:` block) and starts the services from the shared `nostrmash:coolify` image:
 
 - `migrate` via `/app/migrate` (one-shot, applies schema migrations and exits)
-- `api` via `/app/api`
+- `api` via `/app/api` (internal)
+- `edge` via `nginx:1.27-alpine` (public HTTP/WS entry; caches `GET /api/v1/discovery/*`)
 - `ingestor` via `/app/ingestor`
 - `worker` via `/app/worker`
 - `trust_worker` via `/app/trust_worker`
@@ -68,6 +69,29 @@ The Compose file builds the repo `Dockerfile` **once** (only the `api` service h
 
 The four long-running services set `MIGRATE_ON_BOOT=false` and declare `depends_on: migrate: condition: service_completed_successfully`. Each deploy therefore applies pending migrations exactly once, in a container that has **no healthcheck racing it**, before any serving process starts; the serving processes additionally verify the schema is at head (waiting up to 5 minutes) before accepting work. See [migrations.md](migrations.md) for the full posture. A failed migration fails the deploy while the previous stack stays up.
 
+### Public domain goes on `edge`
+
+Attach the Coolify public domain to the `edge` service, not `api`. `edge` is a small nginx reverse proxy that:
+
+- caches `GET /api/v1/discovery/*` using the origin `Cache-Control` / `CDN-Cache-Control` headers (60s trending, 10m public stats, 1h related)
+- proxies `/primal/ws` with Upgrade headers and no cache
+- proxies everything else through to `api` uncached
+
+A cache hit is visible as `X-Edge-Cache: HIT`. Existing deploys that already point the domain at `api` keep working; they just miss the local cache until the domain is moved.
+
+### Cloudflare in front (the real CDN)
+
+Cloudflare does **not** cache `application/json` by default, even with correct `Cache-Control`. After `edge` (or `api`) is publicly reachable through Cloudflare, add one Cache Rule:
+
+1. Cloudflare dashboard → the zone → Caching → Cache Rules → Create rule
+2. If incoming requests match: URI Path starts with `/api/v1/discovery/`
+3. Then: Eligible for cache, Edge TTL = Respect origin, Browser TTL = Respect origin
+4. Place the rule above any “bypass cache” rule for `/admin` or `/primal/ws`
+
+The API already sends `CDN-Cache-Control` and `Surrogate-Control` mirroring each discovery family’s TTL plus `stale-while-revalidate`, so the edge stays no staler than the in-process cache. Confirm with `CF-Cache-Status: HIT` on a repeated `GET /api/v1/discovery/notes/trending?...`.
+
+Do not cache `/admin/*`, `/primal/ws`, or any request carrying `Authorization`.
+
 ### Healthchecks (why Coolify shows "unknown")
 
 A Docker Compose application in Coolify has **no per-service Healthcheck field** in the UI. Coolify reads each service's `healthcheck` from [`../docker-compose.coolify.yml`](../docker-compose.coolify.yml). Without that block, every service stays `unknown`.
@@ -75,6 +99,7 @@ A Docker Compose application in Coolify has **no per-service Healthcheck field**
 The checked-in probes are liveness only (process is listening):
 
 - `api`: `GET /health` on `:8080` (`busybox wget`; the runtime image does not install GNU wget)
+- `edge`: `GET /health` on `:8080` (official nginx image ships `wget`; proxied through to `api`)
 - `ingestor` / `worker` / `trust_worker`: `GET /metrics` on `:9090` (same)
 - `meilisearch`: `GET /health` on `:7700` (official image ships `wget`)
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,7 +26,9 @@ var (
 )
 
 type Queue struct {
-	pool *pgxpool.Pool
+	pool         *pgxpool.Pool
+	listenerOnce sync.Once
+	listener     *notifyListener
 }
 
 type Job struct {
@@ -135,6 +138,7 @@ func (q *Queue) Enqueue(ctx context.Context, params EnqueueParams) (job *Job, er
 	if err != nil {
 		return nil, fmt.Errorf("enqueue job: %w", err)
 	}
+	notifyJobsAvailable(ctx, q.pool, job.WorkerPool)
 	return job, nil
 }
 
