@@ -52,4 +52,3 @@ func TestWaitForWorkWakesOnEnqueue(t *testing.T) {
 		_ = i
 	}
 }
-
