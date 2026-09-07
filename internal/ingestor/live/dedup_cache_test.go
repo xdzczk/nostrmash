@@ -90,6 +90,40 @@ func TestProcessorDedupShortCircuitsRepeatSightings(t *testing.T) {
 	}
 }
 
+// BenchmarkHandleDuplicateSighting quantifies the dedup win: how much work a
+// repeat sighting of an already-persisted event costs with the cache enabled
+// (cheap probe + provenance) versus disabled (full JSON canonicalization,
+// SHA-256, Schnorr verify, canonical insert round-trip).
+func BenchmarkHandleDuplicateSighting(b *testing.B) {
+	for _, enabled := range []bool{true, false} {
+		name := "cache_enabled"
+		if !enabled {
+			name = "cache_disabled"
+		}
+		b.Run(name, func(b *testing.B) {
+			store := &fakeStore{}
+			p, err := NewProcessor(silentLogger(), store, nostr.Options{})
+			if err != nil {
+				b.Fatalf("new processor: %v", err)
+			}
+			if enabled {
+				p.SetDedupCache(1024)
+			}
+			if err := p.Handle(context.Background(), "wss://relay.one", []byte(validEventFixture)); err != nil {
+				b.Fatalf("seed handle: %v", err)
+			}
+			payload := []byte(validEventFixture)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := p.Handle(context.Background(), "wss://relay.two", payload); err != nil {
+					b.Fatalf("handle: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestProcessorDedupIgnoresUnknownAndInvalidPayloads(t *testing.T) {
 	store := &fakeStore{canonicalOutcomes: []bool{true}}
 	p, err := NewProcessor(silentLogger(), store, nostr.Options{})

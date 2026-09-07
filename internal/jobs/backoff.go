@@ -38,7 +38,9 @@ func RetryDelay(attempts int, base, max time.Duration) time.Duration {
 			break
 		}
 	}
-	jitter := time.Duration((rand.Float64()*2 - 1) * retryJitterFraction * float64(delay))
+	// Jitter only de-synchronizes retry timing; it carries no security
+	// weight, so the fast non-crypto PRNG is the right tool.
+	jitter := time.Duration((rand.Float64()*2 - 1) * retryJitterFraction * float64(delay)) //nolint:gosec
 	delay += jitter
 	if delay < base {
 		delay = base
