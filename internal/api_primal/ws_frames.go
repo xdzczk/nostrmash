@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 const (
@@ -36,12 +34,4 @@ func decodeFrame(payload []byte) ([]any, error) {
 
 func encodeFrame(frame any) ([]byte, error) {
 	return json.Marshal(frame)
-}
-
-func writeFrame(conn *websocket.Conn, frame any) error {
-	raw, err := encodeFrame(frame)
-	if err != nil {
-		return err
-	}
-	return conn.WriteMessage(websocket.TextMessage, raw)
 }
