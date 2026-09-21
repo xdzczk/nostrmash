@@ -116,6 +116,7 @@ type Service struct {
 	fallbackMaxAttempts             int
 	fallbackMaxTimeBudget           time.Duration
 	fallbackDirectLookups           bool
+	authorEventsFallbackMinResults  int
 	discoveryTrustMode              string
 	discoveryTrustPolicy            TrustQualificationPolicy
 	discoveryTrustScanSize          int
@@ -149,15 +150,19 @@ type FallbackEventPersister interface {
 }
 
 type ServiceOptions struct {
-	FallbackReader                  FallbackReader
-	FallbackProfilePersister        FallbackProfilePersister
-	FallbackEventPersister          FallbackEventPersister
-	FallbackFetchTrustMode          string
-	FallbackFetchMinimumScore       float64
-	FallbackFetchMaxHops            int
-	FallbackFetchMaxAttempts        int
-	FallbackFetchMaxTimeBudget      time.Duration
-	FallbackFetchAllowDirectLookup  *bool
+	FallbackReader                 FallbackReader
+	FallbackProfilePersister       FallbackProfilePersister
+	FallbackEventPersister         FallbackEventPersister
+	FallbackFetchTrustMode         string
+	FallbackFetchMinimumScore      float64
+	FallbackFetchMaxHops           int
+	FallbackFetchMaxAttempts       int
+	FallbackFetchMaxTimeBudget     time.Duration
+	FallbackFetchAllowDirectLookup *bool
+	// FallbackAuthorEventsMinResults triggers an on-demand relay fetch when a
+	// local author-events read returns fewer rows than this threshold.
+	// Zero (the default) disables the thin-profile fallback.
+	FallbackAuthorEventsMinResults  int
 	DiscoveryCandidateTrustMode     string
 	SearchRankingTrustMode          string
 	DiscoveryCandidateMinimumScore  float64
@@ -307,8 +312,14 @@ func buildService(nativeReader Reader, probeSource any, options ServiceOptions) 
 		fallbackMaxAttempts:    fallbackMaxAttempts,
 		fallbackMaxTimeBudget:  fallbackMaxTimeBudget,
 		fallbackDirectLookups:  fallbackDirectLookups,
-		discoveryTrustMode:     mode,
-		discoveryTrustPolicy:   TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
+		authorEventsFallbackMinResults: func() int {
+			if options.FallbackAuthorEventsMinResults < 0 {
+				return 0
+			}
+			return options.FallbackAuthorEventsMinResults
+		}(),
+		discoveryTrustMode:   mode,
+		discoveryTrustPolicy: TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
 		// Keep trust-aware candidate scans bounded and predictable.
 		discoveryTrustScanSize: 400,
 		discoveryScoreBoostWeight: func() float64 {

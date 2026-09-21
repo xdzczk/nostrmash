@@ -52,6 +52,11 @@ type authorRecentEventsByKindCapability interface {
 	GetAuthorRecentEventsByKind(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error)
 }
 
+type authorRecentEventsPageCapability interface {
+	GetAuthorRecentEventsPage(ctx context.Context, pubkey string, limit int, cursor *readmodel.EventOrderCursor) ([]json.RawMessage, *readmodel.EventOrderCursor, error)
+	GetAuthorRecentEventsByKindPage(ctx context.Context, pubkey string, kind int, limit int, cursor *readmodel.EventOrderCursor) ([]json.RawMessage, *readmodel.EventOrderCursor, error)
+}
+
 func adaptEventCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(userZapsCapability); ok {
 		caps.event.userZaps = r
@@ -73,5 +78,8 @@ func adaptEventCapabilities(reader any, caps *serviceCapabilities) {
 	}
 	if r, ok := reader.(authorRecentEventsByKindCapability); ok {
 		caps.event.authorRecentEventsByKind = r
+	}
+	if r, ok := reader.(authorRecentEventsPageCapability); ok {
+		caps.event.authorRecentEventsPage = r
 	}
 }

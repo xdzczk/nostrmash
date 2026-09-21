@@ -93,6 +93,7 @@ type eventCapabilities struct {
 	authorSentZaps           authorSentZapsCapability
 	authorReactions          authorReactionsCapability
 	authorRecentEventsByKind authorRecentEventsByKindCapability
+	authorRecentEventsPage   authorRecentEventsPageCapability
 }
 
 type threadCapabilities struct {

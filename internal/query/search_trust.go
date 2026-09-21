@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 )
 
 type trustedSearchNoteCandidate struct {
@@ -152,7 +154,42 @@ func (s Service) searchProfilesTrustAware(ctx context.Context, params ProfileSea
 	return paginateSearchProfiles(trustedSearchProfileRowsByMode(candidates, s.searchTrustMode), params.Limit, params.Offset), nil
 }
 
+// notesSearchBeforeReader is the optional keyset-pagination capability for
+// latest-sorted note search. Readers without it fall back to offset paging.
+type notesSearchBeforeReader interface {
+	SearchNotesBefore(
+		ctx context.Context,
+		query string,
+		window *time.Duration,
+		language string,
+		limit int,
+		beforeCreatedAt int64,
+		beforeID string,
+	) ([]json.RawMessage, error)
+}
+
 func (s Service) searchNotesPage(ctx context.Context, params NotesSearchParams) ([]json.RawMessage, error) {
+	if params.Sort == "latest" && strings.TrimSpace(params.BeforeID) != "" {
+		if keysetReader, ok := s.reader.(notesSearchBeforeReader); ok {
+			rows, err := keysetReader.SearchNotesBefore(
+				ctx,
+				params.Query,
+				params.Window,
+				params.Language,
+				params.Limit,
+				params.BeforeCreatedAt,
+				params.BeforeID,
+			)
+			if err == nil {
+				return rows, nil
+			}
+			if !IsUnsupportedCapability(err) {
+				return nil, err
+			}
+			// Keyset unsupported by the underlying reader: fall through to
+			// the offset paths below.
+		}
+	}
 	if s.meilisearch != nil {
 		rows, err := s.meilisearch.SearchNotes(
 			ctx,

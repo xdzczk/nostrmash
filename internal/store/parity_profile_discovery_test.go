@@ -20,20 +20,25 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 	handlers := derivation.NewHandlers(pool)
 	now := time.Now().UTC()
 
+	// Recent seeds are compressed into the last hour so the whole "today"
+	// timeline stays inside a single UTC day: with hour-scale offsets the test
+	// failed when run shortly after UTC midnight, because small_author's
+	// activity spanned two UTC days and the consistency multiplier flipped the
+	// expected rising ranking.
 	events := []model.Event{
-		newDiscoveryEvent("meta_small", "small_author", now.Add(-5*time.Hour), 0, nil, `{"name":"small"}`),
-		newDiscoveryEvent("meta_big", "big_author", now.Add(-5*time.Hour), 0, nil, `{"name":"big"}`),
+		newDiscoveryEvent("meta_small", "small_author", now.Add(-55*time.Minute), 0, nil, `{"name":"small"}`),
+		newDiscoveryEvent("meta_big", "big_author", now.Add(-55*time.Minute), 0, nil, `{"name":"big"}`),
 		newDiscoveryEvent("meta_older", "older_author", now.Add(-80*time.Hour), 0, nil, `{"name":"older"}`),
-		newDiscoveryEvent("small_note", "small_author", now.Add(-2*time.Hour), 1, nil, "small note"),
-		newDiscoveryEvent("big_note", "big_author", now.Add(-3*time.Hour), 1, nil, "big note"),
+		newDiscoveryEvent("small_note", "small_author", now.Add(-48*time.Minute), 1, nil, "small note"),
+		newDiscoveryEvent("big_note", "big_author", now.Add(-50*time.Minute), 1, nil, "big note"),
 		newDiscoveryEvent("older_note", "older_author", now.Add(-72*time.Hour), 1, nil, "older note"),
 
-		newDiscoveryEvent("small_reply_1", "small_replier_1", now.Add(-90*time.Minute), 1, [][]string{{"e", "small_note", "", "reply"}}, "reply"),
-		newDiscoveryEvent("small_reply_2", "small_replier_2", now.Add(-80*time.Minute), 1, [][]string{{"e", "small_note", "", "reply"}}, "reply"),
-		newDiscoveryEvent("small_reaction_1", "small_reactor_1", now.Add(-70*time.Minute), 7, [][]string{{"e", "small_note"}}, "+"),
-		newDiscoveryEvent("small_reaction_2", "small_reactor_2", now.Add(-65*time.Minute), 7, [][]string{{"e", "small_note"}}, "+"),
-		newDiscoveryEvent("small_reaction_3", "small_reactor_3", now.Add(-60*time.Minute), 7, [][]string{{"e", "small_note"}}, "+"),
-		newDiscoveryEvent("small_reaction_4", "small_reactor_4", now.Add(-55*time.Minute), 7, [][]string{{"e", "small_note"}}, "+"),
+		newDiscoveryEvent("small_reply_1", "small_replier_1", now.Add(-46*time.Minute), 1, [][]string{{"e", "small_note", "", "reply"}}, "reply"),
+		newDiscoveryEvent("small_reply_2", "small_replier_2", now.Add(-45*time.Minute), 1, [][]string{{"e", "small_note", "", "reply"}}, "reply"),
+		newDiscoveryEvent("small_reaction_1", "small_reactor_1", now.Add(-44*time.Minute), 7, [][]string{{"e", "small_note"}}, "+"),
+		newDiscoveryEvent("small_reaction_2", "small_reactor_2", now.Add(-43*time.Minute), 7, [][]string{{"e", "small_note"}}, "+"),
+		newDiscoveryEvent("small_reaction_3", "small_reactor_3", now.Add(-42*time.Minute), 7, [][]string{{"e", "small_note"}}, "+"),
+		newDiscoveryEvent("small_reaction_4", "small_reactor_4", now.Add(-41*time.Minute), 7, [][]string{{"e", "small_note"}}, "+"),
 
 		newDiscoveryEvent("big_reply_1", "big_replier_1", now.Add(-50*time.Minute), 1, [][]string{{"e", "big_note", "", "reply"}}, "reply"),
 		newDiscoveryEvent("big_reply_2", "big_replier_2", now.Add(-45*time.Minute), 1, [][]string{{"e", "big_note", "", "reply"}}, "reply"),
@@ -53,7 +58,7 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 		events = append(events, newDiscoveryEvent(
 			id,
 			follower,
-			now.Add(-6*time.Hour),
+			now.Add(-52*time.Minute),
 			3,
 			[][]string{{"p", "big_author"}},
 			"contacts",

@@ -210,6 +210,76 @@ func (c *Client) FetchEventsByIDs(ctx context.Context, ids []string) (map[string
 	return filterRequestedValidatedEvents(events, requestedSet, c.log), nil
 }
 
+// FetchEventsByAuthor fetches recent events authored by one pubkey from the
+// configured event relays. Results are validated, filtered to the requested
+// author and kinds, and deduplicated by event id. Used by the query-layer
+// thin-profile fallback when the local store has too few events for an author.
+func (c *Client) FetchEventsByAuthor(ctx context.Context, pubkey string, kinds []int, limit int) ([]json.RawMessage, error) {
+	if !c.Enabled() {
+		return []json.RawMessage{}, nil
+	}
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return []json.RawMessage{}, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	filter := map[string]any{
+		"authors": []string{pubkey},
+		"limit":   limit,
+	}
+	normalizedKinds := make([]int, 0, len(kinds))
+	for _, kind := range kinds {
+		if kind >= 0 {
+			normalizedKinds = append(normalizedKinds, kind)
+		}
+	}
+	if len(normalizedKinds) > 0 {
+		filter["kinds"] = normalizedKinds
+	}
+
+	events, err := c.collectFromRelays(ctx, c.EventRelays(), filter, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	allowedKinds := make(map[int]struct{}, len(normalizedKinds))
+	for _, kind := range normalizedKinds {
+		allowedKinds[kind] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(events))
+	out := make([]json.RawMessage, 0, len(events))
+	for _, raw := range events {
+		evt, validatedRaw, validateErr := validateFetchedEvent(raw)
+		if validateErr != nil {
+			c.log.Debug("fallback_author_event_validation_failed", "error", validateErr)
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(evt.Pubkey), pubkey) {
+			continue
+		}
+		if len(allowedKinds) > 0 {
+			if _, ok := allowedKinds[evt.Kind]; !ok {
+				continue
+			}
+		}
+		if _, exists := seen[evt.ID]; exists {
+			continue
+		}
+		seen[evt.ID] = struct{}{}
+		out = append(out, validatedRaw)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (c *Client) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
 	if !c.Enabled() {
 		return map[string]store.ProfileProjection{}, nil

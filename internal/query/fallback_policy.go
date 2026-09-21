@@ -12,6 +12,7 @@ const (
 	fallbackLookupDiscoveryMiss    fallbackLookupReason = "discovery_miss"
 	fallbackLookupSearchMiss       fallbackLookupReason = "search_miss"
 	fallbackLookupThreadCompletion fallbackLookupReason = "thread_completion"
+	fallbackLookupThinProfile      fallbackLookupReason = "thin_profile"
 )
 
 type fallbackPolicyRuntime struct {

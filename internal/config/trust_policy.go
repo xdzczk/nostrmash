@@ -61,6 +61,7 @@ type TrustPolicyConfig struct {
 	FallbackFetchMaxTimeBudget       time.Duration
 	FallbackFetchMaxRelaysPerAttempt int
 	FallbackFetchAllowDirectLookup   bool
+	FallbackAuthorEventsMinResults   int
 	RetentionPolicyMode              string
 	RetentionHooks                   TrustRetentionHooksConfig
 	MinimumScore                     float64
@@ -108,6 +109,10 @@ func loadTrustPolicyConfig() (TrustPolicyConfig, error) {
 	if err != nil {
 		return TrustPolicyConfig{}, err
 	}
+	fallbackAuthorEventsMinResults, err := getEnvNonNegativeIntStrict("TRUST_FALLBACK_AUTHOR_EVENTS_MIN_RESULTS", 10)
+	if err != nil {
+		return TrustPolicyConfig{}, err
+	}
 	retentionHooks, err := loadTrustRetentionHooksConfig()
 	if err != nil {
 		return TrustPolicyConfig{}, err
@@ -129,6 +134,7 @@ func loadTrustPolicyConfig() (TrustPolicyConfig, error) {
 		FallbackFetchMaxTimeBudget:       fallbackMaxTimeBudget,
 		FallbackFetchMaxRelaysPerAttempt: fallbackMaxRelaysPerAttempt,
 		FallbackFetchAllowDirectLookup:   getEnvBool("TRUST_FALLBACK_FETCH_ALLOW_DIRECT_LOOKUP", true),
+		FallbackAuthorEventsMinResults:   fallbackAuthorEventsMinResults,
 		RetentionPolicyMode:              resolveTrustMode("TRUST_RETENTION_POLICY_MODE", TrustModeOpen),
 		RetentionHooks:                   retentionHooks,
 		MinimumScore:                     minimumScore,
@@ -184,6 +190,9 @@ func validateTrustPolicyConfig(cfg TrustPolicyConfig) error {
 	}
 	if cfg.FallbackFetchMaxRelaysPerAttempt <= 0 {
 		return fmt.Errorf("TRUST_FALLBACK_FETCH_MAX_RELAYS_PER_ATTEMPT must be > 0")
+	}
+	if cfg.FallbackAuthorEventsMinResults < 0 {
+		return fmt.Errorf("TRUST_FALLBACK_AUTHOR_EVENTS_MIN_RESULTS must be >= 0")
 	}
 	if err := validateTrustRetentionHooksConfig(cfg.RetentionHooks); err != nil {
 		return err

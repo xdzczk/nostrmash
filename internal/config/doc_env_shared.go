@@ -129,6 +129,13 @@ func configEnvDocsShared() []EnvVarDoc {
 			Description:  "Allow explicitly referenced direct lookups to use strict fallback even in trusted_only mode.",
 		},
 		{
+			Name:         "TRUST_FALLBACK_AUTHOR_EVENTS_MIN_RESULTS",
+			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
+			Required:     false,
+			DefaultValue: "10",
+			Description:  "Trigger an on-demand relay fetch when a local author-events read returns fewer rows than this threshold (thin profiles). 0 disables the fallback.",
+		},
+		{
 			Name:         "TRUST_MAX_HOPS",
 			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
 			Required:     false,

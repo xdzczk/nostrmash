@@ -113,6 +113,7 @@ type EventReads interface {
 	authorSentZapsCapability
 	authorReactionsCapability
 	authorRecentEventsByKindCapability
+	authorRecentEventsPageCapability
 }
 
 // ThreadReads bundles the thread-summary capability surface.

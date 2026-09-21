@@ -44,6 +44,18 @@ type readModelNotesSearchReader interface {
 	) ([]json.RawMessage, error)
 }
 
+type readModelNotesSearchBeforeReader interface {
+	SearchNotesBefore(
+		ctx context.Context,
+		query string,
+		window *time.Duration,
+		language string,
+		limit int,
+		beforeCreatedAt int64,
+		beforeID string,
+	) ([]json.RawMessage, error)
+}
+
 type readModelProfilesSearchReader interface {
 	SearchProfilesWithOptions(
 		ctx context.Context,
@@ -213,6 +225,21 @@ func (a readModelReaderAdapter) SearchNotes(
 	return nil, unsupportedCapabilityError("advanced notes search")
 }
 
+func (a readModelReaderAdapter) SearchNotesBefore(
+	ctx context.Context,
+	query string,
+	window *time.Duration,
+	language string,
+	limit int,
+	beforeCreatedAt int64,
+	beforeID string,
+) ([]json.RawMessage, error) {
+	if keysetReader, ok := a.readModel.(readModelNotesSearchBeforeReader); ok {
+		return keysetReader.SearchNotesBefore(ctx, query, window, language, limit, beforeCreatedAt, beforeID)
+	}
+	return nil, unsupportedCapabilityError("keyset notes search")
+}
+
 func (a readModelReaderAdapter) SearchProfilesWithOptions(
 	ctx context.Context,
 	query string,
@@ -306,6 +333,13 @@ type readModelFallbackReader interface {
 	FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]readmodel.ProfileProjection, error)
 }
 
+// readModelAuthorEventsFallbackReader is the optional author-events fallback
+// capability (satisfied by the relaylookup client). Kept separate from
+// readModelFallbackReader so partial fallback fakes stay valid.
+type readModelAuthorEventsFallbackReader interface {
+	FetchEventsByAuthor(ctx context.Context, pubkey string, kinds []int, limit int) ([]json.RawMessage, error)
+}
+
 type readModelFallbackReaderAdapter struct {
 	readModel readModelFallbackReader
 }
@@ -326,6 +360,14 @@ func AdaptFallbackReader(r FallbackStoreReader) FallbackReader {
 
 func (a readModelFallbackReaderAdapter) FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error) {
 	return a.readModel.FetchEventsByIDs(ctx, ids)
+}
+
+func (a readModelFallbackReaderAdapter) FetchEventsByAuthor(ctx context.Context, pubkey string, kinds []int, limit int) ([]json.RawMessage, error) {
+	reader, ok := a.readModel.(readModelAuthorEventsFallbackReader)
+	if !ok {
+		return nil, unsupportedCapabilityError("author events fallback")
+	}
+	return reader.FetchEventsByAuthor(ctx, pubkey, kinds, limit)
 }
 
 func (a readModelFallbackReaderAdapter) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {

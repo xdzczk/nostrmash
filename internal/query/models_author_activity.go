@@ -15,3 +15,10 @@ type AuthorReactionsResult struct {
 	NextCursor  *EventCursor      `json:"-"`
 	Consistency string            `json:"consistency"`
 }
+
+type AuthorEventsResult struct {
+	Pubkey      string            `json:"pubkey"`
+	Events      []json.RawMessage `json:"events"`
+	NextCursor  *EventCursor      `json:"-"`
+	Consistency string            `json:"consistency"`
+}

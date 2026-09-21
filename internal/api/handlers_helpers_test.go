@@ -52,6 +52,8 @@ type fakeEventReader struct {
 	getAuthorPerformanceAggregateFn  func(context.Context, string, int) (store.AuthorPerformanceAggregateProjection, store.AuthorPerformanceAggregateProjection, error)
 	getAuthorEventsFn                func(context.Context, string, int) ([]json.RawMessage, error)
 	getAuthorRecentEventsByKindFn    func(context.Context, string, int, int) ([]json.RawMessage, error)
+	getAuthorEventsPageFn            func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
+	getAuthorEventsByKindPageFn      func(context.Context, string, int, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
 	getAuthorRepliesFn               func(context.Context, string, int) ([]json.RawMessage, error)
 	getAuthorSentZapsFn              func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
 	getAuthorReactionsFn             func(context.Context, string, int, *store.EventOrderCursor) ([]json.RawMessage, *store.EventOrderCursor, error)
@@ -167,6 +169,36 @@ func (f fakeEventReader) GetAuthorRecentEventsByKind(ctx context.Context, pubkey
 		return nil, errors.New("not implemented")
 	}
 	return f.getAuthorRecentEventsByKindFn(ctx, pubkey, kind, limit)
+}
+
+// GetAuthorRecentEventsPage keeps the paged capability wired for every handler
+// test. When no page fn is provided it delegates to the legacy fn so existing
+// tests that only stub getAuthorEventsFn keep passing (first page, no cursor).
+func (f fakeEventReader) GetAuthorRecentEventsPage(
+	ctx context.Context,
+	pubkey string,
+	limit int,
+	cursor *store.EventOrderCursor,
+) ([]json.RawMessage, *store.EventOrderCursor, error) {
+	if f.getAuthorEventsPageFn != nil {
+		return f.getAuthorEventsPageFn(ctx, pubkey, limit, cursor)
+	}
+	events, err := f.GetAuthorRecentEvents(ctx, pubkey, limit)
+	return events, nil, err
+}
+
+func (f fakeEventReader) GetAuthorRecentEventsByKindPage(
+	ctx context.Context,
+	pubkey string,
+	kind int,
+	limit int,
+	cursor *store.EventOrderCursor,
+) ([]json.RawMessage, *store.EventOrderCursor, error) {
+	if f.getAuthorEventsByKindPageFn != nil {
+		return f.getAuthorEventsByKindPageFn(ctx, pubkey, kind, limit, cursor)
+	}
+	events, err := f.GetAuthorRecentEventsByKind(ctx, pubkey, kind, limit)
+	return events, nil, err
 }
 
 func (f fakeEventReader) GetAuthorSentZaps(

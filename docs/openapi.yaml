@@ -344,12 +344,21 @@ paths:
           name: kind
           schema: { type: integer, minimum: 0 }
           description: Optional kind filter (e.g. 9735 for sent zap receipts in author feed)
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: >
+            Opaque keyset continuation token from a prior response's
+            `next_cursor`. Omit for the first page.
       responses:
         '200':
           description: >
             Event list with eventual engagement counters attached
             (`reply_count`, `repost_count`, `reaction_count`, `zap_count`,
             `zap_msats`, and nested `counts`) for note-card rendering.
+            Includes `next_cursor` when another page exists. When the local
+            projection is thin, the first page may be augmented on demand
+            from fallback relays (results are persisted asynchronously).
   /api/v1/authors/{pubkey}/replies:
     get:
       tags: [public]
@@ -703,12 +712,20 @@ paths:
         - in: query
           name: offset
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: >
+            Opaque continuation token from a prior response's `next_cursor`.
+            Mutually exclusive with `offset`; bound to the original `q`,
+            `sort`, `window`, and `lang`.
       responses:
         '200':
           description: >
             Notes search results with trust metadata (`trust_mode`,
             `trust_applied`, `result_scope`) and eventual engagement counters
-            on each note payload for note-card rendering.
+            on each note payload for note-card rendering. Includes
+            `next_cursor` when another page may exist.
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/search/profiles:
@@ -729,9 +746,19 @@ paths:
         - in: query
           name: offset
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: >
+            Opaque continuation token from a prior response's `next_cursor`.
+            Mutually exclusive with `offset`; bound to the original `q` and
+            `sort`.
       responses:
         '200':
-          description: Profiles search results with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: >
+            Profiles search results with trust metadata (`trust_mode`,
+            `trust_applied`, `result_scope`). Includes `next_cursor` when
+            another page may exist.
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/search/suggest:

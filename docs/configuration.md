@@ -149,6 +149,7 @@ Do not hand-edit this file.
 | `TRUST_ENABLE_REDIS_SYNC` | `trust_worker` | optional | `false` | Enable Redis graph synchronization trust job phases. |
 | `TRUST_ENABLE_SCORE_COMPUTE` | `trust_worker` | optional | `true` | Enable trust score computation trust job phases. |
 | `TRUST_ENABLE_SEED_TELEPORT` | `trust_worker` | optional | `false` | When true, global trust rank teleports to active trust_seeds instead of uniformly (TrustRank), anchoring scores to the seed set. Requires active seeds; falls back to uniform teleport when none are present in the graph. |
+| `TRUST_FALLBACK_AUTHOR_EVENTS_MIN_RESULTS` | `api, ingestor, trust_worker, worker` | optional | `10` | Trigger an on-demand relay fetch when a local author-events read returns fewer rows than this threshold (thin profiles). 0 disables the fallback. |
 | `TRUST_FALLBACK_FETCH_ALLOW_DIRECT_LOOKUP` | `api, ingestor, trust_worker, worker` | optional | `true` | Allow explicitly referenced direct lookups to use strict fallback even in trusted_only mode. |
 | `TRUST_FALLBACK_FETCH_MAX_ATTEMPTS` | `api, ingestor, trust_worker, worker` | optional | `1` | Maximum bounded fallback attempts per entity lookup before giving up. |
 | `TRUST_FALLBACK_FETCH_MAX_RELAYS_PER_ATTEMPT` | `api, ingestor, trust_worker, worker` | optional | `3` | Maximum relay fanout permitted for each fallback attempt. |

@@ -202,6 +202,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		FallbackFetchMaxAttempts:        cfg.Shared.TrustPolicy.FallbackFetchMaxAttempts,
 		FallbackFetchMaxTimeBudget:      cfg.Shared.TrustPolicy.FallbackFetchMaxTimeBudget,
 		FallbackFetchAllowDirectLookup:  &cfg.Shared.TrustPolicy.FallbackFetchAllowDirectLookup,
+		FallbackAuthorEventsMinResults:  cfg.Shared.TrustPolicy.FallbackAuthorEventsMinResults,
 		DiscoveryCandidateTrustMode:     cfg.Shared.TrustPolicy.DiscoveryCandidateMode,
 		SearchRankingTrustMode:          cfg.Shared.TrustPolicy.SearchRankingMode,
 		DiscoveryCandidateMinimumScore:  cfg.Shared.TrustPolicy.MinimumScore,

@@ -94,6 +94,13 @@ type NotesSearchParams struct {
 	Sort     string
 	Language string
 	Window   *time.Duration
+	// BeforeCreatedAt/BeforeID form an optional keyset position for
+	// sort=latest pagination: only rows strictly older than this
+	// (created_at, id) pair are returned. Ignored for sort=relevant.
+	// When set alongside Offset, keyset-capable readers prefer the keyset
+	// and offset-only readers (e.g. Meilisearch) use Offset.
+	BeforeCreatedAt int64
+	BeforeID        string
 }
 
 type ProfileSearchParams struct {

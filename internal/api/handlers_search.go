@@ -155,14 +155,33 @@ func (h Handlers) SearchNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	events, err := h.service.SearchNotes(r.Context(), query.NotesSearchParams{
+	scopeHash := searchCursorScopeHash("notes", queryText, sort, windowLabel, language)
+	cursor, err := decodeSearchCursor(strings.TrimSpace(r.URL.Query().Get("cursor")), scopeHash)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_cursor", searchCursorErrorMessage(err))
+		return
+	}
+	searchParams := query.NotesSearchParams{
 		Query:    queryText,
 		Limit:    limit,
 		Offset:   offset,
 		Sort:     sort,
 		Language: language,
 		Window:   window,
-	})
+	}
+	if cursor != nil {
+		if offset != 0 {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "cursor and offset are mutually exclusive")
+			return
+		}
+		offset = cursor.Offset
+		searchParams.Offset = cursor.Offset
+		if sort == "latest" {
+			searchParams.BeforeCreatedAt = cursor.CreatedAt
+			searchParams.BeforeID = cursor.ID
+		}
+	}
+	events, err := h.service.SearchNotes(r.Context(), searchParams)
 	degraded := false
 	if err != nil {
 		recordDiscoveryDegrade(r.Context(), "search_notes", "backend", err, nil)
@@ -181,6 +200,24 @@ func (h Handlers) SearchNotes(w http.ResponseWriter, r *http.Request) {
 	if degraded {
 		response["degraded"] = true
 		response["search_engine"] = "degraded"
+	}
+	if !degraded && len(events) == limit {
+		nextPayload := searchCursorPayload{
+			QHash:  scopeHash,
+			Sort:   sort,
+			Offset: offset + len(events),
+		}
+		if sort == "latest" {
+			if createdAt, id, ok := lastEventKeyset(events); ok {
+				nextPayload.CreatedAt = createdAt
+				nextPayload.ID = id
+			}
+		}
+		if nextPayload.Offset <= 5000 {
+			if nextCursorValue, encodeErr := encodeSearchCursor(nextPayload); encodeErr == nil && nextCursorValue != "" {
+				response["next_cursor"] = nextCursorValue
+			}
+		}
 	}
 	if sort == "relevant" {
 		h.addSearchTrustMetadata(response)
@@ -218,6 +255,19 @@ func (h Handlers) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	scopeHash := searchCursorScopeHash("profiles", queryText, sort)
+	cursor, err := decodeSearchCursor(strings.TrimSpace(r.URL.Query().Get("cursor")), scopeHash)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_cursor", searchCursorErrorMessage(err))
+		return
+	}
+	if cursor != nil {
+		if offset != 0 {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "cursor and offset are mutually exclusive")
+			return
+		}
+		offset = cursor.Offset
+	}
 	profiles, err := h.service.SearchProfiles(r.Context(), query.ProfileSearchParams{
 		Query:  queryText,
 		Limit:  limit,
@@ -242,6 +292,19 @@ func (h Handlers) SearchProfiles(w http.ResponseWriter, r *http.Request) {
 	if degraded {
 		response["degraded"] = true
 		response["search_engine"] = "degraded"
+	}
+	if !degraded && len(profiles) == limit {
+		nextOffset := offset + len(profiles)
+		if nextOffset <= 5000 {
+			nextPayload := searchCursorPayload{
+				QHash:  scopeHash,
+				Sort:   sort,
+				Offset: nextOffset,
+			}
+			if nextCursorValue, encodeErr := encodeSearchCursor(nextPayload); encodeErr == nil && nextCursorValue != "" {
+				response["next_cursor"] = nextCursorValue
+			}
+		}
 	}
 	h.addSearchTrustMetadata(response)
 	writeJSON(w, http.StatusOK, response)

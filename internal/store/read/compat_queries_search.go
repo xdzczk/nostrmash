@@ -117,6 +117,88 @@ func (s *Read) SearchNotes(
 	return s.EnrichEventsWithCounts(ctx, out)
 }
 
+// SearchNotesBefore returns one keyset page of latest-sorted note search
+// results: rows matching the query that are strictly older than the
+// (beforeCreatedAt, beforeID) pair, ordered by created_at desc, id desc.
+// Keyset pagination avoids the deep-OFFSET scans the offset path incurs.
+func (s *Read) SearchNotesBefore(
+	ctx context.Context,
+	query string,
+	window *time.Duration,
+	language string,
+	limit int,
+	beforeCreatedAt int64,
+	beforeID string,
+) ([]json.RawMessage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []json.RawMessage{}, nil
+	}
+	beforeID = strings.TrimSpace(beforeID)
+	if beforeID == "" {
+		return s.SearchNotes(ctx, query, "latest", window, language, limit, 0)
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	language = normalizeLanguageFilter(language)
+	if language == invalidLanguageFilter {
+		return nil, fmt.Errorf("unsupported notes language filter: %s", strings.TrimSpace(language))
+	}
+	var windowSeconds any
+	if window != nil {
+		seconds := int64(window.Seconds())
+		if seconds > 0 {
+			windowSeconds = seconds
+		}
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT events.raw_json::text
+		FROM events
+		LEFT JOIN note_discovery_stats nds ON nds.event_id = events.id
+		WHERE events.kind IN (1, 30023)
+		  AND (events.created_at, events.id) < ($2::bigint, $3::text)
+		  AND ($4::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $4::bigint))
+		  AND (
+			$5::text IS NULL OR (
+				CASE
+					WHEN $5::text = 'und' THEN nds.primary_language IS NULL
+					ELSE nds.primary_language = $5::text
+				END
+			)
+		  )
+		  AND (
+			to_tsvector('simple', coalesce(events.content, '')) @@ websearch_to_tsquery('simple', $1)
+			OR events.content ILIKE '%' || $1 || '%'
+		  )
+		ORDER BY events.created_at DESC, events.id DESC
+		LIMIT $6
+	`, query, beforeCreatedAt, beforeID, windowSeconds, nullableLanguageFilter(language), limit)
+	if err != nil {
+		return nil, fmt.Errorf("search notes before cursor: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan searched event row: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read searched event rows: %w", err)
+	}
+	return s.EnrichEventsWithCounts(ctx, out)
+}
+
 const invalidLanguageFilter = "__invalid_language_filter__"
 
 func normalizeLanguageFilter(raw string) string {
