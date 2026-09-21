@@ -1045,9 +1045,13 @@ paths:
         - in: query
           name: offset
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+        - in: query
+          name: cursor
+          description: Opaque continuation token from a previous response's `next_cursor`. Mutually exclusive with `offset`; scoped to the same hashtag, sort, and window.
+          schema: { type: string }
       responses:
         '200':
-          description: Hashtag notes list with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          description: Hashtag notes list with trust metadata (`trust_mode`, `trust_applied`, `result_scope`). Includes `next_cursor` when another page is available.
         '400':
           $ref: '#/components/responses/Error'
         '404':

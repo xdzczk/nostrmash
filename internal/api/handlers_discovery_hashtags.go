@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/query"
@@ -131,6 +132,21 @@ func (h Handlers) GetHashtagNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rawHashtag := r.PathValue("hashtag")
+	// Cursors reuse the opaque offset-encoded search cursor format, scoped to
+	// this hashtag+sort+window so a token cannot be replayed across feeds.
+	scopeHash := searchCursorScopeHash("hashtag_notes", normalizeCacheHashtag(rawHashtag), sort, window)
+	cursor, err := decodeSearchCursor(strings.TrimSpace(r.URL.Query().Get("cursor")), scopeHash)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_cursor", searchCursorErrorMessage(err))
+		return
+	}
+	if cursor != nil {
+		if offset != 0 {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "cursor and offset are mutually exclusive")
+			return
+		}
+		offset = cursor.Offset
+	}
 	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "hashtag_notes", map[string]any{
 		"hashtag": normalizeCacheHashtag(rawHashtag),
 		"sort":    sort,
@@ -153,6 +169,15 @@ func (h Handlers) GetHashtagNotes(w http.ResponseWriter, r *http.Request) {
 			"window":      window,
 			"notes":       payloadNotes,
 			"consistency": "eventual",
+		}
+		if len(notes) == limit {
+			nextOffset := offset + len(notes)
+			if nextOffset <= 5000 {
+				nextPayload := searchCursorPayload{QHash: scopeHash, Sort: sort, Offset: nextOffset}
+				if nextCursorValue, encodeErr := encodeSearchCursor(nextPayload); encodeErr == nil && nextCursorValue != "" {
+					payload["next_cursor"] = nextCursorValue
+				}
+			}
 		}
 		h.addDiscoveryTrustMetadata(payload)
 		return payload, nil
