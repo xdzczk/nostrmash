@@ -320,8 +320,8 @@ func TestWithPublicRequestGuards_RejectsInvalidAndHighCostParams(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/search/notes?q=nostr&limit=21",
 		"/api/v1/search/notes?q=nostr&window=7d",
+		"/api/v1/search/notes?q=nostr&window=all",
 		"/api/v1/discovery/hashtags/trending?offset=201",
-		"/api/v1/discovery/hashtags/nostr/notes?window=all",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
@@ -329,6 +329,19 @@ func TestWithPublicRequestGuards_RejectsInvalidAndHighCostParams(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("unexpected guard status for %s: got %d want %d", path, rec.Code, http.StatusBadRequest)
 		}
+	}
+
+	// Discovery list endpoints document window=all; their queries are
+	// LIMIT-bounded, so the guard defers unbounded windows to the handlers.
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/discovery/hashtags/nostr/notes?window=all",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	guarded.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("unexpected guard status for discovery window=all: got %d want %d", rec.Code, http.StatusNoContent)
 	}
 }
 

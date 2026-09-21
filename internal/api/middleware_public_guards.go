@@ -60,16 +60,22 @@ func validatePublicQueryGuards(r *http.Request, endpointClass publicEndpointClas
 	}
 
 	var maxWindowHours int
+	allowUnboundedWindow := false
 	switch endpointClass {
 	case publicEndpointClassSearch, publicEndpointClassSuggest:
 		maxWindowHours = opts.MaxSearchWindowHours
 	case publicEndpointClassDiscovery, publicEndpointClassPublicStats:
 		maxWindowHours = opts.MaxDiscoveryWindowHours
+		// Discovery list endpoints (hashtag/domain notes) document and
+		// support window=all: their queries are LIMIT/offset bounded and
+		// index-driven, so an unbounded window is not high-cost. Endpoints
+		// that cannot serve it (e.g. trending) reject it themselves.
+		allowUnboundedWindow = true
 	default:
 		maxWindowHours = 0
 	}
 	if maxWindowHours > 0 {
-		if err := validateWindowQuery(query.Get("window"), maxWindowHours); err != nil {
+		if err := validateWindowQuery(query.Get("window"), maxWindowHours, allowUnboundedWindow); err != nil {
 			return err
 		}
 	}
@@ -107,7 +113,7 @@ func validateNonNegativeQueryAtMost(raw string, key string, max int) error {
 	return nil
 }
 
-func validateWindowQuery(raw string, maxWindowHours int) error {
+func validateWindowQuery(raw string, maxWindowHours int, allowUnbounded bool) error {
 	raw = strings.ToLower(strings.TrimSpace(raw))
 	if raw == "" {
 		return nil
@@ -116,7 +122,13 @@ func validateWindowQuery(raw string, maxWindowHours int) error {
 	if err != nil {
 		return err
 	}
-	if unbounded || hours > maxWindowHours {
+	if unbounded {
+		if allowUnbounded {
+			return nil
+		}
+		return errors.New("window exceeds maximum allowed value")
+	}
+	if hours > maxWindowHours {
 		return errors.New("window exceeds maximum allowed value")
 	}
 	return nil
