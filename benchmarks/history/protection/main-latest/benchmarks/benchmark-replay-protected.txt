@@ -1,11 +1,11 @@
 goos: linux
 goarch: amd64
 pkg: github.com/xdzczk/nostrmash/internal/replay
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkLoadFixtureFile-4   	    1246	    939161 ns/op	  490512 B/op	    6514 allocs/op
-BenchmarkLoadFixtureFile-4   	    1273	    940083 ns/op	  490507 B/op	    6514 allocs/op
-BenchmarkLoadFixtureFile-4   	    1258	    940954 ns/op	  490507 B/op	    6514 allocs/op
-BenchmarkLoadFixtureFile-4   	    1258	   1073192 ns/op	  490508 B/op	    6514 allocs/op
-BenchmarkLoadFixtureFile-4   	    1302	    936703 ns/op	  490506 B/op	    6514 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkLoadFixtureFile-4   	    1838	    652244 ns/op	  490510 B/op	    6514 allocs/op
+BenchmarkLoadFixtureFile-4   	    1778	    716144 ns/op	  490507 B/op	    6514 allocs/op
+BenchmarkLoadFixtureFile-4   	    1804	    649989 ns/op	  490506 B/op	    6514 allocs/op
+BenchmarkLoadFixtureFile-4   	    1876	    647652 ns/op	  490507 B/op	    6514 allocs/op
+BenchmarkLoadFixtureFile-4   	    1867	    650794 ns/op	  490506 B/op	    6514 allocs/op
 PASS
-ok  	github.com/xdzczk/nostrmash/internal/replay	6.621s
+ok  	github.com/xdzczk/nostrmash/internal/replay	6.425s
