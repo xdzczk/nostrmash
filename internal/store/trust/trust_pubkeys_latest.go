@@ -11,13 +11,36 @@ import (
 
 type TrustPubkeyLatest = readmodel.TrustPubkeyLatest
 
+// trustPubkeysLatestRebuildLockID serializes every DELETE-all + INSERT rebuild
+// of trust_pubkeys_latest across processes (trust_worker snapshot refresh,
+// trust promote, worker derivation rebuilds).
+//
+// Without it two rebuilds in flight at once deadlock on the primary key: the
+// second transaction's INSERT of a pubkey has to wait for the first
+// transaction's uncommitted INSERT of the same pubkey, and the first
+// transaction may be the 4-5 minute snapshot-refresh CTE. In production that
+// made ~70% of hourly promote runs die with
+// "rebuild trust_pubkeys_latest: canceling statement due to statement timeout"
+// and left their stage rows behind (see runtime_promote.go).
+//
+// The lock is transaction-scoped, so callers should invoke the rebuild as late
+// as possible in their transaction to keep the critical section short.
+// Arbitrary constant; must not collide with dbmigrate.migrationAdvisoryLockID.
+const trustPubkeysLatestRebuildLockID int64 = 428871060619501585
+
 // RefreshTrustPubkeysLatestTx rebuilds trust_pubkeys_latest inside an existing
 // transaction. Used by trust promote so score publication and denormalization
 // commit together. Callers must already hold a consistent view of
 // trust_graph_snapshot and trust_scores_global in that transaction.
+//
+// Acquires trustPubkeysLatestRebuildLockID for the rest of the transaction;
+// a concurrent rebuild blocks here instead of on the primary key.
 func RefreshTrustPubkeysLatestTx(ctx context.Context, tx pgx.Tx) error {
 	if tx == nil {
 		return fmt.Errorf("refresh trust_pubkeys_latest: tx is nil")
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, trustPubkeysLatestRebuildLockID); err != nil {
+		return fmt.Errorf("lock trust_pubkeys_latest rebuild: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM trust_pubkeys_latest`); err != nil {
 		return fmt.Errorf("clear trust_pubkeys_latest: %w", err)

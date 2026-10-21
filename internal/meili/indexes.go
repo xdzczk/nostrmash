@@ -26,10 +26,14 @@ func meiliIndexSpecs() []indexSpec {
 			PrimaryKey: "id",
 			Settings: ms.Settings{
 				RankingRules: []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+				// Hash-shaped fields (64-hex id/pubkey) must not be searchable:
+				// every new note adds brand-new unique "words" to the index, and
+				// Meilisearch rebuilds its word/prefix databases on each task, so
+				// production saw a one-document update to `notes` take ~27s at
+				// ~300% CPU. Hex identifiers are resolved via the `pubkey`
+				// filter (SearchNotes) and the query layer's direct event lookup.
 				SearchableAttributes: []string{
-					"id",
 					"content",
-					"pubkey",
 				},
 				FilterableAttributes: []string{
 					"id",
@@ -53,8 +57,8 @@ func meiliIndexSpecs() []indexSpec {
 			PrimaryKey: "pubkey",
 			Settings: ms.Settings{
 				RankingRules: []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+				// `pubkey` stays filterable only; see the notes index comment.
 				SearchableAttributes: []string{
-					"pubkey",
 					"name",
 					"display_name",
 					"about",

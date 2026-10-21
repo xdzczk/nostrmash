@@ -130,7 +130,15 @@ func (s *Searcher) SearchNotes(
 		AttributesToRetrieve:  []string{"id"},
 		AttributesToHighlight: []string{"content"},
 	}
-	filters := make([]string, 0, 2)
+	filters := make([]string, 0, 3)
+	if pubkey, ok := hexPubkeyQuery(searchQuery); ok {
+		// `pubkey` is filterable but deliberately not searchable (see
+		// indexes.go); an identifier query means "notes by this author".
+		// With an empty query every hit ranks equally, so order by recency.
+		filters = append(filters, fmt.Sprintf("pubkey = %q", pubkey))
+		searchQuery = ""
+		sort = "latest"
+	}
 	if window != nil && *window > 0 {
 		minCreatedAt := time.Now().UTC().Add(-*window).Unix()
 		filters = append(filters, fmt.Sprintf("created_at >= %d", minCreatedAt))
@@ -207,14 +215,16 @@ func (s *Searcher) SearchProfiles(
 		}
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
-	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(searchCtx, searchQuery, &ms.SearchRequest{
+	req := &ms.SearchRequest{
 		Limit:  int64(limit),
 		Offset: int64(offset),
 		AttributesToRetrieve: []string{
 			"pubkey", "metadata_event_id", "metadata_created_at",
 			"name", "display_name", "about", "nip05",
 		},
-	})
+	}
+	searchQuery = applyHexPubkeyFilter(req, searchQuery)
+	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(searchCtx, searchQuery, req)
 	if err != nil {
 		s.finishSearch(&outcome, err)
 		return nil, err
@@ -251,7 +261,7 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 		}
 		return nil, fmt.Errorf("meilisearch searcher is disabled")
 	}
-	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(searchCtx, searchQuery, &ms.SearchRequest{
+	req := &ms.SearchRequest{
 		Limit:  int64(limit),
 		Offset: 0,
 		AttributesToRetrieve: []string{
@@ -259,11 +269,13 @@ func (s *Searcher) SuggestProfiles(ctx context.Context, searchQuery string, limi
 			"name", "display_name", "about", "nip05",
 		},
 		MatchingStrategy:        ms.Last,
-		AttributesToSearchOn:    []string{"pubkey", "name", "display_name", "nip05", "about"},
+		AttributesToSearchOn:    []string{"name", "display_name", "nip05", "about"},
 		AttributesToHighlight:   []string{"name", "display_name", "nip05"},
 		ShowRankingScore:        true,
 		ShowRankingScoreDetails: false,
-	})
+	}
+	searchQuery = applyHexPubkeyFilter(req, searchQuery)
+	resp, err := s.client.service.Index(IndexProfiles).SearchWithContext(searchCtx, searchQuery, req)
 	if err != nil {
 		s.finishSearch(&outcome, err)
 		return nil, err
@@ -380,6 +392,33 @@ func profileFromMeiliHit(hit ms.Hit) readmodel.Profile {
 		MetadataCreatedAt: hitInt64(hit, "metadata_created_at"),
 		ProfileJSON:       slim,
 	}
+}
+
+// hexPubkeyQuery reports whether the search text is a bare 64-hex identifier
+// (a pubkey, already canonicalized by the query layer from npub when needed).
+func hexPubkeyQuery(searchQuery string) (string, bool) {
+	value := strings.ToLower(strings.TrimSpace(searchQuery))
+	if len(value) != 64 {
+		return "", false
+	}
+	for _, r := range value {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return "", false
+		}
+	}
+	return value, true
+}
+
+// applyHexPubkeyFilter turns an identifier query into an exact `pubkey` filter
+// and returns the (possibly emptied) full-text query. `pubkey` is filterable
+// but not searchable on the profiles index (see indexes.go).
+func applyHexPubkeyFilter(req *ms.SearchRequest, searchQuery string) string {
+	pubkey, ok := hexPubkeyQuery(searchQuery)
+	if !ok {
+		return searchQuery
+	}
+	req.Filter = fmt.Sprintf("pubkey = %q", pubkey)
+	return ""
 }
 
 func hitString(hit ms.Hit, key string) string {

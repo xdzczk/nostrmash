@@ -12,6 +12,13 @@ import (
 	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
 
+// trustPromoteStatementTimeout bounds each promote statement. Promote publishes
+// a few hundred thousand rows and rebuilds trust_pubkeys_latest, which may
+// briefly queue behind the snapshot-refresh rebuild on the same advisory lock;
+// the pool default (production 2m) was tight enough that promote failed under
+// normal contention and leaked its stage rows.
+const trustPromoteStatementTimeout = 10 * time.Minute
+
 func (r *Runtime) executePromoteRun(ctx context.Context, runID int64, snapshotRef string) error {
 	started := time.Now()
 	tx, err := r.pool.Begin(ctx)
@@ -19,6 +26,12 @@ func (r *Runtime) executePromoteRun(ctx context.Context, runID int64, snapshotRe
 		return fmt.Errorf("begin trust promote tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		"SET LOCAL statement_timeout = %d",
+		trustPromoteStatementTimeout.Milliseconds(),
+	)); err != nil {
+		return fmt.Errorf("set trust promote statement_timeout: %w", err)
+	}
 
 	var status string
 	if err := tx.QueryRow(ctx, `SELECT status FROM trust_runs WHERE id = $1 FOR UPDATE`, runID).Scan(&status); err != nil {

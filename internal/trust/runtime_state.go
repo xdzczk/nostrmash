@@ -38,6 +38,28 @@ func (r *Runtime) markRunFailed(ctx context.Context, runID int64, phase string, 
 		    updated_at = now()
 		WHERE id = $4
 	`, RunStatusFailed, strings.TrimSpace(phase), msg, runID)
+	// A failed run will never be promoted, so its staged scores are dead
+	// weight. Production accumulated 124M rows / 43 GB in
+	// trust_scores_global_stage from failed promotes before this existed.
+	_, _ = r.pool.Exec(ctx, `DELETE FROM trust_scores_global_stage WHERE run_id = $1`, runID)
+}
+
+// purgeTerminalStageRowsTx removes trust_scores_global_stage rows left behind by
+// runs that already reached a terminal state (e.g. promote failed before the
+// per-run cleanup, or the process died between markRunFailed's two statements).
+// Cost is bounded by the leaked set via idx_trust_scores_global_stage_run_rank;
+// in steady state it is an empty index probe per run_id.
+func purgeTerminalStageRowsTx(ctx context.Context, tx pgx.Tx) (int64, error) {
+	tag, err := tx.Exec(ctx, `
+		DELETE FROM trust_scores_global_stage s
+		USING trust_runs r
+		WHERE r.id = s.run_id
+		  AND r.status IN ($1, $2)
+	`, RunStatusSucceeded, RunStatusFailed)
+	if err != nil {
+		return 0, fmt.Errorf("purge terminal trust score staging rows: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func scanRunRow(row interface{ Scan(dest ...any) error }) (Run, error) {

@@ -82,27 +82,31 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 		}
 	}
 
+	// Engagement sources read the denormalized target/source pubkeys
+	// (migration 000082) instead of joining events per row, matching
+	// projection_author_activity_daily. The old `INNER JOIN events target ON
+	// target.pubkey = $1` plans heap-scanned every note a prolific author ever
+	// wrote (a 310k-note bot cost ~2.4 GB of random events IO per attempt and
+	// hit the statement timeout ~185 times/day in production, with zero
+	// engagement in the window). Every branch is now one
+	// (target_pubkey, created_at) index range scan proportional to the
+	// author's own received engagement.
 	_, err := tx.Exec(ctx, `
 		WITH received_events AS (
 			SELECT
-				to_timestamp(e.created_at) AT TIME ZONE 'UTC' AS engaged_at,
+				to_timestamp(rcc.source_created_at) AT TIME ZONE 'UTC' AS engaged_at,
 				'reply'::text AS interaction_type
-			FROM thread_edges te
-			INNER JOIN events e ON e.id = te.child_event_id
-			INNER JOIN events target ON target.id = te.parent_event_id
-			WHERE target.pubkey = $1
-			  AND target.kind = 1
-			  AND e.pubkey <> $1
-			  AND e.created_at >= $2
-			  AND e.created_at <= $5
+			FROM reply_count_contributions rcc
+			WHERE rcc.target_pubkey = $1
+			  AND rcc.source_pubkey <> $1
+			  AND rcc.source_created_at >= $2
+			  AND rcc.source_created_at <= $5
 			UNION ALL
 			SELECT
 				to_timestamp(re.created_at) AT TIME ZONE 'UTC' AS engaged_at,
 				'reaction'::text AS interaction_type
 			FROM reaction_events re
-			INNER JOIN events target ON target.id = re.target_event_id
-			WHERE target.pubkey = $1
-			  AND target.kind = 1
+			WHERE re.target_pubkey = $1
 			  AND re.reactor_pubkey <> $1
 			  AND re.created_at >= $2
 			  AND re.created_at <= $5
@@ -111,9 +115,7 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 				to_timestamp(re.created_at) AT TIME ZONE 'UTC' AS engaged_at,
 				'repost'::text AS interaction_type
 			FROM repost_events re
-			INNER JOIN events target ON target.id = re.target_event_id
-			WHERE target.pubkey = $1
-			  AND target.kind = 1
+			WHERE re.target_pubkey = $1
 			  AND re.reposter_pubkey <> $1
 			  AND re.created_at >= $2
 			  AND re.created_at <= $5
@@ -122,9 +124,7 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 				to_timestamp(zr.created_at) AT TIME ZONE 'UTC' AS engaged_at,
 				'zap'::text AS interaction_type
 			FROM zap_receipts zr
-			INNER JOIN events target ON target.id = zr.event_id
-			WHERE target.pubkey = $1
-			  AND target.kind = 1
+			WHERE zr.receiver_pubkey = $1
 			  AND zr.sender_pubkey IS NOT NULL
 			  AND zr.sender_pubkey <> $1
 			  AND zr.created_at >= $2
