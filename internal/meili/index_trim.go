@@ -1,6 +1,7 @@
 package meili
 
 import (
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,6 +23,43 @@ const (
 	indexedNotesMaxAge = 14 * 24 * time.Hour
 )
 
+// Opaque tokens that must not enter the Meilisearch word dictionary.
+//
+// Meilisearch rebuilds the whole words FST on every indexing batch, so the
+// per-batch cost scales with the number of distinct words in the index, not
+// with the batch. Production traces showed `post processing words > word fst`
+// at ~27s of a ~33s single-document batch on `notes` (and ~10s on
+// `profiles`), with Meilisearch pinned at ~300% CPU around the clock. Nostr
+// text is dense with one-off tokens that nobody searches for verbatim:
+// bech32 references, hex ids, lightning invoices, base64 blobs, URL paths.
+var (
+	// nostr:npub1..., nevent1..., note1..., nprofile1..., naddr1... with or
+	// without the nostr: prefix; also lightning invoices (lnbc...) and
+	// lightning addresses are left alone (short, user@domain).
+	opaqueBech32Pattern = regexp.MustCompile(`(?i)\b(?:nostr:)?(?:npub|nsec|note|nevent|nprofile|naddr|nrelay|lnbc|lntb|lnbcrt)1[02-9ac-hj-np-z]{20,}\b`)
+	// 32+ hex chars: event ids, pubkeys, sha256, etc.
+	opaqueHexPattern = regexp.MustCompile(`\b[0-9a-fA-F]{32,}\b`)
+	// URLs are reduced to their host so "youtube.com" stays searchable but
+	// paths, query strings and fragments do not become dictionary words.
+	urlPattern = regexp.MustCompile(`(?i)\b(?:https?|wss?)://([^/\s?#]+)[^\s]*`)
+	// Any remaining very long run without whitespace (base64, encoded blobs).
+	opaqueLongRunPattern = regexp.MustCompile(`\S{48,}`)
+	whitespaceRunPattern = regexp.MustCompile(`\s+`)
+)
+
+// stripOpaqueTokens removes tokens that would only bloat the Meilisearch word
+// dictionary. It is applied to searchable free text before truncation.
+func stripOpaqueTokens(s string) string {
+	if s == "" {
+		return s
+	}
+	s = urlPattern.ReplaceAllString(s, " $1 ")
+	s = opaqueBech32Pattern.ReplaceAllString(s, " ")
+	s = opaqueHexPattern.ReplaceAllString(s, " ")
+	s = opaqueLongRunPattern.ReplaceAllString(s, " ")
+	return strings.TrimSpace(whitespaceRunPattern.ReplaceAllString(s, " "))
+}
+
 func truncateIndexedText(s string, maxRunes int) string {
 	s = strings.TrimSpace(s)
 	if maxRunes <= 0 || s == "" {
@@ -38,14 +76,14 @@ func trimNoteDocument(row *NoteDocument) {
 	if row == nil {
 		return
 	}
-	row.Content = truncateIndexedText(row.Content, indexedNoteContentMaxRunes)
+	row.Content = truncateIndexedText(stripOpaqueTokens(row.Content), indexedNoteContentMaxRunes)
 }
 
 func trimProfileDocument(row *ProfileDocument) {
 	if row == nil {
 		return
 	}
-	row.About = truncateIndexedText(row.About, indexedAboutMaxRunes)
+	row.About = truncateIndexedText(stripOpaqueTokens(row.About), indexedAboutMaxRunes)
 	// Full kind:0 JSON is large and redundant with searchable name fields;
 	// search reconstructs a slim profile_json for API responses.
 	row.ProfileJSON = nil

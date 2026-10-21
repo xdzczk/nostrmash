@@ -18,10 +18,43 @@ func TestTruncateIndexedText(t *testing.T) {
 	}
 }
 
+func TestStripOpaqueTokens(t *testing.T) {
+	t.Parallel()
+	hexID := strings.Repeat("ab", 32)
+	cases := []struct {
+		name, in, want string
+	}{
+		{"plain", "hello  world", "hello world"},
+		{"nostr ref", "see nostr:nevent1qqsw4ckm0h8yq6x2p8v6k3tj5g9fyk4slt6w5vq9m2ulhdj7mpa7n0zq4w3xf9 for details", "see for details"},
+		{"bare npub", "by npub1sn0wdenkukak0d9dfczzeacvhkrgz92ak56egt7vdgzn8pv2wfqqhrjdv9 today", "by today"},
+		{"hex id", "ref " + hexID + " done", "ref done"},
+		{"url to host", "watch https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1s now", "watch www.youtube.com now"},
+		{"relay url", "wss://relay.damus.io/ is up", "relay.damus.io is up"},
+		{"invoice", "pay lnbc10u1p3xnhl2pp5j5t2d3ub5a0wjvqnk8y2v4wvl2d7q7cxsp5l2fv93kyldm7fsdq5ssrzjqw5r4vgyvd3hwv9s", "pay"},
+		{"base64 blob", "img " + strings.Repeat("QUJD", 20) + " end", "img end"},
+		{"keeps short hex-looking words", "cafe babe deadbeef", "cafe babe deadbeef"},
+		{"keeps lightning address", "zap me at alice@getalby.com", "zap me at alice@getalby.com"},
+	}
+	for _, tc := range cases {
+		if got := stripOpaqueTokens(tc.in); got != tc.want {
+			t.Fatalf("%s: stripOpaqueTokens(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestTrimNoteDocumentStripsBeforeTruncating(t *testing.T) {
+	t.Parallel()
+	row := NoteDocument{Content: strings.Repeat("word ", 88) + "https://example.com/" + strings.Repeat("p", 200) + " tail"}
+	trimNoteDocument(&row)
+	if !strings.HasSuffix(row.Content, " example.com tail") {
+		t.Fatalf("expected URL collapsed to host before truncation, got %q", row.Content)
+	}
+}
+
 func TestTrimProfileDocumentDropsProfileJSON(t *testing.T) {
 	t.Parallel()
 	row := ProfileDocument{
-		About:       strings.Repeat("x", 400),
+		About:       strings.Repeat("word ", 80),
 		ProfileJSON: []byte(`{"name":"n","lud16":"a@b.c"}`),
 	}
 	trimProfileDocument(&row)

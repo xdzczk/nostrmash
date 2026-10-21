@@ -174,6 +174,9 @@ func (r *Runtime) persistComputeResults(
 	if _, err = tx.Exec(ctx, `DELETE FROM trust_scores_global_stage WHERE run_id = $1`, runID); err != nil {
 		return fmt.Errorf("clear previous trust score staging rows: %w", err)
 	}
+	if _, err = purgeTerminalStageRowsTx(ctx, tx); err != nil {
+		return err
+	}
 
 	// Prefer batched INSERT over CopyFrom. Production CopyFrom to
 	// trust_scores_global_stage repeatedly stalled after ~192KiB with
