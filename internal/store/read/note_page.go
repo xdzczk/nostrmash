@@ -246,13 +246,19 @@ func (s *Read) GetRelatedNotes(ctx context.Context, eventID string, limit int) (
 			LIMIT 60
 		),
 		author_adj AS (
+			-- The author pubkey is passed as a scalar subquery rather than a
+			-- JOIN on focal: with the join the planner walked the score_7d
+			-- rank index testing every row against the (unknown) focal
+			-- pubkey — ~5s per request in production. As an InitPlan
+			-- parameter it uses idx_note_discovery_stats_author_language
+			-- (~5ms).
 			SELECT
 				nds.event_id,
 				'same_author'::text AS reason,
 				(20 + LEAST(20, (nds.reply_count + nds.repost_count + nds.reaction_count + nds.zap_count))::bigint)::bigint AS score
 			FROM note_discovery_stats nds
-			JOIN focal f ON f.pubkey = nds.author_pubkey
-			WHERE nds.event_id <> $1
+			WHERE nds.author_pubkey = (SELECT f.pubkey FROM focal f)
+			  AND nds.event_id <> $1
 			ORDER BY nds.score_7d DESC, nds.created_at DESC, nds.event_id ASC
 			LIMIT 30
 		),
@@ -295,9 +301,9 @@ func (s *Read) GetRelatedNotes(ctx context.Context, eventID string, limit int) (
 				te.child_event_id AS event_id,
 				'thread_neighborhood'::text AS reason,
 				28::bigint AS score
-			FROM focal f
-			JOIN thread_edges te ON te.root_event_id = f.root_event_id
-			WHERE te.child_event_id <> $1
+			FROM thread_edges te
+			WHERE te.root_event_id = (SELECT f.root_event_id FROM focal f)
+			  AND te.child_event_id <> $1
 			ORDER BY te.child_created_at DESC, te.child_event_id DESC
 			LIMIT 30
 		),

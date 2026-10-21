@@ -86,6 +86,31 @@ func TestGetRelatedNotes_BoundedAndRanked(t *testing.T) {
 			t.Fatalf("expected heuristic reason for related row: %#v", row)
 		}
 	}
+
+	// The same_author and thread_neighborhood candidates resolve the focal
+	// pubkey / root through scalar subqueries on the focal CTE; make sure
+	// both heuristics still contribute rows.
+	all, err := pgStore.GetRelatedNotes(ctx, "focal_evt", 10)
+	if err != nil {
+		t.Fatalf("GetRelatedNotes (unbounded): %v", err)
+	}
+	reasonsByEvent := make(map[string]map[string]bool, len(all))
+	for _, row := range all {
+		set := make(map[string]bool, len(row.Reasons))
+		for _, reason := range row.Reasons {
+			set[reason] = true
+		}
+		reasonsByEvent[row.EventID] = set
+	}
+	if !reasonsByEvent["author_evt"]["same_author"] {
+		t.Fatalf("expected author_evt with same_author reason, got %#v", reasonsByEvent)
+	}
+	if !reasonsByEvent["thread_evt"]["thread_neighborhood"] {
+		t.Fatalf("expected thread_evt with thread_neighborhood reason, got %#v", reasonsByEvent)
+	}
+	if !reasonsByEvent["repost_evt"]["repost_linkage"] {
+		t.Fatalf("expected repost_evt with repost_linkage reason, got %#v", reasonsByEvent)
+	}
 }
 
 func TestGetRelatedNotes_MissingReturnsNotFound(t *testing.T) {
