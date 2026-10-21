@@ -4,7 +4,7 @@
 # stage. Do not put ${SOURCE_COMMIT} in docker-compose.coolify.yml —
 # Coolify then locks it as a UI env var that cannot be deleted.
 ARG SOURCE_COMMIT=
-FROM golang:1.26.6-alpine AS build
+FROM golang:1.26.10-alpine AS build
 
 WORKDIR /src
 
