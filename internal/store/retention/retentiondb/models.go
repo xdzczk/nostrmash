@@ -306,6 +306,7 @@ type EventUrl struct {
 	ProjectedAt       pgtype.Timestamptz
 	// Backend-owned discovery identity used for domain aggregation and lookup.
 	CanonicalDomain string
+	IsMedia         bool
 }
 
 type FollowerEdge struct {

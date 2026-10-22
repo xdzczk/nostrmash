@@ -41,10 +41,12 @@ func configureRelayWindowSnapshotTx(ctx context.Context, tx pgx.Tx) error {
 }
 
 // domainMediaURLFilterClause excludes obvious inline media/attachment links
-// from domain aggregation. Kept in sync with the identical constant in
+// from domain aggregation. It must stay identical to the constant in
 // internal/store/read/parity_domains.go (the live GetTrendingDomains query)
-// so the snapshot ranks the same candidate set.
-const domainMediaURLFilterClause = `NOT (url ~* '\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|heic|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|ogg|m4a|flac|aac|opus)(\?|#|$)')`
+// so the snapshot ranks the same candidate set. This package keeps its own
+// copy so the snapshot refresher does not import the read package.
+// is_media is written at projection time (migration 000088).
+const domainMediaURLFilterClause = `NOT is_media`
 
 // trustedAuthorJoinClause restricts the trending hashtags and domains
 // snapshots to links/tags authored by pubkeys inside the Web of Trust

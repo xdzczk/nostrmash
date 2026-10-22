@@ -12,7 +12,11 @@ import (
 	"github.com/xdzczk/nostrmash/internal/domainnorm"
 )
 
-const domainMediaURLFilterClause = `NOT (url ~* '\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|heic|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|ogg|m4a|flac|aac|opus)(\?|#|$)')`
+// domainMediaURLFilterClause excludes obvious media/attachment links.
+// is_media is set at projection time (migration 000088) from the same
+// extension list the regex used to test, so aggregates can use the partial
+// index instead of reading every URL off the heap.
+const domainMediaURLFilterClause = `NOT is_media`
 
 func (s *Read) GetEventLinkedDomains(
 	ctx context.Context,
