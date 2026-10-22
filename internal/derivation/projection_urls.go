@@ -16,6 +16,11 @@ const maxEventURLLinks = 32
 
 var (
 	urlCandidatePattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
+	// mediaURLPattern matches the SQL filter historically inlined as
+	// `url ~* '\.(png|...)(\?|#|$)'`. Discovery aggregates exclude these
+	// links; the flag is stored on event_urls so those aggregates can be
+	// index-only instead of fetching every URL to run the regex.
+	mediaURLPattern = regexp.MustCompile(`(?i)\.(?:png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif|heic|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|ogg|m4a|flac|aac|opus)(?:\?|#|$)`)
 )
 
 type normalizedEventURL struct {
@@ -97,17 +102,18 @@ func (h *Handlers) projectEventURLsWithVersion(ctx context.Context, eventID stri
 	for _, row := range urls {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO event_urls (
-				event_id, author_pubkey, created_at, url, domain, canonical_domain, derivation_version
+				event_id, author_pubkey, created_at, url, domain, canonical_domain, derivation_version, is_media
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (event_id, url) DO UPDATE
 			SET author_pubkey = EXCLUDED.author_pubkey,
 			    created_at = EXCLUDED.created_at,
 			    domain = EXCLUDED.domain,
 			    canonical_domain = EXCLUDED.canonical_domain,
 			    derivation_version = EXCLUDED.derivation_version,
+			    is_media = EXCLUDED.is_media,
 			    projected_at = now()
-		`, eventID, authorPubkey, createdAt, row.URL, row.Domain, row.CanonicalDomain, writeVersion); err != nil {
+		`, eventID, authorPubkey, createdAt, row.URL, row.Domain, row.CanonicalDomain, writeVersion, mediaURLPattern.MatchString(row.URL)); err != nil {
 			return fmt.Errorf("upsert event url: %w", err)
 		}
 	}

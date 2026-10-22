@@ -162,43 +162,50 @@ func (s *Read) computeRelatedProfiles(ctx context.Context, pubkey string, limit 
 			LIMIT 30
 		),
 		topic_candidates AS (
+			-- event_hashtags already stores the author and timestamp
+			-- (migration 000023). Joining events here only to re-read those
+			-- columns turned every shared hashtag into a primary-key lookup.
 			SELECT
-				e.pubkey,
+				eh.author_pubkey AS pubkey,
 				COUNT(*)::bigint AS topic_overlap,
 				LEAST(80, COUNT(*) * 6)::bigint AS score
 			FROM focal_hashtags fh
 			JOIN event_hashtags eh ON eh.hashtag = fh.hashtag
-			JOIN events e ON e.id = eh.event_id
-			WHERE e.kind = 1
-			  AND e.pubkey <> $1
-			  AND e.created_at >= $3
-			GROUP BY e.pubkey
-			ORDER BY topic_overlap DESC, e.pubkey ASC
+			WHERE eh.author_pubkey <> $1
+			  AND eh.created_at >= $3
+			GROUP BY eh.author_pubkey
+			ORDER BY topic_overlap DESC, eh.author_pubkey ASC
 			LIMIT 150
 		),
 		reply_inbound AS (
+			-- reply_count_contributions is the same parent edge as
+			-- thread_edges (reply, else root) with the replier and the
+			-- parent author denormalized (migration 000082). The previous
+			-- form joined thread_edges to events twice per reply — about
+			-- 1.4s and most of the 3s query budget for an active author,
+			-- so the request degraded to a trending-profiles fallback.
+			-- Rows with a NULL pubkey are replies whose endpoint event was
+			-- never stored; the old INNER JOIN dropped those too.
 			SELECT
-				child.pubkey,
+				rcc.source_pubkey AS pubkey,
 				COUNT(*)::bigint AS count_value
-			FROM thread_edges te
-			JOIN events parent ON parent.id = te.parent_event_id
-			JOIN events child ON child.id = te.child_event_id
-			WHERE parent.pubkey = $1
-			  AND child.pubkey <> $1
-			  AND child.created_at >= $3
-			GROUP BY child.pubkey
+			FROM reply_count_contributions rcc
+			WHERE rcc.target_pubkey = $1
+			  AND rcc.source_pubkey IS NOT NULL
+			  AND rcc.source_pubkey <> $1
+			  AND rcc.source_created_at >= $3
+			GROUP BY rcc.source_pubkey
 		),
 		reply_outbound AS (
 			SELECT
-				parent.pubkey,
+				rcc.target_pubkey AS pubkey,
 				COUNT(*)::bigint AS count_value
-			FROM thread_edges te
-			JOIN events child ON child.id = te.child_event_id
-			JOIN events parent ON parent.id = te.parent_event_id
-			WHERE child.pubkey = $1
-			  AND parent.pubkey <> $1
-			  AND child.created_at >= $3
-			GROUP BY parent.pubkey
+			FROM reply_count_contributions rcc
+			WHERE rcc.source_pubkey = $1
+			  AND rcc.target_pubkey IS NOT NULL
+			  AND rcc.target_pubkey <> $1
+			  AND rcc.source_created_at >= $3
+			GROUP BY rcc.target_pubkey
 		),
 		reply_candidates AS (
 			SELECT
@@ -219,22 +226,21 @@ func (s *Read) computeRelatedProfiles(ctx context.Context, pubkey string, limit 
 				re.reactor_pubkey AS pubkey,
 				COUNT(*)::bigint AS count_value
 			FROM reaction_events re
-			JOIN events target ON target.id = re.target_event_id
-			WHERE target.pubkey = $1
+			WHERE re.target_pubkey = $1
 			  AND re.reactor_pubkey <> $1
 			  AND re.created_at >= $3
 			GROUP BY re.reactor_pubkey
 		),
 		reaction_outbound AS (
 			SELECT
-				target.pubkey,
+				re.target_pubkey AS pubkey,
 				COUNT(*)::bigint AS count_value
 			FROM reaction_events re
-			JOIN events target ON target.id = re.target_event_id
 			WHERE re.reactor_pubkey = $1
-			  AND target.pubkey <> $1
+			  AND re.target_pubkey IS NOT NULL
+			  AND re.target_pubkey <> $1
 			  AND re.created_at >= $3
-			GROUP BY target.pubkey
+			GROUP BY re.target_pubkey
 		),
 		interaction_candidates AS (
 			SELECT
@@ -255,22 +261,21 @@ func (s *Read) computeRelatedProfiles(ctx context.Context, pubkey string, limit 
 				re.reposter_pubkey AS pubkey,
 				COUNT(*)::bigint AS count_value
 			FROM repost_events re
-			JOIN events target ON target.id = re.target_event_id
-			WHERE target.pubkey = $1
+			WHERE re.target_pubkey = $1
 			  AND re.reposter_pubkey <> $1
 			  AND re.created_at >= $3
 			GROUP BY re.reposter_pubkey
 		),
 		repost_outbound AS (
 			SELECT
-				target.pubkey,
+				re.target_pubkey AS pubkey,
 				COUNT(*)::bigint AS count_value
 			FROM repost_events re
-			JOIN events target ON target.id = re.target_event_id
 			WHERE re.reposter_pubkey = $1
-			  AND target.pubkey <> $1
+			  AND re.target_pubkey IS NOT NULL
+			  AND re.target_pubkey <> $1
 			  AND re.created_at >= $3
-			GROUP BY target.pubkey
+			GROUP BY re.target_pubkey
 		),
 		quote_repost_candidates AS (
 			SELECT
