@@ -90,12 +90,20 @@ for name in targets:
 
 # GitHub-hosted runners vary by a lot more than 15% between jobs, and that
 # shift hits every pure in-memory benchmark together (a real change moves
-# one or two). Compare each benchmark with the suite's own median delta, and
-# only flag it when it is slower than that common shift by the threshold.
+# one or two). Compare each benchmark with the suite's own median delta.
+# "15% slower" is a ratio of the two timing factors, not a subtraction of
+# percentage points: a run where every benchmark lands between +67% and
+# +98% is one slow runner, and the +98% sample is only ~12% slower than
+# the suite, not a 21-point regression.
 suite_shift = statistics.median(row["delta_pct"] for row in measured) if measured else 0.0
+suite_factor = 1.0 + suite_shift / 100.0
 regressions = []
 for row in measured:
-    excess = row["delta_pct"] - suite_shift
+    bench_factor = 1.0 + row["delta_pct"] / 100.0
+    if suite_factor <= 0:
+        excess = row["delta_pct"]
+    else:
+        excess = (bench_factor / suite_factor - 1.0) * 100.0
     row["excess_over_suite_pct"] = excess
     if excess >= threshold:
         regressions.append(row)
@@ -104,7 +112,7 @@ md_lines = [
     "# Protected Benchmark Comparison",
     "",
     f"- Mode: `{mode}`",
-    f"- Regression threshold: `{threshold:.1f}%` slower than the suite's median shift",
+    f"- Regression threshold: `{threshold:.1f}%` slower than the suite's shifted timing",
     f"- Suite median shift: `{suite_shift:+.2f}%` (runner noise; not a regression by itself)",
     f"- Baseline snapshot: `{baseline_dir}`",
     f"- Current snapshot: `{current_dir}`",
