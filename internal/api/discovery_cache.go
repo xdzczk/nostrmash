@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -340,7 +341,7 @@ func (h Handlers) buildAndCachePayload(ctx context.Context, policy publicRespons
 		if marshalErr != nil {
 			return nil, marshalErr
 		}
-		if ttl > 0 {
+		if ttl > 0 && cacheablePublicPayload(payload) {
 			h.discoveryCache.set(policy.key, bytes, ttl)
 		}
 		return bytes, nil
@@ -349,6 +350,33 @@ func (h Handlers) buildAndCachePayload(ctx context.Context, policy publicRespons
 		return nil, err
 	}
 	return encoded.([]byte), nil
+}
+
+// cacheablePublicPayload reports whether a built response should be stored.
+// A degraded payload whose ranked list is empty is a failed query (statement
+// timeout or a cancelled build), not a real ranking. Storing it makes every
+// later request serve that empty page until the TTL and stale window expire.
+// A degraded payload that still has rows (for example a profile-identity
+// miss) is worth keeping.
+func cacheablePublicPayload(payload map[string]any) bool {
+	if payload == nil {
+		return false
+	}
+	degraded, _ := payload["degraded"].(bool)
+	if !degraded {
+		return true
+	}
+	for _, key := range []string{"articles", "notes", "profiles", "hashtags", "domains", "conversations"} {
+		value, ok := payload[key]
+		if !ok || value == nil {
+			continue
+		}
+		ranked := reflect.ValueOf(value)
+		if ranked.Kind() == reflect.Slice && ranked.Len() == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (h Handlers) writeCachedPayload(w http.ResponseWriter, policy publicResponseCachePolicy, payload []byte) {
