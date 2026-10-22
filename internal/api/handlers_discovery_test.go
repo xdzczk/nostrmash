@@ -1435,9 +1435,9 @@ func TestHashtagPageRoutes_NormalizationMissingAndValidation(t *testing.T) {
 
 func TestDomainPageRoutes_TrendingSummaryAndNotes(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
-		getTrendingDomainsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]store.DomainSummaryProjection, error) {
-			if window != 7*24*time.Hour || limit != 2 || offset != 1 {
-				t.Fatalf("unexpected trending domains args: window=%s limit=%d offset=%d", window, limit, offset)
+		getHomeTrendingDomainsFn: func(_ context.Context, window time.Duration, limit int) ([]store.DomainSummaryProjection, error) {
+			if window != 7*24*time.Hour || limit != 50 {
+				t.Fatalf("unexpected trending domains snapshot args: window=%s limit=%d", window, limit)
 			}
 			return []store.DomainSummaryProjection{
 				{
