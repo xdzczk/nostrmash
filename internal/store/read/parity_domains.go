@@ -457,7 +457,7 @@ func (s *Read) GetDomainNotes(
 	if window == "" {
 		window = "24h"
 	}
-	filterClause, scoreExpr, err := resolveDomainNotesWindow(window)
+	filterClause, urlsFilter, scoreExpr, err := resolveDomainNotesWindow(window)
 	if err != nil {
 		return nil, err
 	}
@@ -471,12 +471,23 @@ func (s *Read) GetDomainNotes(
 		offset = 0
 	}
 
-	orderBy := "s.created_at DESC, s.event_id DESC"
-	if sort == "top" {
-		orderBy = fmt.Sprintf("%s DESC, s.created_at DESC, s.event_id DESC", scoreExpr)
-	}
-	query := fmt.Sprintf(`
-		SELECT
+	// Pick the domain's event ids from the covering index first. Joining
+	// every note in the time window and then filtering to this domain made
+	// Postgres walk note_discovery_stats (a cold github.com summary did that
+	// twice and took ~19s). event_urls.created_at is the note timestamp, so
+	// the same window predicate is an index range on
+	// idx_event_urls_domain_activity. Latest notes can stop after `limit`
+	// ids; top notes still have to score each id in the window, but only
+	// the page of winners loads event content.
+	idSource := fmt.Sprintf(`
+		SELECT event_id, MAX(created_at) AS created_at
+		FROM event_urls
+		WHERE canonical_domain = $1
+		  AND %s
+		  AND %s
+		GROUP BY event_id
+	`, domainMediaURLFilterClause, urlsFilter)
+	noteCols := `
 			s.event_id,
 			s.author_pubkey,
 			s.created_at,
@@ -486,19 +497,60 @@ func (s *Read) GetDomainNotes(
 			s.reaction_count,
 			s.zap_count,
 			s.zap_msats,
-			%s AS score
-		FROM (
-			SELECT DISTINCT event_id
-			FROM event_urls
-			WHERE canonical_domain = $1
-			  AND %s
-		) d
-		JOIN note_discovery_stats s ON s.event_id = d.event_id
-		JOIN events e ON e.id = s.event_id
-		WHERE %s
-		ORDER BY %s
-		LIMIT $2 OFFSET $3
-	`, scoreExpr, domainMediaURLFilterClause, filterClause, orderBy)
+			%s AS score`
+	var query string
+	if sort == "latest" {
+		query = fmt.Sprintf(`
+			WITH picked AS (
+				%s
+				ORDER BY MAX(created_at) DESC, event_id DESC
+				LIMIT $2 OFFSET $3
+			)
+			SELECT
+				%s
+			FROM picked
+			JOIN note_discovery_stats s ON s.event_id = picked.event_id
+			JOIN events e ON e.id = s.event_id
+			WHERE %s
+			ORDER BY s.created_at DESC, s.event_id DESC
+		`, idSource, fmt.Sprintf(noteCols, scoreExpr), filterClause)
+	} else {
+		query = fmt.Sprintf(`
+			WITH ranked AS (
+				SELECT
+					s.event_id,
+					s.author_pubkey,
+					s.created_at,
+					s.reply_count,
+					s.repost_count,
+					s.reaction_count,
+					s.zap_count,
+					s.zap_msats,
+					%s AS score
+				FROM (
+					%s
+				) picked
+				JOIN note_discovery_stats s ON s.event_id = picked.event_id
+				WHERE %s
+				ORDER BY score DESC, s.created_at DESC, s.event_id DESC
+				LIMIT $2 OFFSET $3
+			)
+			SELECT
+				ranked.event_id,
+				ranked.author_pubkey,
+				ranked.created_at,
+				e.content,
+				ranked.reply_count,
+				ranked.repost_count,
+				ranked.reaction_count,
+				ranked.zap_count,
+				ranked.zap_msats,
+				ranked.score
+			FROM ranked
+			JOIN events e ON e.id = ranked.event_id
+			ORDER BY ranked.score DESC, ranked.created_at DESC, ranked.event_id DESC
+		`, scoreExpr, idSource, filterClause)
+	}
 
 	rows, err := s.pool.Query(ctx, query, normalized, limit, offset)
 	if err != nil {
@@ -540,20 +592,31 @@ func (s *Read) hasDomain(ctx context.Context, domain string) (bool, error) {
 	return exists, nil
 }
 
-func resolveDomainNotesWindow(window string) (string, string, error) {
+// resolveDomainNotesWindow returns the note_discovery_stats predicate, the
+// matching event_urls predicate, and the score expression. The URL predicate
+// must stay equivalent to the stats predicate: both compare the note's
+// created_at, which is stored on event_urls as well.
+func resolveDomainNotesWindow(window string) (string, string, string, error) {
 	switch window {
 	case "24h":
-		return "s.created_at >= extract(epoch from now())::bigint - (24 * 60 * 60)", "s.score_24h", nil
+		cutoff := "extract(epoch from now())::bigint - (24 * 60 * 60)"
+		return "s.created_at >= " + cutoff, "created_at >= " + cutoff, "s.score_24h", nil
 	case "7d":
-		return "s.created_at >= extract(epoch from now())::bigint - (7 * 24 * 60 * 60)", "s.score_7d", nil
+		cutoff := "extract(epoch from now())::bigint - (7 * 24 * 60 * 60)"
+		return "s.created_at >= " + cutoff, "created_at >= " + cutoff, "s.score_7d", nil
 	case "30d":
-		return "s.created_at >= extract(epoch from now())::bigint - (30 * 24 * 60 * 60)",
+		cutoff := "extract(epoch from now())::bigint - (30 * 24 * 60 * 60)"
+		return "s.created_at >= " + cutoff,
+			"created_at >= " + cutoff,
 			"((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + (s.zap_msats / 100000.0)) / (1.0 + ((extract(epoch from now())::bigint - s.created_at) / (30.0 * 24 * 60 * 60)))",
 			nil
 	case "all":
-		return "TRUE", "((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + (s.zap_msats / 100000.0))", nil
+		return "TRUE",
+			"TRUE",
+			"((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + (s.zap_msats / 100000.0))",
+			nil
 	default:
-		return "", "", fmt.Errorf("unsupported domain notes window: %s", window)
+		return "", "", "", fmt.Errorf("unsupported domain notes window: %s", window)
 	}
 }
 
