@@ -71,6 +71,61 @@ func TestGetTrendingNotes_WindowsAndOrdering(t *testing.T) {
 	}
 }
 
+func TestGetTrendingLongForm_RanksArticlesInsideTheWindow(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+
+	events := []model.Event{
+		newDiscoveryEvent("meta_article_a", "article_author_a", now.Add(-5*time.Hour), 0, nil, `{"name":"Author A"}`),
+		newDiscoveryEvent("meta_article_b", "article_author_b", now.Add(-5*time.Hour), 0, nil, `{"name":"Author B"}`),
+		newDiscoveryEvent("article_a", "article_author_a", now.Add(-2*time.Hour), 30023, nil, "article a"),
+		newDiscoveryEvent("article_b", "article_author_b", now.Add(-40*time.Hour), 30023, nil, "article b"),
+		newDiscoveryEvent("loud_note", "article_author_a", now.Add(-1*time.Hour), 1, nil, "not an article"),
+		newDiscoveryEvent("article_react_a1", "article_reactor_1", now.Add(-90*time.Minute), 7, [][]string{{"e", "article_a"}}, "+"),
+		newDiscoveryEvent("article_react_a2", "article_reactor_2", now.Add(-80*time.Minute), 7, [][]string{{"e", "article_a"}}, "+"),
+		newDiscoveryEvent("article_react_b1", "article_reactor_3", now.Add(-30*time.Hour), 7, [][]string{{"e", "article_b"}}, "+"),
+		newDiscoveryEvent("note_react_1", "article_reactor_4", now.Add(-30*time.Minute), 7, [][]string{{"e", "loud_note"}}, "+"),
+		newDiscoveryEvent("note_react_2", "article_reactor_5", now.Add(-20*time.Minute), 7, [][]string{{"e", "loud_note"}}, "+"),
+		newDiscoveryEvent("note_react_3", "article_reactor_6", now.Add(-10*time.Minute), 7, [][]string{{"e", "loud_note"}}, "+"),
+		newDiscoveryEvent("unresolved_article", "unresolved_article_author", now.Add(-30*time.Minute), 30023, nil, "unresolved article"),
+		newDiscoveryEvent("unresolved_article_react", "article_reactor_7", now.Add(-20*time.Minute), 7, [][]string{{"e", "unresolved_article"}}, "+"),
+	}
+	for _, event := range events {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+
+	last24h, err := pgStore.GetTrendingLongForm(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingLongForm 24h: %v", err)
+	}
+	if len(last24h) != 1 || last24h[0].EventID != "article_a" {
+		t.Fatalf("expected only the recent resolved article, got %#v", last24h)
+	}
+
+	last7d, err := pgStore.GetTrendingLongForm(ctx, 7*24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingLongForm 7d: %v", err)
+	}
+	if len(last7d) != 2 {
+		t.Fatalf("unexpected 7d article count: got=%d want=2 (%#v)", len(last7d), last7d)
+	}
+	if last7d[0].EventID != "article_a" || last7d[1].EventID != "article_b" {
+		t.Fatalf("expected article_a then article_b in the 7d window, got %#v", last7d)
+	}
+}
+
 func TestGetTrendingNotes_ExcludesNotesFromAuthorsWithoutLocalMetadata(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

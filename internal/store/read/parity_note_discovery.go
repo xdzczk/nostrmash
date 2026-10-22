@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // GetTrendingNotes returns trending short notes (kind 1 only). Long-form
@@ -38,45 +40,96 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 		offset = 0
 	}
 	minCreatedAt := time.Now().UTC().Add(-windowDuration).Unix()
-	query := fmt.Sprintf(`
-		SELECT
-			s.event_id,
-			s.author_pubkey,
-			s.created_at,
-			e.content,
-			COALESCE(s.primary_language, 'und') AS language,
-			s.reply_count,
-			s.repost_count,
-			s.reaction_count,
-			s.zap_count,
-			s.zap_msats,
-			%s AS score
-		FROM note_discovery_stats s
-		JOIN events e ON e.id = s.event_id
-		WHERE s.created_at >= $1
-		  AND e.kind = ANY($4::int[])
-		  AND NOT EXISTS (
-			SELECT 1
-			FROM thread_edges te
-			WHERE te.child_event_id = s.event_id
-		  )
-		  AND (
-			EXISTS (
+	// Kind 1 is almost the entire score index, so that surface keeps walking
+	// idx_note_discovery_stats_{24h,7d}_rank and filtering kind afterwards.
+	// Long-form is a few thousand rows. Driving it from the same score index
+	// scans every note in the window (and a profile lookup per note) and
+	// trips the 15s statement_timeout. The handler then caches that failed
+	// empty page. idx_events_kind_created already ranges kind 30023 by time,
+	// so articles start there and only then join discovery stats.
+	var rows pgx.Rows
+	if longFormOnly(kinds) {
+		query := fmt.Sprintf(`
+			SELECT
+				s.event_id,
+				s.author_pubkey,
+				s.created_at,
+				e.content,
+				COALESCE(s.primary_language, 'und') AS language,
+				s.reply_count,
+				s.repost_count,
+				s.reaction_count,
+				s.zap_count,
+				s.zap_msats,
+				%s AS score
+			FROM events e
+			JOIN note_discovery_stats s ON s.event_id = e.id
+			WHERE e.kind = 30023
+			  AND e.created_at >= $1
+			  AND s.created_at >= $1
+			  AND NOT EXISTS (
 				SELECT 1
-				FROM profiles_latest pl
-				WHERE pl.pubkey = s.author_pubkey
-			)
-			OR EXISTS (
+				FROM thread_edges te
+				WHERE te.child_event_id = e.id
+			  )
+			  AND (
+				EXISTS (
+					SELECT 1
+					FROM profiles_latest pl
+					WHERE pl.pubkey = s.author_pubkey
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM events metadata
+					WHERE metadata.pubkey = s.author_pubkey
+					  AND metadata.kind = 0
+				)
+			  )
+			ORDER BY score DESC, s.created_at DESC, s.event_id ASC
+			LIMIT $2 OFFSET $3
+		`, scoreColumn)
+		rows, err = s.pool.Query(ctx, query, minCreatedAt, limit, offset)
+	} else {
+		query := fmt.Sprintf(`
+			SELECT
+				s.event_id,
+				s.author_pubkey,
+				s.created_at,
+				e.content,
+				COALESCE(s.primary_language, 'und') AS language,
+				s.reply_count,
+				s.repost_count,
+				s.reaction_count,
+				s.zap_count,
+				s.zap_msats,
+				%s AS score
+			FROM note_discovery_stats s
+			JOIN events e ON e.id = s.event_id
+			WHERE s.created_at >= $1
+			  AND e.kind = ANY($4::int[])
+			  AND NOT EXISTS (
 				SELECT 1
-				FROM events metadata
-				WHERE metadata.pubkey = s.author_pubkey
-				  AND metadata.kind = 0
-			)
-		  )
-		ORDER BY score DESC, s.created_at DESC, s.event_id ASC
-		LIMIT $2 OFFSET $3
-	`, scoreColumn)
-	rows, err := s.pool.Query(ctx, query, minCreatedAt, limit, offset, kinds)
+				FROM thread_edges te
+				WHERE te.child_event_id = s.event_id
+			  )
+			  AND (
+				EXISTS (
+					SELECT 1
+					FROM profiles_latest pl
+					WHERE pl.pubkey = s.author_pubkey
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM events metadata
+					WHERE metadata.pubkey = s.author_pubkey
+					  AND metadata.kind = 0
+				)
+			  )
+			ORDER BY score DESC, s.created_at DESC, s.event_id ASC
+			LIMIT $2 OFFSET $3
+		`, scoreColumn)
+		rows, err = s.pool.Query(ctx, query, minCreatedAt, limit, offset, kinds)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get trending notes: %w", err)
 	}
@@ -106,6 +159,10 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 		return nil, fmt.Errorf("read trending note rows: %w", err)
 	}
 	return out, nil
+}
+
+func longFormOnly(kinds []int) bool {
+	return len(kinds) == 1 && kinds[0] == 30023
 }
 
 func resolveTrendingWindow(window time.Duration) (string, time.Duration, error) {
