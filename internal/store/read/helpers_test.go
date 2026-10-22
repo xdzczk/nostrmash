@@ -53,14 +53,14 @@ func TestResolveWindowHelpers(t *testing.T) {
 		if _, _, err := resolveHashtagNotesWindow(window); err != nil {
 			t.Fatalf("resolveHashtagNotesWindow(%q): %v", window, err)
 		}
-		if _, _, err := resolveDomainNotesWindow(window); err != nil {
-			t.Fatalf("resolveDomainNotesWindow(%q): %v", window, err)
+		if _, urlsFilter, _, err := resolveDomainNotesWindow(window); err != nil || urlsFilter == "" {
+			t.Fatalf("resolveDomainNotesWindow(%q) = %q %v", window, urlsFilter, err)
 		}
 	}
 	if _, _, err := resolveHashtagNotesWindow("1h"); err == nil {
 		t.Fatal("expected unsupported hashtag window error")
 	}
-	if _, _, err := resolveDomainNotesWindow("1h"); err == nil {
+	if _, _, _, err := resolveDomainNotesWindow("1h"); err == nil {
 		t.Fatal("expected unsupported domain window error")
 	}
 
