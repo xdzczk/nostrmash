@@ -9,6 +9,16 @@ import (
 	"github.com/xdzczk/nostrmash/internal/domainnorm"
 )
 
+// homeTrendingSnapshotLimit is the number of rows materialized in
+// top_hashtags_* and top_domains_*. Callers page inside that list.
+const homeTrendingSnapshotLimit = 50
+
+// isFixedDiscoveryWindow reports the two windows the overview and the
+// topics/links tabs share. Those are the windows the relay snapshots cover.
+func isFixedDiscoveryWindow(window time.Duration) bool {
+	return window == 24*time.Hour || window == 7*24*time.Hour
+}
+
 func (s Service) GetEventLinkedDomains(ctx context.Context, eventID string, limit int) ([]EventDomainLink, error) {
 	eventID = strings.TrimSpace(eventID)
 	if eventID == "" {
@@ -109,6 +119,26 @@ func (s Service) GetTrendingDomains(
 	if offset < 0 {
 		offset = 0
 	}
+	// 24h and 7d are the windows the overview and the links tab both
+	// request. Serve the same trust-filtered snapshot the homepage uses so
+	// the two surfaces rank the same domains. The live aggregate stays
+	// available for readers that have no snapshot and for other windows.
+	if isFixedDiscoveryWindow(window) {
+		if r := s.capabilities.curated.homeTrendingDomains; r != nil {
+			rows, err := r.GetHomeTrendingDomains(ctx, window, homeTrendingSnapshotLimit)
+			if err != nil {
+				return nil, err
+			}
+			if offset >= len(rows) {
+				return []DomainSummary{}, nil
+			}
+			rows = rows[offset:]
+			if len(rows) > limit {
+				rows = rows[:limit]
+			}
+			return mapSlice(rows, domainSummaryFromStore), nil
+		}
+	}
 	if r := s.capabilities.curated.trendingDomains; r != nil {
 		rows, err := r.GetTrendingDomains(ctx, window, limit, offset)
 		if err != nil {
@@ -119,11 +149,9 @@ func (s Service) GetTrendingDomains(
 	return nil, unsupportedCapabilityError("trending domains")
 }
 
-// GetHomeTrendingDomains serves the homepage's trending-domains section from
-// a precomputed snapshot (see internal/derivation/projection_relay_window_snapshots.go)
-// instead of the live COUNT(DISTINCT) aggregate behind GetTrendingDomains.
-// Only the fixed (24h, 7d) windows used by the homepage are snapshotted;
-// arbitrary windows/pagination still go through GetTrendingDomains.
+// GetHomeTrendingDomains serves a fixed (24h, 7d) trending-domains window
+// from the precomputed snapshot (see internal/derivation/projection_relay_window_snapshots.go).
+// GetTrendingDomains uses the same snapshot for those windows.
 func (s Service) GetHomeTrendingDomains(
 	ctx context.Context,
 	window time.Duration,

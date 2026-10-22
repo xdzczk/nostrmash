@@ -42,6 +42,7 @@ type curatedCapabilities struct {
 	hotConversations       hotConversationsCapability
 	trustQualifiedNotes    trustQualifiedTrendingNotesCapability
 	trendingHashtags       trendingHashtagsCapability
+	homeTrendingHashtags   homeTrendingHashtagsCapability
 	hashtagSummary         hashtagSummaryCapability
 	hashtagNotes           hashtagNotesCapability
 	relatedHashtags        relatedHashtagsCapability

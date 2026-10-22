@@ -715,10 +715,8 @@ func computeTopLanguagesSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt in
 //
 // The candidate set is restricted to authors inside the Web of Trust
 // via trustedAuthorJoinClause — see refreshTrendingLinksSnapshots for
-// why. This means "trending hashtags" on the homepage is a trusted-
-// network view, not a network-wide one; the live
-// /api/v1/discovery/hashtags/trending endpoint (store.GetTrendingHashtags)
-// is unaffected and remains network-wide.
+// why. The homepage overview and /api/v1/discovery/hashtags/trending
+// both serve this snapshot for the 24h and 7d windows.
 func computeTopHashtagsSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int64, limit int) ([]hashtagRow, error) {
 	if limit <= 0 {
 		limit = 50
@@ -788,8 +786,8 @@ type domainRow struct {
 //
 // The candidate set is further restricted to authors inside the Web of
 // Trust via trustedAuthorJoinClause — see refreshTrendingLinksSnapshots.
-// The live /api/v1/discovery/domains/trending endpoint
-// (store.GetTrendingDomains) is unaffected and remains network-wide.
+// The homepage overview and /api/v1/discovery/domains/trending both serve
+// this snapshot for the 24h and 7d windows.
 func computeTopDomainsSnapshot(
 	ctx context.Context,
 	tx pgx.Tx,

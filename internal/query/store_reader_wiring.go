@@ -18,6 +18,7 @@ func wireCuratedGroup(g CuratedReads, caps *serviceCapabilities) {
 	caps.curated.recommendedReads = g
 	caps.curated.readsTopics = g
 	caps.curated.trendingHashtags = g
+	caps.curated.homeTrendingHashtags = g
 	caps.curated.hashtagSummary = g
 	caps.curated.hashtagNotes = g
 	caps.curated.relatedHashtags = g

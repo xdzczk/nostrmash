@@ -389,6 +389,20 @@ func TestGetAuthorEventsPage_LegacyReaderServesFirstPageWithoutCursor(t *testing
 	}
 }
 
+func TestOmitAuthorReplyEvents_KeepsNotesAndMentions(t *testing.T) {
+	t.Parallel()
+	got := omitAuthorReplyEvents([]json.RawMessage{
+		json.RawMessage(`{"id":"note","tags":[]}`),
+		json.RawMessage(`{"id":"reply","tags":[["e","parent","","reply"]]}`),
+		json.RawMessage(`{"id":"root-reply","tags":[["e","parent","","root"]]}`),
+		json.RawMessage(`{"id":"legacy","tags":[["e","parent"]]}`),
+		json.RawMessage(`{"id":"quote","tags":[["e","quoted","","mention"]]}`),
+	})
+	if ids := decodeTestEventIDs(t, got); !reflect.DeepEqual(ids, []string{"note", "quote"}) {
+		t.Fatalf("unexpected kept events: %v", ids)
+	}
+}
+
 func decodeTestEventIDs(t *testing.T, rows []json.RawMessage) []string {
 	t.Helper()
 	out := make([]string, 0, len(rows))

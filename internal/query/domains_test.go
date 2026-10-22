@@ -103,6 +103,50 @@ func TestGetHomeTrendingDomains_BoundsLimitAndDefaultsWindow(t *testing.T) {
 	}
 }
 
+func TestGetTrendingDomains_UsesHomeSnapshotForFixedWindows(t *testing.T) {
+	t.Parallel()
+	var gotWindow time.Duration
+	var gotLimit int
+	svc := mustNewService(t, curatedReaderWithHomeTrendingDomains{
+		fakeReader: fakeReader{
+			getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+				return nil, store.ErrNotFound
+			},
+		},
+		getHomeTrendingDomainsFn: func(_ context.Context, window time.Duration, limit int) ([]storeread.DomainSummaryProjection, error) {
+			gotWindow = window
+			gotLimit = limit
+			return []storeread.DomainSummaryProjection{
+				{Domain: "youtube.com"},
+				{Domain: "x.com"},
+				{Domain: "github.com"},
+			}, nil
+		},
+	})
+
+	out, err := svc.GetTrendingDomains(context.Background(), 7*24*time.Hour, 1, 1)
+	if err != nil {
+		t.Fatalf("GetTrendingDomains: %v", err)
+	}
+	if gotWindow != 7*24*time.Hour {
+		t.Fatalf("unexpected window: %s", gotWindow)
+	}
+	if gotLimit != 50 {
+		t.Fatalf("expected the full snapshot to be loaded for paging, got limit %d", gotLimit)
+	}
+	if len(out) != 1 || out[0].Domain != "x.com" {
+		t.Fatalf("unexpected paged domains: %#v", out)
+	}
+
+	past, err := svc.GetTrendingDomains(context.Background(), 24*time.Hour, 10, 50)
+	if err != nil {
+		t.Fatalf("GetTrendingDomains past snapshot: %v", err)
+	}
+	if len(past) != 0 {
+		t.Fatalf("expected empty page past the snapshot, got %#v", past)
+	}
+}
+
 func TestGetHomeTrendingDomains_UnsupportedWithoutCapability(t *testing.T) {
 	t.Parallel()
 	svc := mustNewService(t, fakeReader{
