@@ -41,6 +41,12 @@ type trendingHashtagsCapability interface {
 	GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingHashtag, error)
 }
 
+// homeTrendingHashtagsCapability serves the fixed (24h/7d) trending-hashtags
+// list from the same snapshot the homepage overview uses.
+type homeTrendingHashtagsCapability interface {
+	GetHomeTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingHashtag, error)
+}
+
 type hashtagSummaryCapability interface {
 	GetHashtagSummary(ctx context.Context, hashtag string) (readmodel.HashtagSummary, error)
 }

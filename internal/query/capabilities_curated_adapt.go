@@ -25,6 +25,9 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(trendingHashtagsCapability); ok {
 		caps.curated.trendingHashtags = r
 	}
+	if r, ok := reader.(homeTrendingHashtagsCapability); ok {
+		caps.curated.homeTrendingHashtags = r
+	}
 	if r, ok := reader.(hashtagSummaryCapability); ok {
 		caps.curated.hashtagSummary = r
 	}

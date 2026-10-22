@@ -314,9 +314,8 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			defer wg.Done()
 			// Trending domains are served from the top_domains_24h/7d
-			// snapshot (see internal/derivation/projection_relay_window_snapshots.go)
-			// instead of the live COUNT(DISTINCT) aggregate behind the
-			// standalone /discovery/domains/trending endpoint.
+			// snapshot (see internal/derivation/projection_relay_window_snapshots.go).
+			// /discovery/domains/trending reads the same snapshot.
 			domains, domainsErr = h.service.GetHomeTrendingDomains(buildCtx, window, domainsLimit)
 		}()
 		go func() {

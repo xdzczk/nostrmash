@@ -165,10 +165,15 @@ func (f fakeEventReader) GetAuthorRecentEvents(ctx context.Context, pubkey strin
 }
 
 func (f fakeEventReader) GetAuthorRecentEventsByKind(ctx context.Context, pubkey string, kind int, limit int) ([]json.RawMessage, error) {
-	if f.getAuthorRecentEventsByKindFn == nil {
-		return nil, errors.New("not implemented")
+	if f.getAuthorRecentEventsByKindFn != nil {
+		return f.getAuthorRecentEventsByKindFn(ctx, pubkey, kind, limit)
 	}
-	return f.getAuthorRecentEventsByKindFn(ctx, pubkey, kind, limit)
+	// Profile summaries load kind-1 notes through this method. Tests that
+	// only stub the unfiltered author feed should still satisfy that read.
+	if f.getAuthorEventsFn != nil {
+		return f.getAuthorEventsFn(ctx, pubkey, limit)
+	}
+	return nil, errors.New("not implemented")
 }
 
 // GetAuthorRecentEventsPage keeps the paged capability wired for every handler

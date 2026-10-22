@@ -19,6 +19,16 @@ const authorEventCountsSelect = `
 			COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = e.id), 0)
 `
 
+// authorKind1NotesExcludeRepliesSQL drops thread replies from kind-1 note
+// feeds. GetAuthorReplies selects the same thread_edges children, so a reply
+// shows up under recent replies and not under recent notes.
+const authorKind1NotesExcludeRepliesSQL = `
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM thread_edges te
+		      WHERE te.child_event_id = e.id
+		  )`
+
 // GetAuthorRecentEvents returns projected recent event payloads for one author.
 func (s *PostgresStore) GetAuthorRecentEvents(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
@@ -113,6 +123,13 @@ func (s *PostgresStore) getAuthorRecentEventsPage(
 	if kind != nil {
 		args = append(args, *kind)
 		query += fmt.Sprintf(" AND e.kind = $%d", len(args))
+		if *kind == 1 {
+			// Recent notes are kind-1 events that are not replies. Replies
+			// stay on GetAuthorReplies, which selects the same thread_edges
+			// children this clause drops, so an event is in one list or the
+			// other. Filtering before LIMIT keeps a page full of notes.
+			query += authorKind1NotesExcludeRepliesSQL
+		}
 	}
 	if cursor != nil {
 		cursorID := strings.TrimSpace(cursor.ID)
@@ -249,6 +266,10 @@ func (s *PostgresStore) GetAuthorRecentEventsByKind(
 		limit = 100
 	}
 
+	replyFilter := ""
+	if kind == 1 {
+		replyFilter = authorKind1NotesExcludeRepliesSQL
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			e.raw_json::text,
@@ -257,6 +278,7 @@ func (s *PostgresStore) GetAuthorRecentEventsByKind(
 		INNER JOIN events e ON e.id = are.event_id
 		WHERE are.author_pubkey = $1
 		  AND e.kind = $2
+		`+replyFilter+`
 		ORDER BY are.created_at DESC, are.event_id DESC
 		LIMIT $3
 	`, pubkey, kind, limit)

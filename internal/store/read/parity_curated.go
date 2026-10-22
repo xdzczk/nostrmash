@@ -143,11 +143,9 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 		return out, nil
 	}
 
-	// Homepage trending hashtags are served from the snapshot. The
-	// general-purpose GetTrendingHashtags (used by other endpoints
-	// that need arbitrary windows / pagination) still runs a live
-	// query — only the homepage's fixed (24h, 7d, top-N) shape is
-	// snapshotted.
+	// Homepage trending hashtags and the topics tab both read this
+	// snapshot. GetTrendingHashtags still runs a live aggregate for
+	// windows other than the snapshotted 24h/7d pair.
 	top24h, err := s.getTopHashtagsSnapshot(ctx, relaySnapshotLabelTopHashtags24h, hashtagLimit)
 	if err != nil {
 		return out, err
@@ -426,6 +424,58 @@ type hashtagSnapshotRow struct {
 	Hashtag       string `json:"hashtag"`
 	EventCount    int64  `json:"event_count"`
 	UniqueAuthors int64  `json:"unique_authors"`
+}
+
+// GetHomeTrendingHashtags pages the precomputed top_hashtags_24h / top_hashtags_7d
+// snapshot. The topics tab and the homepage overview both use it, so a 24h
+// or 7d request returns the same ranking on either surface. Offset past the
+// materialized list (50) is empty rather than falling through to a
+// differently ranked live aggregate.
+func (s *Read) GetHomeTrendingHashtags(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]TrendingHashtag, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	label, err := resolveHomeHashtagsSnapshotLabel(window)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.getTopHashtagsSnapshot(ctx, label, 50)
+	if err != nil {
+		return nil, err
+	}
+	if offset >= len(rows) {
+		return []TrendingHashtag{}, nil
+	}
+	rows = rows[offset:]
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows, nil
+}
+
+func resolveHomeHashtagsSnapshotLabel(window time.Duration) (string, error) {
+	switch window {
+	case 24 * time.Hour:
+		return relaySnapshotLabelTopHashtags24h, nil
+	case 7 * 24 * time.Hour:
+		return relaySnapshotLabelTopHashtags7d, nil
+	default:
+		return "", fmt.Errorf("unsupported home trending hashtags window: %s", window)
+	}
 }
 
 func (s *Read) getTopHashtagsSnapshot(ctx context.Context, label string, limit int) ([]TrendingHashtag, error) {

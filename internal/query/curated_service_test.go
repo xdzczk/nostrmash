@@ -150,6 +150,63 @@ func TestGetTrendingHashtagsMapsLegacyStoreModel(t *testing.T) {
 	}
 }
 
+func TestGetTrendingHashtags_PrefersHomeSnapshot(t *testing.T) {
+	t.Parallel()
+	var gotWindow time.Duration
+	var gotLimit, gotOffset int
+	svc := mustNewServiceWithOptions(t, snapshotHashtagReader{
+		curatedLegacyReader: curatedLegacyReader{
+			fakeReader: fakeReader{
+				getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+					return nil, store.ErrNotFound
+				},
+			},
+			getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+				t.Fatal("snapshot hashtags must not fall through to sampled trending notes")
+				return nil, nil
+			},
+			getTrendingHashtagsFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingHashtag, error) {
+				t.Fatal("snapshot hashtags must not fall through to the live aggregate")
+				return nil, nil
+			},
+		},
+		getHomeTrendingHashtagsFn: func(_ context.Context, window time.Duration, limit int, offset int) ([]storeread.TrendingHashtag, error) {
+			gotWindow = window
+			gotLimit = limit
+			gotOffset = offset
+			return []storeread.TrendingHashtag{{Hashtag: "bitcoin", EventCount: 400, UniqueAuthors: 120}}, nil
+		},
+	}, ServiceOptions{DiscoveryCandidateTrustMode: trustModePreferTrusted})
+
+	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, 10, 2)
+	if err != nil {
+		t.Fatalf("GetTrendingHashtags: %v", err)
+	}
+	if gotWindow != 24*time.Hour || gotLimit != 10 || gotOffset != 2 {
+		t.Fatalf("unexpected snapshot args: window=%s limit=%d offset=%d", gotWindow, gotLimit, gotOffset)
+	}
+	if len(out) != 1 || out[0].Hashtag != "bitcoin" || out[0].EventCount != 400 || out[0].UniqueAuthors != 120 {
+		t.Fatalf("unexpected snapshot hashtags: %#v", out)
+	}
+}
+
+type snapshotHashtagReader struct {
+	curatedLegacyReader
+	getHomeTrendingHashtagsFn func(context.Context, time.Duration, int, int) ([]storeread.TrendingHashtag, error)
+}
+
+func (r snapshotHashtagReader) GetHomeTrendingHashtags(
+	ctx context.Context,
+	window time.Duration,
+	limit int,
+	offset int,
+) ([]storeread.TrendingHashtag, error) {
+	if r.getHomeTrendingHashtagsFn == nil {
+		return nil, nil
+	}
+	return r.getHomeTrendingHashtagsFn(ctx, window, limit, offset)
+}
+
 func TestGetTrendingNotesMapsLegacyStoreModel(t *testing.T) {
 	t.Parallel()
 	svc := mustNewService(t, curatedLegacyReader{

@@ -98,6 +98,63 @@ func TestGetAuthorRecentEventsPage_ExactPageBoundaryOmitsNextCursor(t *testing.T
 	}
 }
 
+func TestGetAuthorRecentEventsByKindPage_OmitsReplies(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+
+	s := NewPostgresStore(pool)
+	author := "author_notes_pk"
+	mustInsertAuthorRecentEvent(t, pool, "note_new", author, 3000, 1)
+	mustInsertAuthorRecentEvent(t, pool, "reply_mid", author, 2500, 1)
+	mustInsertAuthorRecentEvent(t, pool, "note_old", author, 2000, 1)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO thread_edges (
+			child_event_id, child_created_at, parent_event_id, root_event_id,
+			parent_missing, root_missing, derivation_version
+		) VALUES
+			('reply_mid', 2500, 'missing_parent', 'missing_parent', true, true, 1)
+	`); err != nil {
+		t.Fatalf("insert reply edge: %v", err)
+	}
+
+	notes, next, err := s.GetAuthorRecentEventsByKindPage(ctx, author, 1, 10, nil)
+	if err != nil {
+		t.Fatalf("get kind-1 notes: %v", err)
+	}
+	if next != nil {
+		t.Fatalf("expected no continuation cursor")
+	}
+	if got := decodeAuthorEventIDs(t, notes); !reflect.DeepEqual(got, []string{"note_new", "note_old"}) {
+		t.Fatalf("kind-1 notes included a reply: got=%v", got)
+	}
+
+	byKind, err := s.GetAuthorRecentEventsByKind(ctx, author, 1, 10)
+	if err != nil {
+		t.Fatalf("get kind-1 notes without cursor: %v", err)
+	}
+	if got := decodeAuthorEventIDs(t, byKind); !reflect.DeepEqual(got, []string{"note_new", "note_old"}) {
+		t.Fatalf("kind-1 list included a reply: got=%v", got)
+	}
+
+	replies, err := s.GetAuthorReplies(ctx, author, 10)
+	if err != nil {
+		t.Fatalf("get replies: %v", err)
+	}
+	if got := decodeAuthorEventIDs(t, replies); !reflect.DeepEqual(got, []string{"reply_mid"}) {
+		t.Fatalf("reply missing from recent replies: got=%v", got)
+	}
+
+	all, _, err := s.GetAuthorRecentEventsPage(ctx, author, 10, nil)
+	if err != nil {
+		t.Fatalf("get all recent events: %v", err)
+	}
+	if got := decodeAuthorEventIDs(t, all); !reflect.DeepEqual(got, []string{"note_new", "reply_mid", "note_old"}) {
+		t.Fatalf("unfiltered feed should still include the reply: got=%v", got)
+	}
+}
+
 func TestGetAuthorRecentEventsByKindPage_FiltersKindAndPaginates(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

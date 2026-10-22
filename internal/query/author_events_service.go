@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
@@ -36,7 +37,11 @@ func (s Service) GetAuthorEventsByKind(ctx context.Context, pubkey string, kind 
 	if err != nil {
 		return nil, err
 	}
-	return s.maybeAugmentAuthorEventsFromRelays(ctx, pubkey, []int{kind}, limit, events), nil
+	events = s.maybeAugmentAuthorEventsFromRelays(ctx, pubkey, []int{kind}, limit, events)
+	if kind == 1 {
+		events = omitAuthorReplyEvents(events)
+	}
+	return events, nil
 }
 
 // GetAuthorEventsPage returns one keyset page of an author's recent events.
@@ -96,12 +101,43 @@ func (s Service) GetAuthorEventsPage(
 		}
 		events = s.maybeAugmentAuthorEventsFromRelays(ctx, pubkey, fallbackKinds, limit, events)
 	}
+	if kind != nil && *kind == 1 {
+		events = omitAuthorReplyEvents(events)
+	}
 	return AuthorEventsResult{
 		Pubkey:      pubkey,
 		Events:      events,
 		NextCursor:  nextCursor,
 		Consistency: "eventual",
 	}, nil
+}
+
+// omitAuthorReplyEvents drops kind-1 replies that the store query did not
+// already remove, including events merged in from the thin-profile relay
+// fallback. A reply is whatever ReplyParentEventID classifies as one: the
+// same rule thread_edges uses.
+func omitAuthorReplyEvents(events []json.RawMessage) []json.RawMessage {
+	if len(events) == 0 {
+		return events
+	}
+	kept := make([]json.RawMessage, 0, len(events))
+	for _, raw := range events {
+		if authorEventIsReply(raw) {
+			continue
+		}
+		kept = append(kept, raw)
+	}
+	return kept
+}
+
+func authorEventIsReply(raw json.RawMessage) bool {
+	var payload struct {
+		Tags [][]string `json:"tags"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return false
+	}
+	return nostr.ReplyParentEventID(payload.Tags) != ""
 }
 
 func normalizeAuthorEventsLimit(limit int) int {

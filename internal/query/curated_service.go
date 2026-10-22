@@ -97,6 +97,20 @@ func (s Service) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]Cu
 }
 
 func (s Service) GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingHashtag, error) {
+	// 24h and 7d are the windows the overview and the topics tab both
+	// request. Serve the same trust-filtered snapshot the homepage uses.
+	// The trust-aware fallback counts hashtags inside a small sample of
+	// trending notes, which ranks a different set (and reports sample-sized
+	// event counts) than the overview.
+	if isFixedDiscoveryWindow(window) {
+		if r := s.capabilities.curated.homeTrendingHashtags; r != nil {
+			rows, err := r.GetHomeTrendingHashtags(ctx, window, limit, offset)
+			if err != nil {
+				return nil, err
+			}
+			return mapSlice(rows, trendingHashtagFromStore), nil
+		}
+	}
 	if r := s.capabilities.curated.trendingHashtags; r != nil {
 		if s.discoveryTrustMode == trustModeOpen {
 			rows, err := r.GetTrendingHashtags(ctx, window, limit, offset)

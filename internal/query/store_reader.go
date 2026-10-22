@@ -34,6 +34,7 @@ type CuratedReads interface {
 	curatedRecommendedReadsCapability
 	curatedReadsTopicsCapability
 	trendingHashtagsCapability
+	homeTrendingHashtagsCapability
 	hashtagSummaryCapability
 	hashtagNotesCapability
 	relatedHashtagsCapability

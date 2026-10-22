@@ -307,7 +307,9 @@ func (h Handlers) GetProfilePublicSummary(w http.ResponseWriter, r *http.Request
 // loadProfileRecentNotes returns the author's recent notes plus a partial flag
 // that is true when the load failed for a reason other than not-found.
 func (h Handlers) loadProfileRecentNotes(r *http.Request, pubkey string) ([]json.RawMessage, []map[string]any, bool) {
-	notes, err := h.service.GetAuthorEvents(r.Context(), pubkey, 20)
+	// Kind 1, with replies removed, matches the account "recent notes"
+	// surface. Replies are served by GET /authors/{pubkey}/replies.
+	notes, err := h.service.GetAuthorEventsByKind(r.Context(), pubkey, 1, 20)
 	if err != nil {
 		partial := h.noteEnrichmentFailure(r, "profile_public_summary", "recent_notes", pubkey, err)
 		return []json.RawMessage{}, []map[string]any{}, partial
