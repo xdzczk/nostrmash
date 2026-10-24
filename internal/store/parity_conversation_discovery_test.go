@@ -189,6 +189,70 @@ func TestGetHotConversations_DiscountsLargeTwoAuthorThreads(t *testing.T) {
 	}
 }
 
+func TestGetHotConversations_SmallGroupsCannotOutrankBreadth(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+	s := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+
+	pile := newThreadEventForHotConversations("hot_pile", "pile_author", now.Add(-5*time.Hour), nil, "three people, a very long chain")
+	broad := newThreadEventForHotConversations("hot_room", "room_author", now.Add(-5*time.Hour), nil, "six people having a conversation")
+	reply := func(id, pubkey string, root model.Event, content string) model.Event {
+		return newThreadEventForHotConversations(id, pubkey, now.Add(-30*time.Minute),
+			[][]string{{"e", root.ID, "", "reply"}, {"e", root.ID, "", "root"}}, content)
+	}
+	events := []model.Event{pile, broad}
+	for i := 0; i < 40; i++ {
+		events = append(events, reply(
+			"hot_pile_"+string(rune('a'+i/26))+string(rune('a'+i%26)),
+			"pile_replier_"+string(rune('a'+i%2)),
+			pile,
+			"Nested reply "+string(rune('a'+i))+" in a thread that is still only three people.",
+		))
+	}
+	for i := 0; i < 5; i++ {
+		events = append(events, reply(
+			"hot_room_"+string(rune('a'+i)),
+			"room_replier_"+string(rune('a'+i)),
+			broad,
+			"A separate person adding a real point to the wider conversation.",
+		))
+	}
+	for _, event := range events {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := s.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.UpdateThreadProjection(ctx, event.ID); err != nil {
+			t.Fatalf("project thread for %s: %v", event.ID, err)
+		}
+	}
+
+	last24h, err := s.GetHotConversations(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetHotConversations: %v", err)
+	}
+	if len(last24h) != 2 {
+		t.Fatalf("expected both threads, got %#v", last24h)
+	}
+	if last24h[0].RootEventID != broad.ID || last24h[1].RootEventID != pile.ID {
+		t.Fatalf("expected the six-author thread ahead of the three-author pile, got %#v", last24h)
+	}
+	if last24h[1].Replies24h != 40 {
+		t.Fatalf("display reply count stays raw, got %d", last24h[1].Replies24h)
+	}
+	wantPile := 2 * (24.0 / 40.0)
+	if last24h[1].VelocityScore < wantPile-0.02 || last24h[1].VelocityScore > wantPile+0.02 {
+		t.Fatalf("three-author velocity = %f, want about %f", last24h[1].VelocityScore, wantPile)
+	}
+	if last24h[0].VelocityScore <= last24h[1].VelocityScore {
+		t.Fatalf("broad velocity %f should beat pile %f", last24h[0].VelocityScore, last24h[1].VelocityScore)
+	}
+}
+
 func newThreadEventForHotConversations(id, pubkey string, ts time.Time, tags [][]string, content string) model.Event {
 	createdAt := ts.Unix()
 	raw, _ := json.Marshal(map[string]any{

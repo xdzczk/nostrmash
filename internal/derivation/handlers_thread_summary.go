@@ -157,6 +157,8 @@ func (h *Handlers) refreshThreadSummaryTx(
 	var lastActivityAt int64
 	var replies24h int64
 	var replies7d int64
+	var authors24h int
+	var authors7d int
 	if err := tx.QueryRow(ctx, `
 		WITH descendant_events AS (
 			SELECT e.pubkey, e.created_at, te.child_created_at
@@ -185,13 +187,29 @@ func (h *Handlers) refreshThreadSummaryTx(
 				SELECT COUNT(*)
 				FROM descendant_events
 				WHERE child_created_at >= extract(epoch FROM now())::bigint - (7 * 24 * 60 * 60)
-			), 0) AS replies_7d
-	`, rootEventID, rootCreatedAt).Scan(
+			), 0) AS replies_7d,
+			-- The root always counts as one author. Everyone else counts only
+			-- when they replied inside the window.
+			1 + COALESCE((
+				SELECT COUNT(DISTINCT pubkey)
+				FROM descendant_events
+				WHERE child_created_at >= extract(epoch FROM now())::bigint - (24 * 60 * 60)
+				  AND pubkey <> $3
+			), 0) AS authors_24h,
+			1 + COALESCE((
+				SELECT COUNT(DISTINCT pubkey)
+				FROM descendant_events
+				WHERE child_created_at >= extract(epoch FROM now())::bigint - (7 * 24 * 60 * 60)
+				  AND pubkey <> $3
+			), 0) AS authors_7d
+	`, rootEventID, rootCreatedAt, rootPubkey).Scan(
 		&replyCount,
 		&participantCount,
 		&lastActivityAt,
 		&replies24h,
 		&replies7d,
+		&authors24h,
+		&authors7d,
 	); err != nil {
 		return fmt.Errorf("compute thread summary aggregates: %w", err)
 	}
@@ -242,9 +260,11 @@ func (h *Handlers) refreshThreadSummaryTx(
 			replies_7d,
 			reply_weight_24h,
 			reply_weight_7d,
+			authors_24h,
+			authors_7d,
 			derivation_version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (root_event_id) DO UPDATE
 		SET reply_count = EXCLUDED.reply_count,
 		    participant_count = EXCLUDED.participant_count,
@@ -254,6 +274,8 @@ func (h *Handlers) refreshThreadSummaryTx(
 		    replies_7d = EXCLUDED.replies_7d,
 		    reply_weight_24h = EXCLUDED.reply_weight_24h,
 		    reply_weight_7d = EXCLUDED.reply_weight_7d,
+		    authors_24h = EXCLUDED.authors_24h,
+		    authors_7d = EXCLUDED.authors_7d,
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
 	`,
@@ -266,6 +288,8 @@ func (h *Handlers) refreshThreadSummaryTx(
 		replies7d,
 		replyWeight24h,
 		replyWeight7d,
+		authors24h,
+		authors7d,
 		writeVersion,
 	); err != nil {
 		return fmt.Errorf("upsert thread summary: %w", err)

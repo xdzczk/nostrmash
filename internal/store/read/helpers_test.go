@@ -36,6 +36,29 @@ func TestNormalizeLanguageFilter(t *testing.T) {
 	}
 }
 
+func TestConversationVelocity_SmallGroupsStopGainingFromReplyVolume(t *testing.T) {
+	if got := conversationVelocity(1, 30, 30); got != 0 {
+		t.Fatalf("one author scores 0, got %v", got)
+	}
+	if got := conversationVelocity(3, 12, 99); got != 2 {
+		t.Fatalf("three authors inside the reply allowance score 2, got %v", got)
+	}
+	got := conversationVelocity(3, 215, 222.5)
+	want := 2 * (24.0 / 215.0)
+	if got < want-1e-9 || got > want+1e-9 {
+		t.Fatalf("three-author pile-on = %v, want %v", got, want)
+	}
+	if got := conversationVelocity(2, 48, 50); got != 16.0/48.0 {
+		t.Fatalf("two-author pile-on = %v", got)
+	}
+	if got := conversationVelocity(15, 68, 14); got != 14 {
+		t.Fatalf("broad thread keeps reply weight, got %v", got)
+	}
+	if got := conversationVelocity(6, 200, 5.75); got != 5.75 {
+		t.Fatalf("six authors keep the broad score, got %v", got)
+	}
+}
+
 func TestNormalizeStoreHashtag(t *testing.T) {
 	if got := normalizeStoreHashtag(" #Nostr "); got != "nostr" {
 		t.Fatalf("normalizeStoreHashtag = %q", got)

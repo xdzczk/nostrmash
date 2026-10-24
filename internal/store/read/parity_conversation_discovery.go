@@ -7,6 +7,36 @@ import (
 	"time"
 )
 
+const (
+	conversationReplyBoost           = 0.15
+	conversationBoostCap             = 50.0
+	conversationSmallGroupMaxAuthors = 5
+	conversationRepliesPerAuthor     = 8
+	// conversationWindowAuthorVersion matches derivation.ThreadSummaryVersion
+	// once authors_24h/authors_7d are written. Older stamps keep ranking from
+	// lifetime participant_count.
+	conversationWindowAuthorVersion = 4
+)
+
+// conversationVelocity is the hot-conversation rank for one window.
+// Groups of one author score zero. Groups of two to five score the number of
+// other authors, scaled down once replies exceed about eight per author.
+// Larger groups keep broadVelocity, the reply-weight score.
+func conversationVelocity(authors int, replies int64, broadVelocity float64) float64 {
+	if authors <= 1 || replies <= 0 {
+		return 0
+	}
+	if authors <= conversationSmallGroupMaxAuthors {
+		allowance := float64(conversationRepliesPerAuthor * authors)
+		factor := 1.0
+		if float64(replies) > allowance {
+			factor = allowance / float64(replies)
+		}
+		return float64(authors-1) * factor
+	}
+	return broadVelocity
+}
+
 // GetHotConversations returns projection-backed active conversation hotspots.
 func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]HotConversation, error) {
 	if s == nil || s.pool == nil {
@@ -26,42 +56,50 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, li
 		offset = 0
 	}
 	activityCutoff := time.Now().UTC().Add(-windowDuration).Unix()
-	// Velocity is scored from reply_weight_* (unique repliers excluding the
-	// root author, optionally trust-weighted at projection time) instead of
-	// the raw replies_* display counters, so one account replying in a loop
-	// buys zero velocity. Rows projected before thread summary derivation v2
-	// have no weights yet and fall back to the raw counters until the rebuild
-	// sweep reaches them, keeping the surface populated mid-deploy.
+	// Broad threads score reply_weight_* (unique repliers excluding the root
+	// author, optionally trust-weighted, with repeated greetings discounted).
+	// Rows projected before thread summary derivation v2 have no weights yet
+	// and fall back to the raw counters until the rebuild sweep reaches them.
 	//
-	// A thread of one author is not a conversation. A thread of two authors
-	// keeps the score of a single extra participant, and once the window's
-	// reply count passes a modest exchange that score shrinks, so a long
-	// two-person back-and-forth cannot outrank a broader thread.
-	const (
-		conversationReplyBoost            = 0.15
-		conversationBoostCap              = 50.0
-		conversationPairAuthorCount       = 2
-		conversationPairFullCreditReplies = 24.0
-	)
-	oneReplierVelocity := 1.0 + conversationReplyBoost
+	// Small threads never use that raw volume. One author scores zero. Two to
+	// five authors score (authors - 1), and each author can carry about eight
+	// replies before more messages stop raising the rank. Author headcount is
+	// the windowed authors_* column once a row is on derivation v4; older rows
+	// use lifetime participant_count so a three-person pile-on drops on the
+	// next read, before the rebuild.
+	authorsColumn := "authors_24h"
+	if windowDuration == 7*24*time.Hour {
+		authorsColumn = "authors_7d"
+	}
 	velocityBase := fmt.Sprintf(`
 		CASE
 			WHEN COALESCE(ts.derivation_version, 0) >= 2 THEN COALESCE(ts.%s, 0)::double precision
 			ELSE COALESCE(ts.%s, 0)::double precision
 		END`, weightColumn, repliesColumn)
 	velocityCore := fmt.Sprintf(`(%s + (LEAST(%s, %.1f) * %.2f))`, velocityBase, velocityBase, conversationBoostCap, conversationReplyBoost)
+	authorsExpr := fmt.Sprintf(`
+		CASE
+			WHEN COALESCE(ts.derivation_version, 0) >= %d THEN COALESCE(ts.%s, 0)
+			ELSE COALESCE(ts.participant_count, 1)
+		END`, conversationWindowAuthorVersion, authorsColumn)
+	repliesExpr := fmt.Sprintf(`COALESCE(ts.%s, 0)`, repliesColumn)
 	velocityScore := fmt.Sprintf(`
 		CASE
-			WHEN COALESCE(ts.participant_count, 1) <= 1 THEN 0.0
-			WHEN COALESCE(ts.participant_count, 1) = %d THEN
-				LEAST(%s, %.2f) * LEAST(1.0, %.1f / GREATEST(COALESCE(ts.%s, 0), 1)::double precision)
-			ELSE %s
+			WHEN (%[1]s) <= 1 THEN 0.0
+			WHEN (%[1]s) <= %[2]d THEN
+				CASE
+					WHEN (%[3]s) <= 0 THEN 0.0
+					ELSE ((%[1]s) - 1)::double precision * LEAST(
+						1.0,
+						(%[4]g * (%[1]s))::double precision / GREATEST((%[3]s), 1)::double precision
+					)
+				END
+			ELSE %[5]s
 		END`,
-		conversationPairAuthorCount,
-		velocityCore,
-		oneReplierVelocity,
-		conversationPairFullCreditReplies,
-		repliesColumn,
+		authorsExpr,
+		conversationSmallGroupMaxAuthors,
+		repliesExpr,
+		float64(conversationRepliesPerAuthor),
 		velocityCore,
 	)
 	query := fmt.Sprintf(`

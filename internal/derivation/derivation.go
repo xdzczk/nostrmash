@@ -118,7 +118,10 @@ const (
 	// author (optionally trust-weighted) — as the hot-conversation velocity
 	// inputs, replacing raw reply counters a single account could inflate.
 	// v3: the same greeting and short-phrase discount as note discovery.
-	ThreadSummaryVersion               = 3
+	// v4: authors_24h/7d count the root plus everyone who replied in that
+	// window, so conversation rank can follow the window's headcount instead
+	// of the lifetime participant total.
+	ThreadSummaryVersion               = 4
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1
