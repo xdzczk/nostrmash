@@ -46,6 +46,12 @@ func TestNormalizeStoreHashtag(t *testing.T) {
 	if got := normalizeStoreHashtag("   "); got != "" {
 		t.Fatalf("blank hashtag should be empty, got %q", got)
 	}
+	if got := normalizeStoreHashtag("#1"); got != "" {
+		t.Fatalf("all-numeric hashtag should be empty, got %q", got)
+	}
+	if got := normalizeStoreHashtag("42"); got != "" {
+		t.Fatalf("all-numeric hashtag should be empty, got %q", got)
+	}
 }
 
 func TestResolveWindowHelpers(t *testing.T) {

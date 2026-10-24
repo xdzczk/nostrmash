@@ -418,7 +418,7 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 			"+",
 		))
 	}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 14; i++ {
 		events = append(events, newDiscoveryEvent(
 			"growth_follow_"+string(rune('a'+i)),
 			"growth_follower_"+string(rune('a'+i)),
@@ -458,11 +458,13 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRisingProfiles: %v", err)
 	}
-	// Rising momentum still counts follower growth, so both profiles rank.
+	// 14 new followers clears the credit minimum (10 after the 2-follower
+	// noise floor) and ranks by that credited count, ahead of a single-day
+	// reaction burst.
 	if len(rising) < 2 {
 		t.Fatalf("expected at least 2 profiles, got %#v", rising)
 	}
-	if rising[0].Pubkey != "engaged_author" {
-		t.Fatalf("expected engaged_author to remain first in rising with the current quality-weighted momentum model, got %#v", rising[0])
+	if rising[0].Pubkey != "growth_author" {
+		t.Fatalf("expected growth_author to lead rising on credited follower growth, got %#v", rising[0])
 	}
 }

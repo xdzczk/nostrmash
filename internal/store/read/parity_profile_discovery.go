@@ -157,6 +157,7 @@ func (s *Read) computeRelatedProfiles(ctx context.Context, pubkey string, limit 
 			SELECT eh.hashtag
 			FROM event_hashtags eh
 			JOIN focal_notes fn ON fn.id = eh.event_id
+			WHERE eh.hashtag !~ '^[0-9]+$'
 			GROUP BY eh.hashtag
 			ORDER BY COUNT(*) DESC, eh.hashtag ASC
 			LIMIT 30

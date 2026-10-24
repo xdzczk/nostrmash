@@ -125,13 +125,16 @@ func computeProfileRisingScore(
 	safeReplies := maxInt64(0, replyCount)
 	safeActiveDays := maxInt64(0, int64(activeDays))
 	totalPosts := safePosts + safeReplies
-	// A handful of new followers (1-2) is common noise for any brand-new
-	// account and isn't a meaningful momentum signal on its own -- discount
-	// it so accounts with substantial absolute growth reliably outrank
-	// barely-started ones, even though both may sit well under the
-	// audience-penalty's "small account" ceiling above.
+	// A handful of new followers is common noise. The first two never count,
+	// and anything short of 10 credited followers (12 raw) is still too small
+	// to win "Up and coming" on growth alone. +3 and +5 used to outrank a
+	// larger absolute jump because the audience penalty crushed bigger accounts.
 	const risingFollowerNoiseFloor = 2.0
+	const risingFollowerCreditMinimum = 10.0
 	creditedNewFollowers := math.Max(0, safeNewFollowers-risingFollowerNoiseFloor)
+	if creditedNewFollowers < risingFollowerCreditMinimum {
+		creditedNewFollowers = 0
+	}
 	// Same idea for engagement: a single (weighted) interaction is not
 	// evidence of momentum -- any account can pick up one stray boost or
 	// reaction. With trust weighting live, engagement inputs are already
@@ -160,7 +163,16 @@ func computeProfileRisingScore(
 	if float64(safeFollowerCount) > risingAudienceSoftCap {
 		audiencePenalty *= float64(safeFollowerCount) / risingAudienceSoftCap
 	}
-	followerMomentum := 4.0 * math.Log1p(creditedNewFollowers)
+	// Follower momentum is the credited count itself inside the small-account
+	// band, so +22 ranks above +14. Past the soft cap the same jump is divided
+	// by followers/500. The log audience penalty still applies to engagement
+	// and trending, which is what keeps a large account's reaction burst from
+	// reading as "up and coming".
+	followerPenalty := 1.0
+	if float64(safeFollowerCount) > risingAudienceSoftCap {
+		followerPenalty = float64(safeFollowerCount) / risingAudienceSoftCap
+	}
+	followerMomentum := creditedNewFollowers / followerPenalty
 
 	// relativeEngagementMomentum gives a small account a real path into the
 	// ranking purely from getting outsized engagement relative to its own
@@ -197,8 +209,7 @@ func computeProfileRisingScore(
 	if safeActiveDays > 0 {
 		engagementMomentum *= math.Min(1.0, float64(safeActiveDays)/3.0)
 	}
-	momentum := followerMomentum + engagementMomentum
-	score := (0.2*math.Max(0, trendingScore) + momentum) / audiencePenalty
+	score := followerMomentum + (0.2*math.Max(0, trendingScore)+engagementMomentum)/audiencePenalty
 	if score <= 0 {
 		return 0
 	}

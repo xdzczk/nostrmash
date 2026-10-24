@@ -176,6 +176,22 @@ func TestBuildProfileRanking_RisingSurface_TrivialNewFollowersAreNotFollowerGrow
 		}
 	}
 
+	stillSmall := profile
+	stillSmall.RecentNewFollowers = 11
+	stillSmallCodes := reasonCodes(buildProfileRanking(stillSmall, 1, discoverySurfaceRising).Reasons)
+	for _, code := range stillSmallCodes {
+		if code == "follower_growth" {
+			t.Fatalf("did not expect follower_growth below 12 raw new followers, got %v", stillSmallCodes)
+		}
+	}
+
+	clearsFloor := profile
+	clearsFloor.RecentNewFollowers = 12
+	clearsFloorCodes := reasonCodes(buildProfileRanking(clearsFloor, 1, discoverySurfaceRising).Reasons)
+	if len(clearsFloorCodes) == 0 || clearsFloorCodes[0] != "follower_growth" {
+		t.Fatalf("expected follower_growth once new followers clear the credit minimum, got %v", clearsFloorCodes)
+	}
+
 	substantial := profile
 	substantial.RecentNewFollowers = 60
 	substantial.FollowerCount = 400

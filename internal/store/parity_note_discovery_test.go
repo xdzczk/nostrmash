@@ -31,8 +31,8 @@ func TestGetTrendingNotes_WindowsAndOrdering(t *testing.T) {
 		newDiscoveryEvent("react_a2", "reactor_2", now.Add(-80*time.Minute), 7, [][]string{{"e", "note_a"}}, "+"),
 		newDiscoveryEvent("reply_a1", "replier_1", now.Add(-70*time.Minute), 1, [][]string{{"e", "note_a", "", "reply"}}, "reply"),
 		newDiscoveryEvent("react_b1", "reactor_3", now.Add(-30*time.Minute), 7, [][]string{{"e", "note_b"}}, "+"),
-		newDiscoveryEvent("reply_c1", "replier_2", now.Add(-20*time.Hour), 1, [][]string{{"e", "note_c", "", "reply"}}, "reply"),
-		newDiscoveryEvent("reply_c2", "replier_3", now.Add(-10*time.Hour), 1, [][]string{{"e", "note_c", "", "reply"}}, "reply"),
+		newDiscoveryEvent("reply_c1", "replier_2", now.Add(-20*time.Hour), 1, [][]string{{"e", "note_c", "", "reply"}}, "I have been following this thread for a while now."),
+		newDiscoveryEvent("reply_c2", "replier_3", now.Add(-10*time.Hour), 1, [][]string{{"e", "note_c", "", "reply"}}, "The longer version of this argument is more convincing."),
 		newDiscoveryEvent("react_c1", "reactor_4", now.Add(-8*time.Hour), 7, [][]string{{"e", "note_c"}}, "+"),
 	}
 	for _, event := range events {

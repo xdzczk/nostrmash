@@ -80,22 +80,19 @@ func loadWindowedEngagementWeights(
 	args := []any{noteID, cutoff, authorPubkey, weighting.TrustWeighted, weighting.MaxHops, weighting.UntrustedWeight}
 
 	var out windowedEngagementWeights
-	var err error
-	out.ReplyWeight, err = queryFloat64Tx(ctx, tx, `
-		SELECT COALESCE(SUM(`+engagerWeightCaseSQL+`), 0)
-		FROM (
-			SELECT DISTINCT e.pubkey
-			FROM reply_count_contributions c
-			JOIN events e ON e.id = c.source_event_id
-			WHERE c.target_event_id = $1
-			  AND e.created_at >= $2
-			  AND e.pubkey <> $3
-		) g
-		LEFT JOIN trust_pubkeys_latest t ON t.pubkey = g.pubkey
+	replyRows, err := queryWeightedReplies(ctx, tx, `
+		SELECT e.pubkey, e.content, `+engagerWeightCaseSQL+`
+		FROM reply_count_contributions c
+		JOIN events e ON e.id = c.source_event_id
+		LEFT JOIN trust_pubkeys_latest t ON t.pubkey = e.pubkey
+		WHERE c.target_event_id = $1
+		  AND e.created_at >= $2
+		  AND e.pubkey <> $3
 	`, args...)
 	if err != nil {
 		return out, fmt.Errorf("load windowed reply weight: %w", err)
 	}
+	out.ReplyWeight = sumDiscountedReplyWeights(replyRows)
 	out.RepostWeight, err = queryFloat64Tx(ctx, tx, `
 		SELECT COALESCE(SUM(`+engagerWeightCaseSQL+`), 0)
 		FROM (
@@ -169,22 +166,39 @@ func loadWindowedThreadReplyWeight(
 ) (float64, error) {
 	weighting = weighting.normalized()
 	cutoff := nowUnix - int64(window/time.Second)
-	weight, err := queryFloat64Tx(ctx, tx, `
-		SELECT COALESCE(SUM(`+engagerWeightCaseSQL+`), 0)
-		FROM (
-			SELECT DISTINCT child.pubkey
-			FROM thread_edges te
-			JOIN events child ON child.id = te.child_event_id
-			WHERE te.root_event_id = $1
-			  AND te.child_created_at >= $2
-			  AND child.pubkey <> $3
-		) g
-		LEFT JOIN trust_pubkeys_latest t ON t.pubkey = g.pubkey
+	rows, err := queryWeightedReplies(ctx, tx, `
+		SELECT child.pubkey, child.content, `+engagerWeightCaseSQL+`
+		FROM thread_edges te
+		JOIN events child ON child.id = te.child_event_id
+		LEFT JOIN trust_pubkeys_latest t ON t.pubkey = child.pubkey
+		WHERE te.root_event_id = $1
+		  AND te.child_created_at >= $2
+		  AND child.pubkey <> $3
 	`, rootEventID, cutoff, authorPubkey, weighting.TrustWeighted, weighting.MaxHops, weighting.UntrustedWeight)
 	if err != nil {
 		return 0, fmt.Errorf("load windowed thread reply weight: %w", err)
 	}
-	return weight, nil
+	return sumDiscountedReplyWeights(rows), nil
+}
+
+func queryWeightedReplies(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]weightedReply, error) {
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]weightedReply, 0)
+	for rows.Next() {
+		var row weightedReply
+		if err := rows.Scan(&row.Pubkey, &row.Content, &row.Weight); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func hasThreadSummary(ctx context.Context, tx pgx.Tx, noteID string) (bool, error) {

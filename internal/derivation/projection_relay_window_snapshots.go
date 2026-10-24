@@ -729,6 +729,7 @@ func computeTopHashtagsSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int
 		FROM event_hashtags h
 		%s
 		WHERE h.created_at >= $1
+		  AND h.hashtag !~ '^[0-9]+$'
 		GROUP BY h.hashtag
 		ORDER BY
 			unique_authors DESC,

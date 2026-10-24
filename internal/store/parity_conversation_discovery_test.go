@@ -114,6 +114,81 @@ func TestGetHotConversations_WindowsAndOrdering(t *testing.T) {
 	}
 }
 
+func TestGetHotConversations_DiscountsLargeTwoAuthorThreads(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+	s := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+
+	broad := newThreadEventForHotConversations("hot_broad", "broad_author", now.Add(-6*time.Hour), nil, "broad root")
+	pairSmall := newThreadEventForHotConversations("hot_pair_small", "pair_small_author", now.Add(-6*time.Hour), nil, "small pair root")
+	pairLarge := newThreadEventForHotConversations("hot_pair_large", "pair_large_author", now.Add(-6*time.Hour), nil, "large pair root")
+	solo := newThreadEventForHotConversations("hot_solo", "solo_author", now.Add(-6*time.Hour), nil, "solo root")
+
+	events := []model.Event{broad, pairSmall, pairLarge, solo}
+	reply := func(id, pubkey string, root model.Event, minutesAgo int, content string) model.Event {
+		return newThreadEventForHotConversations(id, pubkey, now.Add(-time.Duration(minutesAgo)*time.Minute),
+			[][]string{{"e", root.ID, "", "reply"}, {"e", root.ID, "", "root"}}, content)
+	}
+	events = append(events,
+		reply("hot_broad_1", "broad_replier_1", broad, 50, "A distinct reply about the broader thread."),
+		reply("hot_broad_2", "broad_replier_2", broad, 40, "Another person joining the broader thread."),
+		reply("hot_pair_small_1", "pair_small_replier", pairSmall, 30, "Short exchange, first reply."),
+		reply("hot_pair_small_2", "pair_small_replier", pairSmall, 20, "Short exchange, second reply."),
+	)
+	for i := 0; i < 48; i++ {
+		events = append(events, reply(
+			"hot_pair_large_"+string(rune('a'+(i%26)))+string(rune('a'+i/26)),
+			"pair_large_replier",
+			pairLarge,
+			10,
+			"Back and forth number "+string(rune('a'+i))+" stays between the same two people.",
+		))
+	}
+	for i := 0; i < 30; i++ {
+		events = append(events, reply(
+			"hot_solo_"+string(rune('a'+i)),
+			"solo_author",
+			solo,
+			15,
+			"Solo reply "+string(rune('a'+i)),
+		))
+	}
+
+	for _, event := range events {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := s.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.UpdateThreadProjection(ctx, event.ID); err != nil {
+			t.Fatalf("project thread for %s: %v", event.ID, err)
+		}
+	}
+
+	last24h, err := s.GetHotConversations(ctx, 24*time.Hour, 10, 0)
+	if err != nil {
+		t.Fatalf("GetHotConversations 24h: %v", err)
+	}
+	if len(last24h) != 3 {
+		t.Fatalf("expected the solo thread to be excluded, got %#v", last24h)
+	}
+	if last24h[0].RootEventID != broad.ID || last24h[1].RootEventID != pairSmall.ID || last24h[2].RootEventID != pairLarge.ID {
+		t.Fatalf("expected broad, then the short pair, then the long pair, got %#v", last24h)
+	}
+	if last24h[1].VelocityScore <= last24h[2].VelocityScore {
+		t.Fatalf("expected the long two-author thread to rank below the short one: short=%f long=%f", last24h[1].VelocityScore, last24h[2].VelocityScore)
+	}
+	if last24h[2].Replies24h != 48 {
+		t.Fatalf("display reply count should stay raw, got %d", last24h[2].Replies24h)
+	}
+	if last24h[2].VelocityScore >= 1 {
+		t.Fatalf("expected the long two-author thread to sink below one full replier, got %f", last24h[2].VelocityScore)
+	}
+}
+
 func newThreadEventForHotConversations(id, pubkey string, ts time.Time, tags [][]string, content string) model.Event {
 	createdAt := ts.Unix()
 	raw, _ := json.Marshal(map[string]any{

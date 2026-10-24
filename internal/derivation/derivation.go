@@ -79,11 +79,15 @@ const (
 	ContactListsLatestVersion = 1
 	FollowerEdgesVersion      = 1
 	RelayListsLatestVersion   = 1
-	EventHashtagsVersion      = 1
-	EventURLsVersion          = 2
+	// v2: all-numeric hashtags ("1" parsed from "#1 app") are not topics.
+	EventHashtagsVersion = 2
+	EventURLsVersion     = 2
 	// v5: trending score inputs count each engager pubkey once per signal and
 	// exclude the note author's self-engagement (optionally trust-weighted).
-	NoteDiscoveryStatsVersion = 5
+	// v6: repeated greetings and repeated short phrases are discounted in
+	// the reply weight. A single "GM" still counts; a pile of them does not
+	// count as one vote each.
+	NoteDiscoveryStatsVersion = 6
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -94,7 +98,10 @@ const (
 	// 1-interaction noise floor, sample-size shrinkage, an audience prior in
 	// the relative-engagement ratio, and a consistency multiplier that
 	// discounts single-day bursts instead of dividing by sqrt(activeDays).
-	ProfileDiscoveryStatsVersion   = 4
+	// v5: follower growth below 10 credited followers scores nothing, and
+	// credited growth ranks linearly under the 500-follower cap so a +3
+	// account cannot outrank a larger absolute jump.
+	ProfileDiscoveryStatsVersion   = 5
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1
@@ -110,7 +117,8 @@ const (
 	// v2: adds reply_weight_24h/7d — unique repliers excluding the root
 	// author (optionally trust-weighted) — as the hot-conversation velocity
 	// inputs, replacing raw reply counters a single account could inflate.
-	ThreadSummaryVersion               = 2
+	// v3: the same greeting and short-phrase discount as note discovery.
+	ThreadSummaryVersion               = 3
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1

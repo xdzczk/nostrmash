@@ -35,6 +35,7 @@ func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, li
 			COUNT(DISTINCT author_pubkey) AS unique_authors
 		FROM event_hashtags
 		WHERE created_at >= $1
+		  AND hashtag !~ '^[0-9]+$'
 		GROUP BY hashtag
 		ORDER BY
 			unique_authors DESC,
@@ -254,6 +255,7 @@ func (s *Read) GetRelatedHashtags(
 		FROM event_hashtags h
 		JOIN seed s ON s.event_id = h.event_id
 		WHERE h.hashtag <> $1
+		  AND h.hashtag !~ '^[0-9]+$'
 		GROUP BY h.hashtag
 		ORDER BY co_occurrence_count DESC, co_occurrence_authors DESC, h.hashtag ASC
 		LIMIT $2
@@ -289,10 +291,22 @@ func normalizeStoreHashtag(value string) string {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	normalized = strings.TrimPrefix(normalized, "#")
 	normalized = strings.TrimSpace(normalized)
-	if normalized == "" || !storeHashtagPattern.MatchString(normalized) {
+	if normalized == "" || !storeHashtagPattern.MatchString(normalized) || isNumericHashtag(normalized) {
 		return ""
 	}
 	return normalized
+}
+
+func isNumericHashtag(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveHashtagNotesWindow(window string) (string, string, error) {

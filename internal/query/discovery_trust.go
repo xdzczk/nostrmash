@@ -686,7 +686,7 @@ func hashtagsFromContent(content string) []string {
 			continue
 		}
 		hashtag := strings.TrimSpace(match[1])
-		if hashtag == "" {
+		if hashtag == "" || isNumericHashtag(hashtag) {
 			continue
 		}
 		if _, ok := seen[hashtag]; ok {

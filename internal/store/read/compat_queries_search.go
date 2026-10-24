@@ -536,6 +536,7 @@ func (s *Read) SuggestHashtags(ctx context.Context, query string, limit int) ([]
 			COUNT(DISTINCT author_pubkey) AS unique_authors
 		FROM event_hashtags
 		WHERE hashtag LIKE $1 || '%'
+		  AND hashtag !~ '^[0-9]+$'
 		GROUP BY hashtag
 		ORDER BY unique_authors DESC, event_count DESC, hashtag ASC
 		LIMIT $2

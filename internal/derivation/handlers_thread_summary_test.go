@@ -155,3 +155,55 @@ func TestThreadSummaryProjection_ReplyWeightsDedupeAndExcludeRootAuthor(t *testi
 		t.Fatalf("expected reply weights 2.0/2.0, got %f/%f", replyWeight24h, replyWeight7d)
 	}
 }
+
+func TestThreadSummaryProjection_DiscountsRepeatedGreetings(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	rootID := "thread_greeting_root"
+	replyTags := [][]string{{"e", rootID, "", "reply"}, {"e", rootID, "", "root"}}
+	events := []model.Event{
+		newEventForTest(rootID, "greeting_root_author", now.Add(-3*time.Hour).Unix(), 1, nil, "root", now.Add(-3*time.Hour)),
+		newEventForTest("thread_greeting_gm_1", "greeting_replier_1", now.Add(-50*time.Minute).Unix(), 1, replyTags, "GM", now.Add(-50*time.Minute)),
+		newEventForTest("thread_greeting_gm_2", "greeting_replier_2", now.Add(-48*time.Minute).Unix(), 1, replyTags, "gm!", now.Add(-48*time.Minute)),
+		newEventForTest("thread_greeting_gm_3", "greeting_replier_3", now.Add(-46*time.Minute).Unix(), 1, replyTags, "  GM  ", now.Add(-46*time.Minute)),
+		newEventForTest("thread_greeting_gm_4", "greeting_replier_4", now.Add(-44*time.Minute).Unix(), 1, replyTags, "GM https://example.com/coffee.jpg", now.Add(-44*time.Minute)),
+		newEventForTest("thread_greeting_hello", "greeting_replier_5", now.Add(-42*time.Minute).Unix(), 1, replyTags, "hello", now.Add(-42*time.Minute)),
+		newEventForTest("thread_greeting_real_short", "greeting_replier_6", now.Add(-40*time.Minute).Unix(), 1, replyTags, "GM", now.Add(-40*time.Minute)),
+		newEventForTest("thread_greeting_real_long", "greeting_replier_6", now.Add(-38*time.Minute).Unix(), 1, replyTags, "This is a real comment about the note and its argument.", now.Add(-38*time.Minute)),
+	}
+	for _, event := range events {
+		tags := extractTagsFromRaw(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.UpdateThreadProjection(ctx, event.ID); err != nil {
+			t.Fatalf("project thread for %s: %v", event.ID, err)
+		}
+	}
+
+	var replies24h int64
+	var replyWeight24h float64
+	if err := pool.QueryRow(ctx, `
+		SELECT replies_24h, reply_weight_24h
+		FROM thread_summaries
+		WHERE root_event_id = $1
+	`, rootID).Scan(&replies24h, &replyWeight24h); err != nil {
+		t.Fatalf("read thread summary weights: %v", err)
+	}
+	if replies24h != 7 {
+		t.Fatalf("expected raw replies_24h=7, got %d", replies24h)
+	}
+	// Four "GM" votes at 0.2, one isolated "hello", one replier whose longest
+	// reply is a real sentence. 4*0.2 + 1 + 1 = 2.8.
+	const want = 2.8
+	if replyWeight24h < want-0.001 || replyWeight24h > want+0.001 {
+		t.Fatalf("expected discounted reply weight %v, got %v", want, replyWeight24h)
+	}
+}

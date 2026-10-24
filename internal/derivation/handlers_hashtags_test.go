@@ -32,6 +32,8 @@ func TestProjectEventHashtags_ExtractsNormalizesAndDeduplicates(t *testing.T) {
 			{"t", ""},
 			{"t", "###bad"},
 			{"t", "bad tag"},
+			{"t", "1"},
+			{"t", "42"},
 			{"p", "ignored_pubkey"},
 		},
 		"hello hashtags",

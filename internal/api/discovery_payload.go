@@ -81,12 +81,11 @@ func buildNoteRanking(note query.TrendingNote, rank int) query.DiscoveryItemRank
 	}
 }
 
-// risingFollowerGrowthReasonFloor mirrors computeProfileRisingScore's
-// risingFollowerNoiseFloor: a couple of new followers is common noise for
-// any brand-new account, so it shouldn't be surfaced as a "follower growth"
-// reason -- doing so made the rising list look like it was just listing
-// every newly-created account rather than genuine momentum.
-const risingFollowerGrowthReasonFloor = 2
+// risingFollowerGrowthReasonFloor matches computeProfileRisingScore: the
+// first two new followers are noise, and fewer than 10 credited followers
+// (12 raw) do not count. The reason is shown only once growth clears that
+// bar, so a +3 card is not labeled as follower growth.
+const risingFollowerGrowthReasonFloor = 11
 
 // trendingPublishingMomentumFloor avoids leading with "publishing momentum"
 // for a single post, which reads as a weak/uninformative reason on its own.

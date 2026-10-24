@@ -32,11 +32,38 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, li
 	// buys zero velocity. Rows projected before thread summary derivation v2
 	// have no weights yet and fall back to the raw counters until the rebuild
 	// sweep reaches them, keeping the surface populated mid-deploy.
+	//
+	// A thread of one author is not a conversation. A thread of two authors
+	// keeps the score of a single extra participant, and once the window's
+	// reply count passes a modest exchange that score shrinks, so a long
+	// two-person back-and-forth cannot outrank a broader thread.
+	const (
+		conversationReplyBoost            = 0.15
+		conversationBoostCap              = 50.0
+		conversationPairAuthorCount       = 2
+		conversationPairFullCreditReplies = 24.0
+	)
+	oneReplierVelocity := 1.0 + conversationReplyBoost
 	velocityBase := fmt.Sprintf(`
 		CASE
 			WHEN COALESCE(ts.derivation_version, 0) >= 2 THEN COALESCE(ts.%s, 0)::double precision
 			ELSE COALESCE(ts.%s, 0)::double precision
 		END`, weightColumn, repliesColumn)
+	velocityCore := fmt.Sprintf(`(%s + (LEAST(%s, %.1f) * %.2f))`, velocityBase, velocityBase, conversationBoostCap, conversationReplyBoost)
+	velocityScore := fmt.Sprintf(`
+		CASE
+			WHEN COALESCE(ts.participant_count, 1) <= 1 THEN 0.0
+			WHEN COALESCE(ts.participant_count, 1) = %d THEN
+				LEAST(%s, %.2f) * LEAST(1.0, %.1f / GREATEST(COALESCE(ts.%s, 0), 1)::double precision)
+			ELSE %s
+		END`,
+		conversationPairAuthorCount,
+		velocityCore,
+		oneReplierVelocity,
+		conversationPairFullCreditReplies,
+		repliesColumn,
+		velocityCore,
+	)
 	query := fmt.Sprintf(`
 		SELECT
 			ts.root_event_id,
@@ -52,10 +79,7 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, li
 			COALESCE(ts.last_activity_at, e.created_at),
 			COALESCE(ts.replies_24h, 0),
 			COALESCE(ts.replies_7d, 0),
-			(
-				%s +
-				(LEAST(%s, 50.0) * 0.15)
-			) AS velocity_score
+			%s AS velocity_score
 		FROM thread_summaries ts
 		INNER JOIN events e ON e.id = ts.root_event_id
 		LEFT JOIN note_discovery_stats nds ON nds.event_id = ts.root_event_id
@@ -64,7 +88,7 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, li
 		  AND %s > 0
 		ORDER BY velocity_score DESC, COALESCE(ts.last_activity_at, e.created_at) DESC, ts.root_event_id ASC
 		LIMIT $2 OFFSET $3
-	`, velocityBase, velocityBase, velocityBase)
+	`, velocityScore, velocityScore)
 	rows, err := s.pool.Query(ctx, query, activityCutoff, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("get hot conversations: %w", err)

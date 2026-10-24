@@ -173,6 +173,7 @@ func (s *Read) GetGroupedNoteAnalytics(
 				ROW_NUMBER() OVER (PARTITION BY eh.event_id ORDER BY eh.hashtag ASC) AS rn
 			FROM event_hashtags eh
 			JOIN notes n ON n.id = eh.event_id
+			WHERE eh.hashtag !~ '^[0-9]+$'
 		)
 		SELECT
 			n.id,
@@ -253,6 +254,7 @@ func (s *Read) GetGroupedNoteAnalytics(
 		FROM event_hashtags eh
 		JOIN notes n ON n.id = eh.event_id
 		WHERE eh.created_at <= %d
+		  AND eh.hashtag !~ '^[0-9]+$'
 		GROUP BY eh.hashtag
 		ORDER BY usage_count DESC, eh.hashtag ASC
 		LIMIT $%d

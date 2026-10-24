@@ -143,8 +143,20 @@ func normalizeHashtag(value string) string {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	normalized = strings.TrimPrefix(normalized, "#")
 	normalized = strings.TrimSpace(normalized)
-	if normalized == "" || !hashtagPattern.MatchString(normalized) {
+	if normalized == "" || !hashtagPattern.MatchString(normalized) || isNumericHashtag(normalized) {
 		return ""
 	}
 	return normalized
+}
+
+func isNumericHashtag(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

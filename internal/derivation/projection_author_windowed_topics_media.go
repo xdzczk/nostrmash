@@ -55,6 +55,7 @@ func (h *Handlers) upsertAuthorTopicWindowTx(
 				FROM author_hashtag_daily d
 				WHERE d.pubkey = $1
 				  AND d.activity_date >= to_timestamp($4)::date
+				  AND d.hashtag !~ '^[0-9]+$'
 				GROUP BY d.hashtag
 				ON CONFLICT (pubkey, window_days, hashtag) DO UPDATE
 				SET usage_count = EXCLUDED.usage_count,
@@ -88,6 +89,7 @@ func (h *Handlers) upsertAuthorTopicWindowTx(
 		WHERE eh.author_pubkey = $1
 		  AND eh.created_at >= $4
 		  AND eh.created_at <= $5
+		  AND eh.hashtag !~ '^[0-9]+$'
 		GROUP BY eh.hashtag
 		ON CONFLICT (pubkey, window_days, hashtag) DO UPDATE
 		SET usage_count = EXCLUDED.usage_count,

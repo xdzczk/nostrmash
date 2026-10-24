@@ -241,6 +241,25 @@ func TestComputeProfileRisingScore(t *testing.T) {
 		}
 	})
 
+	t.Run("tiny follower gains do not outrank a larger absolute jump", func(t *testing.T) {
+		// +3 credits nothing. +12 is the first raw total that credits 10
+		// followers and scores 10 inside the small-account band. +22 credits
+		// 20 and ranks above it by that difference, including when the larger
+		// jump belongs to the bigger of two still-small accounts.
+		plus3 := computeProfileRisingScore(0, 8, 3, 0, 1, 0, 1)
+		if plus3 != 0 {
+			t.Fatalf("expected +3 followers to score 0, got %v", plus3)
+		}
+		plus12 := computeProfileRisingScore(0, 40, 12, 0, 1, 0, 1)
+		plus22 := computeProfileRisingScore(0, 200, 22, 0, 1, 0, 1)
+		if plus12 != 10 || plus22 != 20 {
+			t.Fatalf("expected linear credited growth, +12=%v +22=%v", plus12, plus22)
+		}
+		if plus22 <= plus12 || plus22 <= plus3 {
+			t.Fatalf("expected +22 to outrank smaller jumps: +22=%v +12=%v +3=%v", plus22, plus12, plus3)
+		}
+	})
+
 	t.Run("accounts above the small-audience band are penalized much more steeply", func(t *testing.T) {
 		// Same +60 follower jump: a still-small 400-follower account
 		// should clearly outrank a 5,000-follower account. The hinge at
