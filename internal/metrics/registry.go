@@ -90,9 +90,13 @@ func registerCoreMetrics() {
 	)
 	dbOperationDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "nostrmash_db_operation_duration_seconds",
-			Help:    "Latency of critical DB operations by operation and result.",
-			Buckets: prometheus.DefBuckets,
+			Name: "nostrmash_db_operation_duration_seconds",
+			Help: "Latency of critical DB operations by operation and result.",
+			// DefBuckets top out at 10s. Retention statement_timeout is 15m,
+			// and NostrMashRetentionBatchDurationHigh pages on a 30s p95.
+			// Without buckets above 10s that quantile saturates at 10 and
+			// the alert cannot fire. 900s matches the retention timeout.
+			Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 900},
 		},
 		[]string{"operation", "result"},
 	)

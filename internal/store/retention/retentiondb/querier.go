@@ -107,6 +107,11 @@ type Querier interface {
 	PurgeSupersededReplaceableEvents(ctx context.Context, arg PurgeSupersededReplaceableEventsParams) (int64, error)
 	PurgeUntrustedAuthorEventHashtags(ctx context.Context, rowLimit int32) (int64, error)
 	PurgeUntrustedAuthorEventURLs(ctx context.Context, rowLimit int32) (int64, error)
+	// Deletes a bounded batch from the candidate index maintained by
+	// syncUntrustedPurgeCandidates. Do not point this back at events: the
+	// events anti-join scales with table size (see migration 000089). The Go
+	// wrapper is the supported caller — it reverses incremental stats and
+	// drops the candidate rows in the same transaction.
 	PurgeUntrustedAuthorEvents(ctx context.Context, arg PurgeUntrustedAuthorEventsParams) (int64, error)
 	// Read-only counterpart to PurgeExpiredEngagementEvents' candidates CTE,
 	// used by the Go wrapper to reverse incremental author-stat deltas for each
@@ -115,7 +120,8 @@ type Querier interface {
 	// Read-only counterpart to PurgeUntrustedAuthorEvents' candidates CTE, used
 	// by the Go wrapper to reverse incremental author-stat deltas for each
 	// candidate before deleting it (see
-	// internal/store/retention/events_retention_untrusted.go).
+	// internal/store/retention/events_retention_untrusted.go). Reads the
+	// candidate index, not events.
 	SelectUntrustedAuthorEventCandidates(ctx context.Context, arg SelectUntrustedAuthorEventCandidatesParams) ([]string, error)
 }
 

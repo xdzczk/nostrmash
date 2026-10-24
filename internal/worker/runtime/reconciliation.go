@@ -76,6 +76,14 @@ func runIncrementalStatsReconciliationOnce(ctx context.Context, log Logger, hand
 			"error", failure.Err,
 		)
 	}
+	if len(report.Skips) > 0 {
+		log.Info(
+			"incremental_stats_reconciliation_skipped",
+			"count", len(report.Skips),
+			"authored_event_cap", countReconciliationSkips(report.Skips, derivation.ReconciliationSkipAuthoredEventCap),
+			"recent_failure", countReconciliationSkips(report.Skips, derivation.ReconciliationSkipRecentFailure),
+		)
+	}
 
 	for _, mismatch := range report.Mismatches {
 		metrics.IncIncrementalStatsReconciliationMismatch(mismatch.Projection, mismatch.Field)
@@ -117,7 +125,18 @@ func runIncrementalStatsReconciliationOnce(ctx context.Context, log Logger, hand
 		"sampled_pubkeys", report.SampledPubkeys,
 		"mismatches", len(report.Mismatches),
 		"failed_pubkeys", len(report.Failures),
+		"skipped_pubkeys", len(report.Skips),
 		"healed", healed,
 		"duration_s", time.Since(started).Seconds(),
 	)
+}
+
+func countReconciliationSkips(skips []derivation.ReconciliationSkip, reason string) int {
+	n := 0
+	for _, skip := range skips {
+		if skip.Reason == reason {
+			n++
+		}
+	}
+	return n
 }

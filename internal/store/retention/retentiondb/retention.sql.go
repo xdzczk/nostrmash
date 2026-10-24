@@ -717,35 +717,34 @@ func (q *Queries) PurgeUntrustedAuthorEventURLs(ctx context.Context, rowLimit in
 
 const purgeUntrustedAuthorEvents = `-- name: PurgeUntrustedAuthorEvents :execrows
 WITH candidates AS (
-    SELECT e.id
-    FROM events e
-    WHERE e.kind IN (1, 4, 5, 9802, 10000, 10003, 30023)
-      AND e.created_at < $1::bigint
-      AND e.first_seen_at < $2
+    SELECT c.event_id AS id
+    FROM untrusted_purge_candidates c
+    WHERE c.created_at < $1::bigint
+      AND c.first_seen_at < $2
       AND EXISTS (SELECT 1 FROM trust_graph_snapshot)
       AND NOT EXISTS (
         SELECT 1 FROM trust_graph_snapshot s
-        WHERE s.pubkey = e.pubkey
+        WHERE s.pubkey = c.pubkey
       )
       -- Kind-1 replies accepted via target-exists ingest are kept so conversation
       -- totals are not rolled back by untrusted-author retention. Root notes from
       -- untrusted authors remain purgeable.
       AND NOT (
-        e.kind = 1
+        c.kind = 1
         AND EXISTS (
-          SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
+          SELECT 1 FROM thread_edges te WHERE te.child_event_id = c.event_id
         )
       )
       AND NOT EXISTS (
         SELECT 1
         FROM jobs j
-        WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
+        WHERE j.idempotency_key = 'derive_event_bundle:' || c.event_id
           AND (
             j.status IN ('pending', 'running')
             OR (j.status = 'dead' AND j.updated_at > $3)
           )
       )
-    ORDER BY e.created_at ASC, e.id ASC
+    ORDER BY c.created_at ASC, c.event_id ASC
     LIMIT $4
 )
 DELETE FROM events e
@@ -760,6 +759,11 @@ type PurgeUntrustedAuthorEventsParams struct {
 	RowLimit          int32
 }
 
+// Deletes a bounded batch from the candidate index maintained by
+// syncUntrustedPurgeCandidates. Do not point this back at events: the
+// events anti-join scales with table size (see migration 000089). The Go
+// wrapper is the supported caller — it reverses incremental stats and
+// drops the candidate rows in the same transaction.
 func (q *Queries) PurgeUntrustedAuthorEvents(ctx context.Context, arg PurgeUntrustedAuthorEventsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeUntrustedAuthorEvents,
 		arg.CreatedBeforeUnix,
@@ -821,32 +825,31 @@ func (q *Queries) SelectExpiredEngagementEventCandidates(ctx context.Context, ar
 }
 
 const selectUntrustedAuthorEventCandidates = `-- name: SelectUntrustedAuthorEventCandidates :many
-SELECT e.id
-FROM events e
-WHERE e.kind IN (1, 4, 5, 9802, 10000, 10003, 30023)
-  AND e.created_at < $1::bigint
-  AND e.first_seen_at < $2
+SELECT c.event_id
+FROM untrusted_purge_candidates c
+WHERE c.created_at < $1::bigint
+  AND c.first_seen_at < $2
   AND EXISTS (SELECT 1 FROM trust_graph_snapshot)
   AND NOT EXISTS (
     SELECT 1 FROM trust_graph_snapshot s
-    WHERE s.pubkey = e.pubkey
+    WHERE s.pubkey = c.pubkey
   )
   AND NOT (
-    e.kind = 1
+    c.kind = 1
     AND EXISTS (
-      SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
+      SELECT 1 FROM thread_edges te WHERE te.child_event_id = c.event_id
     )
   )
   AND NOT EXISTS (
     SELECT 1
     FROM jobs j
-    WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
+    WHERE j.idempotency_key = 'derive_event_bundle:' || c.event_id
       AND (
         j.status IN ('pending', 'running')
         OR (j.status = 'dead' AND j.updated_at > $3)
       )
   )
-ORDER BY e.created_at ASC, e.id ASC
+ORDER BY c.created_at ASC, c.event_id ASC
 LIMIT $4
 `
 
@@ -860,7 +863,8 @@ type SelectUntrustedAuthorEventCandidatesParams struct {
 // Read-only counterpart to PurgeUntrustedAuthorEvents' candidates CTE, used
 // by the Go wrapper to reverse incremental author-stat deltas for each
 // candidate before deleting it (see
-// internal/store/retention/events_retention_untrusted.go).
+// internal/store/retention/events_retention_untrusted.go). Reads the
+// candidate index, not events.
 func (q *Queries) SelectUntrustedAuthorEventCandidates(ctx context.Context, arg SelectUntrustedAuthorEventCandidatesParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, selectUntrustedAuthorEventCandidates,
 		arg.CreatedBeforeUnix,
@@ -874,11 +878,11 @@ func (q *Queries) SelectUntrustedAuthorEventCandidates(ctx context.Context, arg 
 	defer rows.Close()
 	items := []string{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var event_id string
+		if err := rows.Scan(&event_id); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, event_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

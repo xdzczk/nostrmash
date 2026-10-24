@@ -391,7 +391,7 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 		t.Fatalf("expected trust redis cache disabled by default with nostrmash prefix, got %#v", cfg.TrustRedis)
 	}
 	if !cfg.DiscoveryCache.Enabled || cfg.DiscoveryCache.MaxEntries != 256 ||
-		cfg.DiscoveryCache.BundleTTL != 60*time.Second ||
+		cfg.DiscoveryCache.BundleTTL != 5*time.Minute ||
 		cfg.DiscoveryCache.DiscoveryTTL != 60*time.Second ||
 		cfg.DiscoveryCache.SuggestionTTL != 60*time.Second ||
 		cfg.DiscoveryCache.StatsTTL != 10*time.Minute ||

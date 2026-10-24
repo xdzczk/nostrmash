@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -22,21 +23,48 @@ type ReconciliationMismatch struct {
 // ReconciliationFailure records a pubkey whose reconciliation checks could
 // not be completed (e.g. a recompute query timed out). Failures are reported
 // rather than aborting the pass so one pathological account can't starve the
-// correctness backstop for every other sampled pubkey.
+// correctness backstop for every other sampled pubkey. The pubkey is also
+// cooled down so the next pass does not retry it immediately.
 type ReconciliationFailure struct {
 	Pubkey string
 	Err    error
 }
 
+// ReconciliationSkip is a sampled pubkey that was not recomputed. Reason is
+// a bounded label: "authored_event_cap" or "recent_failure".
+type ReconciliationSkip struct {
+	Pubkey string
+	Reason string
+}
+
 // ReconciliationReport summarizes one reconciliation pass.
 type ReconciliationReport struct {
-	// SampledPubkeys is the number of distinct pubkeys checked.
+	// SampledPubkeys is the number of distinct pubkeys actually recomputed.
 	SampledPubkeys int
 	Mismatches     []ReconciliationMismatch
 	// Failures lists sampled pubkeys that were skipped because a check
 	// errored; the remaining pubkeys were still reconciled.
 	Failures []ReconciliationFailure
+	// Skips lists sampled pubkeys that were not recomputed because they are
+	// over the authored-event cap or still inside the failure cooldown.
+	Skips []ReconciliationSkip
 }
+
+// reconciliationAuthoredEventCap is the 7-day authored event count above
+// which the full recompute is skipped. Accounts past this (bots posting
+// thousands of notes a week) time out the cluster statement_timeout on the
+// legacy dual-window loader and would otherwise be retried every hour.
+const reconciliationAuthoredEventCap int64 = 2000
+
+const (
+	// ReconciliationSkipAuthoredEventCap is the skip reason for accounts
+	// whose 7-day authored volume exceeds reconciliationAuthoredEventCap.
+	ReconciliationSkipAuthoredEventCap = "authored_event_cap"
+	// ReconciliationSkipRecentFailure is the skip reason for a pubkey still
+	// inside the post-timeout cooldown.
+	ReconciliationSkipRecentFailure = "recent_failure"
+	reconciliationFailureCooldown   = 24 * time.Hour
+)
 
 // ReconcileIncrementalAuthorStatsSample is the correctness backstop for the
 // incremental author/profile stats design (see
@@ -65,8 +93,22 @@ func (h *Handlers) ReconcileIncrementalAuthorStatsSample(ctx context.Context, sa
 		return ReconciliationReport{}, err
 	}
 
-	report := ReconciliationReport{SampledPubkeys: len(pubkeys)}
+	now := time.Now().UTC()
+	counts, err := h.authoredEventCountsSince(ctx, pubkeys, now.Add(-7*24*time.Hour).Unix())
+	if err != nil {
+		return ReconciliationReport{}, err
+	}
+
+	var report ReconciliationReport
 	for _, pubkey := range pubkeys {
+		if h.reconcileCooldown.skip(pubkey, now) {
+			report.Skips = append(report.Skips, ReconciliationSkip{Pubkey: pubkey, Reason: ReconciliationSkipRecentFailure})
+			continue
+		}
+		if counts[pubkey] > reconciliationAuthoredEventCap {
+			report.Skips = append(report.Skips, ReconciliationSkip{Pubkey: pubkey, Reason: ReconciliationSkipAuthoredEventCap})
+			continue
+		}
 		// A failing pubkey (e.g. a recompute that times out on a
 		// pathological account) is recorded and skipped, not fatal:
 		// aborting would silently drop the checks and heals for every
@@ -77,12 +119,56 @@ func (h *Handlers) ReconcileIncrementalAuthorStatsSample(ctx context.Context, sa
 			if ctx.Err() != nil {
 				return ReconciliationReport{}, err
 			}
+			h.reconcileCooldown.mark(pubkey, now.Add(reconciliationFailureCooldown))
 			report.Failures = append(report.Failures, ReconciliationFailure{Pubkey: pubkey, Err: err})
 			continue
 		}
+		report.SampledPubkeys++
 		report.Mismatches = append(report.Mismatches, mismatches...)
 	}
 	return report, nil
+}
+
+// authoredEventCountsSince counts events per pubkey at or after sinceUnix.
+// Pubkeys with no rows are absent; callers treat a missing key as zero.
+func (h *Handlers) authoredEventCountsSince(ctx context.Context, pubkeys []string, sinceUnix int64) (map[string]int64, error) {
+	counts := make(map[string]int64, len(pubkeys))
+	if len(pubkeys) == 0 {
+		return counts, nil
+	}
+	// Stop at cap+1. A full count of a bot's week (tens of thousands of
+	// rows) is unnecessary, and an unbounded count would again scale with
+	// that account's history.
+	rows, err := h.pool.Query(ctx, `
+		SELECT p.pubkey, c.n
+		FROM unnest($1::text[]) AS p(pubkey)
+		CROSS JOIN LATERAL (
+			SELECT count(*)::bigint AS n
+			FROM (
+				SELECT 1
+				FROM events e
+				WHERE e.pubkey = p.pubkey
+				  AND e.created_at >= $2
+				LIMIT $3
+			) s
+		) c
+	`, pubkeys, sinceUnix, reconciliationAuthoredEventCap+1)
+	if err != nil {
+		return nil, fmt.Errorf("count authored events for reconciliation: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var pubkey string
+		var n int64
+		if err := rows.Scan(&pubkey, &n); err != nil {
+			return nil, fmt.Errorf("scan authored event count: %w", err)
+		}
+		counts[pubkey] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate authored event counts: %w", err)
+	}
+	return counts, nil
 }
 
 // reconcilePubkey runs every reconciliation check for one pubkey.

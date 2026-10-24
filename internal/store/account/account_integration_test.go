@@ -134,6 +134,20 @@ func TestAccountsLifecycle(t *testing.T) {
 	if len(signals) == 0 {
 		t.Fatal("expected recompute signals")
 	}
+	future, err := s.ListAccountSignalsForRecompute(ctx, 10, time.Now().UTC().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ListAccountSignalsForRecompute future cutoff: %v", err)
+	}
+	if len(future) == 0 {
+		t.Fatal("expected signals updated before a future cutoff")
+	}
+	past, err := s.ListAccountSignalsForRecompute(ctx, 10, time.Unix(1, 0).UTC())
+	if err != nil {
+		t.Fatalf("ListAccountSignalsForRecompute past cutoff: %v", err)
+	}
+	if len(past) != 0 {
+		t.Fatalf("expected no signals updated before the epoch, got %d", len(past))
+	}
 
 	deleted, err := s.PurgeAccountStateTransitionsOlderThan(ctx, time.Now().UTC().Add(time.Hour), 100)
 	if err != nil {

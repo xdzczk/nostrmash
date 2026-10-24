@@ -85,6 +85,25 @@ enable_pg_stat_statements() {
   docker exec "$pg" psql -U postgres -d postgres -c "SHOW shared_preload_libraries;"
 }
 
+# Postgres runs in a 14GiB cgroup with shared_buffers=8GB and
+# effective_cache_size=20GB (larger than the container), so the process sits
+# on the cap and swaps. Raise the cap to 18GiB and tell the planner the truth.
+# shared_buffers stays 8GB: changing it needs a restart and the cache hit
+# rate is already ~97%. Idempotent. Does not restart Postgres.
+tune_postgres_memory() {
+  local pg
+  pg="$(docker ps --format '{{.Names}} {{.Image}}' | awk '/postgres:18/ && $1 !~ /coolify/ {print $1; exit}')"
+  if [[ -z "$pg" ]]; then
+    log "ERROR: could not find Postgres container"
+    return 1
+  fi
+  log "tuning memory for ${pg}"
+  docker update --memory 18g --memory-swap 22g "$pg"
+  docker exec "$pg" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET effective_cache_size = '12GB';"
+  docker exec "$pg" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "SELECT pg_reload_conf();"
+  docker exec "$pg" psql -U postgres -d postgres -c "SHOW effective_cache_size;"
+}
+
 main() {
   if [[ "$(id -u)" -ne 0 ]]; then
     log "ERROR: run as root"
@@ -92,6 +111,7 @@ main() {
   fi
   ensure_swap
   enable_pg_stat_statements
+  tune_postgres_memory
   log "Phase 0 host prep complete"
 }
 

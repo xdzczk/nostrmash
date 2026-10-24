@@ -892,6 +892,39 @@ type UnresolvedThreadReference struct {
 	DetectedAt        pgtype.Timestamptz
 }
 
+type UntrustedPurgeAuthorResync struct {
+	Pubkey          string
+	CursorCreatedAt int64
+	CursorEventID   string
+}
+
+type UntrustedPurgeCandidate struct {
+	EventID     string
+	Pubkey      string
+	Kind        int32
+	CreatedAt   int64
+	FirstSeenAt pgtype.Timestamptz
+}
+
+type UntrustedPurgeDeferred struct {
+	EventID     string
+	Pubkey      string
+	Kind        int32
+	CreatedAt   int64
+	FirstSeenAt pgtype.Timestamptz
+	EligibleAt  pgtype.Timestamptz
+}
+
+type UntrustedPurgeKindCursor struct {
+	Kind        int32
+	FirstSeenAt pgtype.Timestamptz
+	EventID     string
+}
+
+type UntrustedPurgeTrustedPubkey struct {
+	Pubkey string
+}
+
 type ZapReceipt struct {
 	ZapReceiptID      string
 	CreatedAt         int64

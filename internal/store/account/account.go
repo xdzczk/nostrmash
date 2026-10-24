@@ -119,6 +119,10 @@ func (s *Accounts) BatchIncrementAccountObservations(ctx context.Context, deltas
 // loop naturally revisits stale accounts. When staleBefore is non-zero only
 // rows updated before it are returned.
 //
+// The filtered form is a plain updated_at range so Postgres can walk
+// idx_account_states_updated_at and stop at LIMIT. An `OR $1 IS NULL`
+// predicate blocks that plan and falls back to sorting the whole table.
+//
 // Hand-written (not sqlc): the query joins into the trust and profile
 // projections, which live in other bounded contexts and are not part of this
 // context's sqlc schema.
@@ -129,7 +133,7 @@ func (s *Accounts) ListAccountSignalsForRecompute(ctx context.Context, limit int
 	if limit <= 0 {
 		limit = 500
 	}
-	rows, err := s.pool.Query(ctx, `
+	const signalSelect = `
 		SELECT a.pubkey,
 		       COALESCE(g.min_hops, -1) AS trust_hops,
 		       a.observed_count,
@@ -143,10 +147,23 @@ func (s *Accounts) ListAccountSignalsForRecompute(ctx context.Context, limit int
 		LEFT JOIN trust_graph_snapshot g ON g.pubkey = a.pubkey
 		LEFT JOIN profiles_latest p ON p.pubkey = a.pubkey
 		LEFT JOIN profile_public_stats ps ON ps.pubkey = a.pubkey
-		WHERE ($1::timestamptz IS NULL OR a.updated_at < $1)
-		ORDER BY a.updated_at ASC
-		LIMIT $2
-	`, nullableTime(staleBefore), limit)
+	`
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if staleBefore.IsZero() {
+		rows, err = s.pool.Query(ctx, signalSelect+`
+			ORDER BY a.updated_at ASC
+			LIMIT $1
+		`, limit)
+	} else {
+		rows, err = s.pool.Query(ctx, signalSelect+`
+			WHERE a.updated_at < $1
+			ORDER BY a.updated_at ASC
+			LIMIT $2
+		`, staleBefore.UTC(), limit)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list account signals: %w", err)
 	}

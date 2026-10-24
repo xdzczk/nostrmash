@@ -44,6 +44,10 @@ import (
 // PurgeExpiredEngagementEvents — most candidates here are kind=1 notes,
 // which is the primary contributor to note_count / author_activity_daily /
 // topic / media / hourly aggregates.
+//
+// The candidate set comes from untrusted_purge_candidates, filled by
+// syncUntrustedPurgeCandidates. Selecting it must not anti-join the events
+// table: that plan scaled with total events and timed out in production.
 func (s *Retention) PurgeUntrustedAuthorEvents(
 	ctx context.Context,
 	olderThan time.Time,
@@ -63,9 +67,27 @@ func (s *Retention) PurgeUntrustedAuthorEvents(
 		return 0, fmt.Errorf("deadGraceBefore is required")
 	}
 
+	syncStarted := time.Now()
+	syncErr := s.syncUntrustedPurgeCandidates(ctx, olderThan)
+	metrics.ObserveDBOperation("sync_untrusted_purge_candidates", dbResultFromErr(syncErr), time.Since(syncStarted))
+	if syncErr != nil {
+		return 0, fmt.Errorf("sync untrusted purge candidates: %w", syncErr)
+	}
+
 	started := time.Now()
 	var rows int64
 	err := s.guardedWithTx(ctx, func(tx pgx.Tx, q *retentiondb.Queries) error {
+		// Replies can gain a thread edge after they were indexed. Drop them
+		// from the candidate set so they cannot fill the delete batch.
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM untrusted_purge_candidates c
+			WHERE c.kind = 1
+			  AND EXISTS (
+			      SELECT 1 FROM thread_edges te WHERE te.child_event_id = c.event_id
+			  )
+		`); err != nil {
+			return fmt.Errorf("drop untrusted reply candidates: %w", err)
+		}
 		ids, err := q.SelectUntrustedAuthorEventCandidates(ctx, retentiondb.SelectUntrustedAuthorEventCandidatesParams{
 			CreatedBeforeUnix: olderThan.UTC().Unix(),
 			FirstSeenBefore:   tsz(olderThan.UTC()),
@@ -76,7 +98,19 @@ func (s *Retention) PurgeUntrustedAuthorEvents(
 			return fmt.Errorf("select untrusted author event candidates: %w", err)
 		}
 		rows, err = s.reverseAndDeleteTx(ctx, tx, q, ids)
-		return err
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM untrusted_purge_candidates WHERE event_id = ANY($1::text[])`, ids); err != nil {
+			return fmt.Errorf("drop purged untrusted candidates: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM untrusted_purge_deferred WHERE event_id = ANY($1::text[])`, ids); err != nil {
+			return fmt.Errorf("drop purged untrusted deferred: %w", err)
+		}
+		return nil
 	})
 	metrics.ObserveDBOperation("purge_untrusted_author_events", dbResultFromErr(err), time.Since(started))
 	if err != nil {

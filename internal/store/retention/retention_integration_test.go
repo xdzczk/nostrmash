@@ -50,6 +50,117 @@ func remainingEventIDs(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []
 	return out
 }
 
+func TestPurgeUntrustedAuthorEvents_DefersUntilCreatedAtAges(t *testing.T) {
+	ctx, pool, s := setupRetention(t)
+
+	ref := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	// first_seen is already past the horizon; created_at is not. The kind
+	// cursor moves past the row, and a later tick has to promote the
+	// deferred entry instead of scanning that first_seen again.
+	createdUnix := ref.Add(-1 * time.Hour).Unix()
+	oldSeen := ref.Add(-30 * 24 * time.Hour)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed)
+		VALUES ('trusted_pub', 1, false)
+	`); err != nil {
+		t.Fatalf("insert trust snapshot: %v", err)
+	}
+	insertEvent(t, ctx, pool, "u_future_created", "untrusted_pub", 1, createdUnix, oldSeen)
+
+	deleted, err := s.PurgeUntrustedAuthorEvents(ctx, ref.Add(-2*time.Hour), ref.Add(-9*24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("purge before created_at horizon: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("event inside the created_at horizon must stay, deleted %d", deleted)
+	}
+	var deferred int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM untrusted_purge_deferred WHERE event_id = 'u_future_created'`).Scan(&deferred); err != nil {
+		t.Fatalf("count deferred: %v", err)
+	}
+	if deferred != 1 {
+		t.Fatalf("expected the event to be deferred, got %d", deferred)
+	}
+
+	deleted, err = s.PurgeUntrustedAuthorEvents(ctx, ref, ref.Add(-7*24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("purge after created_at horizon: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("expected deferred event to be purged once eligible, got %d", deleted)
+	}
+}
+
+func TestPurgeUntrustedAuthorEvents_PicksUpAuthorDroppedFromTrust(t *testing.T) {
+	ctx, pool, s := setupRetention(t)
+
+	ref := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	oldUnix := ref.Add(-30 * 24 * time.Hour).Unix()
+	oldSeen := ref.Add(-30 * 24 * time.Hour)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed)
+		VALUES ('was_trusted', 1, false), ('still_trusted', 1, false)
+	`); err != nil {
+		t.Fatalf("insert trust snapshot: %v", err)
+	}
+	insertEvent(t, ctx, pool, "was_trusted_note", "was_trusted", 1, oldUnix, oldSeen)
+
+	deleted, err := s.PurgeUntrustedAuthorEvents(ctx, ref, ref.Add(-7*24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("purge while trusted: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("trusted author must be kept, deleted %d", deleted)
+	}
+
+	if _, err := pool.Exec(ctx, `DELETE FROM trust_graph_snapshot WHERE pubkey = 'was_trusted'`); err != nil {
+		t.Fatalf("drop author from trust: %v", err)
+	}
+	deleted, err = s.PurgeUntrustedAuthorEvents(ctx, ref, ref.Add(-7*24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("purge after drop: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("expected the dropped author's event to be purged, got %d", deleted)
+	}
+	got := remainingEventIDs(t, ctx, pool)
+	if len(got) != 0 {
+		t.Fatalf("expected no events left, got %v", got)
+	}
+}
+
+func TestPurgeUntrustedAuthorEvents_SeesLateHistoricalInsert(t *testing.T) {
+	ctx, pool, s := setupRetention(t)
+
+	ref := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed)
+		VALUES ('trusted_pub', 1, false)
+	`); err != nil {
+		t.Fatalf("insert trust snapshot: %v", err)
+	}
+	insertEvent(t, ctx, pool, "u_early", "untrusted_pub", 1, ref.Add(-40*24*time.Hour).Unix(), ref.Add(-40*24*time.Hour))
+	deleted, err := s.PurgeUntrustedAuthorEvents(ctx, ref, ref.Add(-7*24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("first purge: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("expected the early event to be purged, got %d", deleted)
+	}
+
+	// Inserted after the cursor passed its created_at, but with a later
+	// first_seen that is already past the horizon. The first_seen cursor
+	// must still find it.
+	insertEvent(t, ctx, pool, "u_backfilled", "untrusted_pub", 1, ref.Add(-50*24*time.Hour).Unix(), ref.Add(-2*time.Hour))
+	deleted, err = s.PurgeUntrustedAuthorEvents(ctx, ref, ref.Add(-7*24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("second purge: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("expected the late historical insert to be purged, got %d", deleted)
+	}
+}
+
 func TestPurgeUntrustedAuthorEvents(t *testing.T) {
 	ctx, pool, s := setupRetention(t)
 

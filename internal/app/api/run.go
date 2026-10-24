@@ -335,6 +335,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		IdleTimeout:  60 * time.Second,
 	}
 
+	go handlers.RunDiscoveryHomeWarmer(ctx)
 	go func() {
 		log.Info("listening", "addr", cfg.HTTP.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -40,11 +40,12 @@ type UntrustedAuthorRetentionConfig struct {
 
 // RunUntrustedAuthorRetentionLoop periodically purges author-gated raw events
 // (kinds 1/4/5/9802/10000/10003/30023) from authors outside the trust graph,
-// once older than MaxAge. The store-side purge is fail-safe when the trust
-// graph snapshot has never loaded (it deletes nothing), so running this loop
-// on a fresh deployment is harmless. Uses the shared auto-pacing drain: a
-// saturated batch immediately re-runs after retentionCatchupPause. Blocks
-// until ctx is done.
+// once older than MaxAge. Each tick first pages a bounded candidate index
+// (it does not anti-join events) and then deletes one batch. The store-side
+// purge is fail-safe when the trust graph snapshot has never loaded (it
+// deletes nothing), so running this loop on a fresh deployment is harmless.
+// Uses the shared auto-pacing drain: a saturated batch immediately re-runs
+// after retentionCatchupPause. Blocks until ctx is done.
 func RunUntrustedAuthorRetentionLoop(ctx context.Context, log RetentionLogger, purger UntrustedAuthorRetentionPurger, cfg UntrustedAuthorRetentionConfig) {
 	if !cfg.Enabled {
 		log.Info("untrusted_retention_disabled")

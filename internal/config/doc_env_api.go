@@ -34,8 +34,8 @@ func configEnvDocsAPI() []EnvVarDoc {
 			Name:         "API_DISCOVERY_CACHE_BUNDLE_TTL",
 			Runtimes:     []string{"api"},
 			Required:     false,
-			DefaultValue: "60s",
-			Description:  "TTL for cached homepage/public bundle responses.",
+			DefaultValue: "5m0s",
+			Description:  "TTL for cached homepage/public bundle responses. The API also refreshes the default homepage variants on a timer so a request usually hits a warm entry.",
 		},
 		{
 			Name:         "API_DISCOVERY_CACHE_DISCOVERY_TTL",

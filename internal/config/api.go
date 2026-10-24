@@ -183,7 +183,7 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
-	discoveryBundleTTL, err := getEnvPositiveDurationStrict("API_DISCOVERY_CACHE_BUNDLE_TTL", discoveryTrendingTTL)
+	discoveryBundleTTL, err := getEnvPositiveDurationStrict("API_DISCOVERY_CACHE_BUNDLE_TTL", 5*time.Minute)
 	if err != nil {
 		return APIConfig{}, err
 	}

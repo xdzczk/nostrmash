@@ -249,7 +249,7 @@ func loadUntrustedAuthorRetentionConfig() (WorkerUntrustedAuthorRetentionConfig,
 	if err != nil {
 		return WorkerUntrustedAuthorRetentionConfig{}, err
 	}
-	runInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL", 1*time.Hour)
+	runInterval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL", 24*time.Hour)
 	if err != nil {
 		return WorkerUntrustedAuthorRetentionConfig{}, err
 	}

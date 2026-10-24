@@ -230,7 +230,7 @@ groups:
           slo: worker-throughput
         annotations:
           summary: "Retention batch p95 latency is high"
-          description: "Retention/store purge operation {{ $labels.operation }} has 6h p95 batch duration above 30s for 3h. This is the leading indicator of the table-size-scaling anti-pattern (self-join / full GROUP BY catchup). Inspect EXPLAIN for that query and recent retention logs."
+          description: "Retention/store purge operation {{ $labels.operation }} has 6h p95 batch duration above 30s for 3h. nostrmash_db_operation_duration_seconds buckets extend through 900s so this threshold is observable (they used to saturate at 10s). This is the leading indicator of the table-size-scaling anti-pattern (self-join / full GROUP BY catchup). Inspect EXPLAIN for that query and recent retention logs."
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashEventTagsJunkCatchupSustained

@@ -18,7 +18,7 @@ import (
 
 const (
 	defaultDiscoveryCacheMaxEntries    = 256
-	defaultDiscoveryBundleTTL          = 60 * time.Second
+	defaultDiscoveryBundleTTL          = 5 * time.Minute
 	defaultDiscoveryDiscoveryTTL       = 60 * time.Second
 	defaultDiscoveryPublicStatsTTL     = 10 * time.Minute
 	defaultDiscoverySuggestionTTL      = 60 * time.Second

@@ -587,8 +587,8 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Name:         "WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL",
 			Runtimes:     []string{"worker"},
 			Required:     false,
-			DefaultValue: "1h0m0s",
-			Description:  "How often the untrusted-author retention loop runs (raw events plus the event_urls/event_hashtags link purges).",
+			DefaultValue: "24h0m0s",
+			Description:  "How often the untrusted-author retention loop runs (raw events plus the event_urls/event_hashtags link purges). Each tick spends a bounded time budget paging the candidate index rather than scanning events. 24h is enough because the ingest trust gate already rejects new untrusted writes; this loop reclaims authors who later leave the graph and any pre-gate residue.",
 		},
 		{
 			Name:         "WORKER_RETENTION_UNTRUSTED_AUTHOR_DELETE_BATCH_LIMIT",

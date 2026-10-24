@@ -32,6 +32,9 @@ type Handlers struct {
 	// engagementWeighting controls trust-graph weighting of note discovery
 	// trending scores. Zero value keeps uniform per-engager weights.
 	engagementWeighting EngagementWeightingOptions
+	// reconcileCooldown remembers pubkeys whose full recompute failed so the
+	// next hourly sample does not spend another statement_timeout on them.
+	reconcileCooldown *reconcileCooldown
 }
 
 type EventJobPayload = jobs.EventJobPayload
@@ -90,6 +93,7 @@ func NewHandlersWithOptions(pool *pgxpool.Pool, options HandlersOptions) *Handle
 		incrementalWindowedRollups:       boolOptionOrDefault(options.IncrementalWindowedRollups, true),
 		incrementalProfileDiscoveryStats: boolOptionOrDefault(options.IncrementalProfileDiscoveryStats, true),
 		engagementWeighting:              options.EngagementWeighting,
+		reconcileCooldown:                newReconcileCooldown(),
 	}
 }
 

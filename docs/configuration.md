@@ -9,7 +9,7 @@ Do not hand-edit this file.
 | Env var | Runtime(s) | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `ADMIN_BEARER_TOKEN` | `api` | optional | `-` | Optional bearer token for admin HTTP endpoints. |
-| `API_DISCOVERY_CACHE_BUNDLE_TTL` | `api` | optional | `60s` | TTL for cached homepage/public bundle responses. |
+| `API_DISCOVERY_CACHE_BUNDLE_TTL` | `api` | optional | `5m0s` | TTL for cached homepage/public bundle responses. The API also refreshes the default homepage variants on a timer so a request usually hits a warm entry. |
 | `API_DISCOVERY_CACHE_DISCOVERY_TTL` | `api` | optional | `60s` | TTL for cached public discovery responses (trending and discovery detail endpoints). |
 | `API_DISCOVERY_CACHE_ENABLED` | `api` | optional | `true` | Enable short-TTL response caching for public discovery trending and stats endpoints. |
 | `API_DISCOVERY_CACHE_MAX_ENTRIES` | `api` | optional | `256` | Maximum in-memory entries retained by discovery/stats response cache. |
@@ -281,4 +281,4 @@ Do not hand-edit this file.
 | `WORKER_RETENTION_UNTRUSTED_AUTHOR_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum rows deleted per retention purge batch, applied independently to each of the raw-events, event_urls, and event_hashtags purges. |
 | `WORKER_RETENTION_UNTRUSTED_AUTHOR_ENABLED` | `worker` | optional | `true` | Enable retention purge of author-gated raw events (kinds 1/4/5/9802/10000/10003/30023; kind-1 replies already in thread_edges are kept) plus their derived event_urls/event_hashtags rows, all whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty. |
 | `WORKER_RETENTION_UNTRUSTED_AUTHOR_MAX_AGE` | `worker` | optional | `336h0m0s` | Age beyond which untrusted-author events become eligible for purge; enforced on both created_at and first_seen_at so freshly backfilled events are never purged early. Deliberately short (14d) because with the default open ingest gate this horizon is what bounds steady-state disk usage. |
-| `WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL` | `worker` | optional | `1h0m0s` | How often the untrusted-author retention loop runs (raw events plus the event_urls/event_hashtags link purges). |
+| `WORKER_RETENTION_UNTRUSTED_AUTHOR_RUN_INTERVAL` | `worker` | optional | `24h0m0s` | How often the untrusted-author retention loop runs (raw events plus the event_urls/event_hashtags link purges). Each tick spends a bounded time budget paging the candidate index rather than scanning events. 24h is enough because the ingest trust gate already rejects new untrusted writes; this loop reclaims authors who later leave the graph and any pre-gate residue. |
