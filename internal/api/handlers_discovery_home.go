@@ -492,7 +492,7 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 			"active_authors": networkStats.ActiveAuthors,
 			"note_volume":    networkStats.NoteVolume,
 		},
-		"relays": buildRelayStatsPayload(networkStats),
+		"relays": buildRelayStatsPayload(networkStats, "7d"),
 	}
 	if networkStats.TopHashtags != nil {
 		// networkStats was fetched with max(hashtagsLimit, hashtagStatLimit)

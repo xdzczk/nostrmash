@@ -608,15 +608,26 @@ paths:
                 type: object
                 properties:
                   consistency: { type: string }
+                  scope:
+                    type: string
+                    description: ingest_checkpoints. Each row is one relay URL, mode, and filter group. total is that row count, not a relay population.
+                  total: { type: integer }
                   relays:
                     type: array
                     items:
                       type: object
                       properties:
                         relay_url: { type: string }
-                        mode: { type: string }
+                        mode:
+                          type: string
+                          description: Subscription kind (live or backfill), not a liveness flag.
                         filter_group: { type: string }
-                        status: { type: string }
+                        status:
+                          type: string
+                          description: Stored checkpoint status. Not rewritten when the row is old.
+                        stale:
+                          type: boolean
+                          description: True when latest_checkpoint_at is older than 24h. mode remains the subscription kind.
                         last_error: { type: string, nullable: true }
                         latest_checkpoint_at: { type: string, format: date-time }
                         eose_seen_at: { type: string, format: date-time, nullable: true }
@@ -630,7 +641,7 @@ paths:
           schema: { type: integer, default: 50, maximum: 200 }
       responses:
         '200':
-          description: Popular relays ranked by distinct user count
+          description: Popular relays ranked by distinct user count. total is the full ranked population; relays is capped by limit.
   /api/v1/relays/probe-health:
     get:
       tags: [public]
@@ -641,7 +652,7 @@ paths:
           schema: { type: integer, default: 100, maximum: 500 }
       responses:
         '200':
-          description: Relay probe health summaries
+          description: Relay probe health summaries. total is the number of registry relays that have been probed; relays is the score-ordered page after limit, skipping rows that have never been probed.
   /api/v1/contact-lists/{pubkey}:
     get:
       tags: [public]
@@ -1147,21 +1158,39 @@ paths:
       summary: Public product-shaped discovery network stats
       responses:
         '200':
-          description: Public network stats snapshot for product surfaces
+          description: >
+            Public network stats snapshot. Network and content stats are rendered
+            from one shared snapshot. sections describes each count (scope,
+            trust_applied, summary, computed_at). result_scope is mixed because
+            note volume is all indexed notes while hashtags are trust-graph scoped.
+            relays.top is the 7-day leaderboard; relays.top_24h and relays.top_7d
+            are both present.
   /api/v1/discovery/stats/content:
     get:
       tags: [public]
       summary: Public product-shaped discovery content stats
       responses:
         '200':
-          description: Public content stats snapshot for product surfaces
+          description: >
+            Public content stats from the same snapshot as network stats.
+            sections carries per-count scope and computed_at.
   /api/v1/discovery/stats/relays:
     get:
       tags: [public]
       summary: Public relay summary stats
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d], default: 7d }
+          description: Selects which leaderboard is returned as relays.top. Both windows are also returned as relays.top_24h and relays.top_7d.
       responses:
         '200':
-          description: Public relay count snapshot
+          description: >
+            Relay activity snapshot. total is distinct relay URLs that have delivered
+            events. unique_authors counts every pubkey seen on a relay. relays.top
+            follows window and is ranked by event count.
+        '400':
+          $ref: '#/components/responses/Error'
   /api/v1/discovery/stats/series:
     get:
       tags: [public]
@@ -1173,10 +1202,11 @@ paths:
           schema: { type: string, enum: [note_volume, active_authors, relay_events] }
         - in: query
           name: window
-          schema: { type: string, enum: [7d, 30d], default: 7d }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+          description: How much hourly history to return. Each point is a rolling 24-hour total sampled once per UTC hour, not an hourly increment.
       responses:
         '200':
-          description: "Eventual-consistency series with Unix-second points (`{ metric, window, computed_at, points: [{ t, v }], consistency }`)"
+          description: "Eventual-consistency series of rolling 24-hour totals sampled hourly (`{ metric, window, computed_at, points: [{ t, v }], consistency, trust_applied, result_scope, point_meaning, summary }`)"
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/network/stats:

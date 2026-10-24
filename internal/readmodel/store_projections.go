@@ -363,6 +363,21 @@ type ProfilePublicStatsProjection struct {
 	RecentActivityAt *int64
 }
 
+// PublicStatsSectionTimes records when each homepage snapshot row was
+// computed. Zero means that row was missing. Home24h/Home7d cover both
+// note volume and active authors, which share a snapshot row.
+type PublicStatsSectionTimes struct {
+	Home24h      time.Time
+	Home7d       time.Time
+	Languages24h time.Time
+	Languages7d  time.Time
+	Hashtags24h  time.Time
+	Hashtags7d   time.Time
+	Relays       time.Time
+	TopRelays24h time.Time
+	TopRelays7d  time.Time
+}
+
 type PublicDiscoveryNetworkStats struct {
 	EventsIngested    int64                   `json:"events_ingested"`
 	ProjectedProfiles int64                   `json:"projected_profiles"`
@@ -370,11 +385,14 @@ type PublicDiscoveryNetworkStats struct {
 	Relays            int64                   `json:"relays"`
 	RelaySummary      RelaySummaryStats       `json:"relay_summary"`
 	TopRelays         []RelayUsageSummary     `json:"top_relays,omitempty"`
+	TopRelays24h      []RelayUsageSummary     `json:"top_relays_24h,omitempty"`
+	TopRelays7d       []RelayUsageSummary     `json:"top_relays_7d,omitempty"`
 	ActiveAuthors     WindowedCount           `json:"active_authors"`
 	NoteVolume        WindowedCount           `json:"note_volume"`
 	TopHashtags       *TrendingHashtagWindows `json:"top_hashtags,omitempty"`
 	TopLanguages24h   []LanguageSummary       `json:"top_languages_24h,omitempty"`
 	TopLanguages7d    []LanguageSummary       `json:"top_languages_7d,omitempty"`
+	SectionTimes      PublicStatsSectionTimes `json:"-"`
 }
 
 type DiscoveryStatsSeriesPoint struct {

@@ -284,7 +284,7 @@ func buildConversationRanking(conversation query.HotConversation, rank int) quer
 	}
 }
 
-func buildRelayStatsPayload(stats query.PublicDiscoveryNetworkStats) map[string]any {
+func buildRelayStatsPayload(stats query.PublicDiscoveryNetworkStats, window string) map[string]any {
 	relays := map[string]any{
 		"total":      stats.Relays,
 		"active_24h": stats.RelaySummary.Active24h,
@@ -298,16 +298,36 @@ func buildRelayStatsPayload(stats query.PublicDiscoveryNetworkStats) map[string]
 			"7d":  stats.RelaySummary.UniqueAuthors.Last7d,
 		},
 	}
-	if len(stats.TopRelays) > 0 {
-		topRelays := make([]map[string]any, 0, len(stats.TopRelays))
-		for _, relay := range stats.TopRelays {
-			topRelays = append(topRelays, map[string]any{
-				"relay_url":      relay.RelayURL,
-				"event_count":    relay.EventCount,
-				"unique_authors": relay.UniqueAuthors,
-			})
-		}
-		relays["top"] = topRelays
+	if selected := relayTopForWindow(stats, window); len(selected) > 0 {
+		relays["top"] = relayActivityJSON(selected)
+	}
+	if len(stats.TopRelays24h) > 0 {
+		relays["top_24h"] = relayActivityJSON(stats.TopRelays24h)
+	}
+	if top7d := relayTopForWindow(stats, "7d"); len(top7d) > 0 {
+		relays["top_7d"] = relayActivityJSON(top7d)
 	}
 	return relays
+}
+
+func relayTopForWindow(stats query.PublicDiscoveryNetworkStats, window string) []query.RelayUsageSummary {
+	if window == "24h" {
+		return stats.TopRelays24h
+	}
+	if len(stats.TopRelays7d) > 0 {
+		return stats.TopRelays7d
+	}
+	return stats.TopRelays
+}
+
+func relayActivityJSON(rows []query.RelayUsageSummary) []map[string]any {
+	out := make([]map[string]any, 0, len(rows))
+	for _, relay := range rows {
+		out = append(out, map[string]any{
+			"relay_url":      relay.RelayURL,
+			"event_count":    relay.EventCount,
+			"unique_authors": relay.UniqueAuthors,
+		})
+	}
+	return out
 }

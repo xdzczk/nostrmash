@@ -81,17 +81,26 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	}
 	out.EventsIngested = networkStats.Events
 	out.ProjectedProfiles = networkStats.Profiles
-	relaySummary, err := s.getRelaySummaryStats(ctx)
+	relaySummary, relaySummaryComputedAt, err := s.getRelaySummaryStats(ctx)
 	if err != nil {
 		return out, err
 	}
 	out.RelaySummary = relaySummary
 	out.Relays = relaySummary.Total
-	topRelays, err := s.getTopRelaysByActivity(ctx, 10)
+	out.SectionTimes.Relays = relaySummaryComputedAt
+	topRelays24h, topRelays24hAt, err := s.getTopRelaysSnapshot(ctx, relaySnapshotLabelTopRelays24h, 10)
 	if err != nil {
 		return out, err
 	}
-	out.TopRelays = topRelays
+	topRelays7d, topRelays7dAt, err := s.getTopRelaysSnapshot(ctx, relaySnapshotLabelTopRelays7d, 10)
+	if err != nil {
+		return out, err
+	}
+	out.TopRelays24h = topRelays24h
+	out.TopRelays7d = topRelays7d
+	out.TopRelays = topRelays7d
+	out.SectionTimes.TopRelays24h = topRelays24hAt
+	out.SectionTimes.TopRelays7d = topRelays7dAt
 
 	// Note volume + active authors are served from the
 	// home_window_24h / home_window_7d snapshot rows. The underlying
@@ -119,17 +128,21 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	if !homeWindow24h.ComputedAt.IsZero() {
 		out.ComputedAt = &homeWindow24h.ComputedAt
 	}
+	out.SectionTimes.Home24h = homeWindow24h.ComputedAt
+	out.SectionTimes.Home7d = homeWindow7d.ComputedAt
 
-	topLanguages24h, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages24h, 8)
+	topLanguages24h, languages24hAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages24h, 8)
 	if err != nil {
 		return out, err
 	}
-	topLanguages7d, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages7d, 8)
+	topLanguages7d, languages7dAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages7d, 8)
 	if err != nil {
 		return out, err
 	}
 	out.TopLanguages24h = topLanguages24h
 	out.TopLanguages7d = topLanguages7d
+	out.SectionTimes.Languages24h = languages24hAt
+	out.SectionTimes.Languages7d = languages7dAt
 
 	// Projection tables are schema-scoped in tests; explicitly check current schema
 	// so we don't silently fall back to another schema via search_path.
@@ -146,11 +159,11 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	// Homepage trending hashtags and the topics tab both read this
 	// snapshot. GetTrendingHashtags still runs a live aggregate for
 	// windows other than the snapshotted 24h/7d pair.
-	top24h, err := s.getTopHashtagsSnapshot(ctx, relaySnapshotLabelTopHashtags24h, hashtagLimit)
+	top24h, hashtags24hAt, err := s.getTopHashtagsSnapshot(ctx, relaySnapshotLabelTopHashtags24h, hashtagLimit)
 	if err != nil {
 		return out, err
 	}
-	top7d, err := s.getTopHashtagsSnapshot(ctx, relaySnapshotLabelTopHashtags7d, hashtagLimit)
+	top7d, hashtags7dAt, err := s.getTopHashtagsSnapshot(ctx, relaySnapshotLabelTopHashtags7d, hashtagLimit)
 	if err != nil {
 		return out, err
 	}
@@ -158,6 +171,8 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 		Last24h: top24h,
 		Last7d:  top7d,
 	}
+	out.SectionTimes.Hashtags24h = hashtags24hAt
+	out.SectionTimes.Hashtags7d = hashtags7dAt
 	return out, nil
 }
 
@@ -167,6 +182,7 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 // 000048_homepage_window_snapshots.sql.
 const (
 	relaySnapshotLabelSummary         = "summary"
+	relaySnapshotLabelTopRelays24h    = "top_relays_24h"
 	relaySnapshotLabelTopRelays7d     = "top_relays_7d"
 	relaySnapshotLabelHomeWindow24h   = "home_window_24h"
 	relaySnapshotLabelHomeWindow7d    = "home_window_7d"
@@ -197,7 +213,7 @@ type relaySnapshotTopRelayRow struct {
 	UniqueAuthors int64  `json:"unique_authors"`
 }
 
-// getTopRelaysByActivity reads the precomputed top-relays list from
+// getTopRelaysSnapshot reads the precomputed top-relays list from
 // relay_window_snapshots. The actual aggregate (which spends ~10s of
 // CPU per run on production) is owned by the worker process (see
 // internal/derivation/projection_relay_window_snapshots.go). Reading
@@ -219,7 +235,7 @@ type relaySnapshotTopRelayRow struct {
 // on the missing-row signal in metrics/logs to surface the
 // operational failure (the migration has not run, or the table was
 // truncated).
-func (s *Read) getTopRelaysByActivity(ctx context.Context, limit int) ([]RelayUsageSummary, error) {
+func (s *Read) getTopRelaysSnapshot(ctx context.Context, label string, limit int) ([]RelayUsageSummary, time.Time, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -227,26 +243,27 @@ func (s *Read) getTopRelaysByActivity(ctx context.Context, limit int) ([]RelayUs
 		limit = 50
 	}
 	var payload []byte
+	var computedAt time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT payload
+		SELECT payload, computed_at
 		FROM relay_window_snapshots
 		WHERE snapshot_label = $1
-	`, relaySnapshotLabelTopRelays7d).Scan(&payload)
+	`, label).Scan(&payload, &computedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return []RelayUsageSummary{}, nil
+			return []RelayUsageSummary{}, time.Time{}, nil
 		}
 		if isUndefinedRelationError(err) {
 			// Pre-000047 environments: the table doesn't exist yet.
 			// Serve an empty list so the homepage stays up while the
 			// deploy completes.
-			return []RelayUsageSummary{}, nil
+			return []RelayUsageSummary{}, time.Time{}, nil
 		}
-		return nil, fmt.Errorf("read top relays snapshot: %w", err)
+		return nil, time.Time{}, fmt.Errorf("read top relays snapshot %q: %w", label, err)
 	}
 	var rows []relaySnapshotTopRelayRow
 	if err := json.Unmarshal(payload, &rows); err != nil {
-		return nil, fmt.Errorf("decode top relays snapshot payload: %w", err)
+		return nil, time.Time{}, fmt.Errorf("decode top relays snapshot payload %q: %w", label, err)
 	}
 	if len(rows) > limit {
 		rows = rows[:limit]
@@ -259,31 +276,32 @@ func (s *Read) getTopRelaysByActivity(ctx context.Context, limit int) ([]RelayUs
 			UniqueAuthors: r.UniqueAuthors,
 		})
 	}
-	return out, nil
+	return out, computedAt, nil
 }
 
 // getRelaySummaryStats reads the precomputed summary row from
-// relay_window_snapshots. See the comment on getTopRelaysByActivity
+// relay_window_snapshots. See the comment on getTopRelaysSnapshot
 // for why there is intentionally no live-query fallback.
-func (s *Read) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, error) {
+func (s *Read) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, time.Time, error) {
 	var payload []byte
+	var computedAt time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT payload
+		SELECT payload, computed_at
 		FROM relay_window_snapshots
 		WHERE snapshot_label = $1
-	`, relaySnapshotLabelSummary).Scan(&payload)
+	`, relaySnapshotLabelSummary).Scan(&payload, &computedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return RelaySummaryStats{}, nil
+			return RelaySummaryStats{}, time.Time{}, nil
 		}
 		if isUndefinedRelationError(err) {
-			return RelaySummaryStats{}, nil
+			return RelaySummaryStats{}, time.Time{}, nil
 		}
-		return RelaySummaryStats{}, fmt.Errorf("read relay summary snapshot: %w", err)
+		return RelaySummaryStats{}, time.Time{}, fmt.Errorf("read relay summary snapshot: %w", err)
 	}
 	var p relaySummarySnapshotPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
-		return RelaySummaryStats{}, fmt.Errorf("decode relay summary snapshot payload: %w", err)
+		return RelaySummaryStats{}, time.Time{}, fmt.Errorf("decode relay summary snapshot payload: %w", err)
 	}
 	return RelaySummaryStats{
 		Total:     p.Total,
@@ -297,7 +315,7 @@ func (s *Read) getRelaySummaryStats(ctx context.Context) (RelaySummaryStats, err
 			Last24h: p.Authors24h,
 			Last7d:  p.Authors7d,
 		},
-	}, nil
+	}, computedAt, nil
 }
 
 // homeWindowSnapshotPayload mirrors the JSONB shape stored under
@@ -390,25 +408,26 @@ type languageSnapshotRow struct {
 	Count    int64  `json:"count"`
 }
 
-func (s *Read) getTopLanguagesSnapshot(ctx context.Context, label string, limit int) ([]LanguageSummary, error) {
+func (s *Read) getTopLanguagesSnapshot(ctx context.Context, label string, limit int) ([]LanguageSummary, time.Time, error) {
 	if limit <= 0 {
 		limit = 8
 	}
 	var payload []byte
+	var computedAt time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT payload
+		SELECT payload, computed_at
 		FROM relay_window_snapshots
 		WHERE snapshot_label = $1
-	`, label).Scan(&payload)
+	`, label).Scan(&payload, &computedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || isUndefinedRelationError(err) {
-			return []LanguageSummary{}, nil
+			return []LanguageSummary{}, time.Time{}, nil
 		}
-		return nil, fmt.Errorf("read top languages snapshot %q: %w", label, err)
+		return nil, time.Time{}, fmt.Errorf("read top languages snapshot %q: %w", label, err)
 	}
 	var rows []languageSnapshotRow
 	if err := json.Unmarshal(payload, &rows); err != nil {
-		return nil, fmt.Errorf("decode top languages snapshot %q: %w", label, err)
+		return nil, time.Time{}, fmt.Errorf("decode top languages snapshot %q: %w", label, err)
 	}
 	if len(rows) > limit {
 		rows = rows[:limit]
@@ -417,7 +436,7 @@ func (s *Read) getTopLanguagesSnapshot(ctx context.Context, label string, limit 
 	for _, r := range rows {
 		out = append(out, LanguageSummary{Language: r.Language, Count: r.Count})
 	}
-	return out, nil
+	return out, computedAt, nil
 }
 
 type hashtagSnapshotRow struct {
@@ -453,7 +472,7 @@ func (s *Read) GetHomeTrendingHashtags(
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.getTopHashtagsSnapshot(ctx, label, 50)
+	rows, _, err := s.getTopHashtagsSnapshot(ctx, label, 50)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +497,7 @@ func resolveHomeHashtagsSnapshotLabel(window time.Duration) (string, error) {
 	}
 }
 
-func (s *Read) getTopHashtagsSnapshot(ctx context.Context, label string, limit int) ([]TrendingHashtag, error) {
+func (s *Read) getTopHashtagsSnapshot(ctx context.Context, label string, limit int) ([]TrendingHashtag, time.Time, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -486,20 +505,21 @@ func (s *Read) getTopHashtagsSnapshot(ctx context.Context, label string, limit i
 		limit = 50
 	}
 	var payload []byte
+	var computedAt time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT payload
+		SELECT payload, computed_at
 		FROM relay_window_snapshots
 		WHERE snapshot_label = $1
-	`, label).Scan(&payload)
+	`, label).Scan(&payload, &computedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || isUndefinedRelationError(err) {
-			return []TrendingHashtag{}, nil
+			return []TrendingHashtag{}, time.Time{}, nil
 		}
-		return nil, fmt.Errorf("read top hashtags snapshot %q: %w", label, err)
+		return nil, time.Time{}, fmt.Errorf("read top hashtags snapshot %q: %w", label, err)
 	}
 	var rows []hashtagSnapshotRow
 	if err := json.Unmarshal(payload, &rows); err != nil {
-		return nil, fmt.Errorf("decode top hashtags snapshot %q: %w", label, err)
+		return nil, time.Time{}, fmt.Errorf("decode top hashtags snapshot %q: %w", label, err)
 	}
 	if len(rows) > limit {
 		rows = rows[:limit]
@@ -512,7 +532,7 @@ func (s *Read) getTopHashtagsSnapshot(ctx context.Context, label string, limit i
 			UniqueAuthors: r.UniqueAuthors,
 		})
 	}
-	return out, nil
+	return out, computedAt, nil
 }
 
 func isUndefinedRelationError(err error) bool {

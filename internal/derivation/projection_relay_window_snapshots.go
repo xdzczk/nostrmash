@@ -64,6 +64,7 @@ const trustedAuthorJoinClause = `INNER JOIN trust_graph_snapshot trusted ON trus
 // snapshot stored in relay_window_snapshots:
 //
 //   - summary             — relay totals and 24h/7d activity
+//   - top_relays_24h      — top 10 relays by 24-hour activity
 //   - top_relays_7d       — top 10 relays by 7-day activity
 //   - home_window_24h     — note volume + active authors (24h)
 //   - home_window_7d      — note volume + active authors (7d)
@@ -269,15 +270,22 @@ func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 			return err
 		}
 
-		topRelays, err := computeTopRelaysSnapshot(ctx, tx, 10)
+		now := time.Now().UTC()
+		topRelays24h, err := computeTopRelaysSnapshot(ctx, tx, now.Add(-24*time.Hour), 10)
 		if err != nil {
-			return fmt.Errorf("compute top relays snapshot: %w", err)
+			return fmt.Errorf("compute top relays 24h snapshot: %w", err)
 		}
-		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopRelays7d, jsonArray(topRelays)); err != nil {
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopRelays24h, jsonArray(topRelays24h)); err != nil {
+			return err
+		}
+		topRelays7d, err := computeTopRelaysSnapshot(ctx, tx, now.Add(-7*24*time.Hour), 10)
+		if err != nil {
+			return fmt.Errorf("compute top relays 7d snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopRelays7d, jsonArray(topRelays7d)); err != nil {
 			return err
 		}
 
-		now := time.Now().UTC()
 		cutoff24h := now.Add(-24 * time.Hour).Unix()
 		cutoff7d := now.Add(-7 * 24 * time.Hour).Unix()
 
@@ -411,6 +419,7 @@ func (h *Handlers) RelayWindowSnapshotAge(ctx context.Context) (time.Duration, b
 // 000048_homepage_window_snapshots.sql.
 const (
 	relaySnapshotLabelSummary         = "summary"
+	relaySnapshotLabelTopRelays24h    = "top_relays_24h"
 	relaySnapshotLabelTopRelays7d     = "top_relays_7d"
 	relaySnapshotLabelHomeWindow24h   = "home_window_24h"
 	relaySnapshotLabelHomeWindow7d    = "home_window_7d"
@@ -852,11 +861,11 @@ func computeTopDomainsSnapshot(
 	return out, nil
 }
 
-// computeTopRelaysSnapshot ranks relays by 7d event volume using the
+// computeTopRelaysSnapshot ranks relays by event volume since cutoff using the
 // incremental relay_activity_hourly rollup instead of aggregating the raw
 // event_relays window (see refreshRelayActivityRollup for why — the raw
 // GROUP BY scaled with ingest volume and froze the snapshot during the
-// relay-cap incident).
+// relay-cap incident). cutoff must fall inside the rollup retention window.
 //
 // Exactness: the rollup covers seen_at <= rolled_up_until and the "tail"
 // branch covers seen_at > rolled_up_until from the raw table, so together
@@ -868,7 +877,7 @@ func computeTopDomainsSnapshot(
 // would need a per-relay DISTINCT for every candidate — only orders the
 // final top rows, where it is computed via bounded index-only probes of
 // idx_event_relays_relay_url_seen_at).
-func computeTopRelaysSnapshot(ctx context.Context, tx pgx.Tx, limit int) ([]relayActivityRow, error) {
+func computeTopRelaysSnapshot(ctx context.Context, tx pgx.Tx, cutoff time.Time, limit int) ([]relayActivityRow, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -878,7 +887,6 @@ func computeTopRelaysSnapshot(ctx context.Context, tx pgx.Tx, limit int) ([]rela
 	`).Scan(&watermark); err != nil {
 		return nil, fmt.Errorf("read rollup watermark: %w", err)
 	}
-	cutoff7d := time.Now().UTC().Add(-7 * 24 * time.Hour)
 	rows, err := tx.Query(ctx, `
 		WITH rolled AS (
 			SELECT relay_url, SUM(event_count)::bigint AS event_count
@@ -914,7 +922,7 @@ func computeTopRelaysSnapshot(ctx context.Context, tx pgx.Tx, limit int) ([]rela
 			)::bigint AS unique_authors
 		FROM ranked r
 		ORDER BY r.event_count DESC, unique_authors DESC, r.relay_url ASC
-	`, cutoff7d, watermark, model.FallbackRelayURL, limit)
+	`, cutoff, watermark, model.FallbackRelayURL, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query top relays: %w", err)
 	}

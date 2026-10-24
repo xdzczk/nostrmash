@@ -692,8 +692,8 @@ func TestDiscoveryStatsRoutes_ReturnSuccess(t *testing.T) {
 	computedAt := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	h := mustNewHandlers(t, fakeEventReader{
 		getPublicNetworkStatsFn: func(_ context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
-			if hashtagLimit != 10 && hashtagLimit != 1 {
-				t.Fatalf("unexpected hashtag limit: got=%d want one of [10,1]", hashtagLimit)
+			if hashtagLimit != 50 {
+				t.Fatalf("unexpected hashtag limit: got=%d want 50", hashtagLimit)
 			}
 			return storeread.PublicDiscoveryNetworkStats{
 				EventsIngested:    11,
@@ -881,13 +881,158 @@ func TestDiscoveryStatsSeriesRoute_ReturnsHourlyPoints(t *testing.T) {
 	for _, rawURL := range []string{
 		"/api/v1/discovery/stats/series",
 		"/api/v1/discovery/stats/series?metric=unknown",
-		"/api/v1/discovery/stats/series?metric=relay_events&window=24h",
+		"/api/v1/discovery/stats/series?metric=relay_events&window=48h",
 	} {
 		badRec := httptest.NewRecorder()
 		mux.ServeHTTP(badRec, httptest.NewRequest(http.MethodGet, rawURL, nil))
 		if badRec.Code != http.StatusBadRequest {
 			t.Fatalf("%s: got %d want %d", rawURL, badRec.Code, http.StatusBadRequest)
 		}
+	}
+}
+
+func TestDiscoveryStatsSeries_Accepts24h(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		getDiscoveryStatsSeriesFn: func(_ context.Context, metric string, window time.Duration) (storeread.DiscoveryStatsSeries, error) {
+			if metric != "relay_events" || window != 24*time.Hour {
+				t.Fatalf("unexpected series request metric=%s window=%s", metric, window)
+			}
+			return storeread.DiscoveryStatsSeries{Metric: metric, Points: []storeread.DiscoveryStatsSeriesPoint{}}, nil
+		},
+	}, 10)
+	rec := httptest.NewRecorder()
+	http.HandlerFunc(h.GetDiscoveryStatsSeries).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/discovery/stats/series?metric=relay_events&window=24h", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got %d body %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Window       string `json:"window"`
+		PointMeaning string `json:"point_meaning"`
+		TrustApplied bool   `json:"trust_applied"`
+		ResultScope  string `json:"result_scope"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Window != "24h" || body.PointMeaning != "rolling_24h_total" || body.TrustApplied || body.ResultScope != "event_relays" {
+		t.Fatalf("unexpected series metadata: %+v", body)
+	}
+}
+
+func TestRelayStats_Selects24hLeaderboard(t *testing.T) {
+	cacheEnabled := false
+	h := mustNewHandlersWithOptions(t, fakeEventReader{
+		getPublicNetworkStatsFn: func(_ context.Context, _ int) (storeread.PublicDiscoveryNetworkStats, error) {
+			return storeread.PublicDiscoveryNetworkStats{
+				Relays: 2,
+				TopRelays24h: []storeread.RelayUsageSummary{
+					{RelayURL: "wss://day.example", EventCount: 4, UniqueAuthors: 2},
+				},
+				TopRelays7d: []storeread.RelayUsageSummary{
+					{RelayURL: "wss://week.example", EventCount: 9, UniqueAuthors: 3},
+				},
+			}, nil
+		},
+	}, HandlersOptions{
+		MaxBatchSize: 10,
+		DiscoveryCache: &DiscoveryCacheOptions{
+			Enabled: &cacheEnabled,
+		},
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/stats/relays", h.GetRelayStats)
+
+	dayRec := httptest.NewRecorder()
+	mux.ServeHTTP(dayRec, httptest.NewRequest(http.MethodGet, "/api/v1/discovery/stats/relays?window=24h", nil))
+	if dayRec.Code != http.StatusOK {
+		t.Fatalf("unexpected 24h status: got %d body %s", dayRec.Code, dayRec.Body.String())
+	}
+	var day struct {
+		Window string `json:"window"`
+		Relays struct {
+			Top []struct {
+				RelayURL string `json:"relay_url"`
+			} `json:"top"`
+			Top24h []struct {
+				RelayURL string `json:"relay_url"`
+			} `json:"top_24h"`
+		} `json:"relays"`
+		ResultScope string `json:"result_scope"`
+	}
+	if err := json.Unmarshal(dayRec.Body.Bytes(), &day); err != nil {
+		t.Fatalf("decode 24h response: %v", err)
+	}
+	if day.Window != "24h" || day.ResultScope != "event_relays" || len(day.Relays.Top) != 1 || day.Relays.Top[0].RelayURL != "wss://day.example" {
+		t.Fatalf("unexpected 24h leaderboard: %+v", day)
+	}
+	if len(day.Relays.Top24h) != 1 || day.Relays.Top24h[0].RelayURL != "wss://day.example" {
+		t.Fatalf("expected top_24h alongside the selected list: %+v", day.Relays)
+	}
+
+	badRec := httptest.NewRecorder()
+	mux.ServeHTTP(badRec, httptest.NewRequest(http.MethodGet, "/api/v1/discovery/stats/relays?window=30d", nil))
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unsupported relay window, got %d", badRec.Code)
+	}
+}
+
+func TestDiscoveryStats_NetworkAndContentShareOneSnapshot(t *testing.T) {
+	calls := 0
+	cacheEnabled := true
+	h := mustNewHandlersWithOptions(t, fakeEventReader{
+		getPublicNetworkStatsFn: func(_ context.Context, limit int) (storeread.PublicDiscoveryNetworkStats, error) {
+			calls++
+			if limit != 50 {
+				t.Fatalf("shared snapshot should be fetched at the snapshot width, got %d", limit)
+			}
+			return storeread.PublicDiscoveryNetworkStats{
+				NoteVolume: storeread.WindowedCount{Last24h: 11, Last7d: 40},
+				TopHashtags: &storeread.TrendingHashtagWindows{
+					Last24h: []storeread.TrendingHashtag{{Hashtag: "bitcoin", EventCount: 7}},
+				},
+			}, nil
+		},
+	}, HandlersOptions{
+		MaxBatchSize: 10,
+		DiscoveryCache: &DiscoveryCacheOptions{
+			Enabled:        &cacheEnabled,
+			PublicStatsTTL: time.Minute,
+		},
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/stats/network", h.GetNetworkStats)
+	mux.HandleFunc("GET /api/v1/discovery/stats/content", h.GetContentStats)
+
+	networkRec := httptest.NewRecorder()
+	mux.ServeHTTP(networkRec, httptest.NewRequest(http.MethodGet, "/api/v1/discovery/stats/network", nil))
+	contentRec := httptest.NewRecorder()
+	mux.ServeHTTP(contentRec, httptest.NewRequest(http.MethodGet, "/api/v1/discovery/stats/content", nil))
+	if networkRec.Code != http.StatusOK || contentRec.Code != http.StatusOK {
+		t.Fatalf("unexpected statuses network=%d content=%d", networkRec.Code, contentRec.Code)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one snapshot read for both endpoints, got %d", calls)
+	}
+	var network struct {
+		Network struct {
+			Activity struct {
+				NoteVolume storeread.WindowedCount `json:"note_volume"`
+			} `json:"activity"`
+		} `json:"network"`
+	}
+	var content struct {
+		Content struct {
+			NoteVolume storeread.WindowedCount `json:"note_volume"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(networkRec.Body.Bytes(), &network); err != nil {
+		t.Fatalf("decode network: %v", err)
+	}
+	if err := json.Unmarshal(contentRec.Body.Bytes(), &content); err != nil {
+		t.Fatalf("decode content: %v", err)
+	}
+	if network.Network.Activity.NoteVolume.Last24h != 11 || content.Content.NoteVolume.Last24h != 11 {
+		t.Fatalf("note volume diverged: network=%d content=%d", network.Network.Activity.NoteVolume.Last24h, content.Content.NoteVolume.Last24h)
 	}
 }
 

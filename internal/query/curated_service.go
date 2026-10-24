@@ -33,6 +33,8 @@ func (s Service) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimi
 func (s Service) GetDiscoveryStatsSeries(ctx context.Context, metric, window string) (DiscoveryStatsSeries, error) {
 	var duration time.Duration
 	switch window {
+	case "24h":
+		duration = 24 * time.Hour
 	case "7d":
 		duration = 7 * 24 * time.Hour
 	case "30d":

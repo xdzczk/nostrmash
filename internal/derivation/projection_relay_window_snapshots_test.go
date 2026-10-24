@@ -122,7 +122,7 @@ func TestRefreshRelayWindowSnapshots_PopulatesAndIsIdempotent(t *testing.T) {
 	}
 
 	labels := []string{
-		"summary", "top_relays_7d", "home_window_24h", "home_window_7d",
+		"summary", "top_relays_24h", "top_relays_7d", "home_window_24h", "home_window_7d",
 		"top_languages_24h", "top_languages_7d", "top_hashtags_24h", "top_hashtags_7d",
 		"top_domains_24h", "top_domains_7d",
 	}

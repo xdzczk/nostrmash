@@ -35,8 +35,9 @@ func TestReady_UsesErrorEnvelopeWhenDependencyUnavailable(t *testing.T) {
 
 func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 	lastErr := "dial websocket: websocket: bad handshake"
-	healthyAt := time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)
-	erroredAt := time.Date(2026, 4, 4, 12, 1, 0, 0, time.UTC)
+	healthyAt := time.Now().UTC().Add(-time.Minute)
+	erroredAt := time.Now().UTC()
+	staleAt := time.Now().UTC().Add(-48 * time.Hour)
 	handlers := mustNewHandlers(t, fakeEventReader{
 		listRelayHealthFn: func(_ context.Context) ([]model.IngestCheckpoint, error) {
 			return []model.IngestCheckpoint{
@@ -55,6 +56,13 @@ func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 					LastError:   &lastErr,
 					UpdatedAt:   erroredAt,
 				},
+				{
+					RelayURL:    "wss://relay.abandoned",
+					Mode:        "live",
+					FilterGroup: "default_v1",
+					Status:      "healthy",
+					UpdatedAt:   staleAt,
+				},
 			}, nil
 		},
 	}, 10)
@@ -68,12 +76,20 @@ func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 	}
 	var resp struct {
 		Relays []relayHealthEntry `json:"relays"`
+		Total  int                `json:"total"`
+		Scope  string             `json:"scope"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(resp.Relays) != 2 || resp.Relays[0].RelayURL != "wss://relay.one" {
+	if resp.Total != 3 || resp.Scope != "ingest_checkpoints" {
+		t.Fatalf("unexpected checkpoint count: total=%d scope=%s", resp.Total, resp.Scope)
+	}
+	if len(resp.Relays) != 3 || resp.Relays[0].RelayURL != "wss://relay.one" {
 		t.Fatalf("unexpected relays payload: %+v", resp.Relays)
+	}
+	if resp.Relays[0].Status != "healthy" || resp.Relays[0].Mode != "live" || resp.Relays[0].Stale {
+		t.Fatalf("expected a current live checkpoint to stay healthy, got %+v", resp.Relays[0])
 	}
 	if !resp.Relays[0].LatestCheckpointAt.Equal(healthyAt) {
 		t.Fatalf("expected healthy latest_checkpoint_at %v, got %v", healthyAt, resp.Relays[0].LatestCheckpointAt)
@@ -89,5 +105,8 @@ func TestGetRelaysHealth_ReturnsPersistedCheckpointRows(t *testing.T) {
 	}
 	if !resp.Relays[1].LatestCheckpointAt.Equal(erroredAt) {
 		t.Fatalf("expected errored latest_checkpoint_at %v, got %v", erroredAt, resp.Relays[1].LatestCheckpointAt)
+	}
+	if resp.Relays[2].Status != "healthy" || !resp.Relays[2].Stale || resp.Relays[2].Mode != "live" {
+		t.Fatalf("expected abandoned checkpoint to keep status healthy, mode live, and stale=true, got %+v", resp.Relays[2])
 	}
 }

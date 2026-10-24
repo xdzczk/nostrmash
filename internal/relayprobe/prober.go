@@ -139,7 +139,9 @@ func (p *Prober) Probe(ctx context.Context, relayURL string) ProbeResult {
 			closeRelay(conn, subID)
 			return result
 		case "CLOSED":
-			result.Status = relayregistry.ProbeStatusSubscribeFailed
+			// The REQ write already succeeded. CLOSED is the relay ending
+			// the subscription, not a failure to subscribe.
+			result.Status = relayregistry.ProbeStatusSubscriptionClosed
 			result.ErrorCode = "subscription_closed"
 			result.ErrorText = string(frame)
 			result.EOSELatencyMs = float64(time.Since(eoseStart).Milliseconds())

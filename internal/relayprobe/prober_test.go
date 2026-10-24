@@ -1,7 +1,15 @@
 package relayprobe
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/xdzczk/nostrmash/internal/relayregistry"
 )
 
 func TestClassifyFrame_Event(t *testing.T) {
@@ -63,3 +71,34 @@ func TestTruncateError(t *testing.T) {
 type errMsg string
 
 func (e errMsg) Error() string { return string(e) }
+
+func TestProbe_ClosedAfterSubscribeIsSubscriptionClosed(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`["CLOSED","sub","auth-required"]`))
+	}))
+	t.Cleanup(srv.Close)
+
+	result := NewProber(ProbeConfig{
+		ConnectTimeout: time.Second,
+		EOSETimeout:    time.Second,
+	}).Probe(context.Background(), "ws"+strings.TrimPrefix(srv.URL, "http"))
+
+	if !result.ConnectOK || !result.SubscribeOK || result.EOSEOK {
+		t.Fatalf("expected connect and subscribe ok with eose failed, got %+v", result)
+	}
+	if result.Status != relayregistry.ProbeStatusSubscriptionClosed {
+		t.Fatalf("expected subscription_closed, got %s", result.Status)
+	}
+	if result.ErrorCode != "subscription_closed" {
+		t.Fatalf("expected error code subscription_closed, got %s", result.ErrorCode)
+	}
+}

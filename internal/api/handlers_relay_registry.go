@@ -20,6 +20,8 @@ type popularRelayEntry struct {
 
 type popularRelaysResponse struct {
 	Relays []popularRelayEntry `json:"relays"`
+	Total  int                 `json:"total"`
+	Limit  int                 `json:"limit"`
 }
 
 type relayProbeHealthEntry struct {
@@ -37,6 +39,8 @@ type relayProbeHealthEntry struct {
 
 type relayProbeHealthResponse struct {
 	Relays []relayProbeHealthEntry `json:"relays"`
+	Total  int                     `json:"total"`
+	Limit  int                     `json:"limit"`
 }
 
 func (h Handlers) GetPopularRelays(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +118,7 @@ func (h Handlers) GetPopularRelays(w http.ResponseWriter, r *http.Request) {
 		}
 		return all[i].url < all[j].url
 	})
+	total := len(all)
 	if len(all) > limit {
 		all = all[:limit]
 	}
@@ -132,7 +137,7 @@ func (h Handlers) GetPopularRelays(w http.ResponseWriter, r *http.Request) {
 		entries = append(entries, entry)
 	}
 
-	writeJSON(w, http.StatusOK, popularRelaysResponse{Relays: entries})
+	writeJSON(w, http.StatusOK, popularRelaysResponse{Relays: entries, Total: total, Limit: limit})
 }
 
 func (h Handlers) GetRelayProbeHealth(w http.ResponseWriter, r *http.Request) {
@@ -150,6 +155,13 @@ func (h Handlers) GetRelayProbeHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	var probedTotal int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM relay_registry WHERE last_probe_at IS NOT NULL
+	`).Scan(&probedTotal); err != nil {
+		writeError(ctx, w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
 	registryStore := relayregistry.NewStore(h.pool)
 	records, err := registryStore.ListRelays(ctx, relayregistry.ListFilter{Limit: limit})
 	if err != nil {
@@ -181,5 +193,5 @@ func (h Handlers) GetRelayProbeHealth(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusOK, relayProbeHealthResponse{Relays: entries})
+	writeJSON(w, http.StatusOK, relayProbeHealthResponse{Relays: entries, Total: probedTotal, Limit: limit})
 }

@@ -50,6 +50,7 @@ type Handlers struct {
 	pool                *pgxpool.Pool
 	maxBatchSize        int
 	discoveryCache      *discoveryResponseCache
+	publicStatsMemo     *publicStatsMemo
 	cacheConfig         discoveryCacheConfig
 	cacheLookupObserver cacheLookupObserver
 	hydration           config.HydrationConfig
@@ -85,8 +86,10 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 		return Handlers{}, err
 	}
 	var discoveryCache *discoveryResponseCache
+	var statsMemo *publicStatsMemo
 	if cacheConfig.Enabled {
 		discoveryCache = newDiscoveryResponseCache(cacheConfig.MaxEntries)
+		statsMemo = &publicStatsMemo{}
 	}
 	lookupObserver := options.CacheLookupObserver
 	if lookupObserver == nil {
@@ -103,6 +106,7 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 		pool:                options.Pool,
 		maxBatchSize:        maxBatchSize,
 		discoveryCache:      discoveryCache,
+		publicStatsMemo:     statsMemo,
 		cacheConfig:         cacheConfig,
 		cacheLookupObserver: lookupObserver,
 		hydration:           options.Hydration,

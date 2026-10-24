@@ -40,13 +40,14 @@ const (
 type ProbeStatus string
 
 const (
-	ProbeStatusOK              ProbeStatus = "ok"
-	ProbeStatusConnectFailed   ProbeStatus = "connect_failed"
-	ProbeStatusSubscribeFailed ProbeStatus = "subscribe_failed"
-	ProbeStatusEOSETimeout     ProbeStatus = "eose_timeout"
-	ProbeStatusProtocolError   ProbeStatus = "protocol_error"
-	ProbeStatusRateLimited     ProbeStatus = "rate_limited"
-	ProbeStatusUnknownError    ProbeStatus = "unknown_error"
+	ProbeStatusOK                 ProbeStatus = "ok"
+	ProbeStatusConnectFailed      ProbeStatus = "connect_failed"
+	ProbeStatusSubscribeFailed    ProbeStatus = "subscribe_failed"
+	ProbeStatusSubscriptionClosed ProbeStatus = "subscription_closed"
+	ProbeStatusEOSETimeout        ProbeStatus = "eose_timeout"
+	ProbeStatusProtocolError      ProbeStatus = "protocol_error"
+	ProbeStatusRateLimited        ProbeStatus = "rate_limited"
+	ProbeStatusUnknownError       ProbeStatus = "unknown_error"
 )
 
 // RelayRecord is the persistent registry row for a single relay.

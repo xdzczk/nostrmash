@@ -37,6 +37,19 @@ func publicDiscoveryNetworkStatsFromStore(row readmodel.PublicDiscoveryNetworkSt
 			Last24h: row.NoteVolume.Last24h,
 			Last7d:  row.NoteVolume.Last7d,
 		},
+		TopRelays24h: relayUsagesFromStore(row.TopRelays24h),
+		TopRelays7d:  relayUsagesFromStore(row.TopRelays7d),
+		SectionTimes: PublicStatsSectionTimes{
+			Home24h:      row.SectionTimes.Home24h,
+			Home7d:       row.SectionTimes.Home7d,
+			Languages24h: row.SectionTimes.Languages24h,
+			Languages7d:  row.SectionTimes.Languages7d,
+			Hashtags24h:  row.SectionTimes.Hashtags24h,
+			Hashtags7d:   row.SectionTimes.Hashtags7d,
+			Relays:       row.SectionTimes.Relays,
+			TopRelays24h: row.SectionTimes.TopRelays24h,
+			TopRelays7d:  row.SectionTimes.TopRelays7d,
+		},
 	}
 	if len(row.TopLanguages24h) > 0 {
 		out.TopLanguages24h = make([]LanguageSummary, 0, len(row.TopLanguages24h))
@@ -50,12 +63,7 @@ func publicDiscoveryNetworkStatsFromStore(row readmodel.PublicDiscoveryNetworkSt
 			out.TopLanguages7d = append(out.TopLanguages7d, languageSummaryFromStore(lang))
 		}
 	}
-	if len(row.TopRelays) > 0 {
-		out.TopRelays = make([]RelayUsageSummary, 0, len(row.TopRelays))
-		for _, relay := range row.TopRelays {
-			out.TopRelays = append(out.TopRelays, relayUsageFromStore(relay))
-		}
-	}
+	out.TopRelays = relayUsagesFromStore(row.TopRelays)
 	if row.TopHashtags == nil {
 		return out
 	}
@@ -107,6 +115,17 @@ func curatedFeaturedAuthorFromStore(row readmodel.CuratedFeaturedAuthor) Curated
 		Pubkey: row.Pubkey,
 		Rank:   row.Rank,
 	}
+}
+
+func relayUsagesFromStore(rows []readmodel.RelayUsageSummary) []RelayUsageSummary {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]RelayUsageSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, relayUsageFromStore(row))
+	}
+	return out
 }
 
 func trendingHashtagFromStore(row readmodel.TrendingHashtag) TrendingHashtag {
