@@ -64,6 +64,7 @@ func (s *Read) SearchNotes(
 			windowSeconds = seconds
 		}
 	}
+	_, likeNeedle := searchContentNeedles(query)
 	rows, err := s.pool.Query(ctx, `
 		WITH ranked AS (
 			SELECT
@@ -85,7 +86,7 @@ func (s *Read) SearchNotes(
 			  )
 			  AND (
 				to_tsvector('simple', coalesce(events.content, '')) @@ websearch_to_tsquery('simple', $1)
-				OR events.content ILIKE '%' || $1 || '%'
+				OR events.content ILIKE '%' || $7 || '%'
 			  )
 		)
 		SELECT raw_text
@@ -96,7 +97,7 @@ func (s *Read) SearchNotes(
 			id DESC
 		LIMIT $5
 		OFFSET $6
-	`, query, sort, windowSeconds, nullableLanguageFilter(language), limit, offset)
+	`, query, sort, windowSeconds, nullableLanguageFilter(language), limit, offset, likeNeedle)
 	if err != nil {
 		return nil, fmt.Errorf("search notes: %w", err)
 	}
@@ -157,6 +158,7 @@ func (s *Read) SearchNotesBefore(
 			windowSeconds = seconds
 		}
 	}
+	_, likeNeedle := searchContentNeedles(query)
 	rows, err := s.pool.Query(ctx, `
 		SELECT events.raw_json::text
 		FROM events
@@ -171,11 +173,11 @@ func (s *Read) SearchNotesBefore(
 		  )
 		  AND (
 			to_tsvector('simple', coalesce(events.content, '')) @@ websearch_to_tsquery('simple', $1)
-			OR events.content ILIKE '%' || $1 || '%'
+			OR events.content ILIKE '%' || $7 || '%'
 		  )
 		ORDER BY events.created_at DESC, events.id DESC
 		LIMIT $6
-	`, query, beforeCreatedAt, beforeID, windowSeconds, nullableLanguageFilter(language), limit)
+	`, query, beforeCreatedAt, beforeID, windowSeconds, nullableLanguageFilter(language), limit, likeNeedle)
 	if err != nil {
 		return nil, fmt.Errorf("search notes before cursor: %w", err)
 	}

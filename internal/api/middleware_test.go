@@ -320,7 +320,6 @@ func TestWithPublicRequestGuards_RejectsInvalidAndHighCostParams(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/search/notes?q=nostr&limit=21",
 		"/api/v1/search/notes?q=nostr&window=7d",
-		"/api/v1/search/notes?q=nostr&window=all",
 		"/api/v1/discovery/hashtags/trending?offset=201",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -342,6 +341,13 @@ func TestWithPublicRequestGuards_RejectsInvalidAndHighCostParams(t *testing.T) {
 	guarded.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("unexpected guard status for discovery window=all: got %d want %d", rec.Code, http.StatusNoContent)
+	}
+
+	searchAll := httptest.NewRequest(http.MethodGet, "/api/v1/search/notes?q=nostr&window=all", nil)
+	searchAllRec := httptest.NewRecorder()
+	guarded.ServeHTTP(searchAllRec, searchAll)
+	if searchAllRec.Code != http.StatusNoContent {
+		t.Fatalf("unexpected guard status for search window=all: got %d want %d", searchAllRec.Code, http.StatusNoContent)
 	}
 }
 

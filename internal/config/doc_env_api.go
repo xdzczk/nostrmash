@@ -195,8 +195,8 @@ func configEnvDocsAPI() []EnvVarDoc {
 			Name:         "HTTP_PUBLIC_MAX_SEARCH_WINDOW_HOURS",
 			Runtimes:     []string{"api"},
 			Required:     false,
-			DefaultValue: "168",
-			Description:  "Maximum search window size in hours for guarded query params.",
+			DefaultValue: "720",
+			Description:  "Maximum search window size in hours. window=all is unbounded.",
 		},
 		{
 			Name:         "HTTP_PUBLIC_STATS_RATE_LIMIT_RPM",

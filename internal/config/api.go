@@ -135,7 +135,7 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
-	publicMaxSearchWindowHours, err := getEnvPositiveIntStrict("HTTP_PUBLIC_MAX_SEARCH_WINDOW_HOURS", 7*24)
+	publicMaxSearchWindowHours, err := getEnvPositiveIntStrict("HTTP_PUBLIC_MAX_SEARCH_WINDOW_HOURS", 30*24)
 	if err != nil {
 		return APIConfig{}, err
 	}

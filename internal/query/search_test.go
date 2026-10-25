@@ -176,7 +176,7 @@ func TestSearchProfiles_RejectsUnsupportedSort(t *testing.T) {
 	svc := mustNewService(t, fakeReader{})
 	_, err := svc.SearchProfiles(context.Background(), ProfileSearchParams{
 		Query: "nostr",
-		Sort:  "latest",
+		Sort:  "top",
 	})
 	if err == nil {
 		t.Fatal("expected error for unsupported profile sort")
@@ -549,13 +549,28 @@ func (r readerWithSuggestionSearch) SuggestHashtags(ctx context.Context, query s
 	return r.suggestHashtagsFn(ctx, query, limit)
 }
 
+func (r readerWithSuggestionSearch) SearchProfilesWithOptions(ctx context.Context, query string, sort string, limit int, offset int) ([]Profile, error) {
+	if r.suggestProfilesFn == nil {
+		return r.Reader.SearchProfiles(ctx, query, limit)
+	}
+	if sort != "relevant" && sort != "latest" {
+		return nil, fmt.Errorf("unsupported profile sort %s", sort)
+	}
+	_ = offset
+	return r.suggestProfilesFn(ctx, query, limit)
+}
+
 type fakeMeiliSearcher struct {
+	searchNotesFn     func(context.Context, string, string, *time.Duration, string, int, int) ([]json.RawMessage, error)
 	searchProfilesFn  func(context.Context, string, string, int, int) ([]Profile, error)
 	suggestProfilesFn func(context.Context, string, int) ([]Profile, error)
 	suggestHashtagsFn func(context.Context, string, int) ([]HashtagSuggestion, error)
 }
 
-func (f fakeMeiliSearcher) SearchNotes(context.Context, string, string, *time.Duration, string, int, int) ([]json.RawMessage, error) {
+func (f fakeMeiliSearcher) SearchNotes(ctx context.Context, query string, sort string, window *time.Duration, language string, limit int, offset int) ([]json.RawMessage, error) {
+	if f.searchNotesFn != nil {
+		return f.searchNotesFn(ctx, query, sort, window, language, limit, offset)
+	}
 	return nil, nil
 }
 func (f fakeMeiliSearcher) SearchProfiles(ctx context.Context, q string, sort string, limit int, offset int) ([]Profile, error) {
@@ -594,7 +609,7 @@ func TestSearchSuggestions_MeiliEmptyFallsBackToPostgres(t *testing.T) {
 		},
 	}, ServiceOptions{
 		MeilisearchSearcher: fakeMeiliSearcher{
-			suggestProfilesFn: func(context.Context, string, int) ([]Profile, error) {
+			searchProfilesFn: func(context.Context, string, string, int, int) ([]Profile, error) {
 				return []Profile{}, nil
 			},
 			suggestHashtagsFn: func(context.Context, string, int) ([]HashtagSuggestion, error) {
@@ -624,7 +639,7 @@ func TestSearchSuggestions_MeiliHitSkipsFallback(t *testing.T) {
 		},
 	}, ServiceOptions{
 		MeilisearchSearcher: fakeMeiliSearcher{
-			suggestProfilesFn: func(context.Context, string, int) ([]Profile, error) {
+			searchProfilesFn: func(context.Context, string, string, int, int) ([]Profile, error) {
 				return []Profile{{Pubkey: "pk_from_meili"}}, nil
 			},
 			suggestHashtagsFn: func(context.Context, string, int) ([]HashtagSuggestion, error) {
@@ -687,4 +702,186 @@ func eventID(t *testing.T, raw json.RawMessage) string {
 		t.Fatalf("unmarshal event: %v", err)
 	}
 	return event.ID
+}
+
+func TestSearchAndNotesShareFreshFirstHit(t *testing.T) {
+	now := time.Now().Unix()
+	notes := []json.RawMessage{
+		json.RawMessage(fmt.Sprintf(`{"id":"old","pubkey":"oldpk","created_at":%d,"content":"bitcoin"}`, now-2*365*24*3600)),
+		json.RawMessage(fmt.Sprintf(`{"id":"fresh","pubkey":"freshpk","created_at":%d,"content":"bitcoin discussion continues in public today"}`, now-1800)),
+	}
+	reader := readerWithAdvancedSearch{
+		Reader: fakeReader{},
+		searchNotesFn: func(_ context.Context, _ string, _ string, _ *time.Duration, _ string, limit int, offset int) ([]json.RawMessage, error) {
+			if offset >= len(notes) {
+				return []json.RawMessage{}, nil
+			}
+			end := offset + limit
+			if end > len(notes) {
+				end = len(notes)
+			}
+			return notes[offset:end], nil
+		},
+		searchProfilesFn: func(_ context.Context, _ string, _ string, _ int, _ int) ([]Profile, error) {
+			return []Profile{
+				{Pubkey: "partial", ProfileJSON: json.RawMessage(`{"name":"jack sparrow"}`)},
+				{Pubkey: "exact", ProfileJSON: json.RawMessage(`{"name":"jack"}`)},
+			}, nil
+		},
+	}
+	svc := mustNewService(t, reader)
+	combined, err := svc.Search(context.Background(), "bitcoin", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	page, err := svc.SearchNotes(context.Background(), NotesSearchParams{Query: "bitcoin", Limit: 5, Sort: "relevant"})
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	if len(combined.Events) == 0 || len(page) == 0 {
+		t.Fatalf("expected notes, combined=%d page=%d", len(combined.Events), len(page))
+	}
+	if eventID(t, combined.Events[0]) != "fresh" || eventID(t, page[0]) != eventID(t, combined.Events[0]) {
+		t.Fatalf("first hits differ: combined=%s page=%s", eventID(t, combined.Events[0]), eventID(t, page[0]))
+	}
+
+	profiles, err := svc.SearchProfiles(context.Background(), ProfileSearchParams{Query: "jack", Limit: 5, Sort: "relevant"})
+	if err != nil {
+		t.Fatalf("SearchProfiles: %v", err)
+	}
+	suggestions, err := svc.SearchSuggestions(context.Background(), "jack", 5)
+	if err != nil {
+		t.Fatalf("SearchSuggestions: %v", err)
+	}
+	if len(profiles) == 0 || len(suggestions.Profiles) == 0 || profiles[0].Pubkey != "exact" || suggestions.Profiles[0].Pubkey != profiles[0].Pubkey {
+		t.Fatalf("profile heads differ: search=%#v suggest=%#v", profiles, suggestions.Profiles)
+	}
+	if len(suggestions.Notes) == 0 || len(suggestions.Notes) > 3 {
+		t.Fatalf("suggest notes length = %d", len(suggestions.Notes))
+	}
+}
+
+func TestSearchNotes_AuthorCapOnReturnedPage(t *testing.T) {
+	now := time.Now().Unix()
+	var notes []json.RawMessage
+	for i := 0; i < 12; i++ {
+		notes = append(notes, json.RawMessage(fmt.Sprintf(
+			`{"id":"spam-%d","pubkey":"spam","created_at":%d,"content":"bitcoin price update number %d stays unique"}`,
+			i, now-int64(i*60), i,
+		)))
+	}
+	for i := 0; i < 18; i++ {
+		notes = append(notes, json.RawMessage(fmt.Sprintf(
+			`{"id":"human-%d","pubkey":"human-%d","created_at":%d,"content":"bitcoin community thread %d with prose about adoption"}`,
+			i, i, now-int64(30+i), i,
+		)))
+	}
+	reader := readerWithAdvancedSearch{
+		Reader: fakeReader{},
+		searchNotesFn: func(_ context.Context, _ string, _ string, _ *time.Duration, _ string, limit int, offset int) ([]json.RawMessage, error) {
+			if offset >= len(notes) {
+				return []json.RawMessage{}, nil
+			}
+			end := offset + limit
+			if end > len(notes) {
+				end = len(notes)
+			}
+			return notes[offset:end], nil
+		},
+	}
+	svc := mustNewService(t, reader)
+	page, err := svc.SearchNotes(context.Background(), NotesSearchParams{Query: "bitcoin", Limit: 20, Sort: "relevant"})
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	counts := map[string]int{}
+	for _, raw := range page {
+		var event struct {
+			Pubkey string `json:"pubkey"`
+		}
+		if err := json.Unmarshal(raw, &event); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		counts[event.Pubkey]++
+	}
+	if counts["spam"] > 2 {
+		t.Fatalf("spam author count = %d in %#v", counts["spam"], counts)
+	}
+}
+
+func TestSearchNotes_StaleIndexUsesStoreRecency(t *testing.T) {
+	now := time.Now().Unix()
+	old := json.RawMessage(fmt.Sprintf(`{"id":"old","pubkey":"oldpk","created_at":%d,"content":"bitcoin"}`, now-10*24*3600))
+	fresh := json.RawMessage(fmt.Sprintf(`{"id":"fresh","pubkey":"freshpk","created_at":%d,"content":"bitcoin discussion continues in public today"}`, now-600))
+	svc := mustNewServiceWithOptions(t, readerWithAdvancedSearch{
+		Reader: fakeReader{},
+		searchNotesFn: func(_ context.Context, _ string, sort string, window *time.Duration, _ string, _ int, _ int) ([]json.RawMessage, error) {
+			if sort != "latest" || window == nil || *window != 24*time.Hour {
+				t.Fatalf("store supplement args sort=%s window=%v", sort, window)
+			}
+			return []json.RawMessage{fresh}, nil
+		},
+	}, ServiceOptions{
+		MeilisearchSearcher: fakeMeiliSearcher{
+			searchNotesFn: func(context.Context, string, string, *time.Duration, string, int, int) ([]json.RawMessage, error) {
+				return []json.RawMessage{old}, nil
+			},
+		},
+	})
+	page, err := svc.SearchNotes(context.Background(), NotesSearchParams{Query: "bitcoin", Limit: 5, Sort: "relevant"})
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	if len(page) == 0 || eventID(t, page[0]) != "fresh" {
+		t.Fatalf("first note = %s", page)
+	}
+}
+
+type hashtagNotesSearchReader struct {
+	readerWithAdvancedSearch
+	rows []readmodel.TrendingNote
+}
+
+func (r hashtagNotesSearchReader) GetHashtagNotes(context.Context, string, string, string, int, int) ([]readmodel.TrendingNote, error) {
+	return r.rows, nil
+}
+
+func TestSearchNotes_EmptyIndexUsesHashtagFeed(t *testing.T) {
+	now := time.Now().Unix()
+	svc := mustNewServiceWithOptions(t, hashtagNotesSearchReader{
+		readerWithAdvancedSearch: readerWithAdvancedSearch{Reader: fakeReader{}},
+		rows: []readmodel.TrendingNote{{
+			EventID:      "tagged",
+			AuthorPubkey: "human",
+			CreatedAt:    now - 120,
+			Content:      "bitcoin is what people are actually talking about",
+			ReplyCount:   4,
+		}},
+	}, ServiceOptions{MeilisearchSearcher: fakeMeiliSearcher{}})
+	page, err := svc.SearchNotes(context.Background(), NotesSearchParams{Query: "bitcoin", Limit: 5, Sort: "relevant"})
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	if len(page) != 1 || eventID(t, page[0]) != "tagged" {
+		t.Fatalf("page = %#v", page)
+	}
+}
+
+func TestSearchProfiles_DropsURLNamesForRelayQuery(t *testing.T) {
+	svc := mustNewService(t, readerWithAdvancedSearch{
+		Reader: fakeReader{},
+		searchProfilesFn: func(context.Context, string, string, int, int) ([]Profile, error) {
+			return []Profile{
+				{Pubkey: "url", ProfileJSON: json.RawMessage(`{"name":"wss://relay.damus.io:1234"}`)},
+				{Pubkey: "human", ProfileJSON: json.RawMessage(`{"name":"Damus","nip05":"damus@damus.io"}`)},
+			}, nil
+		},
+	})
+	profiles, err := svc.SearchProfiles(context.Background(), ProfileSearchParams{Query: "relay.damus.io", Limit: 10, Sort: "relevant"})
+	if err != nil {
+		t.Fatalf("SearchProfiles: %v", err)
+	}
+	if len(profiles) != 1 || profiles[0].Pubkey != "human" {
+		t.Fatalf("profiles = %#v", profiles)
+	}
 }

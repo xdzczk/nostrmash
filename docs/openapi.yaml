@@ -690,6 +690,9 @@ paths:
           name: q
           required: true
           schema: { type: string }
+          description: >
+            Search text. Quoted phrases are a phrase operator (`"not your keys"`).
+            A weak typo may be rewritten; see `corrected_query`.
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -697,9 +700,28 @@ paths:
           name: include
           description: Optional comma-separated extras. `suggest` folds suggestion profiles/hashtags into the response.
           schema: { type: string, enum: [suggest] }
+        - in: query
+          name: sort
+          schema: { type: string, enum: [relevant, latest], default: relevant }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d, all], default: all }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
       responses:
         '200':
-          description: Search results with trust metadata (`trust_mode`, `trust_applied`, `result_scope`). When `include=suggest`, also returns `suggested_profiles`, `suggested_hashtags`, and `section_totals`.
+          description: >
+            Search results with trust metadata (`trust_mode`, `trust_applied`,
+            `result_scope`), `consistency`, and `search_engine`. `total` is a
+            corpus estimate (`total_is_estimate` says whether it is exact).
+            `section_totals` is `{notes, profiles, hashtags, relays}`.
+            `corrected_query` and `correction_applied` report spelling
+            correction. `surface_cursors.notes` and `surface_cursors.profiles`
+            are opaque cursors for the notes and profiles routes.
+            `surface_errors` is present when a section was dropped instead of
+            failing the request. Profile rows include `name`, `follower_count`,
+            `recent_post_count`, `recent_activity_at`, `nip05`, and `bot`.
+            When `include=suggest`, also returns `suggested_profiles`,
+            `suggested_hashtags`, and `profile_suggestions`.
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/search/notes:
@@ -716,7 +738,8 @@ paths:
           schema: { type: string, enum: [relevant, latest], default: relevant }
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d] }
+          schema: { type: string, enum: [24h, 7d, 30d, all], default: all }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -735,8 +758,10 @@ paths:
           description: >
             Notes search results with trust metadata (`trust_mode`,
             `trust_applied`, `result_scope`) and eventual engagement counters
-            on each note payload for note-card rendering. Includes
-            `next_cursor` when another page may exist.
+            on each note payload for note-card rendering. Includes `total`,
+            `total_is_estimate`, `correction_applied`, optional
+            `corrected_query`, and `next_cursor` when another page may exist.
+            Ranking matches `GET /api/v1/search` for the same `q`.
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/search/profiles:
@@ -750,7 +775,11 @@ paths:
           schema: { type: string }
         - in: query
           name: sort
-          schema: { type: string, enum: [relevant], default: relevant }
+          schema: { type: string, enum: [relevant, latest], default: relevant }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d, all], default: all }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -762,20 +791,24 @@ paths:
           schema: { type: string }
           description: >
             Opaque continuation token from a prior response's `next_cursor`.
-            Mutually exclusive with `offset`; bound to the original `q` and
-            `sort`.
+            Mutually exclusive with `offset`; bound to the original `q`,
+            `sort`, `window`, and `lang`.
       responses:
         '200':
           description: >
             Profiles search results with trust metadata (`trust_mode`,
-            `trust_applied`, `result_scope`). Includes `next_cursor` when
-            another page may exist.
+            `trust_applied`, `result_scope`). Each row includes `name`,
+            `follower_count`, `recent_post_count`, `recent_activity_at`,
+            `nip05`, and `bot`. Includes `total`, `total_is_estimate`,
+            `correction_applied`, optional `corrected_query`, and
+            `next_cursor` when another page may exist. Ranking matches
+            `GET /api/v1/search` for the same `q`.
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/search/suggest:
     get:
       tags: [public]
-      summary: Lightweight grouped suggestions for profiles and hashtags
+      summary: Lightweight grouped suggestions for profiles, hashtags, and notes
       parameters:
         - in: query
           name: q
@@ -784,9 +817,22 @@ paths:
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 20, default: 8 }
+        - in: query
+          name: sort
+          schema: { type: string, enum: [relevant, latest], default: relevant }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d, all], default: all }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
       responses:
         '200':
-          description: Grouped search suggestions
+          description: >
+            Grouped suggestions. `profiles` use the same ranking as
+            `/api/v1/search/profiles` and include `follower_count` and
+            `nip05`. `notes` contains up to 3 previews
+            (`id`, `pubkey`, `created_at`, `content_preview`, `match_spans`).
+            `corrected_query` and `correction_applied` report spelling
+            correction. `hashtags` is unchanged.
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/notes/trending:

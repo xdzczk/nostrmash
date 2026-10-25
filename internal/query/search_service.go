@@ -8,69 +8,16 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/languagelabel"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
-func (s Service) Search(ctx context.Context, text string, limit int) (out SearchResult, err error) {
-	ctx, span := traceutil.StartSpan(ctx, "query.search")
-	defer func() { span.End(err) }()
-	if consumer, ok := s.meilisearch.(interface{ ConsumeHighlights() map[string]any }); ok {
-		// Clear highlights from any prior request before this search starts.
-		_ = consumer.ConsumeHighlights()
-	}
-
-	stripped := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "nostr:"))
-	if eventID := canonicalizeEventIdentifier(stripped); eventID.EventID != "" {
-		return s.searchByEventIdentifier(ctx, eventID)
-	}
-
-	profileQuery := normalizeProfileSearchQuery(text)
-	degraded := false
-	events, err := s.SearchNotes(ctx, NotesSearchParams{
-		Query: profileQuery.NormalizedQuery,
+func (s Service) Search(ctx context.Context, text string, limit int) (SearchResult, error) {
+	return s.SearchPrepared(ctx, GlobalSearchParams{
+		Query: text,
 		Limit: limit,
 		Sort:  "relevant",
 	})
-	if err != nil {
-		// Prefer a partial 200 over a 500 when search backends are under pressure.
-		events = []json.RawMessage{}
-		degraded = true
-	}
-	profiles, err := s.SearchProfiles(ctx, ProfileSearchParams{
-		Query: profileQuery.NormalizedQuery,
-		Limit: limit,
-		Sort:  "relevant",
-	})
-	if err != nil {
-		profiles = []Profile{}
-		degraded = true
-	}
-	hashtags, relays, identities, err := s.searchGlobalDocuments(ctx, profileQuery.NormalizedQuery, limit)
-	if err != nil {
-		hashtags, relays, identities = nil, nil, nil
-		degraded = true
-	}
-
-	if profileQuery.CanonicalIdentifier == "" && len(profiles) == 0 && len(events) > 0 && s.fallback != nil {
-		profiles = s.enrichProfilesFromNoteAuthors(ctx, events, profileQuery.NormalizedQuery, limit)
-	}
-
-	engine := s.SearchEngineName()
-	if degraded && engine == "meilisearch" {
-		engine = "degraded"
-	}
-	result := SearchResult{
-		Events:       events,
-		Profiles:     profiles,
-		Hashtags:     hashtags,
-		Relays:       relays,
-		Identities:   identities,
-		SearchEngine: engine,
-	}
-	if consumer, ok := s.meilisearch.(interface{ ConsumeHighlights() map[string]any }); ok {
-		result.Highlights = consumer.ConsumeHighlights()
-	}
-	return result, nil
 }
 
 func (s Service) enrichProfilesFromNoteAuthors(ctx context.Context, events []json.RawMessage, query string, limit int) []Profile {
@@ -113,65 +60,19 @@ func (s Service) searchByEventIdentifier(ctx context.Context, eid normalizedEven
 	}, nil
 }
 
-func (s Service) SearchSuggestions(ctx context.Context, text string, limit int) (out SearchSuggestionsResult, err error) {
-	ctx, span := traceutil.StartSpan(ctx, "query.search_suggestions")
-	defer func() { span.End(err) }()
-
-	normalized, err := normalizeSuggestionParams(text, limit)
-	if err != nil {
-		return SearchSuggestionsResult{}, err
-	}
-	if normalized.Query == "" {
-		return SearchSuggestionsResult{
-			Profiles: []Profile{},
-			Hashtags: []HashtagSuggestion{},
-		}, nil
-	}
-	profileQuery := normalizeProfileSearchQuery(normalized.Query)
-	normalized.Query = profileQuery.NormalizedQuery
-	if profileQuery.CanonicalIdentifier != "" {
-		normalized.Query = profileQuery.CanonicalIdentifier
-	}
-	var profiles []Profile
-	var hashtags []HashtagSuggestion
-	meiliUsed := false
-	if s.meilisearch != nil {
-		meiliProfiles, profilesErr := s.meilisearch.SuggestProfiles(ctx, normalized.Query, normalized.Limit)
-		meiliHashtags, hashtagsErr := s.meilisearch.SuggestHashtags(ctx, normalized.Query, normalized.Limit)
-		if profilesErr == nil && hashtagsErr == nil {
-			profiles = meiliProfiles
-			hashtags = meiliHashtags
-			meiliUsed = true
-		}
-	}
-	suggestReader, hasSuggestReader := s.reader.(searchSuggestionsReader)
-	if !meiliUsed && !hasSuggestReader {
-		return SearchSuggestionsResult{}, unsupportedCapabilityError("search suggestions")
-	}
-	if !meiliUsed {
-		var err error
-		profiles, err = suggestReader.SuggestProfiles(ctx, normalized.Query, normalized.Limit)
-		if err != nil {
-			return SearchSuggestionsResult{}, err
-		}
-		hashtags, err = suggestReader.SuggestHashtags(ctx, normalized.Query, normalized.Limit)
-		if err != nil {
-			return SearchSuggestionsResult{}, err
-		}
-	} else if len(profiles) == 0 && hasSuggestReader {
-		if pgProfiles, pgErr := suggestReader.SuggestProfiles(ctx, normalized.Query, normalized.Limit); pgErr == nil && len(pgProfiles) > 0 {
-			profiles = pgProfiles
-		}
-	}
-	return SearchSuggestionsResult{
-		Profiles: profiles,
-		Hashtags: hashtags,
-	}, nil
+func (s Service) SearchSuggestions(ctx context.Context, text string, limit int) (SearchSuggestionsResult, error) {
+	return s.SearchSuggestionsPrepared(ctx, SuggestionParams{
+		Query: text,
+		Limit: limit,
+		Sort:  "relevant",
+	})
 }
 
 func (s Service) SearchNotes(ctx context.Context, params NotesSearchParams) (out []json.RawMessage, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.search_notes")
 	defer func() { span.End(err) }()
+	started := time.Now()
+	defer readmodel.SearchDiagnosticsFrom(ctx).AddDuration("notes", time.Since(started))
 
 	normalized, err := normalizeNotesSearchParams(params)
 	if err != nil {
@@ -188,17 +89,32 @@ func (s Service) SearchNotes(ctx context.Context, params NotesSearchParams) (out
 			if IsNotFound(getErr) {
 				return []json.RawMessage{}, nil
 			}
+			readmodel.SearchDiagnosticsFrom(ctx).SetSectionError("notes", getErr)
 			return nil, getErr
 		}
 		return []json.RawMessage{raw}, nil
 	}
+	if s.queryIsObviousMiss(ctx, normalized.Query) {
+		return []json.RawMessage{}, nil
+	}
+	normalized.Query = s.prepareQuery(ctx, normalized.Query)
+	if normalized.Query == "" {
+		return []json.RawMessage{}, nil
+	}
 
-	return s.searchNotesTrustAware(ctx, normalized)
+	rows, err := s.searchNotesTrustAware(ctx, normalized)
+	if err != nil {
+		readmodel.SearchDiagnosticsFrom(ctx).SetSectionError("notes", err)
+		return nil, err
+	}
+	return rows, nil
 }
 
 func (s Service) SearchProfiles(ctx context.Context, params ProfileSearchParams) (out []Profile, err error) {
 	ctx, span := traceutil.StartSpan(ctx, "query.search_profiles")
 	defer func() { span.End(err) }()
+	started := time.Now()
+	defer readmodel.SearchDiagnosticsFrom(ctx).AddDuration("profiles", time.Since(started))
 
 	normalized, err := normalizeProfileSearchParams(params)
 	if err != nil {
@@ -208,17 +124,26 @@ func (s Service) SearchProfiles(ctx context.Context, params ProfileSearchParams)
 		return []Profile{}, nil
 	}
 	profileQuery := normalizeProfileSearchQuery(normalized.Query)
-	if profileQuery.NormalizedQuery == "" {
+	if profileQuery.NormalizedQuery == "" && profileQuery.CanonicalIdentifier == "" {
 		return []Profile{}, nil
 	}
-	normalized.Query = profileQuery.NormalizedQuery
 	if profileQuery.CanonicalIdentifier != "" {
 		normalized.Query = profileQuery.CanonicalIdentifier
+	} else {
+		if s.queryIsObviousMiss(ctx, profileQuery.NormalizedQuery) {
+			return []Profile{}, nil
+		}
+		normalized.Query = s.prepareQuery(ctx, profileQuery.NormalizedQuery)
+	}
+	if normalized.Query == "" {
+		return []Profile{}, nil
 	}
 	results, err := s.searchProfilesTrustAware(ctx, normalized)
 	if err != nil {
+		readmodel.SearchDiagnosticsFrom(ctx).SetSectionError("profiles", err)
 		return nil, err
 	}
+	results = omitRelayURLProfiles(params.Query, results)
 	if profileQuery.CanonicalIdentifier == "" {
 		return results, nil
 	}
@@ -227,6 +152,7 @@ func (s Service) SearchProfiles(ctx context.Context, params ProfileSearchParams)
 		if IsNotFound(err) {
 			return results, nil
 		}
+		readmodel.SearchDiagnosticsFrom(ctx).SetSectionError("profiles", err)
 		return nil, err
 	}
 	merged := make([]Profile, 0, len(results)+1)
@@ -274,11 +200,6 @@ type searchDocumentsReader interface {
 	SearchDocuments(ctx context.Context, query string, limit int) ([]SearchDocument, error)
 }
 
-type suggestionParams struct {
-	Query string
-	Limit int
-}
-
 func normalizeNotesSearchParams(params NotesSearchParams) (NotesSearchParams, error) {
 	params.Query = strings.TrimSpace(params.Query)
 	if params.Limit <= 0 {
@@ -318,8 +239,15 @@ func (s Service) searchGlobalDocuments(
 	query string,
 	limit int,
 ) ([]HashtagSuggestion, []string, []string, error) {
+	started := time.Now()
+	defer func() {
+		elapsed := time.Since(started)
+		diag := readmodel.SearchDiagnosticsFrom(ctx)
+		diag.AddDuration("hashtags", elapsed)
+		diag.AddDuration("relays", elapsed)
+	}()
 	query = strings.TrimSpace(query)
-	if query == "" {
+	if query == "" || s.queryIsObviousMiss(ctx, query) {
 		return nil, nil, nil, nil
 	}
 	if limit <= 0 {
@@ -401,18 +329,30 @@ func isValidLanguageToken(value string) bool {
 	return languagelabel.ValidFilter(value)
 }
 
-func normalizeSuggestionParams(query string, limit int) (suggestionParams, error) {
-	normalized := suggestionParams{
-		Query: strings.TrimSpace(query),
-		Limit: limit,
+func normalizeSuggestionParams(params SuggestionParams) (SuggestionParams, error) {
+	params.Query = strings.TrimSpace(params.Query)
+	if params.Limit <= 0 {
+		params.Limit = 8
 	}
-	if normalized.Limit <= 0 {
-		normalized.Limit = 8
+	if params.Limit > 20 {
+		params.Limit = 20
 	}
-	if normalized.Limit > 20 {
-		normalized.Limit = 20
+	sort := strings.ToLower(strings.TrimSpace(params.Sort))
+	if sort == "" {
+		sort = "relevant"
 	}
-	return normalized, nil
+	switch sort {
+	case "relevant", "latest":
+	default:
+		return SuggestionParams{}, fmt.Errorf("sort must be one of: relevant, latest")
+	}
+	params.Sort = sort
+	lang := strings.ToLower(strings.TrimSpace(params.Language))
+	if lang != "" && !isValidLanguageToken(lang) {
+		return SuggestionParams{}, fmt.Errorf("language must be \"und\", \"und-uncertain\", or a 2-8 letter code")
+	}
+	params.Language = lang
+	return params, nil
 }
 
 func normalizeProfileSearchParams(params ProfileSearchParams) (ProfileSearchParams, error) {
@@ -433,9 +373,16 @@ func normalizeProfileSearchParams(params ProfileSearchParams) (ProfileSearchPara
 	if sort == "" {
 		sort = "relevant"
 	}
-	if sort != "relevant" {
-		return ProfileSearchParams{}, fmt.Errorf("sort must be one of: relevant")
+	switch sort {
+	case "relevant", "latest":
+	default:
+		return ProfileSearchParams{}, fmt.Errorf("sort must be one of: relevant, latest")
 	}
 	params.Sort = sort
+	lang := strings.ToLower(strings.TrimSpace(params.Language))
+	if lang != "" && !isValidLanguageToken(lang) {
+		return ProfileSearchParams{}, fmt.Errorf("language must be \"und\", \"und-uncertain\", or a 2-8 letter code")
+	}
+	params.Language = lang
 	return params, nil
 }

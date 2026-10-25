@@ -129,6 +129,7 @@ func (s *Searcher) SearchNotes(
 		Offset:                int64(offset),
 		AttributesToRetrieve:  []string{"id"},
 		AttributesToHighlight: []string{"content"},
+		ShowRankingScore:      true,
 	}
 	filters := make([]string, 0, 3)
 	if pubkey, ok := hexPubkeyQuery(searchQuery); ok {
@@ -162,11 +163,15 @@ func (s *Searcher) SearchNotes(
 		return nil, err
 	}
 	s.finishSearch(&outcome, nil)
+	observeSearchTotal(ctx, "notes", resp)
 	ids := make([]string, 0, len(resp.Hits))
 	localHighlights := make(map[string]any)
 	for _, hit := range resp.Hits {
 		if id := hitString(hit, "id"); id != "" {
 			ids = append(ids, id)
+			if score := hitFloat64(hit, "_rankingScore"); score > 0 {
+				readmodel.SearchDiagnosticsFrom(ctx).ObserveNoteScore(id, score)
+			}
 			if formatted := hitFormatted(hit); len(formatted) > 0 {
 				localHighlights[id] = formatted
 			}
@@ -230,6 +235,7 @@ func (s *Searcher) SearchProfiles(
 		return nil, err
 	}
 	s.finishSearch(&outcome, nil)
+	observeSearchTotal(ctx, "profiles", resp)
 	out := make([]readmodel.Profile, 0, len(resp.Hits))
 	localHighlights := make(map[string]any)
 	for _, hit := range resp.Hits {
@@ -373,6 +379,17 @@ func (s *Searcher) SearchDocuments(ctx context.Context, searchQuery string, limi
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+func observeSearchTotal(ctx context.Context, section string, resp *ms.SearchResponse) {
+	if resp == nil {
+		return
+	}
+	total := resp.EstimatedTotalHits
+	if resp.TotalHits > total {
+		total = resp.TotalHits
+	}
+	readmodel.SearchDiagnosticsFrom(ctx).ObserveTotal(section, total, true)
 }
 
 func profileFromMeiliHit(hit ms.Hit) readmodel.Profile {

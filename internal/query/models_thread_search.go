@@ -80,8 +80,30 @@ type SearchResult struct {
 }
 
 type SearchSuggestionsResult struct {
-	Profiles []Profile           `json:"profiles"`
-	Hashtags []HashtagSuggestion `json:"hashtags"`
+	Profiles          []Profile           `json:"profiles"`
+	Hashtags          []HashtagSuggestion `json:"hashtags"`
+	Notes             []json.RawMessage   `json:"notes,omitempty"`
+	CorrectedQuery    string              `json:"corrected_query,omitempty"`
+	CorrectionApplied bool                `json:"correction_applied,omitempty"`
+}
+
+// GlobalSearchParams is the shared input for GET /api/v1/search.
+type GlobalSearchParams struct {
+	Query    string
+	Limit    int
+	Sort     string
+	Language string
+	Window   *time.Duration
+}
+
+// SuggestionParams is the shared input for GET /api/v1/search/suggest.
+type SuggestionParams struct {
+	Query     string
+	Limit     int
+	Sort      string
+	Language  string
+	Window    *time.Duration
+	SkipNotes bool
 }
 
 // HashtagSuggestion is re-exported from the neutral readmodel package.
@@ -104,10 +126,12 @@ type NotesSearchParams struct {
 }
 
 type ProfileSearchParams struct {
-	Query  string
-	Limit  int
-	Offset int
-	Sort   string
+	Query    string
+	Limit    int
+	Offset   int
+	Sort     string
+	Language string
+	Window   *time.Duration
 }
 
 // SearchDocument is re-exported from the neutral readmodel package.

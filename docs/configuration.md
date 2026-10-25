@@ -37,7 +37,7 @@ Do not hand-edit this file.
 | `HTTP_PUBLIC_MAX_PAGE_OFFSET` | `api` | optional | `5000` | Maximum offset accepted by guarded public pagination endpoints. |
 | `HTTP_PUBLIC_MAX_PAGE_SIZE` | `api` | optional | `100` | Maximum page size accepted by guarded public pagination endpoints. |
 | `HTTP_PUBLIC_MAX_RESULT_LIMIT` | `api` | optional | `100` | Maximum result limit accepted by guarded public discovery/search endpoints. |
-| `HTTP_PUBLIC_MAX_SEARCH_WINDOW_HOURS` | `api` | optional | `168` | Maximum search window size in hours for guarded query params. |
+| `HTTP_PUBLIC_MAX_SEARCH_WINDOW_HOURS` | `api` | optional | `720` | Maximum search window size in hours. window=all is unbounded. |
 | `HTTP_PUBLIC_STATS_RATE_LIMIT_RPM` | `api` | optional | `120` | Per-IP requests per minute for public stats endpoints. |
 | `HTTP_RATE_LIMIT_BURST` | `api` | optional | `60` | Burst size for the default HTTP rate limiter. |
 | `HTTP_RATE_LIMIT_RPM` | `api` | optional | `240` | Per-IP requests per minute for default HTTP routes. |

@@ -374,7 +374,7 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 		cfg.HTTP.PublicMaxResultLimit != 100 ||
 		cfg.HTTP.PublicMaxPageSize != 100 ||
 		cfg.HTTP.PublicMaxPageOffset != 5000 ||
-		cfg.HTTP.PublicMaxSearchWindowHrs != 7*24 ||
+		cfg.HTTP.PublicMaxSearchWindowHrs != 30*24 ||
 		cfg.HTTP.PublicMaxDiscoveryWindowHrs != 30*24 {
 		t.Fatalf("unexpected api public guard defaults: %#v", cfg.HTTP)
 	}

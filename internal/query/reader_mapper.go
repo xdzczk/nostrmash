@@ -328,6 +328,44 @@ func (a readModelReaderAdapter) GetFollowersByPubkey(ctx context.Context, target
 	return a.readModel.GetFollowersByPubkey(ctx, targetPubkey, limit)
 }
 
+func (a readModelReaderAdapter) HashtagDocumentFrequencies(ctx context.Context, terms []string) (map[string]int64, error) {
+	reader, ok := a.readModel.(interface {
+		HashtagDocumentFrequencies(context.Context, []string) (map[string]int64, error)
+	})
+	if !ok {
+		return nil, unsupportedCapabilityError("hashtag document frequency")
+	}
+	return reader.HashtagDocumentFrequencies(ctx, terms)
+}
+
+func (a readModelReaderAdapter) SearchProfileSignals(ctx context.Context, pubkeys []string) (map[string]readmodel.ProfileSearchSignal, error) {
+	reader, ok := a.readModel.(interface {
+		SearchProfileSignals(context.Context, []string) (map[string]readmodel.ProfileSearchSignal, error)
+	})
+	if !ok {
+		return nil, unsupportedCapabilityError("search profile signals")
+	}
+	return reader.SearchProfileSignals(ctx, pubkeys)
+}
+
+func (a readModelReaderAdapter) GetEventCountsByIDs(ctx context.Context, ids []string) (map[string]EventCounts, error) {
+	reader, ok := a.readModel.(interface {
+		GetEventCountsByIDs(context.Context, []string) (map[string]readmodel.EventCounts, error)
+	})
+	if !ok {
+		return nil, unsupportedCapabilityError("event counts")
+	}
+	rows, err := reader.GetEventCountsByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]EventCounts, len(rows))
+	for id, row := range rows {
+		out[id] = eventCountsFromStore(row)
+	}
+	return out, nil
+}
+
 type readModelFallbackReader interface {
 	FetchEventsByIDs(ctx context.Context, ids []string) (map[string]json.RawMessage, error)
 	FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]readmodel.ProfileProjection, error)

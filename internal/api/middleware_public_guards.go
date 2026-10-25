@@ -28,7 +28,7 @@ func WithPublicRequestGuards(opts PublicRequestGuardOptions, next http.Handler) 
 		opts.MaxPageOffset = 5000
 	}
 	if opts.MaxSearchWindowHours <= 0 {
-		opts.MaxSearchWindowHours = 7 * 24
+		opts.MaxSearchWindowHours = 30 * 24
 	}
 	if opts.MaxDiscoveryWindowHours <= 0 {
 		opts.MaxDiscoveryWindowHours = 30 * 24
@@ -64,6 +64,9 @@ func validatePublicQueryGuards(r *http.Request, endpointClass publicEndpointClas
 	switch endpointClass {
 	case publicEndpointClassSearch, publicEndpointClassSuggest:
 		maxWindowHours = opts.MaxSearchWindowHours
+		// Search accepts window=all. The ranking query stays limit-bounded;
+		// an omitted window already means the full corpus.
+		allowUnboundedWindow = true
 	case publicEndpointClassDiscovery, publicEndpointClassPublicStats:
 		maxWindowHours = opts.MaxDiscoveryWindowHours
 		// Discovery list endpoints (hashtag/domain notes) document and

@@ -19,7 +19,7 @@ func TestSearchDedicatedRoutes_Success(t *testing.T) {
 	h := mustNewHandlers(t, fakeEventReader{
 		searchNotesFn: func(_ context.Context, q string, sort string, window *time.Duration, language string, limit int, offset int) ([]json.RawMessage, error) {
 			if q != "nostr" {
-				t.Fatalf("unexpected notes query: %q", q)
+				return []json.RawMessage{}, nil
 			}
 			if sort != "latest" {
 				t.Fatalf("unexpected notes sort: %q", sort)
@@ -39,6 +39,16 @@ func TestSearchDedicatedRoutes_Success(t *testing.T) {
 			}, nil
 		},
 		searchProfilesWithOptionsFn: func(_ context.Context, q string, sort string, limit int, offset int) ([]store.ProfileProjection, error) {
+			if q == "nost" {
+				return []store.ProfileProjection{
+					{
+						Pubkey:            "pk_suggest",
+						MetadataEventID:   "meta_suggest",
+						MetadataCreatedAt: 1710001000,
+						ProfileJSON:       json.RawMessage(`{"name":"nostr fan"}`),
+					},
+				}, nil
+			}
 			if q != "alice" {
 				t.Fatalf("unexpected profiles query: %q", q)
 			}
@@ -195,11 +205,11 @@ func TestSearchDedicatedRoutes_Validation(t *testing.T) {
 	cases := []string{
 		"/api/v1/search/notes?q=",
 		"/api/v1/search/notes?q=ok&sort=top",
-		"/api/v1/search/notes?q=ok&window=30d",
+		"/api/v1/search/notes?q=ok&window=2d",
 		"/api/v1/search/notes?q=ok&lang=en-US",
 		"/api/v1/search/notes?q=ok&offset=-1",
 		"/api/v1/search/profiles?q=",
-		"/api/v1/search/profiles?q=ok&sort=latest",
+		"/api/v1/search/profiles?q=ok&sort=top",
 		"/api/v1/search/suggest?q=ok&limit=0",
 	}
 	for _, path := range cases {
