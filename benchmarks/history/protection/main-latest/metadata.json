@@ -1,7 +1,7 @@
 {
   "run_id": "main-latest",
-  "collected_at_utc": "20261025T151317Z",
-  "git_sha": "d1801e5",
+  "collected_at_utc": "20261025T152149Z",
+  "git_sha": "fa075a3",
   "ref_name": "main",
   "bench_count": 5,
   "collect_scope": "protected",
