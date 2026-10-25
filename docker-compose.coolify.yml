@@ -177,6 +177,9 @@ services:
 
   worker:
     <<: *nostrmash-service
+    # Language models stay resident at about 1.2 GiB. The shared 512m cap
+    # OOM-kills the process about a minute after startup.
+    mem_limit: ${WORKER_MEM_LIMIT:-2g}
     command: ["/app/worker"]
     depends_on:
       <<: *depends-on-migrate
