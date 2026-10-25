@@ -222,6 +222,21 @@ type DerivationActiveVersion struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type DerivationBackfillCursor struct {
+	Name            string
+	Phase           string
+	Status          string
+	WindowStart     int64
+	CursorCreatedAt int64
+	CursorEventID   string
+	CursorPubkey    string
+	Scanned         int64
+	UpdatedRows     int64
+	LastError       pgtype.Text
+	UpdatedAt       pgtype.Timestamptz
+	FinishedAt      pgtype.Timestamptz
+}
+
 type DerivationVersion struct {
 	DerivationName string
 	Version        int32
@@ -418,6 +433,7 @@ type NoteDiscoveryStat struct {
 	AttachmentCount    int32
 	PrimaryLanguage    pgtype.Text
 	LanguageConfidence pgtype.Float8
+	LanguageSource     pgtype.Text
 }
 
 type PendingAuthorAnalyticsRecompute struct {
@@ -464,6 +480,8 @@ type ProfileDiscoveryStat struct {
 	ScoredEngagement7d       pgtype.Float8
 	ScoredNewFollowers24h    pgtype.Float8
 	ScoredNewFollowers7d     pgtype.Float8
+	PrimaryLanguage24h       pgtype.Text
+	PrimaryLanguage7d        pgtype.Text
 }
 
 type ProfilePublicStat struct {
@@ -741,6 +759,8 @@ type ThreadSummary struct {
 	ProjectedAt       pgtype.Timestamptz
 	ReplyWeight24h    float64
 	ReplyWeight7d     float64
+	Authors24h        int32
+	Authors7d         int32
 }
 
 type TrustGraphSnapshot struct {
