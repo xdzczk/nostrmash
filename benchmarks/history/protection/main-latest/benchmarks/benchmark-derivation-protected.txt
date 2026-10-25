@@ -1,11 +1,11 @@
 goos: linux
 goarch: amd64
 pkg: github.com/xdzczk/nostrmash/internal/derivation
-cpu: AMD EPYC 9V45 96-Core Processor                
-BenchmarkDeriveEventReferences-4   	 3167752	       376.0 ns/op	    1424 B/op	       5 allocs/op
-BenchmarkDeriveEventReferences-4   	 3108126	       378.7 ns/op	    1424 B/op	       5 allocs/op
-BenchmarkDeriveEventReferences-4   	 3173282	       379.9 ns/op	    1424 B/op	       5 allocs/op
-BenchmarkDeriveEventReferences-4   	 3169911	       381.6 ns/op	    1424 B/op	       5 allocs/op
-BenchmarkDeriveEventReferences-4   	 3117308	       380.8 ns/op	    1424 B/op	       5 allocs/op
+cpu: AMD EPYC 7763 64-Core Processor                
+BenchmarkDeriveEventReferences-4   	 1711813	       693.1 ns/op	    1424 B/op	       5 allocs/op
+BenchmarkDeriveEventReferences-4   	 1715708	       702.2 ns/op	    1424 B/op	       5 allocs/op
+BenchmarkDeriveEventReferences-4   	 1719360	       699.8 ns/op	    1424 B/op	       5 allocs/op
+BenchmarkDeriveEventReferences-4   	 1669402	       709.9 ns/op	    1424 B/op	       5 allocs/op
+BenchmarkDeriveEventReferences-4   	 1644739	      1113 ns/op	    1424 B/op	       5 allocs/op
 PASS
-ok  	github.com/xdzczk/nostrmash/internal/derivation	7.914s
+ok  	github.com/xdzczk/nostrmash/internal/derivation	10.218s
