@@ -101,7 +101,7 @@ func TestGetPublicDiscoveryNetworkStats_ComputesWindowedCounts(t *testing.T) {
 		t.Fatalf("RefreshRelayWindowSnapshots: %v", err)
 	}
 
-	stats, err := pgStore.GetPublicDiscoveryNetworkStats(ctx, 5)
+	stats, err := pgStore.GetPublicDiscoveryNetworkStats(ctx, 5, "")
 	if err != nil {
 		t.Fatalf("GetPublicDiscoveryNetworkStats: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestGetPublicDiscoveryNetworkStats_HandlesMissingHashtagsProjection(t *test
 		t.Fatalf("drop event_hashtags: %v", err)
 	}
 
-	stats, err := pgStore.GetPublicDiscoveryNetworkStats(ctx, 5)
+	stats, err := pgStore.GetPublicDiscoveryNetworkStats(ctx, 5, "")
 	if err != nil {
 		t.Fatalf("GetPublicDiscoveryNetworkStats with missing hashtags table: %v", err)
 	}

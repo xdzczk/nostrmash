@@ -64,7 +64,7 @@ func approxLiveTupleCount(ctx context.Context, pool *pgxpool.Pool, tableName str
 	return estimate, nil
 }
 
-func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (PublicDiscoveryNetworkStats, error) {
+func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int, lang string) (PublicDiscoveryNetworkStats, error) {
 	out := PublicDiscoveryNetworkStats{}
 	if s == nil || s.pool == nil {
 		return out, fmt.Errorf("store is not initialized")
@@ -173,6 +173,28 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	}
 	out.SectionTimes.Hashtags24h = hashtags24hAt
 	out.SectionTimes.Hashtags7d = hashtags7dAt
+	if lang == "" {
+		return out, nil
+	}
+	home24, err := s.homeWindowLanguage(ctx, relaySnapshotLabelHomeWindow24hLang, lang)
+	if err != nil {
+		return out, err
+	}
+	home7, err := s.homeWindowLanguage(ctx, relaySnapshotLabelHomeWindow7dLang, lang)
+	if err != nil {
+		return out, err
+	}
+	out.NoteVolume = WindowedCount{Last24h: home24.NoteVolume, Last7d: home7.NoteVolume}
+	out.ActiveAuthors = WindowedCount{Last24h: home24.ActiveAuthors, Last7d: home7.ActiveAuthors}
+	tags24, err := s.languageHashtags(ctx, relaySnapshotLabelTopHashtags24hLang, lang, hashtagLimit, 0)
+	if err != nil {
+		return out, err
+	}
+	tags7, err := s.languageHashtags(ctx, relaySnapshotLabelTopHashtags7dLang, lang, hashtagLimit, 0)
+	if err != nil {
+		return out, err
+	}
+	out.TopHashtags = &TrendingHashtagWindows{Last24h: tags24, Last7d: tags7}
 	return out, nil
 }
 
@@ -192,6 +214,11 @@ const (
 	relaySnapshotLabelTopHashtags7d   = "top_hashtags_7d"
 	relaySnapshotLabelTopDomains24h   = "top_domains_24h"
 	relaySnapshotLabelTopDomains7d    = "top_domains_7d"
+
+	relaySnapshotLabelHomeWindow24hLang  = "home_window_24h.lang"
+	relaySnapshotLabelHomeWindow7dLang   = "home_window_7d.lang"
+	relaySnapshotLabelTopHashtags24hLang = "top_hashtags_24h.lang"
+	relaySnapshotLabelTopHashtags7dLang  = "top_hashtags_7d.lang"
 )
 
 // relaySummarySnapshotPayload mirrors the JSONB shape stored under
@@ -453,6 +480,7 @@ type hashtagSnapshotRow struct {
 func (s *Read) GetHomeTrendingHashtags(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 ) ([]TrendingHashtag, error) {
@@ -472,7 +500,12 @@ func (s *Read) GetHomeTrendingHashtags(
 	if offset < 0 {
 		offset = 0
 	}
-	rows, _, err := s.getTopHashtagsSnapshot(ctx, label, 50)
+	var rows []TrendingHashtag
+	if lang != "" {
+		rows, err = s.languageHashtags(ctx, label+".lang", lang, 50, 0)
+	} else {
+		rows, _, err = s.getTopHashtagsSnapshot(ctx, label, 50)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -484,6 +517,69 @@ func (s *Read) GetHomeTrendingHashtags(
 		rows = rows[:limit]
 	}
 	return rows, nil
+}
+
+func (s *Read) readSnapshotPayload(ctx context.Context, label string) ([]byte, error) {
+	var payload []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT payload
+		FROM relay_window_snapshots
+		WHERE snapshot_label = $1
+	`, label).Scan(&payload)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || isUndefinedRelationError(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read snapshot %q: %w", label, err)
+	}
+	return payload, nil
+}
+
+type homeWindowLanguageSnapshot struct {
+	NoteVolume    int64 `json:"note_volume"`
+	ActiveAuthors int64 `json:"active_authors"`
+}
+
+func (s *Read) homeWindowLanguage(ctx context.Context, label, lang string) (homeWindowLanguageSnapshot, error) {
+	payload, err := s.readSnapshotPayload(ctx, label)
+	if err != nil || len(payload) == 0 {
+		return homeWindowLanguageSnapshot{}, err
+	}
+	var byLang map[string]homeWindowLanguageSnapshot
+	if err := json.Unmarshal(payload, &byLang); err != nil {
+		return homeWindowLanguageSnapshot{}, fmt.Errorf("decode home window languages %q: %w", label, err)
+	}
+	return byLang[lang], nil
+}
+
+func (s *Read) languageHashtags(ctx context.Context, label, lang string, limit, offset int) ([]TrendingHashtag, error) {
+	payload, err := s.readSnapshotPayload(ctx, label)
+	if err != nil || len(payload) == 0 {
+		return []TrendingHashtag{}, err
+	}
+	var byLang map[string][]hashtagSnapshotRow
+	if err := json.Unmarshal(payload, &byLang); err != nil {
+		return nil, fmt.Errorf("decode hashtag languages %q: %w", label, err)
+	}
+	rows := byLang[lang]
+	if offset >= len(rows) {
+		return []TrendingHashtag{}, nil
+	}
+	if offset > 0 {
+		rows = rows[offset:]
+	}
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]TrendingHashtag, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, TrendingHashtag{
+			Hashtag:       row.Hashtag,
+			EventCount:    row.EventCount,
+			UniqueAuthors: row.UniqueAuthors,
+		})
+	}
+	return out, nil
 }
 
 func resolveHomeHashtagsSnapshotLabel(window time.Duration) (string, error) {

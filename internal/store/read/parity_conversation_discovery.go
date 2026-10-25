@@ -38,7 +38,7 @@ func conversationVelocity(authors int, replies int64, broadVelocity float64) flo
 }
 
 // GetHotConversations returns projection-backed active conversation hotspots.
-func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]HotConversation, error) {
+func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]HotConversation, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -124,10 +124,15 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, li
 		WHERE e.kind = 1
 		  AND COALESCE(ts.last_activity_at, e.created_at) >= $1
 		  AND %s > 0
+		  %s
 		ORDER BY velocity_score DESC, COALESCE(ts.last_activity_at, e.created_at) DESC, ts.root_event_id ASC
 		LIMIT $2 OFFSET $3
-	`, velocityScore, velocityScore)
-	rows, err := s.pool.Query(ctx, query, activityCutoff, limit, offset)
+	`, velocityScore, velocityScore, noteLanguageClause("nds", "$4::text", lang))
+	args := []any{activityCutoff, limit, offset}
+	if lang != "" {
+		args = append(args, lang)
+	}
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get hot conversations: %w", err)
 	}

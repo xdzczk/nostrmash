@@ -127,6 +127,39 @@ func lookupThreadContentLanguage(ctx context.Context, tx pgx.Tx, noteID string) 
 	return nil, nil
 }
 
+// lookupWindowDominantLanguage is the author's own content language inside
+// one ranking window. Inherited thread/author labels are excluded so a
+// profile is not classified by the conversations it replies to.
+func lookupWindowDominantLanguage(ctx context.Context, tx pgx.Tx, authorPubkey string, cutoff int64) (*string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT primary_language, COUNT(*)::bigint
+		FROM note_discovery_stats
+		WHERE author_pubkey = $1
+		  AND created_at >= $2
+		  AND language_source IN ('content', 'tag')
+		  AND primary_language IS NOT NULL
+		GROUP BY primary_language
+		ORDER BY COUNT(*) DESC, primary_language ASC
+		LIMIT 2
+	`, authorPubkey, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("load window language: %w", err)
+	}
+	defer rows.Close()
+	counts := make([]authorLanguageCount, 0, 2)
+	for rows.Next() {
+		var row authorLanguageCount
+		if err := rows.Scan(&row.language, &row.count); err != nil {
+			return nil, fmt.Errorf("scan window language: %w", err)
+		}
+		counts = append(counts, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read window language: %w", err)
+	}
+	return dominantAuthorLanguage(counts), nil
+}
+
 func lookupAuthorContentLanguage(ctx context.Context, tx pgx.Tx, authorPubkey, noteID string, nowUnix int64) (*string, error) {
 	cutoff := nowUnix - languageAuthorPriorWindow
 	rows, err := tx.Query(ctx, `

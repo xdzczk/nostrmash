@@ -24,6 +24,11 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	lang, err := parseOptionalDiscoveryLanguage(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -34,13 +39,13 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_notes", map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_notes", discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	})
+	}, lang))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		notes, notesErr := h.service.GetTrendingNotes(ctx, window, limit, offset)
+		notes, notesErr := h.service.GetTrendingNotes(ctx, window, discoveryScope(lang), limit, offset)
 		degraded := false
 		if notesErr != nil {
 			if query.IsUnsupportedCapability(notesErr) {
@@ -73,6 +78,7 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		computedAt := time.Now().UTC()
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
 		h.addDiscoveryTrustMetadata(payloadResponse)
+		h.attachDiscoveryLanguage(ctx, payloadResponse, lang)
 		return payloadResponse, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
@@ -90,6 +96,11 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	lang, err := parseOptionalDiscoveryLanguage(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -100,13 +111,13 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_long_form", map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_long_form", discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	})
+	}, lang))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		articles, articlesErr := h.service.GetTrendingLongForm(ctx, window, limit, offset)
+		articles, articlesErr := h.service.GetTrendingLongForm(ctx, window, discoveryScope(lang), limit, offset)
 		degraded := false
 		if articlesErr != nil {
 			if query.IsUnsupportedCapability(articlesErr) {
@@ -139,6 +150,7 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		computedAt := time.Now().UTC()
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
 		h.addDiscoveryTrustMetadata(payloadResponse)
+		h.attachDiscoveryLanguage(ctx, payloadResponse, lang)
 		return payloadResponse, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
@@ -156,6 +168,11 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	lang, err := parseOptionalDiscoveryLanguage(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -166,13 +183,13 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "hot_conversations", map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "hot_conversations", discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	})
+	}, lang))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		conversations, conversationsErr := h.service.GetHotConversations(ctx, window, limit, offset)
+		conversations, conversationsErr := h.service.GetHotConversations(ctx, window, discoveryScope(lang), limit, offset)
 		degraded := false
 		if conversationsErr != nil {
 			if query.IsUnsupportedCapability(conversationsErr) {
@@ -218,6 +235,7 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 		computedAt := time.Now().UTC()
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(items))
 		h.addDiscoveryTrustMetadata(payloadResponse)
+		h.attachDiscoveryLanguage(ctx, payloadResponse, lang)
 		return payloadResponse, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
@@ -240,6 +258,7 @@ type discoveryHomeRequest struct {
 	profilesLimit    int
 	domainsLimit     int
 	hashtagStatLimit int
+	language         string
 }
 
 func defaultDiscoveryHomeRequest(window time.Duration, label string) discoveryHomeRequest {
@@ -255,18 +274,23 @@ func defaultDiscoveryHomeRequest(window time.Duration, label string) discoveryHo
 }
 
 func (h Handlers) discoveryHomePolicy(req discoveryHomeRequest) publicResponseCachePolicy {
-	return h.newPublicCachePolicy(publicCacheFamilyBundle, "discovery_home", map[string]any{
+	return h.newPublicCachePolicy(publicCacheFamilyBundle, "discovery_home", discoveryCacheParams(map[string]any{
 		"window":             req.windowLabel,
 		"notes_limit":        req.notesLimit,
 		"hashtags_limit":     req.hashtagsLimit,
 		"profiles_limit":     req.profilesLimit,
 		"domains_limit":      req.domainsLimit,
 		"hashtag_stat_limit": req.hashtagStatLimit,
-	})
+	}, req.language))
 }
 
 func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 	window, windowLabel, err := parseTrendingWindow(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	lang, err := parseOptionalDiscoveryLanguage(r)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -304,6 +328,7 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		profilesLimit:    profilesLimit,
 		domainsLimit:     domainsLimit,
 		hashtagStatLimit: hashtagStatLimit,
+		language:         lang,
 	}
 	if err := h.servePublicCached(r.Context(), w, h.discoveryHomePolicy(homeReq), func(reqCtx context.Context) (map[string]any, error) {
 		// Bound the whole fan-out below by a fixed wall-clock budget,
@@ -363,31 +388,46 @@ func (h Handlers) RunDiscoveryHomeWarmer(ctx context.Context) {
 }
 
 func (h Handlers) warmDiscoveryHome(ctx context.Context) {
-	for _, spec := range []struct {
+	windows := []struct {
 		window time.Duration
 		label  string
 	}{
 		{24 * time.Hour, "24h"},
 		{7 * 24 * time.Hour, "7d"},
-	} {
-		homeReq := defaultDiscoveryHomeRequest(spec.window, spec.label)
-		buildCtx, cancel := context.WithTimeout(ctx, discoveryHomeWarmTimeout)
-		started := time.Now()
-		_, err := h.buildAndCachePayload(buildCtx, h.discoveryHomePolicy(homeReq), func(ctx context.Context) (map[string]any, error) {
-			return h.buildDiscoveryHome(ctx, homeReq)
-		})
-		cancel()
-		if err != nil {
-			if ctx.Err() != nil {
+	}
+	languages := []string{""}
+	if stats, err := h.service.GetPublicDiscoveryNetworkStats(ctx, 8, query.DiscoveryScope{}); err == nil {
+		languages = append(languages, selectableDiscoveryLanguages(stats, 5)...)
+	}
+	for _, lang := range languages {
+		for _, spec := range windows {
+			if !h.warmOneDiscoveryHome(ctx, spec.window, spec.label, lang) {
 				return
 			}
-			apiErrLog.Error("discovery_home_warm_failed", "window", spec.label, "error", err, "duration_s", time.Since(started).Seconds())
-			continue
-		}
-		if elapsed := time.Since(started); elapsed > 2*time.Second {
-			apiErrLog.Info("discovery_home_warm_slow", "window", spec.label, "duration_s", elapsed.Seconds())
 		}
 	}
+}
+
+func (h Handlers) warmOneDiscoveryHome(ctx context.Context, window time.Duration, label, lang string) bool {
+	homeReq := defaultDiscoveryHomeRequest(window, label)
+	homeReq.language = lang
+	buildCtx, cancel := context.WithTimeout(ctx, discoveryHomeWarmTimeout)
+	started := time.Now()
+	_, err := h.buildAndCachePayload(buildCtx, h.discoveryHomePolicy(homeReq), func(ctx context.Context) (map[string]any, error) {
+		return h.buildDiscoveryHome(ctx, homeReq)
+	})
+	cancel()
+	if err != nil {
+		if ctx.Err() != nil {
+			return false
+		}
+		apiErrLog.Error("discovery_home_warm_failed", "window", label, "lang", lang, "error", err, "duration_s", time.Since(started).Seconds())
+		return true
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		apiErrLog.Info("discovery_home_warm_slow", "window", label, "lang", lang, "duration_s", elapsed.Seconds())
+	}
+	return true
 }
 
 func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeRequest) (map[string]any, error) {
@@ -407,26 +447,27 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 		domainsErr       error
 		networkErr       error
 	)
+	scope := discoveryScope(req.language)
 	var wg sync.WaitGroup
 	wg.Add(5)
 	go func() {
 		defer wg.Done()
-		notes, notesErr = h.service.GetTrendingNotes(ctx, req.window, req.notesLimit, 0)
+		notes, notesErr = h.service.GetTrendingNotes(ctx, req.window, scope, req.notesLimit, 0)
 	}()
 	go func() {
 		defer wg.Done()
-		trendingProfiles, trendingErr = h.service.GetTrendingProfiles(ctx, req.window, req.profilesLimit, 0)
+		trendingProfiles, trendingErr = h.service.GetTrendingProfiles(ctx, req.window, scope, req.profilesLimit, 0)
 	}()
 	go func() {
 		defer wg.Done()
-		risingProfiles, risingErr = h.service.GetRisingProfiles(ctx, req.window, req.profilesLimit, 0)
+		risingProfiles, risingErr = h.service.GetRisingProfiles(ctx, req.window, scope, req.profilesLimit, 0)
 	}()
 	go func() {
 		defer wg.Done()
 		// Trending domains are served from the top_domains_24h/7d
 		// snapshot (see internal/derivation/projection_relay_window_snapshots.go).
 		// /discovery/domains/trending reads the same snapshot.
-		domains, domainsErr = h.service.GetHomeTrendingDomains(ctx, req.window, req.domainsLimit)
+		domains, domainsErr = h.service.GetHomeTrendingDomains(ctx, req.window, scope, req.domainsLimit)
 	}()
 	go func() {
 		defer wg.Done()
@@ -435,7 +476,10 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 		// than a second live GetTrendingHashtags aggregate. Fetch enough
 		// rows to satisfy whichever of hashtagsLimit / hashtagStatLimit
 		// is larger so both sections can slice down from one call.
-		networkStats, networkErr = h.service.GetPublicDiscoveryNetworkStats(ctx, max(req.hashtagsLimit, req.hashtagStatLimit))
+		// A language scope replaces note volume, active authors, and the
+		// hashtag list. Top languages stay global so the selector can
+		// offer the other codes.
+		networkStats, networkErr = h.service.GetPublicDiscoveryNetworkStats(ctx, max(req.hashtagsLimit, req.hashtagStatLimit), scope)
 	}()
 	wg.Wait()
 
@@ -481,8 +525,8 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 
 	noteItems := buildDiscoveryNoteItems(notes, profileIdentities)
 	domainItems := buildDiscoveryDomainItems(domains, req.windowLabel)
-	trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities, discoverySurfaceTrending)
-	risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities, discoverySurfaceRising)
+	trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities, discoverySurfaceTrending, req.windowLabel)
+	risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities, discoverySurfaceRising, req.windowLabel)
 	network := map[string]any{
 		"totals": map[string]any{
 			"events_ingested":    networkStats.EventsIngested,
@@ -527,6 +571,9 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 			"network_summary": network,
 		},
 		"consistency": "eventual",
+	}
+	if req.language != "" {
+		payload["language"] = req.language
 	}
 	if len(degraded) > 0 {
 		payload["degraded"] = true

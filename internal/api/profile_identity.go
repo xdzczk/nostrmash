@@ -108,7 +108,9 @@ func buildDiscoveryProfileItems(
 	rows []query.TrendingProfile,
 	identities map[string]profileIdentityFields,
 	surface string,
+	window string,
 ) []map[string]any {
+	rankings := assignProfileRankings(rows, surface, window)
 	items := make([]map[string]any, 0, len(rows))
 	for index, profile := range rows {
 		item := map[string]any{
@@ -122,7 +124,7 @@ func buildDiscoveryProfileItems(
 			"recent_active_days":         profile.RecentActiveDays,
 			"recent_activity_at":         profile.RecentActivityAt,
 			"follower_count":             profile.FollowerCount,
-			"ranking":                    buildProfileRanking(profile, index+1, surface),
+			"ranking":                    rankings[index],
 		}
 		if npub := encodeNpub(profile.Pubkey); npub != "" {
 			item["npub"] = npub
@@ -139,10 +141,11 @@ func buildDiscoveryNoteItems(
 	rows []query.TrendingNote,
 	identities map[string]profileIdentityFields,
 ) []map[string]any {
+	rankings := buildNoteRankings(rows)
 	items := make([]map[string]any, 0, len(rows))
 	for index, note := range rows {
 		item := buildTrendingNoteItem(note)
-		item["ranking"] = buildNoteRanking(note, index+1)
+		item["ranking"] = rankings[index]
 		if identity, ok := identities[note.AuthorPubkey]; ok {
 			item["author"] = applyProfileIdentity(map[string]any{}, identity)
 		}

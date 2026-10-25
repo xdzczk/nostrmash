@@ -71,7 +71,7 @@ func TestGetHotConversations_WindowsAndOrdering(t *testing.T) {
 		t.Fatalf("insert note_discovery_stats: %v", err)
 	}
 
-	last24h, err := s.GetHotConversations(ctx, 24*time.Hour, 10, 0)
+	last24h, err := s.GetHotConversations(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetHotConversations 24h: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestGetHotConversations_WindowsAndOrdering(t *testing.T) {
 		t.Fatalf("unexpected root_b zero engagement: %#v", last24h[1])
 	}
 
-	last7d, err := s.GetHotConversations(ctx, 7*24*time.Hour, 10, 0)
+	last7d, err := s.GetHotConversations(ctx, 7*24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetHotConversations 7d: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestGetHotConversations_DiscountsLargeTwoAuthorThreads(t *testing.T) {
 		}
 	}
 
-	last24h, err := s.GetHotConversations(ctx, 24*time.Hour, 10, 0)
+	last24h, err := s.GetHotConversations(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetHotConversations 24h: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestGetHotConversations_SmallGroupsCannotOutrankBreadth(t *testing.T) {
 		}
 	}
 
-	last24h, err := s.GetHotConversations(ctx, 24*time.Hour, 10, 0)
+	last24h, err := s.GetHotConversations(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetHotConversations: %v", err)
 	}

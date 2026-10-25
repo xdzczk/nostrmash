@@ -183,7 +183,7 @@ func TestDomainQueries_AggregateAndResolveCanonicalAliases(t *testing.T) {
 		t.Fatalf("expected canonical author aggregate, got %#v", authorTop)
 	}
 
-	trending, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, 10, 0)
+	trending, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingDomains: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestGetTrendingDomains_PrioritizesUniqueAuthorsAndDiversity(t *testing.T) {
 		}
 	}
 
-	out, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, 10, 0)
+	out, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingDomains: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestDomainCalculations_ExcludeMediaLinks(t *testing.T) {
 		t.Fatalf("expected only non-media domain in top domains, got %#v", topDomains)
 	}
 
-	trendingDomains, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, 10, 0)
+	trendingDomains, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingDomains: %v", err)
 	}
@@ -429,7 +429,7 @@ func TestGetHomeTrendingDomains_MatchesLiveOrdering(t *testing.T) {
 		}
 	}
 
-	live, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, 10, 0)
+	live, err := pgStore.GetTrendingDomains(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingDomains: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestGetHomeTrendingDomains_MatchesLiveOrdering(t *testing.T) {
 		t.Fatalf("RefreshRelayWindowSnapshots: %v", err)
 	}
 
-	snapshot, err := pgStore.GetHomeTrendingDomains(ctx, 24*time.Hour, 10)
+	snapshot, err := pgStore.GetHomeTrendingDomains(ctx, 24*time.Hour, "", 10)
 	if err != nil {
 		t.Fatalf("GetHomeTrendingDomains: %v", err)
 	}
@@ -462,7 +462,7 @@ func TestGetHomeTrendingDomains_MatchesLiveOrdering(t *testing.T) {
 
 	// The 7d snapshot label is refreshed independently and should also be
 	// populated and directly queryable.
-	snapshot7d, err := pgStore.GetHomeTrendingDomains(ctx, 7*24*time.Hour, 10)
+	snapshot7d, err := pgStore.GetHomeTrendingDomains(ctx, 7*24*time.Hour, "", 10)
 	if err != nil {
 		t.Fatalf("GetHomeTrendingDomains (7d): %v", err)
 	}

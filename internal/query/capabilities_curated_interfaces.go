@@ -18,7 +18,7 @@ type networkStatsCapability interface {
 }
 
 type publicDiscoveryNetworkStatsCapability interface {
-	GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (readmodel.PublicDiscoveryNetworkStats, error)
+	GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int, lang string) (readmodel.PublicDiscoveryNetworkStats, error)
 }
 
 type discoveryStatsSeriesCapability interface {
@@ -38,13 +38,13 @@ type curatedReadsTopicsCapability interface {
 }
 
 type trendingHashtagsCapability interface {
-	GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingHashtag, error)
+	GetTrendingHashtags(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.TrendingHashtag, error)
 }
 
 // homeTrendingHashtagsCapability serves the fixed (24h/7d) trending-hashtags
 // list from the same snapshot the homepage overview uses.
 type homeTrendingHashtagsCapability interface {
-	GetHomeTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingHashtag, error)
+	GetHomeTrendingHashtags(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.TrendingHashtag, error)
 }
 
 type hashtagSummaryCapability interface {
@@ -72,7 +72,7 @@ type topDomainsByAuthorCapability interface {
 }
 
 type trendingDomainsCapability interface {
-	GetTrendingDomains(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.DomainSummaryProjection, error)
+	GetTrendingDomains(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.DomainSummaryProjection, error)
 }
 
 // homeTrendingDomainsCapability serves the homepage's fixed (24h/7d, top-N)
@@ -81,7 +81,7 @@ type trendingDomainsCapability interface {
 // request. See internal/derivation/projection_relay_window_snapshots.go and
 // internal/store/read/parity_domains.go for the snapshot writer/reader.
 type homeTrendingDomainsCapability interface {
-	GetHomeTrendingDomains(ctx context.Context, window time.Duration, limit int) ([]readmodel.DomainSummaryProjection, error)
+	GetHomeTrendingDomains(ctx context.Context, window time.Duration, lang string, limit int) ([]readmodel.DomainSummaryProjection, error)
 }
 
 type domainSummaryCapability interface {
@@ -93,21 +93,22 @@ type domainNotesCapability interface {
 }
 
 type trendingNotesCapability interface {
-	GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingNote, error)
+	GetTrendingNotes(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.TrendingNote, error)
 }
 
 type trendingLongFormCapability interface {
-	GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingNote, error)
+	GetTrendingLongForm(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.TrendingNote, error)
 }
 
 type hotConversationsCapability interface {
-	GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.HotConversation, error)
+	GetHotConversations(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.HotConversation, error)
 }
 
 type trustQualifiedTrendingNotesCapability interface {
 	GetTrustQualifiedTrendingNotes(
 		ctx context.Context,
 		window time.Duration,
+		lang string,
 		limit int,
 		offset int,
 		mode string,
@@ -117,7 +118,7 @@ type trustQualifiedTrendingNotesCapability interface {
 }
 
 type trendingProfilesCapability interface {
-	GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingProfile, error)
+	GetTrendingProfiles(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.TrendingProfile, error)
 }
 
 type relatedProfilesCapability interface {
@@ -128,6 +129,7 @@ type trustQualifiedTrendingProfilesCapability interface {
 	GetTrustQualifiedTrendingProfiles(
 		ctx context.Context,
 		window time.Duration,
+		lang string,
 		limit int,
 		offset int,
 		rising bool,
@@ -138,7 +140,7 @@ type trustQualifiedTrendingProfilesCapability interface {
 }
 
 type risingProfilesCapability interface {
-	GetRisingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingProfile, error)
+	GetRisingProfiles(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.TrendingProfile, error)
 }
 
 type curatedFeaturedAuthorsCapability interface {

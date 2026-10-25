@@ -23,6 +23,7 @@ func (r curatedReaderWithHomeTrendingDomains) GetEventSeenOn(context.Context, st
 func (r curatedReaderWithHomeTrendingDomains) GetHomeTrendingDomains(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 ) ([]storeread.DomainSummaryProjection, error) {
 	if r.getHomeTrendingDomainsFn == nil {
@@ -58,7 +59,7 @@ func TestGetHomeTrendingDomains_MapsSnapshotRows(t *testing.T) {
 		},
 	})
 
-	out, err := svc.GetHomeTrendingDomains(context.Background(), 24*time.Hour, 10)
+	out, err := svc.GetHomeTrendingDomains(context.Background(), 24*time.Hour, DiscoveryScope{}, 10)
 	if err != nil {
 		t.Fatalf("GetHomeTrendingDomains returned error: %v", err)
 	}
@@ -91,14 +92,14 @@ func TestGetHomeTrendingDomains_BoundsLimitAndDefaultsWindow(t *testing.T) {
 		},
 	})
 
-	if _, err := svc.GetHomeTrendingDomains(context.Background(), 24*time.Hour, 500); err != nil {
+	if _, err := svc.GetHomeTrendingDomains(context.Background(), 24*time.Hour, DiscoveryScope{}, 500); err != nil {
 		t.Fatalf("GetHomeTrendingDomains returned error: %v", err)
 	}
 	if gotLimit != 50 {
 		t.Fatalf("expected limit to be capped at 50, got %d", gotLimit)
 	}
 
-	if _, err := svc.GetHomeTrendingDomains(context.Background(), 0, 10); err == nil {
+	if _, err := svc.GetHomeTrendingDomains(context.Background(), 0, DiscoveryScope{}, 10); err == nil {
 		t.Fatalf("expected error for non-positive window")
 	}
 }
@@ -124,7 +125,7 @@ func TestGetTrendingDomains_UsesHomeSnapshotForFixedWindows(t *testing.T) {
 		},
 	})
 
-	out, err := svc.GetTrendingDomains(context.Background(), 7*24*time.Hour, 1, 1)
+	out, err := svc.GetTrendingDomains(context.Background(), 7*24*time.Hour, DiscoveryScope{}, 1, 1)
 	if err != nil {
 		t.Fatalf("GetTrendingDomains: %v", err)
 	}
@@ -138,7 +139,7 @@ func TestGetTrendingDomains_UsesHomeSnapshotForFixedWindows(t *testing.T) {
 		t.Fatalf("unexpected paged domains: %#v", out)
 	}
 
-	past, err := svc.GetTrendingDomains(context.Background(), 24*time.Hour, 10, 50)
+	past, err := svc.GetTrendingDomains(context.Background(), 24*time.Hour, DiscoveryScope{}, 10, 50)
 	if err != nil {
 		t.Fatalf("GetTrendingDomains past snapshot: %v", err)
 	}
@@ -154,7 +155,7 @@ func TestGetHomeTrendingDomains_UnsupportedWithoutCapability(t *testing.T) {
 			return nil, store.ErrNotFound
 		},
 	})
-	_, err := svc.GetHomeTrendingDomains(context.Background(), 24*time.Hour, 10)
+	_, err := svc.GetHomeTrendingDomains(context.Background(), 24*time.Hour, DiscoveryScope{}, 10)
 	if !IsUnsupportedCapability(err) {
 		t.Fatalf("expected unsupported capability error, got %v", err)
 	}

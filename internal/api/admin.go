@@ -24,6 +24,8 @@ type AdminService interface {
 	GetDiscoveryStatus(context.Context) (adminDiscoveryStatusResponse, error)
 	GetSearchStatus(context.Context) (adminSearchStatusResponse, error)
 	TriggerMeilisearchSync(context.Context, int, bool) (adminMeilisearchSyncResponse, error)
+	GetLanguageBackfill(context.Context) (derivation.LanguageBackfillStatus, bool, error)
+	StartLanguageBackfill(context.Context) (derivation.LanguageBackfillStatus, error)
 	GetRebuilds(context.Context, int) ([]adminRebuildRunResponse, error)
 	TriggerRebuild(context.Context, derivation.TriggerProjectionRebuildParams) (adminRebuildRunResponse, error)
 	GetStorage(context.Context) (adminStorageResponse, error)

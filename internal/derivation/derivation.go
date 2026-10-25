@@ -108,7 +108,11 @@ const (
 	// v5: follower growth below 10 credited followers scores nothing, and
 	// credited growth ranks linearly under the 500-follower cap so a +3
 	// account cannot outrank a larger absolute jump.
-	ProfileDiscoveryStatsVersion   = 5
+	// v6: primary_language_24h/7d record the author's dominant content
+	// language in each window so profile rankings can filter on it. Rows
+	// written before a refresh leave the columns null and drop out of a
+	// language view until the hot path or the language backfill fills them.
+	ProfileDiscoveryStatsVersion   = 6
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1

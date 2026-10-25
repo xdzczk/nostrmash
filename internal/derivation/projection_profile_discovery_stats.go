@@ -140,6 +140,15 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 		return nil
 	}
 
+	lang24, err := lookupWindowDominantLanguage(ctx, tx, pubkey, nowUnix-int64((24*time.Hour)/time.Second))
+	if err != nil {
+		return err
+	}
+	lang7, err := lookupWindowDominantLanguage(ctx, tx, pubkey, nowUnix-int64((7*24*time.Hour)/time.Second))
+	if err != nil {
+		return err
+	}
+
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO profile_discovery_stats (
 			pubkey,
@@ -157,10 +166,12 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 			scored_engagement_7d,
 			scored_new_followers_24h,
 			scored_new_followers_7d,
+			primary_language_24h,
+			primary_language_7d,
 			last_scored_at,
 			derivation_version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now(), $16)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now(), $18)
 		ON CONFLICT (pubkey) DO UPDATE
 		SET score_24h = EXCLUDED.score_24h,
 		    score_7d = EXCLUDED.score_7d,
@@ -176,10 +187,12 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 		    scored_engagement_7d = EXCLUDED.scored_engagement_7d,
 		    scored_new_followers_24h = EXCLUDED.scored_new_followers_24h,
 		    scored_new_followers_7d = EXCLUDED.scored_new_followers_7d,
+		    primary_language_24h = EXCLUDED.primary_language_24h,
+		    primary_language_7d = EXCLUDED.primary_language_7d,
 		    last_scored_at = now(),
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
-	`, pubkey, score24h, score7d, risingScore24h, risingScore7d, w24.postCount, w24.replyCount, w24.engagement, w24.zapVolumeMSats, w24.activeDays, recentActivityAt, engagement24h, engagement7d, newFollowers24h, newFollowers7d, writeVersion); err != nil {
+	`, pubkey, score24h, score7d, risingScore24h, risingScore7d, w24.postCount, w24.replyCount, w24.engagement, w24.zapVolumeMSats, w24.activeDays, recentActivityAt, engagement24h, engagement7d, newFollowers24h, newFollowers7d, lang24, lang7, writeVersion); err != nil {
 		return fmt.Errorf("upsert profile discovery stats: %w", err)
 	}
 	return nil

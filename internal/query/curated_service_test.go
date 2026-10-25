@@ -52,7 +52,7 @@ func TestGetPublicDiscoveryNetworkStats(t *testing.T) {
 			}, nil
 		},
 	})
-	out, err := svc.GetPublicDiscoveryNetworkStats(context.Background(), 10)
+	out, err := svc.GetPublicDiscoveryNetworkStats(context.Background(), 10, DiscoveryScope{})
 	if err != nil {
 		t.Fatalf("GetPublicDiscoveryNetworkStats returned error: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestGetTrendingHashtagsMapsLegacyStoreModel(t *testing.T) {
 			return []storeread.TrendingHashtag{{Hashtag: "nostr", EventCount: 12, UniqueAuthors: 9}}, nil
 		},
 	})
-	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, 5, 0)
+	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, DiscoveryScope{}, 5, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingHashtags returned error: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestGetTrendingHashtags_PrefersHomeSnapshot(t *testing.T) {
 		},
 	}, ServiceOptions{DiscoveryCandidateTrustMode: trustModePreferTrusted})
 
-	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, 10, 2)
+	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, DiscoveryScope{}, 10, 2)
 	if err != nil {
 		t.Fatalf("GetTrendingHashtags: %v", err)
 	}
@@ -198,6 +198,7 @@ type snapshotHashtagReader struct {
 func (r snapshotHashtagReader) GetHomeTrendingHashtags(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]storeread.TrendingHashtag, error) {
@@ -231,7 +232,7 @@ func TestGetTrendingNotesMapsLegacyStoreModel(t *testing.T) {
 			}}, nil
 		},
 	})
-	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, 5, 0)
+	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, DiscoveryScope{}, 5, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingNotes returned error: %v", err)
 	}
@@ -268,7 +269,7 @@ func TestGetHotConversationsMapsLegacyStoreModel(t *testing.T) {
 			}}, nil
 		},
 	})
-	out, err := svc.GetHotConversations(context.Background(), 24*time.Hour, 5, 0)
+	out, err := svc.GetHotConversations(context.Background(), 24*time.Hour, DiscoveryScope{}, 5, 0)
 	if err != nil {
 		t.Fatalf("GetHotConversations returned error: %v", err)
 	}
@@ -305,7 +306,7 @@ func TestDiscoveryTrustPolicy_TrendingNotesPreferTrusted(t *testing.T) {
 	}, ServiceOptions{
 		DiscoveryCandidateTrustMode: trustModePreferTrusted,
 	})
-	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, 3, 0)
+	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, DiscoveryScope{}, 3, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingNotes returned error: %v", err)
 	}
@@ -350,7 +351,7 @@ func TestDiscoveryTrustPolicy_ScoreBoostReordersWithinTrustedBucket(t *testing.T
 		DiscoveryCandidateTrustMode: trustModePreferTrusted,
 		DiscoveryScoreBoostWeight:   2,
 	})
-	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, 3, 0)
+	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, DiscoveryScope{}, 3, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingNotes returned error: %v", err)
 	}
@@ -384,7 +385,7 @@ func TestDiscoveryTrustPolicy_ScoreBoostReordersWithinTrustedBucket(t *testing.T
 		DiscoveryCandidateTrustMode: trustModePreferTrusted,
 		DiscoveryScoreBoostWeight:   0,
 	})
-	plain, err := svcNoBoost.GetTrendingNotes(context.Background(), 24*time.Hour, 3, 0)
+	plain, err := svcNoBoost.GetTrendingNotes(context.Background(), 24*time.Hour, DiscoveryScope{}, 3, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingNotes no-boost: %v", err)
 	}
@@ -430,7 +431,7 @@ func TestDiscoveryTrustPolicy_HashtagBoostUsesAuthorTrustWeight(t *testing.T) {
 		DiscoveryCandidateTrustMode: trustModePreferTrusted,
 		DiscoveryScoreBoostWeight:   1,
 	})
-	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, 10, 0)
+	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, DiscoveryScope{}, 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingHashtags: %v", err)
 	}
@@ -464,7 +465,7 @@ func TestDiscoveryTrustPolicy_TrendingNotesTrustedOnly(t *testing.T) {
 	}, ServiceOptions{
 		DiscoveryCandidateTrustMode: trustModeTrustedOnly,
 	})
-	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, 10, 0)
+	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, DiscoveryScope{}, 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingNotes returned error: %v", err)
 	}
@@ -501,7 +502,7 @@ func TestDiscoveryTrustPolicy_UsesProjectedTrustQualifiedNotesWhenReady(t *testi
 	}, ServiceOptions{
 		DiscoveryCandidateTrustMode: trustModePreferTrusted,
 	})
-	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, 5, 0)
+	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, DiscoveryScope{}, 5, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingNotes returned error: %v", err)
 	}
@@ -538,7 +539,7 @@ func TestDiscoveryTrustPolicy_ProfilesApplyConsistentQualification(t *testing.T)
 	}, ServiceOptions{
 		DiscoveryCandidateTrustMode: trustModePreferTrusted,
 	})
-	out, err := svc.GetTrendingProfiles(context.Background(), 24*time.Hour, 3, 0)
+	out, err := svc.GetTrendingProfiles(context.Background(), 24*time.Hour, DiscoveryScope{}, 3, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingProfiles returned error: %v", err)
 	}
@@ -576,7 +577,7 @@ func TestDiscoveryTrustPolicy_HashtagsDerivedFromTrustedNotes(t *testing.T) {
 	}, ServiceOptions{
 		DiscoveryCandidateTrustMode: trustModeTrustedOnly,
 	})
-	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, 10, 0)
+	out, err := svc.GetTrendingHashtags(context.Background(), 24*time.Hour, DiscoveryScope{}, 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingHashtags returned error: %v", err)
 	}
@@ -618,7 +619,7 @@ func (r curatedReaderWithPublicStats) GetEventSeenOn(context.Context, string) ([
 	return []model.EventRelay{}, nil
 }
 
-func (r curatedReaderWithPublicStats) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
+func (r curatedReaderWithPublicStats) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int, _ string) (storeread.PublicDiscoveryNetworkStats, error) {
 	if r.getPublicNetworkStatsFn == nil {
 		return storeread.PublicDiscoveryNetworkStats{}, nil
 	}
@@ -660,6 +661,7 @@ func (r curatedLegacyReader) GetCuratedFeaturedAuthors(ctx context.Context, limi
 func (r curatedLegacyReader) GetTrendingHashtags(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]storeread.TrendingHashtag, error) {
@@ -672,6 +674,7 @@ func (r curatedLegacyReader) GetTrendingHashtags(
 func (r curatedLegacyReader) GetTrendingNotes(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]storeread.TrendingNote, error) {
@@ -684,6 +687,7 @@ func (r curatedLegacyReader) GetTrendingNotes(
 func (r curatedLegacyReader) GetHotConversations(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]store.HotConversation, error) {
@@ -696,6 +700,7 @@ func (r curatedLegacyReader) GetHotConversations(
 func (r curatedLegacyReader) GetTrustQualifiedTrendingNotes(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 	mode string,
@@ -711,6 +716,7 @@ func (r curatedLegacyReader) GetTrustQualifiedTrendingNotes(
 func (r curatedLegacyReader) GetTrendingProfiles(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]storeread.TrendingProfile, error) {
@@ -723,6 +729,7 @@ func (r curatedLegacyReader) GetTrendingProfiles(
 func (r curatedLegacyReader) GetTrustQualifiedTrendingProfiles(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 	rising bool,
@@ -756,4 +763,47 @@ func (r curatedLegacyReader) IsTrustedAuthor(
 		return false, nil
 	}
 	return r.isTrustedAuthorFn(ctx, pubkey, policy)
+}
+
+type langRecordingNotesReader struct {
+	curatedLegacyReader
+	lang string
+}
+
+func (r *langRecordingNotesReader) GetTrendingNotes(
+	ctx context.Context,
+	window time.Duration,
+	lang string,
+	limit int,
+	offset int,
+) ([]storeread.TrendingNote, error) {
+	r.lang = lang
+	return r.curatedLegacyReader.GetTrendingNotes(ctx, window, lang, limit, offset)
+}
+
+func TestGetTrendingNotesPassesLanguageToReader(t *testing.T) {
+	t.Parallel()
+	reader := &langRecordingNotesReader{
+		curatedLegacyReader: curatedLegacyReader{
+			fakeReader: fakeReader{
+				getEventRawByIDFn: func(context.Context, string) (json.RawMessage, error) {
+					return nil, store.ErrNotFound
+				},
+			},
+			getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+				return []storeread.TrendingNote{{EventID: "note-1"}}, nil
+			},
+		},
+	}
+	svc := mustNewService(t, reader)
+	out, err := svc.GetTrendingNotes(context.Background(), 24*time.Hour, DiscoveryScope{Language: "EN"}, 5, 0)
+	if err != nil {
+		t.Fatalf("GetTrendingNotes returned error: %v", err)
+	}
+	if len(out) != 1 || out[0].EventID != "note-1" {
+		t.Fatalf("unexpected trending notes: %#v", out)
+	}
+	if reader.lang != "en" {
+		t.Fatalf("language passed to reader = %q, want en", reader.lang)
+	}
 }

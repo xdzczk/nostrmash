@@ -19,9 +19,9 @@ func (s Service) GetNetworkStats(ctx context.Context) (NetworkStats, error) {
 	return NetworkStats{}, unsupportedCapabilityError("network stats")
 }
 
-func (s Service) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (PublicDiscoveryNetworkStats, error) {
+func (s Service) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int, scope DiscoveryScope) (PublicDiscoveryNetworkStats, error) {
 	if r := s.capabilities.curated.publicNetworkStats; r != nil {
-		row, err := r.GetPublicDiscoveryNetworkStats(ctx, hashtagLimit)
+		row, err := r.GetPublicDiscoveryNetworkStats(ctx, hashtagLimit, scope.Lang())
 		if err != nil {
 			return PublicDiscoveryNetworkStats{}, err
 		}
@@ -98,7 +98,7 @@ func (s Service) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]Cu
 	return nil, unsupportedCapabilityError("curated featured authors")
 }
 
-func (s Service) GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingHashtag, error) {
+func (s Service) GetTrendingHashtags(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingHashtag, error) {
 	// 24h and 7d are the windows the overview and the topics tab both
 	// request. Serve the same trust-filtered snapshot the homepage uses.
 	// The trust-aware fallback counts hashtags inside a small sample of
@@ -106,7 +106,7 @@ func (s Service) GetTrendingHashtags(ctx context.Context, window time.Duration, 
 	// event counts) than the overview.
 	if isFixedDiscoveryWindow(window) {
 		if r := s.capabilities.curated.homeTrendingHashtags; r != nil {
-			rows, err := r.GetHomeTrendingHashtags(ctx, window, limit, offset)
+			rows, err := r.GetHomeTrendingHashtags(ctx, window, scope.Lang(), limit, offset)
 			if err != nil {
 				return nil, err
 			}
@@ -115,13 +115,13 @@ func (s Service) GetTrendingHashtags(ctx context.Context, window time.Duration, 
 	}
 	if r := s.capabilities.curated.trendingHashtags; r != nil {
 		if s.discoveryTrustMode == trustModeOpen {
-			rows, err := r.GetTrendingHashtags(ctx, window, limit, offset)
+			rows, err := r.GetTrendingHashtags(ctx, window, scope.Lang(), limit, offset)
 			if err != nil {
 				return nil, err
 			}
 			return mapSlice(rows, trendingHashtagFromStore), nil
 		}
-		return s.getTrendingHashtagsTrustAware(ctx, window, limit, offset)
+		return s.getTrendingHashtagsTrustAware(ctx, window, scope.Lang(), limit, offset)
 	}
 	return nil, unsupportedCapabilityError("trending hashtags")
 }
@@ -186,37 +186,37 @@ func normalizeHashtagToken(value string) (string, error) {
 	return normalized, nil
 }
 
-func (s Service) GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+func (s Service) GetTrendingNotes(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingNote, error) {
 	if r := s.capabilities.curated.trendingNotes; r != nil {
 		if s.discoveryTrustMode == trustModeOpen {
-			rows, err := r.GetTrendingNotes(ctx, window, limit, offset)
+			rows, err := r.GetTrendingNotes(ctx, window, scope.Lang(), limit, offset)
 			if err != nil {
 				return nil, err
 			}
 			return mapSlice(rows, trendingNoteFromStore), nil
 		}
-		return s.getTrendingNotesTrustAware(ctx, window, limit, offset)
+		return s.getTrendingNotesTrustAware(ctx, window, scope.Lang(), limit, offset)
 	}
 	return nil, unsupportedCapabilityError("trending notes")
 }
 
-func (s Service) GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+func (s Service) GetTrendingLongForm(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingNote, error) {
 	if r := s.capabilities.curated.trendingLongForm; r != nil {
 		if s.discoveryTrustMode == trustModeOpen {
-			rows, err := r.GetTrendingLongForm(ctx, window, limit, offset)
+			rows, err := r.GetTrendingLongForm(ctx, window, scope.Lang(), limit, offset)
 			if err != nil {
 				return nil, err
 			}
 			return mapSlice(rows, trendingNoteFromStore), nil
 		}
-		return s.getTrendingLongFormTrustAware(ctx, window, limit, offset)
+		return s.getTrendingLongFormTrustAware(ctx, window, scope.Lang(), limit, offset)
 	}
 	return nil, unsupportedCapabilityError("trending long-form")
 }
 
-func (s Service) GetHotConversations(ctx context.Context, window time.Duration, limit int, offset int) ([]HotConversation, error) {
+func (s Service) GetHotConversations(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]HotConversation, error) {
 	if r := s.capabilities.curated.hotConversations; r != nil {
-		rows, err := r.GetHotConversations(ctx, window, limit, offset)
+		rows, err := r.GetHotConversations(ctx, window, scope.Lang(), limit, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -225,24 +225,24 @@ func (s Service) GetHotConversations(ctx context.Context, window time.Duration, 
 	return nil, unsupportedCapabilityError("hot conversations")
 }
 
-func (s Service) GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {
+func (s Service) GetTrendingProfiles(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingProfile, error) {
 	if r := s.capabilities.curated.trendingProfiles; r != nil {
 		fetch := queryTrendingProfilesFetch(r.GetTrendingProfiles)
 		if s.discoveryTrustMode == trustModeOpen {
-			return fetch(ctx, window, limit, offset)
+			return fetch(ctx, window, scope.Lang(), limit, offset)
 		}
-		return s.getTrendingProfilesTrustAware(ctx, fetch, false, window, limit, offset)
+		return s.getTrendingProfilesTrustAware(ctx, fetch, false, window, scope.Lang(), limit, offset)
 	}
 	return nil, unsupportedCapabilityError("trending profiles")
 }
 
-func (s Service) GetRisingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {
+func (s Service) GetRisingProfiles(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingProfile, error) {
 	if r := s.capabilities.curated.risingProfiles; r != nil {
 		fetch := queryTrendingProfilesFetch(r.GetRisingProfiles)
 		if s.discoveryTrustMode == trustModeOpen {
-			return fetch(ctx, window, limit, offset)
+			return fetch(ctx, window, scope.Lang(), limit, offset)
 		}
-		return s.getTrendingProfilesTrustAware(ctx, fetch, true, window, limit, offset)
+		return s.getTrendingProfilesTrustAware(ctx, fetch, true, window, scope.Lang(), limit, offset)
 	}
 	return nil, unsupportedCapabilityError("rising profiles")
 }

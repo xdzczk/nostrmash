@@ -76,7 +76,7 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 	}
 	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
-	trending24h, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
+	trending24h, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingProfiles 24h: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 		t.Fatalf("unexpected 24h trending profile count: got=%d want=2", len(trending24h))
 	}
 
-	rising24h, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, 10, 0)
+	rising24h, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetRisingProfiles 24h: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestGetTrendingAndRisingProfiles_WindowsAndOrdering(t *testing.T) {
 		t.Fatalf("expected big_author's credited follower growth to outrank small_author's single-day engagement burst in rising 24h, got=%#v", rising24h[0])
 	}
 
-	trending7d, err := pgStore.GetTrendingProfiles(ctx, 7*24*time.Hour, 10, 0)
+	trending7d, err := pgStore.GetTrendingProfiles(ctx, 7*24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingProfiles 7d: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestGetTrendingProfiles_ExcludesProfilesWithoutLocalMetadata(t *testing.T) 
 	}
 	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
-	profiles, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
+	profiles, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingProfiles: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestTrendingAndRisingProfiles_PenalizeHighVolumeLowEngagement(t *testing.T)
 	}
 	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
-	trending, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
+	trending, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingProfiles: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestTrendingAndRisingProfiles_PenalizeHighVolumeLowEngagement(t *testing.T)
 		t.Fatalf("expected organic_author to outrank spammy_author in trending, got %#v", trending[0])
 	}
 
-	rising, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, 10, 0)
+	rising, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetRisingProfiles: %v", err)
 	}
@@ -440,7 +440,7 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 	}
 	drainPendingProfileStatsForStoreTest(t, ctx, handlers)
 
-	trending, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
+	trending, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingProfiles: %v", err)
 	}
@@ -454,7 +454,7 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 		t.Fatalf("expected engagement-led profile first in trending, got %#v", trending[0])
 	}
 
-	rising, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, 10, 0)
+	rising, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetRisingProfiles: %v", err)
 	}

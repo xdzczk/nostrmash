@@ -55,6 +55,14 @@ func TestRunRelayWindowSnapshotsLoop_NilHandlers(t *testing.T) {
 	}
 }
 
+func TestRunLanguageBackfillLoop_NilHandlers(t *testing.T) {
+	log := &recordingLogger{}
+	RunLanguageBackfillLoop(context.Background(), log, nil, nil, nil)
+	if !log.sawError("language_backfill_no_handlers") {
+		t.Fatal("expected no-handlers error log")
+	}
+}
+
 // TestRefreshRelayWindowSnapshotsOnce_UninitializedHandlersDoesNotPanic
 // covers the failure path that left the homepage silently serving a 3-day-
 // old snapshot: refreshRelayWindowSnapshotsOnce must always log a clear

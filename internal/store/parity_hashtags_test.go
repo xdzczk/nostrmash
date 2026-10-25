@@ -38,7 +38,7 @@ func TestGetTrendingHashtags_Aggregates24hAnd7d(t *testing.T) {
 		}
 	}
 
-	last24h, err := pgStore.GetTrendingHashtags(ctx, 24*time.Hour, 10, 0)
+	last24h, err := pgStore.GetTrendingHashtags(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingHashtags 24h: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestGetTrendingHashtags_Aggregates24hAnd7d(t *testing.T) {
 		t.Fatalf("unexpected second 24h hashtag row: %#v", last24h[1])
 	}
 
-	last7d, err := pgStore.GetTrendingHashtags(ctx, 7*24*time.Hour, 10, 0)
+	last7d, err := pgStore.GetTrendingHashtags(ctx, 7*24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingHashtags 7d: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestGetTrendingHashtags_TieBreaksByUniqueAuthors(t *testing.T) {
 		}
 	}
 
-	out, err := pgStore.GetTrendingHashtags(ctx, 24*time.Hour, 10, 0)
+	out, err := pgStore.GetTrendingHashtags(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingHashtags: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestGetTrendingHashtags_PrioritizesDiversityWhenUniqueAuthorsTie(t *testing
 		}
 	}
 
-	out, err := pgStore.GetTrendingHashtags(ctx, 24*time.Hour, 10, 0)
+	out, err := pgStore.GetTrendingHashtags(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingHashtags: %v", err)
 	}

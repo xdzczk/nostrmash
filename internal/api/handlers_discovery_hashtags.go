@@ -16,6 +16,11 @@ func (h Handlers) GetTrendingHashtags(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	lang, err := parseOptionalDiscoveryLanguage(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 50, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -26,13 +31,13 @@ func (h Handlers) GetTrendingHashtags(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_hashtags", map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_hashtags", discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	})
+	}, lang))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		topics, topicsErr := h.service.GetTrendingHashtags(ctx, window, limit, offset)
+		topics, topicsErr := h.service.GetTrendingHashtags(ctx, window, discoveryScope(lang), limit, offset)
 		if topicsErr != nil {
 			return nil, topicsErr
 		}
@@ -46,6 +51,7 @@ func (h Handlers) GetTrendingHashtags(w http.ResponseWriter, r *http.Request) {
 		computedAt := time.Now().UTC()
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(hashtags))
 		h.addDiscoveryTrustMetadata(payloadResponse)
+		h.attachDiscoveryLanguage(ctx, payloadResponse, lang)
 		return payloadResponse, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {

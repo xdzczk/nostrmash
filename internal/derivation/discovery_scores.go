@@ -171,12 +171,7 @@ func computeProfileRisingScore(
 	// and anything short of 10 credited followers (12 raw) is still too small
 	// to win "Up and coming" on growth alone. +3 and +5 used to outrank a
 	// larger absolute jump because the audience penalty crushed bigger accounts.
-	const risingFollowerNoiseFloor = 2.0
-	const risingFollowerCreditMinimum = 10.0
-	creditedNewFollowers := math.Max(0, safeNewFollowers-risingFollowerNoiseFloor)
-	if creditedNewFollowers < risingFollowerCreditMinimum {
-		creditedNewFollowers = 0
-	}
+	creditedNewFollowers, _, followerMomentum := FollowerMomentum(safeFollowerCount, safeNewFollowers)
 	// Same idea for engagement: a single (weighted) interaction is not
 	// evidence of momentum -- any account can pick up one stray boost or
 	// reaction. With trust weighting live, engagement inputs are already
@@ -210,12 +205,6 @@ func computeProfileRisingScore(
 	// by followers/500. The log audience penalty still applies to engagement
 	// and trending, which is what keeps a large account's reaction burst from
 	// reading as "up and coming".
-	followerPenalty := 1.0
-	if float64(safeFollowerCount) > risingAudienceSoftCap {
-		followerPenalty = float64(safeFollowerCount) / risingAudienceSoftCap
-	}
-	followerMomentum := creditedNewFollowers / followerPenalty
-
 	// relativeEngagementMomentum gives a small account a real path into the
 	// ranking purely from getting outsized engagement relative to its own
 	// (tiny) audience, independent of whether it gained any new followers.
@@ -256,6 +245,30 @@ func computeProfileRisingScore(
 		return 0
 	}
 	return math.Round(score*1000.0) / 1000.0
+}
+
+// FollowerMomentum is the follower-growth term inside computeProfileRisingScore.
+// credited is raw growth minus the two-follower noise floor, and zero unless
+// that remainder is at least 10. penalty is 1 up to 500 followers and
+// followers/500 after that. momentum is credited/penalty. The arithmetic is
+// the score's; callers use it to explain a rank without recomputing the rest.
+func FollowerMomentum(followerCount int64, newFollowers float64) (credited, penalty, momentum float64) {
+	const risingFollowerNoiseFloor = 2.0
+	const risingFollowerCreditMinimum = 10.0
+	const risingAudienceSoftCap = 500.0
+	credited = math.Max(0, math.Max(0, newFollowers)-risingFollowerNoiseFloor)
+	if credited < risingFollowerCreditMinimum {
+		credited = 0
+	}
+	penalty = 1
+	if float64(maxInt64(0, followerCount)) > risingAudienceSoftCap {
+		penalty = float64(maxInt64(0, followerCount)) / risingAudienceSoftCap
+	}
+	if penalty <= 0 {
+		penalty = 1
+	}
+	momentum = credited / penalty
+	return credited, penalty, momentum
 }
 
 func maxInt64(a int64, b int64) int64 {

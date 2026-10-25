@@ -80,7 +80,7 @@ func (s *Read) SearchNotes(
 			  AND ($3::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $3::bigint))
 			  AND (
 				$4::text IS NULL OR (
-				`+languagelabel.FilterSQL("$4::text")+`
+				`+languagelabel.FilterSQL("nds", "$4::text")+`
 				)
 			  )
 			  AND (
@@ -166,7 +166,7 @@ func (s *Read) SearchNotesBefore(
 		  AND ($4::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $4::bigint))
 		  AND (
 			$5::text IS NULL OR (
-				`+languagelabel.FilterSQL("$5::text")+`
+				`+languagelabel.FilterSQL("nds", "$5::text")+`
 			)
 		  )
 		  AND (

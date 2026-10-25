@@ -103,7 +103,7 @@ func TestDetectPrimaryLanguageWithConfig_OpaqueTokensDoNotCount(t *testing.T) {
 
 	withSentence := "Nostr clients should cache profiles locally before rendering feeds. " +
 		"https://example.com/the/and/for nostr:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqx"
-	lang, conf = detectPrimaryLanguageWithConfig(withSentence, cfg)
+	lang, _ = detectPrimaryLanguageWithConfig(withSentence, cfg)
 	if lang == nil || *lang != "en" {
 		t.Fatalf("english sentence with a link and npub = %v, want en", lang)
 	}
@@ -188,7 +188,7 @@ func TestDecideNoteLanguage_Order(t *testing.T) {
 	if source != languageSourceTag || lang == nil || *lang != "de" || gotConf == nil || *gotConf != 1 {
 		t.Fatalf("tag should win: %v %v %s", lang, gotConf, source)
 	}
-	lang, gotConf, source = decideNoteLanguage("", false, &en, &conf, 40, &ja, nil, cfg.MinChars)
+	lang, _, source = decideNoteLanguage("", false, &en, &conf, 40, &ja, nil, cfg.MinChars)
 	if source != languageSourceContent || lang == nil || *lang != "en" {
 		t.Fatalf("content should win over thread: %v %s", lang, source)
 	}
@@ -239,17 +239,26 @@ func TestLanguageDecisionSettled(t *testing.T) {
 	if languageDecisionSettled(&version, &content, &lang) != true {
 		t.Fatal("content label at the current version is settled")
 	}
-	if languageDecisionSettled(&old, &content, &lang) {
-		t.Fatal("older version must be reclassified")
+	if !languageDecisionSettled(&old, &content, &lang) {
+		t.Fatal("a content label stays settled when the row version is older")
+	}
+	if !languageDecisionSettled(nil, &content, &lang) {
+		t.Fatal("a content label stays settled without a row version")
 	}
 	if languageDecisionSettled(&version, &short, nil) {
 		t.Fatal("short unmarked notes are not settled")
+	}
+	if !languageDecisionRetryThread(&old, &short) {
+		t.Fatal("short notes retry the thread regardless of row version")
 	}
 	if !languageDecisionRetryThread(&version, &short) {
 		t.Fatal("short notes should retry the parent thread")
 	}
 	if languageDecisionRetryThread(&version, &content) {
 		t.Fatal("content labels should not take the thread-only path")
+	}
+	if languageDecisionRetryThread(nil, nil) {
+		t.Fatal("a missing source takes the full detector")
 	}
 }
 

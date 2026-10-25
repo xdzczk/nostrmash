@@ -45,7 +45,7 @@ func TestGetTrendingNotes_WindowsAndOrdering(t *testing.T) {
 		}
 	}
 
-	last24h, err := pgStore.GetTrendingNotes(ctx, 24*time.Hour, 10, 0)
+	last24h, err := pgStore.GetTrendingNotes(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingNotes 24h: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestGetTrendingNotes_WindowsAndOrdering(t *testing.T) {
 		t.Fatalf("expected note_b second in 24h window, got %#v", last24h[1])
 	}
 
-	last7d, err := pgStore.GetTrendingNotes(ctx, 7*24*time.Hour, 10, 0)
+	last7d, err := pgStore.GetTrendingNotes(ctx, 7*24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingNotes 7d: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestGetTrendingLongForm_RanksArticlesInsideTheWindow(t *testing.T) {
 		}
 	}
 
-	last24h, err := pgStore.GetTrendingLongForm(ctx, 24*time.Hour, 10, 0)
+	last24h, err := pgStore.GetTrendingLongForm(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingLongForm 24h: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestGetTrendingLongForm_RanksArticlesInsideTheWindow(t *testing.T) {
 		t.Fatalf("expected only the recent resolved article, got %#v", last24h)
 	}
 
-	last7d, err := pgStore.GetTrendingLongForm(ctx, 7*24*time.Hour, 10, 0)
+	last7d, err := pgStore.GetTrendingLongForm(ctx, 7*24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingLongForm 7d: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestGetTrendingNotes_ExcludesNotesFromAuthorsWithoutLocalMetadata(t *testin
 		}
 	}
 
-	notes, err := pgStore.GetTrendingNotes(ctx, 24*time.Hour, 10, 0)
+	notes, err := pgStore.GetTrendingNotes(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTrendingNotes: %v", err)
 	}

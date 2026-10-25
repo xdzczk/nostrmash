@@ -162,6 +162,9 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	spawn(func(c context.Context) { RunMeilisearchStartupSync(c, log, bootstrap.MeiliClient, bootstrap.Pool) })
 	spawn(func(c context.Context) { RunRelayWindowSnapshotsLoop(c, log, bootstrap.Handlers) })
 	spawn(func(c context.Context) {
+		RunLanguageBackfillLoop(c, log, bootstrap.Handlers, bootstrap.MeiliClient, bootstrap.Pool)
+	})
+	spawn(func(c context.Context) {
 		RunIncrementalStatsReconciliationLoop(c, log, bootstrap.Handlers, cfg.IncrementalStats.Reconciliation)
 	})
 

@@ -797,6 +797,7 @@ paths:
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d], default: 24h }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -819,6 +820,7 @@ paths:
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d], default: 24h }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -843,6 +845,7 @@ paths:
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d], default: 24h }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -870,6 +873,7 @@ paths:
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d], default: 24h }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: notes_limit
           schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
@@ -905,16 +909,19 @@ paths:
         intended to back a "Profiles in motion" UI surface. Profiles with
         no (optionally trust-weighted) engagement in the window are
         ineligible, so posting volume or consistency alone cannot occupy a
-        slot. Leading reason code is `engagement_quality` (engagement-per-post
-        ratio), followed by `publishing_momentum` (omitted for a single
-        post, which isn't a meaningful momentum signal on its own) and
-        `engagement_received`. Reason evidence cites the same scored
+        slot. `reasons[0]` is one metric that does not rise down the page.
+        On a 24h list that is `engagement_quality` when the per-post rate is
+        non-increasing; otherwise `engagement_received`, `recency`, or
+        `combined_engagement` (no number) when no single metric agrees with
+        the order. The 7d list does not cite a per-post rate, because stored
+        post counts are the 24h window. Evidence cites the same scored
         engagement the ranking used. Does not use `follower_growth`; see
         `/discovery/profiles/rising` for that.
       parameters:
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d], default: 24h }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -958,14 +965,18 @@ paths:
         follower growth can rank even when the profile has no trending
         engagement. Reason evidence cites the same scored (optionally
         trust-weighted) engagement and new-follower values the ranking
-        used. Reason codes in priority order: `follower_growth`,
-        `relative_engagement_growth` (engagement-per-follower ratio,
-        omitted for a single interaction), `engagement_received`,
-        `publishing_momentum`.
+        used. `reasons[0]` is the larger additive piece of that score when
+        the piece does not rise down the page. `follower_growth` evidence is
+        audience-adjusted momentum (the first two followers never count, and
+        growth past 500 followers is divided by followers/500), and only when
+        that term dominates the row. Otherwise the row cites
+        `relative_engagement_growth`, `engagement_received`, `recency`, or
+        `combined_engagement` when no single metric agrees with the order.
       parameters:
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d], default: 24h }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1007,6 +1018,7 @@ paths:
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d], default: 24h }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
@@ -1094,6 +1106,7 @@ paths:
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d], default: 24h }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1960,6 +1973,15 @@ paths:
         '400':
           $ref: '#/components/responses/Error'
 components:
+  parameters:
+    DiscoveryLanguage:
+      name: lang
+      in: query
+      description: >
+        Restrict rankings to one language. Lowercase 2-8 letter code, "und",
+        or "und-uncertain". Omit to rank every language. Responses echo
+        `language` and include global `top_languages`.
+      schema: { type: string, minLength: 2, maxLength: 16 }
   securitySchemes:
     BearerToken:
       type: http

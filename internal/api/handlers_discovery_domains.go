@@ -16,6 +16,11 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	lang, err := parseOptionalDiscoveryLanguage(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -26,13 +31,13 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_domains", map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_domains", discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	})
+	}, lang))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		rows, rowsErr := h.service.GetTrendingDomains(ctx, window, limit, offset)
+		rows, rowsErr := h.service.GetTrendingDomains(ctx, window, discoveryScope(lang), limit, offset)
 		if rowsErr != nil {
 			return nil, rowsErr
 		}
@@ -46,6 +51,7 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		computedAt := time.Now().UTC()
 		addDiscoveryListMeta(payload, windowLabel, &computedAt, len(domains))
 		h.addDiscoveryTrustMetadata(payload)
+		h.attachDiscoveryLanguage(ctx, payload, lang)
 		return payload, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {

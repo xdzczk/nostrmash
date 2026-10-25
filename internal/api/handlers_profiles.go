@@ -338,7 +338,7 @@ func (h Handlers) loadProfileRelatedDiscovery(r *http.Request, pubkey string) (p
 	}()
 	go func() {
 		defer wg.Done()
-		rising, risingErr = h.service.GetRisingProfiles(ctx, 7*24*time.Hour, 8, 0)
+		rising, risingErr = h.service.GetRisingProfiles(ctx, 7*24*time.Hour, query.DiscoveryScope{}, 8, 0)
 	}()
 	wg.Wait()
 
@@ -367,7 +367,7 @@ func (h Handlers) loadProfileRelatedDiscovery(r *http.Request, pubkey string) (p
 		if identityErr != nil {
 			identities = map[string]profileIdentityFields{}
 		}
-		out.RisingProfiles = buildDiscoveryProfileItems(rising, identities, discoverySurfaceRising)
+		out.RisingProfiles = buildDiscoveryProfileItems(rising, identities, discoverySurfaceRising, "7d")
 	}
 	return out, partial
 }

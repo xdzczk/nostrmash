@@ -13,17 +13,17 @@ import (
 // GetTrendingNotes returns trending short notes (kind 1 only). Long-form
 // articles (kind 30023) are served separately by GetTrendingLongForm so the two
 // surfaces never blend together.
-func (s *Read) GetTrendingNotes(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
-	return s.getTrendingNotesForKinds(ctx, []int{1}, window, limit, offset)
+func (s *Read) GetTrendingNotes(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
+	return s.getTrendingNotesForKinds(ctx, []int{1}, window, lang, limit, offset)
 }
 
 // GetTrendingLongForm returns trending long-form articles (kind 30023). It
 // mirrors GetTrendingNotes but scopes the candidate set to articles.
-func (s *Read) GetTrendingLongForm(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
-	return s.getTrendingNotesForKinds(ctx, []int{30023}, window, limit, offset)
+func (s *Read) GetTrendingLongForm(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
+	return s.getTrendingNotesForKinds(ctx, []int{30023}, window, lang, limit, offset)
 }
 
-func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -86,10 +86,15 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 					  AND metadata.kind = 0
 				)
 			  )
+			  %s
 			ORDER BY score DESC, s.created_at DESC, s.event_id ASC
 			LIMIT $2 OFFSET $3
-		`, scoreColumn)
-		rows, err = s.pool.Query(ctx, query, minCreatedAt, limit, offset)
+		`, scoreColumn, noteLanguageClause("s", "$4::text", lang))
+		args := []any{minCreatedAt, limit, offset}
+		if lang != "" {
+			args = append(args, lang)
+		}
+		rows, err = s.pool.Query(ctx, query, args...)
 	} else {
 		query := fmt.Sprintf(`
 			SELECT
@@ -126,10 +131,15 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 					  AND metadata.kind = 0
 				)
 			  )
+			  %s
 			ORDER BY score DESC, s.created_at DESC, s.event_id ASC
 			LIMIT $2 OFFSET $3
-		`, scoreColumn)
-		rows, err = s.pool.Query(ctx, query, minCreatedAt, limit, offset, kinds)
+		`, scoreColumn, noteLanguageClause("s", "$5::text", lang))
+		args := []any{minCreatedAt, limit, offset, kinds}
+		if lang != "" {
+			args = append(args, lang)
+		}
+		rows, err = s.pool.Query(ctx, query, args...)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get trending notes: %w", err)
@@ -162,6 +172,13 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 	return out, nil
 }
 
+func noteLanguageClause(alias, placeholder, lang string) string {
+	if strings.TrimSpace(lang) == "" {
+		return ""
+	}
+	return "AND " + languagelabel.FilterSQL(alias, placeholder)
+}
+
 func longFormOnly(kinds []int) bool {
 	return len(kinds) == 1 && kinds[0] == 30023
 }
@@ -180,6 +197,13 @@ func resolveTrendingWindow(window time.Duration) (string, time.Duration, error) 
 // profileScoredInputColumns picks the scored engagement / new-follower
 // columns that match the requested ranking window so "why now" reasons
 // cite the same inputs the score used.
+func profileLanguageColumn(scoreColumn string) string {
+	if strings.Contains(scoreColumn, "7d") {
+		return "primary_language_7d"
+	}
+	return "primary_language_24h"
+}
+
 func profileScoredInputColumns(scoreColumn string) (engagementCol, newFollowersCol string) {
 	if strings.Contains(scoreColumn, "7d") {
 		return "scored_engagement_7d", "scored_new_followers_7d"

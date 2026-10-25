@@ -319,7 +319,30 @@ func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("compute top languages 7d snapshot: %w", err)
 		}
-		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopLanguages7d, jsonArray(topLanguages7d))
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopLanguages7d, jsonArray(topLanguages7d)); err != nil {
+			return err
+		}
+
+		langs24, err := computeRankingLanguages(ctx, tx, cutoff24h)
+		if err != nil {
+			return fmt.Errorf("compute ranking languages 24h: %w", err)
+		}
+		homeLang24, err := computeHomeWindowByLanguage(ctx, tx, cutoff24h, langs24)
+		if err != nil {
+			return fmt.Errorf("compute home window languages 24h: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow24hLang, homeLang24); err != nil {
+			return err
+		}
+		langs7, err := computeRankingLanguages(ctx, tx, cutoff7d)
+		if err != nil {
+			return fmt.Errorf("compute ranking languages 7d: %w", err)
+		}
+		homeLang7, err := computeHomeWindowByLanguage(ctx, tx, cutoff7d, langs7)
+		if err != nil {
+			return fmt.Errorf("compute home window languages 7d: %w", err)
+		}
+		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow7dLang, homeLang7)
 	})
 }
 
@@ -375,7 +398,44 @@ func (h *Handlers) refreshTrendingLinksSnapshots(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("compute top domains 7d snapshot: %w", err)
 		}
-		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopDomains7d, jsonArray(topDomains7d))
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopDomains7d, jsonArray(topDomains7d)); err != nil {
+			return err
+		}
+
+		langs24, err := computeRankingLanguages(ctx, tx, cutoff24h)
+		if err != nil {
+			return fmt.Errorf("compute ranking languages 24h: %w", err)
+		}
+		hashtagsLang24, err := computeTopHashtagsByLanguage(ctx, tx, cutoff24h, langs24, 50)
+		if err != nil {
+			return fmt.Errorf("compute top hashtags by language 24h: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags24hLang, hashtagsLang24); err != nil {
+			return err
+		}
+		langs7, err := computeRankingLanguages(ctx, tx, cutoff7d)
+		if err != nil {
+			return fmt.Errorf("compute ranking languages 7d: %w", err)
+		}
+		hashtagsLang7, err := computeTopHashtagsByLanguage(ctx, tx, cutoff7d, langs7, 50)
+		if err != nil {
+			return fmt.Errorf("compute top hashtags by language 7d: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags7dLang, hashtagsLang7); err != nil {
+			return err
+		}
+		domainsLang24, err := computeTopDomainsByLanguage(ctx, tx, cutoff24h, cutoff24h, cutoff7d, langs24, 50)
+		if err != nil {
+			return fmt.Errorf("compute top domains by language 24h: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopDomains24hLang, domainsLang24); err != nil {
+			return err
+		}
+		domainsLang7, err := computeTopDomainsByLanguage(ctx, tx, cutoff7d, cutoff24h, cutoff7d, langs7, 50)
+		if err != nil {
+			return fmt.Errorf("compute top domains by language 7d: %w", err)
+		}
+		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopDomains7dLang, domainsLang7)
 	})
 }
 

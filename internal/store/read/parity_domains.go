@@ -10,13 +10,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/xdzczk/nostrmash/internal/domainnorm"
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 )
 
 // domainMediaURLFilterClause excludes obvious media/attachment links.
 // is_media is set at projection time (migration 000088) from the same
 // extension list the regex used to test, so aggregates can use the partial
 // index instead of reading every URL off the heap.
-const domainMediaURLFilterClause = `NOT is_media`
+const domainMediaURLFilterClause = `NOT event_urls.is_media`
 
 func (s *Read) GetEventLinkedDomains(
 	ctx context.Context,
@@ -165,6 +166,7 @@ func (s *Read) getTopDomains(
 func (s *Read) GetTrendingDomains(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 ) ([]DomainSummaryProjection, error) {
@@ -187,30 +189,40 @@ func (s *Read) GetTrendingDomains(
 	nowUnix := time.Now().UTC().Unix()
 	day := int64((24 * time.Hour) / time.Second)
 	windowFloor := nowUnix - int64(window/time.Second)
+	args := []any{nowUnix - day, nowUnix - (7 * day), windowFloor, limit, offset}
+	languageJoin := ""
+	languageClause := ""
+	if lang != "" {
+		languageJoin = "JOIN note_discovery_stats nds ON nds.event_id = event_urls.event_id"
+		languageClause = "AND " + languagelabel.FilterSQL("nds", "$6::text")
+		args = append(args, lang)
+	}
 	query := fmt.Sprintf(`
 		SELECT
-			canonical_domain,
-			MAX(created_at),
-			COUNT(*) FILTER (WHERE created_at >= $1),
-			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $1),
-			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $1),
-			COUNT(*) FILTER (WHERE created_at >= $2),
-			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $2),
-			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $2)
+			event_urls.canonical_domain,
+			MAX(event_urls.created_at),
+			COUNT(*) FILTER (WHERE event_urls.created_at >= $1),
+			COUNT(DISTINCT event_urls.event_id) FILTER (WHERE event_urls.created_at >= $1),
+			COUNT(DISTINCT event_urls.author_pubkey) FILTER (WHERE event_urls.created_at >= $1),
+			COUNT(*) FILTER (WHERE event_urls.created_at >= $2),
+			COUNT(DISTINCT event_urls.event_id) FILTER (WHERE event_urls.created_at >= $2),
+			COUNT(DISTINCT event_urls.author_pubkey) FILTER (WHERE event_urls.created_at >= $2)
 		FROM event_urls
-		WHERE created_at >= $3
+		%s
+		WHERE event_urls.created_at >= $3
 		  AND %s
-		GROUP BY canonical_domain
+		  %s
+		GROUP BY event_urls.canonical_domain
 		ORDER BY
-			COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3) DESC,
-			(COUNT(DISTINCT author_pubkey) FILTER (WHERE created_at >= $3))::double precision /
-				GREATEST(COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3), 1) DESC,
-			COUNT(DISTINCT event_id) FILTER (WHERE created_at >= $3) DESC,
-			COUNT(*) FILTER (WHERE created_at >= $3) DESC,
-			canonical_domain ASC
+			COUNT(DISTINCT event_urls.author_pubkey) FILTER (WHERE event_urls.created_at >= $3) DESC,
+			(COUNT(DISTINCT event_urls.author_pubkey) FILTER (WHERE event_urls.created_at >= $3))::double precision /
+				GREATEST(COUNT(DISTINCT event_urls.event_id) FILTER (WHERE event_urls.created_at >= $3), 1) DESC,
+			COUNT(DISTINCT event_urls.event_id) FILTER (WHERE event_urls.created_at >= $3) DESC,
+			COUNT(*) FILTER (WHERE event_urls.created_at >= $3) DESC,
+			event_urls.canonical_domain ASC
 		LIMIT $4 OFFSET $5
-	`, domainMediaURLFilterClause)
-	rows, err := s.pool.Query(ctx, query, nowUnix-day, nowUnix-(7*day), windowFloor, limit, offset)
+	`, languageJoin, domainMediaURLFilterClause, languageClause)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get trending domains: %w", err)
 	}
@@ -284,6 +296,7 @@ func resolveHomeDomainsSnapshotLabel(window time.Duration) (string, error) {
 func (s *Read) GetHomeTrendingDomains(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	limit int,
 ) ([]DomainSummaryProjection, error) {
 	if s == nil || s.pool == nil {
@@ -298,6 +311,9 @@ func (s *Read) GetHomeTrendingDomains(
 	label, err := resolveHomeDomainsSnapshotLabel(window)
 	if err != nil {
 		return nil, err
+	}
+	if lang != "" {
+		return s.homeTrendingDomainsForLanguage(ctx, label+".lang", lang, limit)
 	}
 	var payload []byte
 	err = s.pool.QueryRow(ctx, `
@@ -315,6 +331,41 @@ func (s *Read) GetHomeTrendingDomains(
 	if err := json.Unmarshal(payload, &rows); err != nil {
 		return nil, fmt.Errorf("decode top domains snapshot %q: %w", label, err)
 	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]DomainSummaryProjection, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, DomainSummaryProjection{
+			Domain:        row.Domain,
+			LatestEventAt: row.LatestEventAt,
+			Activity: DomainActivityStatsProjection{
+				Last24h: DomainActivityProjection{
+					LinkCount:     row.Activity24h.LinkCount,
+					NoteCount:     row.Activity24h.NoteCount,
+					UniqueAuthors: row.Activity24h.UniqueAuthors,
+				},
+				Last7d: DomainActivityProjection{
+					LinkCount:     row.Activity7d.LinkCount,
+					NoteCount:     row.Activity7d.NoteCount,
+					UniqueAuthors: row.Activity7d.UniqueAuthors,
+				},
+			},
+		})
+	}
+	return out, nil
+}
+
+func (s *Read) homeTrendingDomainsForLanguage(ctx context.Context, label, lang string, limit int) ([]DomainSummaryProjection, error) {
+	payload, err := s.readSnapshotPayload(ctx, label)
+	if err != nil || len(payload) == 0 {
+		return []DomainSummaryProjection{}, err
+	}
+	var byLang map[string][]domainSnapshotRow
+	if err := json.Unmarshal(payload, &byLang); err != nil {
+		return nil, fmt.Errorf("decode top domains snapshot %q: %w", label, err)
+	}
+	rows := byLang[lang]
 	if len(rows) > limit {
 		rows = rows[:limit]
 	}

@@ -3,6 +3,7 @@ package api
 import (
 	"testing"
 
+	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/query"
 )
 
@@ -28,21 +29,12 @@ func TestBuildProfileRanking_TrendingSurface(t *testing.T) {
 	ranking := buildProfileRanking(profile, 1, discoverySurfaceTrending)
 
 	codes := reasonCodes(ranking.Reasons)
-	if len(codes) == 0 || codes[0] != "engagement_quality" {
-		t.Fatalf("expected engagement_quality to lead trending reasons, got %v", codes)
+	if len(codes) != 1 || codes[0] != "engagement_quality" {
+		t.Fatalf("expected a single monotonic engagement_quality reason, got %v", codes)
 	}
 	for _, code := range codes {
 		if code == "follower_growth" {
 			t.Fatalf("trending surface should not surface follower_growth even when new followers are present, got %v", codes)
-		}
-	}
-	wantCodes := []string{"engagement_quality", "publishing_momentum", "engagement_received"}
-	if len(codes) != len(wantCodes) {
-		t.Fatalf("unexpected reason set for trending surface: got %v want %v", codes, wantCodes)
-	}
-	for i, want := range wantCodes {
-		if codes[i] != want {
-			t.Fatalf("reason[%d] = %q want %q (got %v)", i, codes[i], want, codes)
 		}
 	}
 
@@ -54,7 +46,7 @@ func TestBuildProfileRanking_TrendingSurface(t *testing.T) {
 }
 
 func TestBuildProfileRanking_RisingSurface(t *testing.T) {
-	t.Run("follower growth present leads and relative engagement still surfaces", func(t *testing.T) {
+	t.Run("follower growth leads when that term dominates the score", func(t *testing.T) {
 		profile := query.TrendingProfile{
 			Pubkey:                   "pk_rising",
 			Score:                    12.0,
@@ -66,14 +58,11 @@ func TestBuildProfileRanking_RisingSurface(t *testing.T) {
 
 		ranking := buildProfileRanking(profile, 1, discoverySurfaceRising)
 		codes := reasonCodes(ranking.Reasons)
-		wantCodes := []string{"follower_growth", "relative_engagement_growth", "engagement_received", "publishing_momentum"}
-		if len(codes) != len(wantCodes) {
-			t.Fatalf("unexpected reason set for rising surface: got %v want %v", codes, wantCodes)
+		if len(codes) != 1 || codes[0] != "follower_growth" {
+			t.Fatalf("expected a single follower_growth reason, got %v", codes)
 		}
-		for i, want := range wantCodes {
-			if codes[i] != want {
-				t.Fatalf("reason[%d] = %q want %q (got %v)", i, codes[i], want, codes)
-			}
+		if got := ranking.Reasons[0].Evidence[0].Metric; got != "follower_momentum" {
+			t.Fatalf("follower evidence metric = %q, want audience-adjusted momentum", got)
 		}
 
 		wantSample := profile.RecentNewFollowers + profile.RecentEngagementReceived
@@ -144,16 +133,14 @@ func TestBuildProfileRanking_TrendingSurface_SinglePostIsNotPublishingMomentum(t
 
 	multiPost := profile
 	multiPost.RecentPostCount = 2
-	multiRanking := buildProfileRanking(multiPost, 1, discoverySurfaceTrending)
-	multiCodes := reasonCodes(multiRanking.Reasons)
-	found := false
-	for _, code := range multiCodes {
-		if code == "publishing_momentum" {
-			found = true
+	multiCodes := reasonCodes(buildProfileRanking(multiPost, 1, discoverySurfaceTrending).Reasons)
+	for _, code := range append(codes, multiCodes...) {
+		if code == "publishing_momentum" || code == "engagement_quality" {
+			t.Fatalf("posts without engagement are not a per-post reason, got single %v multi %v", codes, multiCodes)
 		}
 	}
-	if !found {
-		t.Fatalf("expected publishing_momentum once post count is above the noise floor, got %v", multiCodes)
+	if len(codes) != 1 || codes[0] != "combined_engagement" || len(multiCodes) != 1 || multiCodes[0] != "combined_engagement" {
+		t.Fatalf("expected combined engagement when no single metric applies, got single %v multi %v", codes, multiCodes)
 	}
 }
 
@@ -249,5 +236,94 @@ func TestBuildProfileRanking_EmptyReasonsAreNonNilAndDefaultToRising(t *testing.
 	rising := buildProfileRanking(profile, 1, "")
 	if rising.Reasons == nil {
 		t.Fatal("expected non-nil (possibly empty) reasons slice for default surface")
+	}
+}
+
+func TestBuildNoteRankings_DoesNotCiteACountThatRisesDownThePage(t *testing.T) {
+	notes := []query.TrendingNote{
+		{EventID: "lead", ReplyCount: 69, ZapCount: 21, CreatedAt: 300, Score: 10},
+		{EventID: "second", ReplyCount: 92, ZapCount: 28, CreatedAt: 100, Score: 9},
+		{EventID: "third", ReplyCount: 10, ZapCount: 1, CreatedAt: 400, Score: 8},
+	}
+	rankings := buildNoteRankings(notes)
+	if got := reasonCodes(rankings[0].Reasons); len(got) != 1 || got[0] != "combined_engagement" {
+		t.Fatalf("lead must not claim replies, zaps, or recency when each rises below it, got %v", got)
+	}
+	if len(rankings[0].Reasons[0].Evidence) != 0 {
+		t.Fatalf("combined engagement has no number, got %#v", rankings[0].Reasons[0].Evidence)
+	}
+	if got := reasonCodes(rankings[1].Reasons); len(got) != 1 || got[0] != "reply_velocity" {
+		t.Fatalf("second note's reply count does not rise further down the page, got %v", got)
+	}
+	if rankings[1].Reasons[0].Evidence[0].Value != 92 {
+		t.Fatalf("second note evidence = %v, want 92 replies", rankings[1].Reasons[0].Evidence)
+	}
+}
+
+func TestAssignProfileRankings_TrendingCitesPerPostOnlyWhenItDoesNotRise(t *testing.T) {
+	rows := []query.TrendingProfile{
+		{Pubkey: "ben", Score: 20, RecentPostCount: 10, RecentEngagementReceived: 240},
+		{Pubkey: "calle", Score: 10, RecentPostCount: 2, RecentEngagementReceived: 200},
+	}
+	day := assignProfileRankings(rows, discoverySurfaceTrending, "24h")
+	if got := reasonCodes(day[0].Reasons); len(got) != 1 || got[0] != "engagement_received" {
+		t.Fatalf("24h lead per-post rate rises on the next row, got %v", got)
+	}
+	if day[0].Reasons[0].Evidence[0].Value != 240 {
+		t.Fatalf("lead evidence = %v, want 240 interactions", day[0].Reasons[0].Evidence)
+	}
+	if got := reasonCodes(day[1].Reasons); len(got) != 1 || got[0] != "engagement_quality" {
+		t.Fatalf("lower row can cite its per-post rate, got %v", got)
+	}
+
+	week := assignProfileRankings(rows, discoverySurfaceTrending, "7d")
+	for i, ranking := range week {
+		if got := reasonCodes(ranking.Reasons); len(got) != 1 || got[0] != "engagement_received" {
+			t.Fatalf("7d row %d must not cite a per-post rate, got %v", i, got)
+		}
+	}
+}
+
+func TestAssignProfileRankings_RisingCitesAudienceAdjustedMomentum(t *testing.T) {
+	rows := []query.TrendingProfile{
+		{Pubkey: "sovereign", Score: 40, RecentNewFollowers: 37, FollowerCount: 100},
+		{Pubkey: "nostrich", Score: 5, RecentNewFollowers: 44, FollowerCount: 5000},
+	}
+	rankings := assignProfileRankings(rows, discoverySurfaceRising, "7d")
+	lead := rankings[0].Reasons[0]
+	next := rankings[1].Reasons[0]
+	if lead.Code != "follower_growth" || next.Code != "follower_growth" {
+		t.Fatalf("both rows are follower-momentum leads, got %s then %s", lead.Code, next.Code)
+	}
+	_, _, wantLead := derivation.FollowerMomentum(100, 37)
+	_, _, wantNext := derivation.FollowerMomentum(5000, 44)
+	if lead.Evidence[0].Value != wantLead || next.Evidence[0].Value != wantNext {
+		t.Fatalf("momentum = %v then %v, want %v then %v", lead.Evidence[0].Value, next.Evidence[0].Value, wantLead, wantNext)
+	}
+	if lead.Evidence[0].Value <= next.Evidence[0].Value {
+		t.Fatalf("printed momentum rose down the page: %v then %v", lead.Evidence[0].Value, next.Evidence[0].Value)
+	}
+	if lead.Evidence[0].Metric != "follower_momentum" || next.Evidence[0].Value == 44 {
+		t.Fatalf("evidence must be adjusted momentum, not the raw +44, got %#v %#v", lead.Evidence, next.Evidence)
+	}
+}
+
+func TestBuildHashtagAndDomainRankings_LeadWithAuthorBreadth(t *testing.T) {
+	topic := buildHashtagRanking(query.TrendingHashtag{Hashtag: "news", EventCount: 1576, UniqueAuthors: 455}, 1)
+	if topic.Score != 455 || reasonCodes(topic.Reasons)[0] != "author_breadth" {
+		t.Fatalf("hashtag ranking = score %v reasons %v", topic.Score, reasonCodes(topic.Reasons))
+	}
+	domain := buildDomainRanking(query.DomainSummary{
+		Domain: "github.com",
+		Activity: query.DomainActivityStats{
+			Last24h: query.DomainActivity{LinkCount: 80, UniqueAuthors: 12},
+			Last7d:  query.DomainActivity{LinkCount: 400, UniqueAuthors: 40},
+		},
+	}, 1, "7d")
+	if domain.Score != 40 || reasonCodes(domain.Reasons)[0] != "author_breadth" {
+		t.Fatalf("domain ranking = score %v reasons %v", domain.Score, reasonCodes(domain.Reasons))
+	}
+	if domain.Reasons[1].Code != "link_circulation" || domain.Reasons[1].Evidence[0].Value != 400 {
+		t.Fatalf("domain volume reason = %#v", domain.Reasons)
 	}
 }

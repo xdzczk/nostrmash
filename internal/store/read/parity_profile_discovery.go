@@ -10,12 +10,12 @@ import (
 	"github.com/xdzczk/nostrmash/internal/metrics"
 )
 
-func (s *Read) GetTrendingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {
-	return s.getProfileDiscoveryRows(ctx, window, limit, offset, false)
+func (s *Read) GetTrendingProfiles(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingProfile, error) {
+	return s.getProfileDiscoveryRows(ctx, window, lang, limit, offset, false)
 }
 
-func (s *Read) GetRisingProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {
-	return s.getProfileDiscoveryRows(ctx, window, limit, offset, true)
+func (s *Read) GetRisingProfiles(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingProfile, error) {
+	return s.getProfileDiscoveryRows(ctx, window, lang, limit, offset, true)
 }
 
 // relatedProfilesQueryTimeout bounds the heavy multi-CTE related-profiles
@@ -420,6 +420,7 @@ func (s *Read) computeRelatedProfiles(ctx context.Context, pubkey string, limit 
 func (s *Read) getProfileDiscoveryRows(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 	rising bool,
@@ -459,6 +460,12 @@ func (s *Read) getProfileDiscoveryRows(
 
 	minCreatedAt := time.Now().UTC().Add(-windowDuration).Unix()
 	scoredEngagementCol, scoredFollowersCol := profileScoredInputColumns(scoreColumn)
+	langClause := ""
+	args := []any{minCreatedAt, limit, offset}
+	if lang != "" {
+		langClause = fmt.Sprintf("AND profile_discovery_stats.%s = $4", profileLanguageColumn(scoreColumn))
+		args = append(args, lang)
+	}
 	query := fmt.Sprintf(`
 		SELECT
 			pubkey,
@@ -511,10 +518,11 @@ func (s *Read) getProfileDiscoveryRows(
 				WHERE te.child_event_id = e.id
 			  )
 		  )
+		  %s
 		ORDER BY score DESC, recent_engagement_received DESC, recent_activity_at DESC, pubkey ASC
 		LIMIT $2 OFFSET $3
-	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, scoreColumn)
-	rows, err := s.pool.Query(ctx, query, minCreatedAt, limit, offset)
+	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, scoreColumn, langClause)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get profile discovery rows: %w", err)
 	}

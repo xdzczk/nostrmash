@@ -26,6 +26,27 @@ func Canonical(raw string) (string, bool) {
 	}
 }
 
+// ValidFilter reports whether raw is a discovery or search language parameter:
+// an unmarked bucket, or a 2-8 letter code.
+func ValidFilter(raw string) bool {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return false
+	}
+	if _, ok := Canonical(raw); ok {
+		return true
+	}
+	if len(raw) < 2 || len(raw) > 8 {
+		return false
+	}
+	for _, r := range raw {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
 // ChartSQL labels a note for charts and the search index.
 // languageExpr and sourceExpr are SQL expressions (column names or qualified columns).
 func ChartSQL(languageExpr, sourceExpr string) string {
@@ -33,9 +54,15 @@ func ChartSQL(languageExpr, sourceExpr string) string {
 		languageExpr, sourceExpr, Uncertain, Und)
 }
 
-// FilterSQL matches a search language parameter against note_discovery_stats (alias nds).
-// param is a SQL expression such as "$4::text".
-func FilterSQL(param string) string {
-	return fmt.Sprintf(`CASE WHEN %[1]s = '%[2]s' THEN nds.primary_language IS NULL AND COALESCE(nds.language_source, '') <> 'uncertain' WHEN %[1]s = '%[3]s' THEN nds.language_source = 'uncertain' ELSE nds.primary_language = %[1]s END`,
-		param, Und, Uncertain)
+// FilterSQL matches a language parameter against one note_discovery_stats alias.
+// alias is a SQL identifier such as "nds". param is a SQL expression such as "$4::text".
+func FilterSQL(alias, param string) string {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		alias = "nds"
+	}
+	languageCol := alias + ".primary_language"
+	sourceCol := alias + ".language_source"
+	return fmt.Sprintf(`CASE WHEN %[1]s = '%[2]s' THEN %[3]s IS NULL AND COALESCE(%[4]s, '') <> 'uncertain' WHEN %[1]s = '%[5]s' THEN %[4]s = 'uncertain' ELSE %[3]s = %[1]s END`,
+		param, Und, languageCol, sourceCol, Uncertain)
 }

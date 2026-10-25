@@ -511,6 +511,19 @@ func TestFirstTagValue(t *testing.T) {
 	}
 }
 
+func TestFollowerMomentumMatchesFollowerOnlyRisingScore(t *testing.T) {
+	_, _, small := FollowerMomentum(100, 37)
+	_, _, large := FollowerMomentum(5000, 44)
+	if small <= large {
+		t.Fatalf("audience-adjusted +37 on 100 followers (%v) should exceed +44 on 5000 (%v)", small, large)
+	}
+	onlySmall := computeProfileRisingScore(0, 100, 37, 0, 0, 0, 0)
+	onlyLarge := computeProfileRisingScore(0, 5000, 44, 0, 0, 0, 0)
+	if onlySmall != small || onlyLarge != large {
+		t.Fatalf("follower-only rising score should equal momentum: small %v/%v large %v/%v", onlySmall, small, onlyLarge, large)
+	}
+}
+
 func TestNullIfBlank(t *testing.T) {
 	if got := nullIfBlank("   "); got != nil {
 		t.Fatalf("blank should be nil, got %q", *got)

@@ -6,11 +6,13 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 )
 
 var storeHashtagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
-func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingHashtag, error) {
+func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingHashtag, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -28,7 +30,8 @@ func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, li
 	}
 
 	minCreatedAt := time.Now().UTC().Add(-window).Unix()
-	rows, err := s.pool.Query(ctx, `
+	args := []any{minCreatedAt, limit, offset}
+	query := `
 		SELECT
 			hashtag,
 			COUNT(*) AS event_count,
@@ -43,7 +46,29 @@ func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, li
 			event_count DESC,
 			hashtag ASC
 		LIMIT $2 OFFSET $3
-	`, minCreatedAt, limit, offset)
+	`
+	if lang != "" {
+		args = append(args, lang)
+		query = `
+		SELECT
+			event_hashtags.hashtag,
+			COUNT(*) AS event_count,
+			COUNT(DISTINCT event_hashtags.author_pubkey) AS unique_authors
+		FROM event_hashtags
+		JOIN note_discovery_stats nds ON nds.event_id = event_hashtags.event_id
+		WHERE event_hashtags.created_at >= $1
+		  AND event_hashtags.hashtag !~ '^[0-9]+$'
+		  AND ` + languagelabel.FilterSQL("nds", "$4::text") + `
+		GROUP BY event_hashtags.hashtag
+		ORDER BY
+			unique_authors DESC,
+			(COUNT(DISTINCT event_hashtags.author_pubkey))::double precision / GREATEST(COUNT(*), 1) DESC,
+			event_count DESC,
+			event_hashtags.hashtag ASC
+		LIMIT $2 OFFSET $3
+	`
+	}
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get trending hashtags: %w", err)
 	}

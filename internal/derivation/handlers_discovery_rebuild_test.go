@@ -424,23 +424,23 @@ type publicNetworkReadRow struct {
 
 func captureDiscoveryReadSnapshot(t *testing.T, ctx context.Context, pgStore *store.PostgresStore) discoveryReadSnapshot {
 	t.Helper()
-	trendingNotes, err := pgStore.GetTrendingNotes(ctx, 24*time.Hour, 10, 0)
+	trendingNotes, err := pgStore.GetTrendingNotes(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("get trending notes: %v", err)
 	}
-	trendingProfiles, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, 10, 0)
+	trendingProfiles, err := pgStore.GetTrendingProfiles(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("get trending profiles: %v", err)
 	}
-	risingProfiles, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, 10, 0)
+	risingProfiles, err := pgStore.GetRisingProfiles(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("get rising profiles: %v", err)
 	}
-	hashtags, err := pgStore.GetTrendingHashtags(ctx, 24*time.Hour, 10, 0)
+	hashtags, err := pgStore.GetTrendingHashtags(ctx, 24*time.Hour, "", 10, 0)
 	if err != nil {
 		t.Fatalf("get trending hashtags: %v", err)
 	}
-	networkStats, err := pgStore.GetPublicDiscoveryNetworkStats(ctx, 10)
+	networkStats, err := pgStore.GetPublicDiscoveryNetworkStats(ctx, 10, "")
 	if err != nil {
 		t.Fatalf("get network stats: %v", err)
 	}

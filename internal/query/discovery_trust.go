@@ -70,7 +70,7 @@ type trustedProfileCandidate struct {
 }
 
 // plainTrendingFetch loads ranked candidate rows for one trending surface.
-type plainTrendingFetch func(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error)
+type plainTrendingFetch func(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error)
 
 // trustQualifiedTrendingFetch loads trust-qualified candidate rows from a
 // precomputed projection. It returns ready=false when the projection is stale
@@ -78,6 +78,7 @@ type plainTrendingFetch func(ctx context.Context, window time.Duration, limit in
 type trustQualifiedTrendingFetch func(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 	mode string,
@@ -85,28 +86,29 @@ type trustQualifiedTrendingFetch func(
 	maxStaleness time.Duration,
 ) ([]trustedNoteCandidate, bool, error)
 
-func (s Service) getTrendingNotesTrustAware(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+func (s Service) getTrendingNotesTrustAware(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
 	notesCap := s.capabilities.curated.trendingNotes
 	if notesCap == nil {
 		return nil, unsupportedCapabilityError("trending notes")
 	}
 	tqFetch := queryTrustQualifiedNotesFetch(s.capabilities.curated.trustQualifiedNotes)
-	return s.getTrendingTrustAware(ctx, window, limit, offset, queryTrendingNotesFetch(notesCap.GetTrendingNotes), tqFetch)
+	return s.getTrendingTrustAware(ctx, window, lang, limit, offset, queryTrendingNotesFetch(notesCap.GetTrendingNotes), tqFetch)
 }
 
-func (s Service) getTrendingLongFormTrustAware(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingNote, error) {
+func (s Service) getTrendingLongFormTrustAware(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
 	longFormCap := s.capabilities.curated.trendingLongForm
 	if longFormCap == nil {
 		return nil, unsupportedCapabilityError("trending long-form")
 	}
 	// Long-form volume is low, so we always qualify on the fly rather than
 	// maintaining a dedicated trust projection.
-	return s.getTrendingTrustAware(ctx, window, limit, offset, queryTrendingNotesFetch(longFormCap.GetTrendingLongForm), nil)
+	return s.getTrendingTrustAware(ctx, window, lang, limit, offset, queryTrendingNotesFetch(longFormCap.GetTrendingLongForm), nil)
 }
 
 func (s Service) getTrendingTrustAware(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 	plain plainTrendingFetch,
@@ -114,7 +116,7 @@ func (s Service) getTrendingTrustAware(
 ) ([]TrendingNote, error) {
 	limit, offset = normalizeDiscoveryPage(limit, offset, 20, 100)
 	target := limit + offset
-	candidates, err := s.collectTrustedTrending(ctx, window, target, target*4, plain, tq)
+	candidates, err := s.collectTrustedTrending(ctx, window, lang, target, target*4, plain, tq)
 	if err != nil {
 		return nil, err
 	}
@@ -123,9 +125,10 @@ func (s Service) getTrendingTrustAware(
 
 func (s Service) getTrendingProfilesTrustAware(
 	ctx context.Context,
-	fetch func(context.Context, time.Duration, int, int) ([]TrendingProfile, error),
+	fetch func(context.Context, time.Duration, string, int, int) ([]TrendingProfile, error),
 	rising bool,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 ) ([]TrendingProfile, error) {
@@ -134,18 +137,18 @@ func (s Service) getTrendingProfilesTrustAware(
 	}
 	limit, offset = normalizeDiscoveryPage(limit, offset, 20, 100)
 	target := limit + offset
-	candidates, err := s.collectTrustedTrendingProfiles(ctx, fetch, rising, window, target, target*4)
+	candidates, err := s.collectTrustedTrendingProfiles(ctx, fetch, rising, window, lang, target, target*4)
 	if err != nil {
 		return nil, err
 	}
 	return paginateTrendingProfiles(trustedProfileRowsByMode(candidates, s.discoveryTrustMode, s.discoveryScoreBoostWeight), limit, offset), nil
 }
 
-func (s Service) getTrendingHashtagsTrustAware(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingHashtag, error) {
+func (s Service) getTrendingHashtagsTrustAware(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingHashtag, error) {
 	limit, offset = normalizeDiscoveryPage(limit, offset, 50, 100)
 	target := limit + offset
 	// Hashtags are derived from trust-qualified note candidates.
-	notes, err := s.collectTrustedTrendingNotes(ctx, window, target*20, target*40)
+	notes, err := s.collectTrustedTrendingNotes(ctx, window, lang, target*20, target*40)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +212,7 @@ func (s Service) getTrendingHashtagsTrustAware(ctx context.Context, window time.
 func (s Service) collectTrustedTrendingNotes(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	targetRows int,
 	scanBudget int,
 ) ([]trustedNoteCandidate, error) {
@@ -217,12 +221,13 @@ func (s Service) collectTrustedTrendingNotes(
 		return nil, unsupportedCapabilityError("trending notes")
 	}
 	tqFetch := queryTrustQualifiedNotesFetch(s.capabilities.curated.trustQualifiedNotes)
-	return s.collectTrustedTrending(ctx, window, targetRows, scanBudget, queryTrendingNotesFetch(capability.GetTrendingNotes), tqFetch)
+	return s.collectTrustedTrending(ctx, window, lang, targetRows, scanBudget, queryTrendingNotesFetch(capability.GetTrendingNotes), tqFetch)
 }
 
 func (s Service) collectTrustedTrending(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	targetRows int,
 	scanBudget int,
 	plain plainTrendingFetch,
@@ -250,6 +255,7 @@ func (s Service) collectTrustedTrending(
 		rows, ready, err := tq(
 			ctx,
 			window,
+			lang,
 			scanBudget,
 			0,
 			s.discoveryTrustMode,
@@ -277,7 +283,7 @@ func (s Service) collectTrustedTrending(
 		if remaining := scanBudget - fetched; remaining < batchSize {
 			batchSize = remaining
 		}
-		batch, err := plain(ctx, window, batchSize, fetched)
+		batch, err := plain(ctx, window, lang, batchSize, fetched)
 		if err != nil {
 			return nil, err
 		}
@@ -310,9 +316,10 @@ func (s Service) collectTrustedTrending(
 
 func (s Service) collectTrustedTrendingProfiles(
 	ctx context.Context,
-	fetch func(context.Context, time.Duration, int, int) ([]TrendingProfile, error),
+	fetch func(context.Context, time.Duration, string, int, int) ([]TrendingProfile, error),
 	rising bool,
 	window time.Duration,
+	lang string,
 	targetRows int,
 	scanBudget int,
 ) ([]trustedProfileCandidate, error) {
@@ -335,6 +342,7 @@ func (s Service) collectTrustedTrendingProfiles(
 		storeRows, ready, err := capability.GetTrustQualifiedTrendingProfiles(
 			ctx,
 			window,
+			lang,
 			scanBudget,
 			0,
 			rising,
@@ -370,7 +378,7 @@ func (s Service) collectTrustedTrendingProfiles(
 		if remaining := scanBudget - fetched; remaining < batchSize {
 			batchSize = remaining
 		}
-		batch, err := fetch(ctx, window, batchSize, fetched)
+		batch, err := fetch(ctx, window, lang, batchSize, fetched)
 		if err != nil {
 			return nil, err
 		}

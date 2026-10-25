@@ -543,7 +543,7 @@ func (f fakeEventReader) GetNetworkStats(ctx context.Context) (storeread.Network
 	return f.getNetworkStatsFn(ctx)
 }
 
-func (f fakeEventReader) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int) (storeread.PublicDiscoveryNetworkStats, error) {
+func (f fakeEventReader) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit int, _ string) (storeread.PublicDiscoveryNetworkStats, error) {
 	if f.getPublicNetworkStatsFn == nil {
 		return storeread.PublicDiscoveryNetworkStats{}, errors.New("not implemented")
 	}
@@ -574,6 +574,7 @@ func (f fakeEventReader) GetCuratedReadsTopics(ctx context.Context, limit int) (
 func (f fakeEventReader) GetTrendingHashtags(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]storeread.TrendingHashtag, error) {
@@ -586,6 +587,7 @@ func (f fakeEventReader) GetTrendingHashtags(
 func (f fakeEventReader) GetTrendingNotes(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]storeread.TrendingNote, error) {
@@ -598,6 +600,7 @@ func (f fakeEventReader) GetTrendingNotes(
 func (f fakeEventReader) GetHotConversations(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]store.HotConversation, error) {
@@ -638,6 +641,7 @@ func (f fakeEventReader) GetRelatedHashtags(ctx context.Context, hashtag string,
 func (f fakeEventReader) GetTrendingDomains(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]store.DomainSummaryProjection, error) {
@@ -650,6 +654,7 @@ func (f fakeEventReader) GetTrendingDomains(
 func (f fakeEventReader) GetHomeTrendingDomains(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 ) ([]store.DomainSummaryProjection, error) {
 	if f.getHomeTrendingDomainsFn == nil {
@@ -694,6 +699,7 @@ func (f fakeEventReader) GetCuratedFeaturedAuthors(ctx context.Context, limit in
 func (f fakeEventReader) GetTrendingProfiles(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]storeread.TrendingProfile, error) {
@@ -706,6 +712,7 @@ func (f fakeEventReader) GetTrendingProfiles(
 func (f fakeEventReader) GetRisingProfiles(
 	ctx context.Context,
 	window time.Duration,
+	_ string,
 	limit int,
 	offset int,
 ) ([]storeread.TrendingProfile, error) {

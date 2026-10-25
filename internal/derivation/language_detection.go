@@ -308,8 +308,13 @@ func decideNoteLanguage(tag string, tagOK bool, contentLang *string, contentConf
 	return nil, nil, languageSourceUncertain
 }
 
-func languageDecisionSettled(version *int32, source *string, lang *string) bool {
-	if version == nil || int(*version) < NoteDiscoveryStatsVersion || lang == nil || strings.TrimSpace(*lang) == "" || source == nil {
+// languageDecisionSettled reports a label the current detector already
+// accepted. language_source is written only by that detector, so the row's
+// derivation_version does not matter: production keeps an older active
+// version until a full rebuild, and a settled label must survive an
+// engagement refresh in the meantime. version is retained for callers.
+func languageDecisionSettled(_ *int32, source *string, lang *string) bool {
+	if lang == nil || strings.TrimSpace(*lang) == "" || source == nil {
 		return false
 	}
 	switch *source {
@@ -320,8 +325,11 @@ func languageDecisionSettled(version *int32, source *string, lang *string) bool 
 	}
 }
 
-func languageDecisionRetryThread(version *int32, source *string) bool {
-	if version == nil || int(*version) < NoteDiscoveryStatsVersion || source == nil {
+// languageDecisionRetryThread is the cheap path for a note already marked
+// short or uncertain: look for a parent or root label and otherwise keep
+// the existing source. A null source still takes the full detector.
+func languageDecisionRetryThread(_ *int32, source *string) bool {
+	if source == nil {
 		return false
 	}
 	return *source == languageSourceShort || *source == languageSourceUncertain

@@ -187,7 +187,7 @@ func (h Handlers) serveSharedDiscoveryStats(
 	build func(query.PublicDiscoveryNetworkStats) map[string]any,
 ) error {
 	if h.discoveryCache == nil || h.publicStatsMemo == nil {
-		stats, err := h.service.GetPublicDiscoveryNetworkStats(ctx, hashtagLimit)
+		stats, err := h.service.GetPublicDiscoveryNetworkStats(ctx, hashtagLimit, query.DiscoveryScope{})
 		if err != nil {
 			return err
 		}
@@ -267,7 +267,7 @@ func (h Handlers) memoizedPublicStats(ctx context.Context) (query.PublicDiscover
 		if stats, ok := h.publicStatsMemo.getFresh(time.Now()); ok {
 			return stats, nil
 		}
-		stats, loadErr := h.service.GetPublicDiscoveryNetworkStats(ctx, publicStatsHashtagFetchLimit)
+		stats, loadErr := h.service.GetPublicDiscoveryNetworkStats(ctx, publicStatsHashtagFetchLimit, query.DiscoveryScope{})
 		if loadErr != nil {
 			return query.PublicDiscoveryNetworkStats{}, loadErr
 		}

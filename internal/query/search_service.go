@@ -398,18 +398,7 @@ func splitSearchDocuments(rows []SearchDocument, limit int) ([]HashtagSuggestion
 }
 
 func isValidLanguageToken(value string) bool {
-	if _, ok := languagelabel.Canonical(value); ok {
-		return true
-	}
-	if len(value) < 2 || len(value) > 8 {
-		return false
-	}
-	for _, r := range value {
-		if r < 'a' || r > 'z' {
-			return false
-		}
-	}
-	return true
+	return languagelabel.ValidFilter(value)
 }
 
 func normalizeSuggestionParams(query string, limit int) (suggestionParams, error) {

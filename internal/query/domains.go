@@ -104,6 +104,7 @@ func (s Service) GetTopDomains(
 func (s Service) GetTrendingDomains(
 	ctx context.Context,
 	window time.Duration,
+	scope DiscoveryScope,
 	limit int,
 	offset int,
 ) ([]DomainSummary, error) {
@@ -125,7 +126,7 @@ func (s Service) GetTrendingDomains(
 	// available for readers that have no snapshot and for other windows.
 	if isFixedDiscoveryWindow(window) {
 		if r := s.capabilities.curated.homeTrendingDomains; r != nil {
-			rows, err := r.GetHomeTrendingDomains(ctx, window, homeTrendingSnapshotLimit)
+			rows, err := r.GetHomeTrendingDomains(ctx, window, scope.Lang(), homeTrendingSnapshotLimit)
 			if err != nil {
 				return nil, err
 			}
@@ -140,7 +141,7 @@ func (s Service) GetTrendingDomains(
 		}
 	}
 	if r := s.capabilities.curated.trendingDomains; r != nil {
-		rows, err := r.GetTrendingDomains(ctx, window, limit, offset)
+		rows, err := r.GetTrendingDomains(ctx, window, scope.Lang(), limit, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -155,6 +156,7 @@ func (s Service) GetTrendingDomains(
 func (s Service) GetHomeTrendingDomains(
 	ctx context.Context,
 	window time.Duration,
+	scope DiscoveryScope,
 	limit int,
 ) ([]DomainSummary, error) {
 	if window <= 0 {
@@ -167,7 +169,7 @@ func (s Service) GetHomeTrendingDomains(
 		limit = 50
 	}
 	if r := s.capabilities.curated.homeTrendingDomains; r != nil {
-		rows, err := r.GetHomeTrendingDomains(ctx, window, limit)
+		rows, err := r.GetHomeTrendingDomains(ctx, window, scope.Lang(), limit)
 		if err != nil {
 			return nil, err
 		}

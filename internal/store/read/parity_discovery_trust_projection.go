@@ -21,13 +21,14 @@ const (
 func (s *Read) GetTrustQualifiedTrendingNotes(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 	mode string,
 	policy TrustQualificationPolicy,
 	maxStaleness time.Duration,
 ) ([]TrustQualifiedTrendingNote, bool, error) {
-	return s.getTrustQualifiedTrendingForKinds(ctx, []int{1}, window, limit, offset, mode, policy, maxStaleness)
+	return s.getTrustQualifiedTrendingForKinds(ctx, []int{1}, window, lang, limit, offset, mode, policy, maxStaleness)
 }
 
 // GetTrustQualifiedTrendingLongForm returns trust-qualified trending long-form
@@ -35,19 +36,21 @@ func (s *Read) GetTrustQualifiedTrendingNotes(
 func (s *Read) GetTrustQualifiedTrendingLongForm(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 	mode string,
 	policy TrustQualificationPolicy,
 	maxStaleness time.Duration,
 ) ([]TrustQualifiedTrendingNote, bool, error) {
-	return s.getTrustQualifiedTrendingForKinds(ctx, []int{30023}, window, limit, offset, mode, policy, maxStaleness)
+	return s.getTrustQualifiedTrendingForKinds(ctx, []int{30023}, window, lang, limit, offset, mode, policy, maxStaleness)
 }
 
 func (s *Read) getTrustQualifiedTrendingForKinds(
 	ctx context.Context,
 	kinds []int,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 	mode string,
@@ -84,6 +87,11 @@ func (s *Read) getTrustQualifiedTrendingForKinds(
 	if mode == discoveryProjectionModePreferTrusted {
 		orderBy = fmt.Sprintf("%s DESC, n.%s DESC, n.created_at DESC, n.event_id ASC", trustedExpr, scoreColumn)
 	}
+	args := []any{minCreatedAt, policy.MaxHops, policy.MinimumScore, limit, offset, kinds}
+	if lang != "" {
+		whereTrusted += " AND " + languagelabel.FilterSQL("n", "$7::text")
+		args = append(args, lang)
+	}
 	query := fmt.Sprintf(`
 		SELECT
 			n.event_id,
@@ -107,7 +115,7 @@ func (s *Read) getTrustQualifiedTrendingForKinds(
 		ORDER BY %s
 		LIMIT $4 OFFSET $5
 	`, scoreColumn, trustedExpr, whereTrusted, orderBy)
-	rows, err := s.pool.Query(ctx, query, minCreatedAt, policy.MaxHops, policy.MinimumScore, limit, offset, kinds)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("get trust-qualified trending notes: %w", err)
 	}
@@ -142,6 +150,7 @@ func (s *Read) getTrustQualifiedTrendingForKinds(
 func (s *Read) GetTrustQualifiedTrendingProfiles(
 	ctx context.Context,
 	window time.Duration,
+	lang string,
 	limit int,
 	offset int,
 	rising bool,
@@ -187,6 +196,12 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 	if mode == discoveryProjectionModePreferTrusted {
 		orderBy = fmt.Sprintf("%s DESC, p.%s DESC, p.recent_engagement_received DESC, p.recent_activity_at DESC, p.pubkey ASC", trustedExpr, scoreColumn)
 	}
+	langClause := ""
+	args := []any{minCreatedAt, policy.MaxHops, policy.MinimumScore, limit, offset}
+	if lang != "" {
+		langClause = fmt.Sprintf("AND p.%s = $6", profileLanguageColumn(scoreColumn))
+		args = append(args, lang)
+	}
 	query := fmt.Sprintf(`
 		SELECT
 			p.pubkey,
@@ -217,10 +232,11 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 		  AND p.recent_activity_at >= $1
 		  AND p.%s > 0
 		  %s
+		  %s
 		ORDER BY %s
 		LIMIT $4 OFFSET $5
-	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, trustedExpr, scoreColumn, whereTrusted, orderBy)
-	rows, err := s.pool.Query(ctx, query, minCreatedAt, policy.MaxHops, policy.MinimumScore, limit, offset)
+	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, trustedExpr, scoreColumn, whereTrusted, langClause, orderBy)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("get trust-qualified trending profiles: %w", err)
 	}

@@ -140,6 +140,12 @@ func (f fakeAdminService) SetAccountState(ctx context.Context, pubkey, state, re
 func (f fakeAdminService) EnqueueAccountHydration(ctx context.Context, pubkey, reason string) (accountHydrateResponse, error) {
 	return accountHydrateResponse{Pubkey: pubkey, Status: "queued"}, nil
 }
+func (f fakeAdminService) GetLanguageBackfill(context.Context) (derivation.LanguageBackfillStatus, bool, error) {
+	return derivation.LanguageBackfillStatus{}, false, nil
+}
+func (f fakeAdminService) StartLanguageBackfill(context.Context) (derivation.LanguageBackfillStatus, error) {
+	return derivation.LanguageBackfillStatus{}, nil
+}
 
 func TestAdminRoutes_RequireBearerToken(t *testing.T) {
 	mux := newAdminTestMux("token", fakeAdminService{

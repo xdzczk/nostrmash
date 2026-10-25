@@ -127,6 +127,8 @@ Representative implemented native routes include:
 - `GET /api/v1/trust/scores` and `GET /api/v1/trust/scores/{pubkey}`
 - `GET /api/v1/accounts/{pubkey}/status` and `POST /api/v1/accounts/{pubkey}/hydrate`
 
+Those discovery rankings take an optional `lang` query parameter. Omit it to rank every language. A value is a lowercase 2–8 letter code, `und`, or `und-uncertain`. Responses echo `language` and include a global `top_languages` chart (`24h` and `7d`) for the selector. Notes, long-form, conversations, profiles, hashtags, domains, and the home bundle all honor the filter.
+
 Compatibility aliases also exist for `GET /api/v1/discovery/network/stats` and `GET /api/v1/discovery/content/stats`.
 
 The authoritative route inventory is the declared route list in `internal/app/api/routes.go`; contract-owned routes are additionally covered by [openapi.yaml](openapi.yaml) and guarded by the one-way drift test (`make contract-drift`).
