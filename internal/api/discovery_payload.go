@@ -59,12 +59,6 @@ func discoveryReason(code, metric string, value float64, unit string) query.Disc
 	}
 }
 
-func buildNoteRanking(note query.TrendingNote, rank int) query.DiscoveryItemRanking {
-	ranking := buildNoteRankings([]query.TrendingNote{note})[0]
-	ranking.Rank = rank
-	return ranking
-}
-
 // risingEngagementReasonFloor mirrors computeProfileRisingScore's
 // risingEngagementNoiseFloor: a single (weighted) interaction contributes
 // nothing to the rising score, so it must not be advertised as an
