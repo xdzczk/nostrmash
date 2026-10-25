@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 	"github.com/xdzczk/nostrmash/internal/query"
 )
 
@@ -15,7 +16,7 @@ var (
 	errInvalidNotesSearchSort    = errors.New("sort must be one of: relevant, latest")
 	errInvalidProfilesSearchSort = errors.New("sort must be one of: relevant")
 	errInvalidNotesSearchWindow  = errors.New("window must be one of: 24h, 7d")
-	errInvalidNotesSearchLang    = errors.New("lang must be \"und\" or a 2-8 letter code")
+	errInvalidNotesSearchLang    = errors.New("lang must be \"und\", \"und-uncertain\", or a 2-8 letter code")
 )
 
 // Search returns a best-effort combined event/profile search.
@@ -422,8 +423,8 @@ func parseOptionalNotesSearchLanguage(r *http.Request) (string, error) {
 	if lang == "" {
 		return "", nil
 	}
-	if lang == "und" {
-		return lang, nil
+	if code, ok := languagelabel.Canonical(lang); ok {
+		return code, nil
 	}
 	if len(lang) < 2 || len(lang) > 8 {
 		return "", errInvalidNotesSearchLang

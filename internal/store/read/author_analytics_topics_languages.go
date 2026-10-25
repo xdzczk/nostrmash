@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 )
 
 func (s *Read) GetAuthorTopicStats(
@@ -84,13 +86,14 @@ func (s *Read) GetAuthorTopLanguages(
 	}
 	cutoff := time.Now().UTC().Unix() - int64(windowDays*24*60*60)
 	rows, err := s.pool.Query(ctx, `
-		SELECT
-			COALESCE(primary_language, 'und') AS language,
-			COUNT(*)::bigint AS count_value
-		FROM note_discovery_stats
-		WHERE author_pubkey = $1
-		  AND created_at >= $2
-		GROUP BY COALESCE(primary_language, 'und')
+		SELECT language, COUNT(*)::bigint AS count_value
+		FROM (
+			SELECT `+languagelabel.ChartSQL("primary_language", "language_source")+` AS language
+			FROM note_discovery_stats
+			WHERE author_pubkey = $1
+			  AND created_at >= $2
+		) labeled
+		GROUP BY language
 		ORDER BY count_value DESC, language ASC
 		LIMIT $3
 	`, pubkey, cutoff, limit)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
@@ -305,7 +306,7 @@ func normalizeNotesSearchParams(params NotesSearchParams) (NotesSearchParams, er
 	lang := strings.ToLower(strings.TrimSpace(params.Language))
 	if lang != "" {
 		if !isValidLanguageToken(lang) {
-			return NotesSearchParams{}, fmt.Errorf("language must be \"und\" or a 2-8 letter code")
+			return NotesSearchParams{}, fmt.Errorf("language must be \"und\", \"und-uncertain\", or a 2-8 letter code")
 		}
 	}
 	params.Language = lang
@@ -397,7 +398,7 @@ func splitSearchDocuments(rows []SearchDocument, limit int) ([]HashtagSuggestion
 }
 
 func isValidLanguageToken(value string) bool {
-	if value == "und" {
+	if _, ok := languagelabel.Canonical(value); ok {
 		return true
 	}
 	if len(value) < 2 || len(value) > 8 {

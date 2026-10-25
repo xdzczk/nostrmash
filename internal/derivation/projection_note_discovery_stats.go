@@ -101,11 +101,33 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 	var noteCreatedAt int64
 	var noteKind int
 	var noteContent string
+	var existingLang *string
+	var existingConf *float64
+	var existingVersion *int32
+	var existingSource *string
 	if err := tx.QueryRow(ctx, `
-		SELECT pubkey, created_at, kind, COALESCE(content, '')
-		FROM events
-		WHERE id = $1
-	`, noteID).Scan(&authorPubkey, &noteCreatedAt, &noteKind, &noteContent); err != nil {
+		SELECT
+			e.pubkey,
+			e.created_at,
+			e.kind,
+			COALESCE(e.content, ''),
+			s.primary_language,
+			s.language_confidence,
+			s.derivation_version,
+			s.language_source
+		FROM events e
+		LEFT JOIN note_discovery_stats s ON s.event_id = e.id
+		WHERE e.id = $1
+	`, noteID).Scan(
+		&authorPubkey,
+		&noteCreatedAt,
+		&noteKind,
+		&noteContent,
+		&existingLang,
+		&existingConf,
+		&existingVersion,
+		&existingSource,
+	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			if _, delErr := tx.Exec(ctx, `DELETE FROM note_discovery_stats WHERE event_id = $1`, noteID); delErr != nil {
 				return fmt.Errorf("delete stale note discovery row for missing event: %w", delErr)
@@ -190,7 +212,13 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		engagement24h.ReplyWeight, engagement24h.RepostWeight, engagement24h.ReactionWeight, engagement24h.ZapWeight, engagement24h.ZapMSats)
 	score7d := computeTrendingScore(7*24*time.Hour, nowUnix, noteCreatedAt,
 		engagement7d.ReplyWeight, engagement7d.RepostWeight, engagement7d.ReactionWeight, engagement7d.ZapWeight, engagement7d.ZapMSats)
-	primaryLanguage, languageConfidence := detectPrimaryLanguage(noteContent)
+	primaryLanguage, languageConfidence, languageSource, err := resolveNoteLanguageTx(
+		ctx, tx, noteID, authorPubkey, noteContent, nowUnix,
+		existingVersion, existingLang, existingConf, existingSource,
+	)
+	if err != nil {
+		return err
+	}
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO note_discovery_stats (
@@ -209,12 +237,13 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 			attachment_count,
 			primary_language,
 			language_confidence,
+			language_source,
 			score_24h,
 			score_7d,
 			last_scored_at,
 			derivation_version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now(), $18)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19)
 		ON CONFLICT (event_id) DO UPDATE
 		SET author_pubkey = EXCLUDED.author_pubkey,
 		    created_at = EXCLUDED.created_at,
@@ -230,12 +259,13 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		    attachment_count = EXCLUDED.attachment_count,
 		    primary_language = EXCLUDED.primary_language,
 		    language_confidence = EXCLUDED.language_confidence,
+		    language_source = EXCLUDED.language_source,
 		    score_24h = EXCLUDED.score_24h,
 		    score_7d = EXCLUDED.score_7d,
 		    last_scored_at = now(),
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
-	`, noteID, authorPubkey, noteCreatedAt, replyCount, repostCount, reactionCount, zapCount, zapMSats, hasImage, hasVideo, hasLink, hasArticle, attachmentCount, primaryLanguage, languageConfidence, score24h, score7d, writeVersion); err != nil {
+	`, noteID, authorPubkey, noteCreatedAt, replyCount, repostCount, reactionCount, zapCount, zapMSats, hasImage, hasVideo, hasLink, hasArticle, attachmentCount, primaryLanguage, languageConfidence, nullableLanguageSource(languageSource), score24h, score7d, writeVersion); err != nil {
 		return fmt.Errorf("upsert note discovery stats: %w", err)
 	}
 	return nil

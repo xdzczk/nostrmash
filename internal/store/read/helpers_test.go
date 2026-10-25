@@ -17,6 +17,7 @@ func TestNormalizeLanguageFilter(t *testing.T) {
 	}{
 		{"", ""},
 		{"  UND ", "und"},
+		{"UND-UNCERTAIN", "und-uncertain"},
 		{"en", "en"},
 		{"EN-US", invalidLanguageFilter}, // hyphen rejected
 		{"toolonglang", invalidLanguageFilter},

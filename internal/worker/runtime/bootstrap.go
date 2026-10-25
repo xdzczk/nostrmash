@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xdzczk/nostrmash/internal/config"
@@ -82,6 +83,12 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 		return Bootstrap{}, func() {}, fmt.Errorf("ensure registered derivations: %w", err)
 	}
 	log.Info("registered_derivations_ready", "count", len(derivation.RegisteredDerivations))
+	derivation.EnableLanguageModelPreload()
+	go func() {
+		started := time.Now()
+		derivation.PreloadLanguageDetectors()
+		log.Info("language_detectors_preloaded", "elapsed", time.Since(started).String())
+	}()
 
 	queue := jobs.NewQueue(pool)
 	postgresStore := store.NewPostgresStore(pool)

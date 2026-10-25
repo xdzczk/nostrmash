@@ -5,11 +5,28 @@ import (
 	"time"
 )
 
+// cheapEngagementUnlockPerSubstantive is how many reaction-points of cheap
+// engagement (one reaction = 1, one repost = 2) one replier or zapper fully
+// unlocks. Replies are already greeting-discounted before they get here, so
+// a pile of identical "GM"s does not unlock a reaction farm.
+const cheapEngagementUnlockPerSubstantive = 4.0
+
+// cheapEngagementFloor is the fraction of reactions and reposts that still
+// count once they exceed what replies and zaps explain. Zero would hide a
+// note people liked and nobody answered; 1 lets a boost farm (dozens of
+// reactions and reposts, no comments, a single zap) buy the top slot.
+const cheapEngagementFloor = 0.12
+
 // computeTrendingScore blends windowed engagement into a decayed trending
 // score. Engagement inputs are float64 "weights", not raw event counts: the
 // projection counts each engager pubkey once per signal (excluding the note
 // author), and optionally scales each engager by trust-graph proximity, so a
 // single account emitting many events cannot inflate the score.
+//
+// Reactions and reposts are cheap to buy. They count in full only up to a
+// budget set by the people who replied or zapped; the surplus counts at
+// cheapEngagementFloor. The discount is linear in every weight, so halving
+// every engager's trust weight still halves the score.
 func computeTrendingScore(
 	window time.Duration,
 	nowUnix int64,
@@ -31,17 +48,42 @@ func computeTrendingScore(
 	if ageSeconds > windowSeconds {
 		return 0
 	}
+	replyWeight = math.Max(0, replyWeight)
+	repostWeight = math.Max(0, repostWeight)
+	reactionWeight = math.Max(0, reactionWeight)
+	zapWeight = math.Max(0, zapWeight)
+	zapMSats = math.Max(0, zapMSats)
+
+	substantive := replyWeight + zapWeight
 	base := replyWeight*3.0 +
-		repostWeight*2.0 +
-		reactionWeight*1.0 +
 		zapWeight*2.0 +
-		(zapMSats / 100000.0)
+		(zapMSats / 100000.0) +
+		cheapEngagementSignal(reactionWeight, repostWeight, substantive)
 	decay := 1.0 / (1.0 + (float64(ageSeconds) / float64(windowSeconds)))
 	score := base * decay
 	if score <= 0 {
 		return 0
 	}
 	return math.Round(score*1000.0) / 1000.0
+}
+
+// cheapEngagementSignal scores reactions and reposts. Within the budget
+// unlocked by substantive engagers the weight is unchanged. Past it, only
+// cheapEngagementFloor of the surplus counts. With no replies and no zaps
+// the whole pile is surplus.
+func cheapEngagementSignal(reactionWeight, repostWeight, substantive float64) float64 {
+	cheap := reactionWeight + 2.0*repostWeight
+	if cheap <= 0 {
+		return 0
+	}
+	if substantive < 0 {
+		substantive = 0
+	}
+	unlocked := substantive * cheapEngagementUnlockPerSubstantive
+	if cheap <= unlocked {
+		return cheap
+	}
+	return unlocked + cheapEngagementFloor*(cheap-unlocked)
 }
 
 // computeProfileTrendingScore takes float64 engagement/zap inputs so callers

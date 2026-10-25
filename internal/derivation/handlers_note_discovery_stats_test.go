@@ -375,7 +375,9 @@ func TestProjectNoteDiscoveryStats_LanguageClassificationFixtures(t *testing.T) 
 		expected string
 	}{
 		{id: "lang_note_en", content: "This is a simple note about nostr and how the network grows.", expected: "en"},
+		{id: "lang_note_en_plain", content: "Nostr clients should cache profiles locally before rendering feeds.", expected: "en"},
 		{id: "lang_note_es", content: "Hola amigos, este es un mensaje para la comunidad de nostr.", expected: "es"},
+		{id: "lang_note_es_plain", content: "Buenos días, hoy el relay está lento otra vez y no carga.", expected: "es"},
 		{id: "lang_note_ja", content: "こんにちは、これはノストルの言語判定テストです。", expected: "ja"},
 		{id: "lang_note_ko", content: "안녕하세요, 이것은 노스트르 언어 감지 테스트입니다.", expected: "ko"},
 		{id: "lang_note_ar", content: "مرحبا، هذا اختبار لاكتشاف اللغة في نوستر.", expected: "ar"},
@@ -401,6 +403,9 @@ func TestProjectNoteDiscoveryStats_LanguageClassificationFixtures(t *testing.T) 
 		}
 		if row.LanguageConf == nil || *row.LanguageConf <= 0 {
 			t.Fatalf("expected language confidence for %s, got=%v", fixture.id, row.LanguageConf)
+		}
+		if row.LanguageSource == nil || *row.LanguageSource != "content" {
+			t.Fatalf("language source for %s = %v, want content", fixture.id, row.LanguageSource)
 		}
 	}
 }
@@ -428,6 +433,9 @@ func TestProjectNoteDiscoveryStats_LanguageUnknownShortAndDisabled(t *testing.T)
 	if shortRow.PrimaryLanguage != nil || shortRow.LanguageConf != nil {
 		t.Fatalf("expected unknown language for short text, got=%#v", shortRow)
 	}
+	if shortRow.LanguageSource == nil || *shortRow.LanguageSource != "short" {
+		t.Fatalf("short note source = %v, want short", shortRow.LanguageSource)
+	}
 
 	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_ENABLED", "false")
 	disabled := newEventForTest("lang_disabled_note", "author_disabled", now.Add(-time.Minute).Unix(), 1, nil, "This sentence is long enough for detection.", now.Add(-time.Minute))
@@ -438,8 +446,108 @@ func TestProjectNoteDiscoveryStats_LanguageUnknownShortAndDisabled(t *testing.T)
 		t.Fatalf("derive disabled note: %v", err)
 	}
 	disabledRow := readNoteDiscoveryStatsRow(t, ctx, pool, disabled.ID)
-	if disabledRow.PrimaryLanguage != nil || disabledRow.LanguageConf != nil {
+	if disabledRow.PrimaryLanguage != nil || disabledRow.LanguageConf != nil || disabledRow.LanguageSource != nil {
 		t.Fatalf("expected nil language when detection disabled, got=%#v", disabledRow)
+	}
+}
+
+func TestProjectNoteDiscoveryStats_LanguageTagThreadAndAuthor(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_ENABLED", "true")
+	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_MIN_CHARS", "20")
+	t.Setenv("NOSTRMASH_LANGUAGE_DETECTION_MIN_CONFIDENCE", "0.55")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	tagged := newEventForTest(
+		"lang_tag_note",
+		"author_tag",
+		now.Add(-10*time.Minute).Unix(),
+		1,
+		[][]string{{"l", "de", "ISO-639-1"}},
+		"Nostr clients should cache profiles locally before rendering feeds.",
+		now.Add(-10*time.Minute),
+	)
+	if err := pgStore.InsertCanonicalEvent(ctx, tagged, extractTagsFromRaw(t, tagged.RawJSON), "wss://relay.one", tagged.FirstSeenAt); err != nil {
+		t.Fatalf("insert tagged note: %v", err)
+	}
+	if err := handlers.DeriveEventBundle(ctx, tagged.ID); err != nil {
+		t.Fatalf("derive tagged note: %v", err)
+	}
+	taggedRow := readNoteDiscoveryStatsRow(t, ctx, pool, tagged.ID)
+	if taggedRow.PrimaryLanguage == nil || *taggedRow.PrimaryLanguage != "de" || taggedRow.LanguageSource == nil || *taggedRow.LanguageSource != "tag" {
+		t.Fatalf("explicit tag = %#v", taggedRow)
+	}
+
+	parent := newEventForTest(
+		"lang_parent_note",
+		"author_parent",
+		now.Add(-9*time.Minute).Unix(),
+		1,
+		nil,
+		"Nostr clients should cache profiles locally before rendering feeds.",
+		now.Add(-9*time.Minute),
+	)
+	reply := newEventForTest(
+		"lang_reply_note",
+		"author_reply",
+		now.Add(-8*time.Minute).Unix(),
+		1,
+		[][]string{{"e", parent.ID, "", "reply"}},
+		"gm",
+		now.Add(-8*time.Minute),
+	)
+	for _, event := range []model.Event{parent, reply} {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive %s: %v", event.ID, err)
+		}
+	}
+	replyRow := readNoteDiscoveryStatsRow(t, ctx, pool, reply.ID)
+	if replyRow.PrimaryLanguage == nil || *replyRow.PrimaryLanguage != "en" || replyRow.LanguageSource == nil || *replyRow.LanguageSource != "thread" {
+		t.Fatalf("thread inheritance = %#v", replyRow)
+	}
+
+	author := "author_prior"
+	sentences := []string{
+		"Nostr clients should cache profiles locally before rendering feeds.",
+		"The weather is nice and you have that from your window today.",
+		"I think this relay should cache profiles locally before rendering them.",
+	}
+	for i, sentence := range sentences {
+		event := newEventForTest(
+			"lang_author_note_"+string(rune('a'+i)),
+			author,
+			now.Add(-time.Duration(7-i)*time.Minute).Unix(),
+			1,
+			nil,
+			sentence,
+			now.Add(-time.Duration(7-i)*time.Minute),
+		)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert author note: %v", err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive author note: %v", err)
+		}
+	}
+	short := newEventForTest("lang_author_gm", author, now.Add(-time.Minute).Unix(), 1, nil, "gm", now.Add(-time.Minute))
+	if err := pgStore.InsertCanonicalEvent(ctx, short, extractTagsFromRaw(t, short.RawJSON), "wss://relay.one", short.FirstSeenAt); err != nil {
+		t.Fatalf("insert author gm: %v", err)
+	}
+	if err := handlers.DeriveEventBundle(ctx, short.ID); err != nil {
+		t.Fatalf("derive author gm: %v", err)
+	}
+	shortRow := readNoteDiscoveryStatsRow(t, ctx, pool, short.ID)
+	if shortRow.PrimaryLanguage == nil || *shortRow.PrimaryLanguage != "en" || shortRow.LanguageSource == nil || *shortRow.LanguageSource != "author" {
+		t.Fatalf("author inheritance = %#v", shortRow)
 	}
 }
 
@@ -456,6 +564,7 @@ type noteDiscoveryRow struct {
 	AttachmentCount int
 	PrimaryLanguage *string
 	LanguageConf    *float64
+	LanguageSource  *string
 	Score24h        float64
 	Score7d         float64
 }
@@ -477,6 +586,7 @@ func readNoteDiscoveryStatsRow(t *testing.T, ctx context.Context, pool *pgxpool.
 			attachment_count,
 			primary_language,
 			language_confidence,
+			language_source,
 			score_24h,
 			score_7d
 		FROM note_discovery_stats
@@ -494,6 +604,7 @@ func readNoteDiscoveryStatsRow(t *testing.T, ctx context.Context, pool *pgxpool.
 		&out.AttachmentCount,
 		&out.PrimaryLanguage,
 		&out.LanguageConf,
+		&out.LanguageSource,
 		&out.Score24h,
 		&out.Score7d,
 	); err != nil {

@@ -87,7 +87,14 @@ const (
 	// v6: repeated greetings and repeated short phrases are discounted in
 	// the reply weight. A single "GM" still counts; a pile of them does not
 	// count as one vote each.
-	NoteDiscoveryStatsVersion = 6
+	// v7: reactions and reposts beyond the budget replies and zaps unlock
+	// count at a fraction. A boost farm (many reactions and reposts, ~0
+	// replies, one zap) can no longer outrank a note people replied to.
+	// v8: note language is classified from cleaned text, an explicit l/lang
+	// tag, or the parent thread / author's content language. A settled label
+	// is kept across later engagement refreshes. Short notes and text the
+	// model refuses stay unmarked as separate chart buckets.
+	NoteDiscoveryStatsVersion = 8
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires

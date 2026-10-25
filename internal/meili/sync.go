@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
+
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 )
 
 var meiliDocIDValid = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -38,13 +40,13 @@ type SyncStats struct {
 // index. Content is truncated in SQL (Go trim further to rune limits) and
 // per-row event_tags laterals are avoided so FullSync pages stay inside
 // production statement_timeout guardrails. Search hydrates full events by id.
-const noteDocumentSelect = `
+var noteDocumentSelect = `
 	SELECT
 		e.id,
 		left(coalesce(e.content, ''), 2000),
 		e.pubkey,
 		e.created_at,
-		coalesce(nds.primary_language, 'und')
+		` + languagelabel.ChartSQL("nds.primary_language", "nds.language_source") + `
 	FROM events e
 	LEFT JOIN note_discovery_stats nds ON nds.event_id = e.id
 `

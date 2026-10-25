@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 )
 
 const (
@@ -89,7 +90,7 @@ func (s *Read) getTrustQualifiedTrendingForKinds(
 			n.author_pubkey,
 			n.created_at,
 			e.content,
-			COALESCE(n.primary_language, 'und') AS language,
+			`+languagelabel.ChartSQL("n.primary_language", "n.language_source")+` AS language,
 			n.reply_count,
 			n.repost_count,
 			n.reaction_count,

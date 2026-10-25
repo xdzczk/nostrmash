@@ -54,6 +54,64 @@ func TestComputeTrendingScore(t *testing.T) {
 			t.Fatalf("expected 3-decimal rounding, got %v", got)
 		}
 	})
+
+	t.Run("replies and reactions inside the unlock budget keep the linear score", func(t *testing.T) {
+		// 10 replies + 1 zap unlock 44 reaction-points. 8 reactions and
+		// 2 reposts are 12, so nothing is discounted.
+		// 3*10 + 2*2 + 8 + 2*1 = 44.
+		got := computeTrendingScore(window, now, now, 10, 2, 8, 1, 0)
+		if got != 44 {
+			t.Fatalf("expected full linear score 44, got %v", got)
+		}
+	})
+
+	t.Run("reaction and repost farm with one zap loses to a real thread", func(t *testing.T) {
+		// Boost shape: 0 replies, 51 reposts, 71 reactions, 1 zap.
+		// Conversation shape: 24 replies, 18 reposts, 49 reactions, 5 zaps.
+		// A smaller thread (14 replies) should also stay ahead.
+		boost := computeTrendingScore(window, now, now, 0, 51, 71, 1, 0)
+		thread := computeTrendingScore(window, now, now, 24, 18, 49, 5, 0)
+		smaller := computeTrendingScore(window, now, now, 14, 13, 48, 9, 0)
+		if boost <= 0 {
+			t.Fatalf("boost farm should still score above zero, got %v", boost)
+		}
+		if boost >= smaller || boost >= thread {
+			t.Fatalf("boost farm should rank below both threads: boost=%v smaller=%v thread=%v", boost, smaller, thread)
+		}
+		// Nine replies and nothing else outrank the farm. The farm's huge
+		// cheap pile must not be worth more than a short conversation.
+		repliesOnly := computeTrendingScore(window, now, now, 9, 0, 0, 0, 0)
+		if boost >= repliesOnly {
+			t.Fatalf("boost farm %v should score below 9 replies %v", boost, repliesOnly)
+		}
+	})
+
+	t.Run("a large zap does not unlock a reaction farm", func(t *testing.T) {
+		// 50_000 sats is real support and must count. It must not restore
+		// the 100 reactions that one zapper does not explain.
+		withFarm := computeTrendingScore(window, now, now, 0, 0, 100, 1, 50_000_000)
+		zapOnly := computeTrendingScore(window, now, now, 0, 0, 0, 1, 50_000_000)
+		if withFarm <= zapOnly {
+			t.Fatalf("reactions should still add something: farm=%v zapOnly=%v", withFarm, zapOnly)
+		}
+		// Full linear reactions would add 100. The floor keeps about 12
+		// plus the 4 the zap unlocks, so the gap stays well under 30.
+		if withFarm-zapOnly > 30 {
+			t.Fatalf("zap amount unlocked too much of the reaction pile: farm=%v zapOnly=%v", withFarm, zapOnly)
+		}
+	})
+
+	t.Run("halving every weight halves the score, including surplus cheap engagement", func(t *testing.T) {
+		full := computeTrendingScore(window, now, now, 2, 10, 20, 1, 0)
+		half := computeTrendingScore(window, now, now, 1, 5, 10, 0.5, 0)
+		if full <= 0 || half <= 0 {
+			t.Fatalf("expected positive scores, full=%v half=%v", full, half)
+		}
+		ratio := half / full
+		if ratio < 0.49 || ratio > 0.51 {
+			t.Fatalf("expected half/full ~0.5, got %v (full=%v half=%v)", ratio, full, half)
+		}
+	})
 }
 
 func TestComputeProfileTrendingScore(t *testing.T) {

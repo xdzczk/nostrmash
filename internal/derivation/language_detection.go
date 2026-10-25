@@ -5,15 +5,103 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unicode"
+	"unicode/utf8"
+
+	"github.com/pemistahl/lingua-go"
 )
 
 const (
 	defaultLanguageMinChars      = 20
 	defaultLanguageMinConfidence = 0.60
+	// languageMinRelativeDistance is the minimum gap between the top two
+	// language probabilities. Those probabilities sum to 1 across the
+	// configured set, so a near-tie can still post a moderate top score.
+	languageMinRelativeDistance = 0.25
+	// languageLowAccuracyMinRunes is lingua's own cutoff: below this, low
+	// accuracy mode (trigrams only) is unreliable, so short notes use the
+	// full n-gram models. Longer notes do not need them.
+	languageLowAccuracyMinRunes = 120
+	// languageInferredConfidence stays under the default content threshold so
+	// a thread or author fallback is not treated as a direct detection.
+	languageInferredConfidence  = 0.40
+	languageAuthorPriorWindow   = 30 * 24 * 60 * 60
+	languageAuthorPriorMinNotes = 3
+
+	languageSourceContent   = "content"
+	languageSourceTag       = "tag"
+	languageSourceThread    = "thread"
+	languageSourceAuthor    = "author"
+	languageSourceShort     = "short"
+	languageSourceUncertain = "uncertain"
 )
 
-var languageTokenPattern = regexp.MustCompile(`[\p{L}\p{N}']+`)
+// noteLanguages is the closed set the detector may return. Near-neighbors
+// are included (Malay with Indonesian, Urdu with Arabic and Persian,
+// Ukrainian with Russian) so a note is not forced into the adjacent
+// language. Models stay resident after first use. The worker preloads them
+// so the first notes of a process do not pay the unzip.
+var noteLanguages = []lingua.Language{
+	lingua.Arabic,
+	lingua.Bengali,
+	lingua.Bokmal,
+	lingua.Bulgarian,
+	lingua.Chinese,
+	lingua.Czech,
+	lingua.Danish,
+	lingua.Dutch,
+	lingua.English,
+	lingua.Finnish,
+	lingua.French,
+	lingua.German,
+	lingua.Greek,
+	lingua.Hebrew,
+	lingua.Hindi,
+	lingua.Hungarian,
+	lingua.Indonesian,
+	lingua.Italian,
+	lingua.Japanese,
+	lingua.Korean,
+	lingua.Malay,
+	lingua.Marathi,
+	lingua.Persian,
+	lingua.Polish,
+	lingua.Portuguese,
+	lingua.Romanian,
+	lingua.Russian,
+	lingua.Serbian,
+	lingua.Spanish,
+	lingua.Swedish,
+	lingua.Thai,
+	lingua.Turkish,
+	lingua.Ukrainian,
+	lingua.Urdu,
+	lingua.Vietnamese,
+}
+
+var (
+	languagePreloadModels atomic.Bool
+
+	languageDetectorOnce    sync.Once
+	languageDetector        lingua.LanguageDetector
+	languageDetectorLowOnce sync.Once
+	languageDetectorLow     lingua.LanguageDetector
+
+	// Opaque tokens that carry no language signal. URLs are removed entirely:
+	// path segments such as "the" and "and" would otherwise look like English.
+	// The bech32 and hex patterns match the tokens stripped before search indexing.
+	languageURLPattern     = regexp.MustCompile(`(?i)\b(?:https?|wss?)://\S+`)
+	languageBech32Pattern  = regexp.MustCompile(`(?i)\b(?:nostr:)?(?:npub|nsec|note|nevent|nprofile|naddr|nrelay|lnbc|lntb|lnbcrt)1[02-9ac-hj-np-z]{20,}\b`)
+	languageHexPattern     = regexp.MustCompile(`\b[0-9a-fA-F]{32,}\b`)
+	languageMentionPattern = regexp.MustCompile(`#\[\d+\]`)
+	// ASCII-only. Thai, Chinese, and Japanese notes are often written
+	// without spaces, so a generic non-whitespace run would delete them.
+	languageLongRunPattern    = regexp.MustCompile(`[A-Za-z0-9+/=_-]{48,}`)
+	languageWhitespacePattern = regexp.MustCompile(`\s+`)
+	languageCodePattern       = regexp.MustCompile(`^[a-z]{2}$`)
+)
 
 type languageDetectionConfig struct {
 	Enabled       bool
@@ -41,157 +129,97 @@ func readLanguageDetectionConfig() languageDetectionConfig {
 	}
 }
 
-func detectPrimaryLanguage(content string) (*string, *float64) {
-	cfg := readLanguageDetectionConfig()
-	if !cfg.Enabled {
-		return nil, nil
+// EnableLanguageModelPreload makes the first detector build load every
+// configured model. Call it before notes are classified.
+func EnableLanguageModelPreload() {
+	languagePreloadModels.Store(true)
+}
+
+// PreloadLanguageDetectors loads the high-accuracy models used for short
+// notes and the trigram models used for longer ones.
+func PreloadLanguageDetectors() {
+	EnableLanguageModelPreload()
+	_ = noteLanguageDetector(false)
+	_ = noteLanguageDetector(true)
+}
+
+func noteLanguageDetector(lowAccuracy bool) lingua.LanguageDetector {
+	if lowAccuracy {
+		languageDetectorLowOnce.Do(func() {
+			languageDetectorLow = buildLanguageDetector(true)
+		})
+		return languageDetectorLow
 	}
-	return detectPrimaryLanguageWithConfig(content, cfg)
+	languageDetectorOnce.Do(func() {
+		languageDetector = buildLanguageDetector(false)
+	})
+	return languageDetector
+}
+
+func buildLanguageDetector(lowAccuracy bool) lingua.LanguageDetector {
+	builder := lingua.NewLanguageDetectorBuilder().FromLanguages(noteLanguages...)
+	if lowAccuracy {
+		builder = builder.WithLowAccuracyMode()
+	}
+	if languagePreloadModels.Load() {
+		builder = builder.WithPreloadedLanguageModels()
+	}
+	return builder.Build()
 }
 
 func detectPrimaryLanguageWithConfig(content string, cfg languageDetectionConfig) (*string, *float64) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
-	trimmed := strings.TrimSpace(content)
-	if trimmed == "" {
+	cleaned := cleanNoteTextForLanguage(content)
+	if cleaned == "" || letterCount(cleaned) < cfg.MinChars {
 		return nil, nil
 	}
-	if runeCount(trimmed) < cfg.MinChars {
+	lang, conf, ok := detectCleanedLanguage(cleaned, cfg)
+	if !ok {
 		return nil, nil
 	}
-	if lang, confidence, ok := detectByScript(trimmed); ok && confidence >= cfg.MinConfidence {
-		return strPtr(lang), floatPtr(confidence)
-	}
-
-	tokens := normalizeTokens(trimmed)
-	if len(tokens) < 3 {
-		return nil, nil
-	}
-	scores := scoreLatinLanguageTokens(tokens)
-	bestLang := ""
-	bestScore := 0
-	totalScore := 0
-	for lang, score := range scores {
-		totalScore += score
-		if score > bestScore {
-			bestLang = lang
-			bestScore = score
-		}
-	}
-	if bestLang == "" || bestScore < 2 || totalScore == 0 {
-		return nil, nil
-	}
-	confidence := float64(bestScore) / float64(totalScore)
-	if confidence < cfg.MinConfidence {
-		return nil, nil
-	}
-	return strPtr(bestLang), floatPtr(confidence)
+	return lang, conf
 }
 
-func detectByScript(content string) (string, float64, bool) {
-	var hasCyrillic bool
-	var hasHan bool
-	var hasHiraganaKatakana bool
-	var hasHangul bool
-	var hasArabic bool
-	var hasDevanagari bool
-	var hasThai bool
-	var hasBengali bool
-	for _, r := range content {
-		switch {
-		case unicode.In(r, unicode.Cyrillic):
-			hasCyrillic = true
-		case unicode.In(r, unicode.Han):
-			hasHan = true
-		case unicode.In(r, unicode.Hiragana, unicode.Katakana):
-			hasHiraganaKatakana = true
-		case unicode.In(r, unicode.Hangul):
-			hasHangul = true
-		case unicode.In(r, unicode.Arabic):
-			hasArabic = true
-		case unicode.In(r, unicode.Devanagari):
-			hasDevanagari = true
-		case unicode.In(r, unicode.Thai):
-			hasThai = true
-		case unicode.In(r, unicode.Bengali):
-			hasBengali = true
-		}
+func detectCleanedLanguage(cleaned string, cfg languageDetectionConfig) (*string, *float64, bool) {
+	lowAccuracy := utf8.RuneCountInString(cleaned) >= languageLowAccuracyMinRunes
+	values := noteLanguageDetector(lowAccuracy).ComputeLanguageConfidenceValues(cleaned)
+	if len(values) < 2 {
+		return nil, nil, false
 	}
-	if hasHiraganaKatakana {
-		return "ja", 0.99, true
+	top := values[0]
+	second := values[1]
+	confidence := top.Value()
+	if confidence < cfg.MinConfidence || confidence-second.Value() < languageMinRelativeDistance {
+		return nil, nil, false
 	}
-	if hasHangul {
-		return "ko", 0.99, true
+	code := strings.ToLower(top.Language().IsoCode639_1().String())
+	if len(code) != 2 {
+		return nil, nil, false
 	}
-	if hasArabic {
-		return "ar", 0.99, true
-	}
-	if hasDevanagari {
-		return "hi", 0.99, true
-	}
-	if hasThai {
-		return "th", 0.99, true
-	}
-	if hasBengali {
-		return "bn", 0.99, true
-	}
-	if hasHan {
-		return "zh", 0.95, true
-	}
-	if hasCyrillic {
-		return "ru", 0.95, true
-	}
-	return "", 0, false
+	return strPtr(code), floatPtr(confidence), true
 }
 
-func normalizeTokens(content string) []string {
-	matches := languageTokenPattern.FindAllString(strings.ToLower(content), -1)
-	out := make([]string, 0, len(matches))
-	for _, match := range matches {
-		token := strings.Trim(match, "'")
-		if token != "" {
-			out = append(out, token)
-		}
+func cleanNoteTextForLanguage(content string) string {
+	s := strings.TrimSpace(content)
+	if s == "" {
+		return ""
 	}
-	return out
+	s = languageURLPattern.ReplaceAllString(s, " ")
+	s = languageBech32Pattern.ReplaceAllString(s, " ")
+	s = languageHexPattern.ReplaceAllString(s, " ")
+	s = languageMentionPattern.ReplaceAllString(s, " ")
+	s = languageLongRunPattern.ReplaceAllString(s, " ")
+	return strings.TrimSpace(languageWhitespacePattern.ReplaceAllString(s, " "))
 }
 
-func scoreLatinLanguageTokens(tokens []string) map[string]int {
-	dictionaries := map[string]map[string]struct{}{
-		"en": languageWordsEN,
-		"es": languageWordsES,
-		"fr": languageWordsFR,
-		"de": languageWordsDE,
-		"pt": languageWordsPT,
-		"id": languageWordsID,
-		"tr": languageWordsTR,
-		"it": languageWordsIT,
-	}
-	scores := map[string]int{
-		"en": 0,
-		"es": 0,
-		"fr": 0,
-		"de": 0,
-		"pt": 0,
-		"id": 0,
-		"tr": 0,
-		"it": 0,
-	}
-	for _, token := range tokens {
-		for lang, words := range dictionaries {
-			if _, ok := words[token]; ok {
-				scores[lang]++
-			}
-		}
-	}
-	return scores
-}
-
-func runeCount(value string) int {
+func letterCount(value string) int {
 	count := 0
-	for range value {
-		count++
+	for _, r := range value {
+		if unicode.IsLetter(r) {
+			count++
+		}
 	}
 	return count
 }
@@ -206,6 +234,99 @@ func floatPtr(value float64) *float64 {
 	return &out
 }
 
+func explicitNoteLanguage(tags [][]string) (string, bool) {
+	for _, tag := range tags {
+		if len(tag) < 2 {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(tag[0]))
+		value := strings.ToLower(strings.TrimSpace(tag[1]))
+		switch name {
+		case "l":
+			if len(tag) >= 3 && !languageTagNamespaceOK(tag[2]) {
+				continue
+			}
+			if code, ok := normalizeLanguageCode(value); ok {
+				return code, true
+			}
+		case "lang":
+			if code, ok := normalizeLanguageCode(value); ok {
+				return code, true
+			}
+		}
+	}
+	return "", false
+}
+
+func languageTagNamespaceOK(namespace string) bool {
+	compact := strings.NewReplacer(" ", "", "-", "", "_", "").Replace(strings.ToLower(strings.TrimSpace(namespace)))
+	return compact == "" || compact == "iso6391"
+}
+
+func normalizeLanguageCode(value string) (string, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "und" || !languageCodePattern.MatchString(value) {
+		return "", false
+	}
+	return value, true
+}
+
+type authorLanguageCount struct {
+	language string
+	count    int64
+}
+
+func dominantAuthorLanguage(rows []authorLanguageCount) *string {
+	if len(rows) == 0 || rows[0].count < languageAuthorPriorMinNotes {
+		return nil
+	}
+	if len(rows) > 1 && rows[0].count < rows[1].count*2 {
+		return nil
+	}
+	lang := rows[0].language
+	return &lang
+}
+
+// decideNoteLanguage applies the label order: explicit tag, content
+// detection, parent or root note, then the author's own content language.
+func decideNoteLanguage(tag string, tagOK bool, contentLang *string, contentConf *float64, letters int, threadLang, authorLang *string, minChars int) (*string, *float64, string) {
+	if tagOK {
+		return strPtr(tag), floatPtr(1), languageSourceTag
+	}
+	if contentLang != nil {
+		return contentLang, contentConf, languageSourceContent
+	}
+	if threadLang != nil && strings.TrimSpace(*threadLang) != "" {
+		return threadLang, floatPtr(languageInferredConfidence), languageSourceThread
+	}
+	if authorLang != nil && strings.TrimSpace(*authorLang) != "" {
+		return authorLang, floatPtr(languageInferredConfidence), languageSourceAuthor
+	}
+	if letters < minChars {
+		return nil, nil, languageSourceShort
+	}
+	return nil, nil, languageSourceUncertain
+}
+
+func languageDecisionSettled(version *int32, source *string, lang *string) bool {
+	if version == nil || int(*version) < NoteDiscoveryStatsVersion || lang == nil || strings.TrimSpace(*lang) == "" || source == nil {
+		return false
+	}
+	switch *source {
+	case languageSourceContent, languageSourceTag, languageSourceThread, languageSourceAuthor:
+		return true
+	default:
+		return false
+	}
+}
+
+func languageDecisionRetryThread(version *int32, source *string) bool {
+	if version == nil || int(*version) < NoteDiscoveryStatsVersion || source == nil {
+		return false
+	}
+	return *source == languageSourceShort || *source == languageSourceUncertain
+}
+
 func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
@@ -216,52 +337,4 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 		return defaultValue
 	}
 	return parsed
-}
-
-var languageWordsEN = map[string]struct{}{
-	"the": {}, "and": {}, "for": {}, "that": {}, "with": {}, "this": {}, "you": {}, "from": {},
-	"have": {}, "your": {}, "just": {}, "about": {}, "what": {}, "when": {}, "where": {}, "there": {},
-	"will": {}, "would": {}, "not": {}, "are": {}, "was": {}, "were": {},
-}
-
-var languageWordsES = map[string]struct{}{
-	"que": {}, "para": {}, "con": {}, "una": {}, "este": {}, "esta": {}, "como": {}, "pero": {},
-	"por": {}, "las": {}, "los": {}, "del": {}, "sin": {}, "hola": {}, "gracias": {}, "porque": {},
-	"cuando": {}, "donde": {}, "estoy": {}, "tengo": {}, "muy": {}, "tambien": {},
-}
-
-var languageWordsFR = map[string]struct{}{
-	"que": {}, "pour": {}, "avec": {}, "dans": {}, "une": {}, "est": {}, "pas": {}, "vous": {},
-	"nous": {}, "bonjour": {}, "merci": {}, "comme": {}, "mais": {}, "des": {}, "les": {}, "sur": {},
-	"tout": {}, "plus": {}, "cela": {}, "etre": {}, "avoir": {}, "leur": {},
-}
-
-var languageWordsDE = map[string]struct{}{
-	"und": {}, "der": {}, "die": {}, "das": {}, "mit": {}, "ich": {}, "nicht": {}, "ein": {},
-	"eine": {}, "ist": {}, "fuer": {}, "auf": {}, "von": {}, "wir": {}, "sie": {}, "danke": {},
-	"hallo": {}, "aber": {}, "wenn": {}, "auch": {}, "wie": {}, "was": {},
-}
-
-var languageWordsPT = map[string]struct{}{
-	"que": {}, "para": {}, "com": {}, "uma": {}, "este": {}, "esta": {}, "como": {}, "mas": {},
-	"por": {}, "dos": {}, "das": {}, "sem": {}, "ola": {}, "obrigado": {}, "porque": {}, "quando": {},
-	"onde": {}, "estou": {}, "tenho": {}, "muito": {}, "tambem": {}, "voce": {},
-}
-
-var languageWordsID = map[string]struct{}{
-	"yang": {}, "dan": {}, "untuk": {}, "dengan": {}, "ini": {}, "itu": {}, "dalam": {}, "tidak": {},
-	"saya": {}, "kamu": {}, "terima": {}, "kasih": {}, "karena": {}, "bagaimana": {}, "adalah": {},
-	"pada": {}, "dari": {}, "akan": {}, "sudah": {}, "bisa": {},
-}
-
-var languageWordsTR = map[string]struct{}{
-	"ve": {}, "bir": {}, "bu": {}, "icin": {}, "için": {}, "ile": {}, "merhaba": {}, "tesekkurler": {},
-	"teşekkürler": {}, "neden": {}, "nerede": {}, "nasil": {}, "nasıl": {}, "degil": {}, "değil": {},
-	"gibi": {}, "ama": {}, "çok": {}, "cok": {}, "var": {}, "yok": {},
-}
-
-var languageWordsIT = map[string]struct{}{
-	"ciao": {}, "questo": {}, "questa": {}, "con": {}, "per": {}, "che": {}, "non": {}, "sono": {},
-	"grazie": {}, "come": {}, "dove": {}, "quando": {}, "perche": {}, "perché": {}, "anche": {},
-	"degli": {}, "delle": {}, "della": {}, "nella": {}, "dopo": {}, "prima": {},
 }

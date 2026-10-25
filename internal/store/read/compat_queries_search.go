@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 )
 
 // SearchEventsByContent returns note-like events filtered by content text.
@@ -78,10 +80,7 @@ func (s *Read) SearchNotes(
 			  AND ($3::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $3::bigint))
 			  AND (
 				$4::text IS NULL OR (
-					CASE
-						WHEN $4::text = 'und' THEN nds.primary_language IS NULL
-						ELSE nds.primary_language = $4::text
-					END
+				`+languagelabel.FilterSQL("$4::text")+`
 				)
 			  )
 			  AND (
@@ -167,10 +166,7 @@ func (s *Read) SearchNotesBefore(
 		  AND ($4::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $4::bigint))
 		  AND (
 			$5::text IS NULL OR (
-				CASE
-					WHEN $5::text = 'und' THEN nds.primary_language IS NULL
-					ELSE nds.primary_language = $5::text
-				END
+				`+languagelabel.FilterSQL("$5::text")+`
 			)
 		  )
 		  AND (
@@ -206,8 +202,8 @@ func normalizeLanguageFilter(raw string) string {
 	if value == "" {
 		return ""
 	}
-	if value == "und" {
-		return value
+	if code, ok := languagelabel.Canonical(value); ok {
+		return code
 	}
 	if len(value) < 2 || len(value) > 8 {
 		return invalidLanguageFilter

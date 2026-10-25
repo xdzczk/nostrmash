@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 )
 
 // GetTrendingNotes returns trending short notes (kind 1 only). Long-form
@@ -55,7 +56,7 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 				s.author_pubkey,
 				s.created_at,
 				e.content,
-				COALESCE(s.primary_language, 'und') AS language,
+				`+languagelabel.ChartSQL("s.primary_language", "s.language_source")+` AS language,
 				s.reply_count,
 				s.repost_count,
 				s.reaction_count,
@@ -96,7 +97,7 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 				s.author_pubkey,
 				s.created_at,
 				e.content,
-				COALESCE(s.primary_language, 'und') AS language,
+				`+languagelabel.ChartSQL("s.primary_language", "s.language_source")+` AS language,
 				s.reply_count,
 				s.repost_count,
 				s.reaction_count,

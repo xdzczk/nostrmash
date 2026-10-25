@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/xdzczk/nostrmash/internal/languagelabel"
 	"github.com/xdzczk/nostrmash/internal/model"
 )
 
@@ -688,12 +689,13 @@ func computeTopLanguagesSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt in
 		limit = 8
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT
-			COALESCE(primary_language, 'und') AS language,
-			COUNT(*)::bigint                  AS count_value
-		FROM note_discovery_stats
-		WHERE created_at >= $1
-		GROUP BY COALESCE(primary_language, 'und')
+		SELECT language, COUNT(*)::bigint AS count_value
+		FROM (
+			SELECT `+languagelabel.ChartSQL("primary_language", "language_source")+` AS language
+			FROM note_discovery_stats
+			WHERE created_at >= $1
+		) labeled
+		GROUP BY language
 		ORDER BY count_value DESC, language ASC
 		LIMIT $2
 	`, minCreatedAt, limit)
