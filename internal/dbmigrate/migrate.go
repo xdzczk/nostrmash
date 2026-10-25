@@ -33,7 +33,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations_audit (
 );
 `
 
-const migrationAdvisoryLockID int64 = 428871060619501584
+// MigrationAdvisoryLockID serializes schema migrations with test cleanup.
+// Migrate scans shared catalogs, and a concurrent DROP SCHEMA CASCADE can
+// remove a relation those scans still have open.
+const MigrationAdvisoryLockID int64 = 428871060619501584
 
 // Migrate applies embedded SQL migrations in lexical order and records audit rows.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, appVersion string) error {
@@ -64,7 +67,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, appVersion string) error {
 	}
 
 	// Serialize migration execution across concurrent process startups.
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationAdvisoryLockID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, MigrationAdvisoryLockID); err != nil {
 		return fmt.Errorf("acquire migration lock: %w", err)
 	}
 

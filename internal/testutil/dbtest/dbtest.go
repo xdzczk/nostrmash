@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/xdzczk/nostrmash/internal/dbmigrate"
 )
 
 // DatabaseURL returns TEST_DATABASE_URL or DATABASE_URL and skips the test if unset.
@@ -92,9 +94,32 @@ func SetupSchemaPool(t testing.TB, ctx context.Context, dbURL, schemaPrefix stri
 
 	t.Cleanup(func() {
 		pool.Close()
-		_, _ = adminPool.Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA IF EXISTS %s CASCADE`, quotedSchema))
+		dropTestSchema(adminPool, quotedSchema)
 		adminPool.Close()
 	})
 
 	return pool
+}
+
+// dropTestSchema waits out any in-flight Migrate before removing the schema.
+// Migration 000092 reads pg_constraint across the database, and dropping
+// another test schema mid-scan fails with "could not open relation with OID".
+func dropTestSchema(pool *pgxpool.Pool, quotedSchema string) {
+	ctx := context.Background()
+	statement := fmt.Sprintf(`DROP SCHEMA IF EXISTS %s CASCADE`, quotedSchema)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		_, _ = pool.Exec(ctx, statement)
+		return
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, dbmigrate.MigrationAdvisoryLockID); err != nil {
+		_ = tx.Rollback(ctx)
+		_, _ = pool.Exec(ctx, statement)
+		return
+	}
+	if _, err := tx.Exec(ctx, statement); err != nil {
+		_ = tx.Rollback(ctx)
+		return
+	}
+	_ = tx.Commit(ctx)
 }

@@ -25,7 +25,7 @@ type TrustPubkeyLatest = readmodel.TrustPubkeyLatest
 //
 // The lock is transaction-scoped, so callers should invoke the rebuild as late
 // as possible in their transaction to keep the critical section short.
-// Arbitrary constant; must not collide with dbmigrate.migrationAdvisoryLockID.
+// Arbitrary constant; must not collide with dbmigrate.MigrationAdvisoryLockID.
 const trustPubkeysLatestRebuildLockID int64 = 428871060619501585
 
 // RefreshTrustPubkeysLatestTx rebuilds trust_pubkeys_latest inside an existing
