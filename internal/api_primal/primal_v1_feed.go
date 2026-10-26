@@ -73,7 +73,7 @@ func (g WSGateway) routeMegaFeed(ctx context.Context, kwargs map[string]any, spe
 	}
 	switch id {
 	case "global-trending", "most-zapped", "all-notes":
-		return g.scoredFeedPage(ctx, viewer, id, kinds, limit, offset)
+		return g.scoredFeedPage(ctx, viewer, id, spec, kwargs, kinds, limit)
 	case "advsearch":
 		return g.searchFeedPage(ctx, viewer, spec, kwargs, limit, offset, until)
 	}
@@ -87,7 +87,7 @@ func (g WSGateway) routeMegaFeed(ctx context.Context, kwargs map[string]any, spe
 		if len(kinds) == 0 {
 			kinds = []int{1, 6}
 		}
-		return g.followsFeedPage(ctx, viewer, kinds, since, until, limit, offset, false, false)
+		return g.followsFeedPage(ctx, viewer, kinds, since, until, limit, offset, boolValue(spec["include_replies"], false), false)
 	}
 	if id == "feed" || kind == "notes" {
 		switch notes {
@@ -242,12 +242,19 @@ func (g WSGateway) followsFeedPage(ctx context.Context, viewer string, kinds []i
 }
 
 func (g WSGateway) authorFeedPage(ctx context.Context, viewer string, authors []string, kinds []int, since, until int64, limit, offset int, includeReplies, onlyReplies, hasImage bool) ([]any, error) {
+	fetchLimit := limit * 2
+	if fetchLimit > 100 {
+		fetchLimit = 100
+	}
+	if fetchLimit < limit {
+		fetchLimit = limit
+	}
 	rows, err := g.query.GetFeedEvents(ctx, query.FeedEventsRequest{
 		Authors:        authors,
 		Kinds:          kinds,
 		Since:          since,
 		Until:          until,
-		Limit:          limit,
+		Limit:          fetchLimit,
 		Offset:         offset,
 		IncludeReplies: includeReplies,
 		OnlyReplies:    onlyReplies,
@@ -266,35 +273,45 @@ func (g WSGateway) authorFeedPage(ctx context.Context, viewer string, authors []
 	if err != nil {
 		return nil, errors.New("error")
 	}
+	rows = g.repairReposts(ctx, rows)
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
 	return g.enrichFeedEvents(ctx, viewer, rows, "created_at", nil, nil), nil
 }
 
-func (g WSGateway) scoredFeedPage(ctx context.Context, viewer string, id string, kinds []int, limit, offset int) ([]any, error) {
+func (g WSGateway) scoredFeedPage(ctx context.Context, viewer string, id string, spec map[string]any, kwargs map[string]any, kinds []int, limit int) ([]any, error) {
 	if id == "all-notes" {
 		if len(kinds) == 0 {
 			kinds = []int{1}
 		}
-		return g.authorFeedPage(ctx, viewer, nil, kinds, 0, 0, limit, offset, false, false, false)
+		offset := toBoundedNonNegativeInt(firstPresent(kwargs["offset"], spec["offset"]), 0, 10000)
+		since := toInt64(firstPresent(kwargs["since"], spec["since"]), 0)
+		until := toInt64(firstPresent(kwargs["until"], spec["until"]), 0)
+		return g.authorFeedPage(ctx, viewer, nil, kinds, since, until, limit, offset, false, false, false)
 	}
-	if id == "most-zapped" && limit > 100 {
-		limit = 100
+	hours := trendingHours(spec)
+	scoreColumn := "score_24h"
+	if hours > 24 {
+		scoreColumn = "score_7d"
 	}
-	window := 24 * time.Hour
-	notes, err := g.query.GetTrendingNotes(ctx, window, query.DiscoveryScope{}, limit, offset)
+	var maxRank *int64
+	if _, ok := kwargs["until"]; ok {
+		cursor := toInt64(kwargs["until"], 0)
+		maxRank = &cursor
+	}
+	// The iOS client sends offset 1 as "skip the boundary row", not as a page index.
+	offset := 0
+	if maxRank != nil {
+		offset = toBoundedNonNegativeInt(kwargs["offset"], 0, 100)
+	}
+	notes, err := g.query.GetPrimalTrendingNotes(ctx, scoreColumn, time.Now().Add(-time.Duration(hours)*time.Hour).Unix(), limit, offset, maxRank, strings.Contains(id, "zapped"))
 	if err != nil {
 		return nil, errors.New("error")
 	}
 	ids := make([]string, 0, len(notes))
 	for _, note := range notes {
-		if len(kinds) > 0 {
-			continue
-		}
 		ids = append(ids, note.EventID)
-	}
-	if len(kinds) > 0 {
-		for _, note := range notes {
-			ids = append(ids, note.EventID)
-		}
 	}
 	found, err := g.query.GetEventBatch(ctx, ids)
 	if err != nil {
@@ -314,10 +331,10 @@ func (g WSGateway) scoredFeedPage(ctx context.Context, viewer string, id string,
 	var since any
 	var until any
 	if len(notes) > 0 {
-		until = notes[0].Score
-		since = notes[len(notes)-1].Score
+		until = int64(notes[0].Score)
+		since = int64(notes[len(notes)-1].Score)
 	}
-	return g.enrichFeedEvents(ctx, viewer, raws, "created_at", since, until), nil
+	return g.enrichFeedEvents(ctx, viewer, raws, "score", since, until), nil
 }
 
 func (g WSGateway) searchFeedPage(ctx context.Context, viewer string, spec map[string]any, kwargs map[string]any, limit, offset int, until int64) ([]any, error) {
@@ -482,6 +499,118 @@ func rawKind(raw json.RawMessage) int {
 		return 0
 	}
 	return payload.Kind
+}
+
+func trendingHours(spec map[string]any) int {
+	if hours := knownTrendingHour(spec["hours"]); hours > 0 {
+		return hours
+	}
+	if hours := knownTrendingHour(spec["since"]); hours > 0 {
+		return hours
+	}
+	switch strings.ToLower(strings.TrimSpace(stringValue(spec["timeframe"]))) {
+	case "1h", "trending_1h":
+		return 1
+	case "4h", "trending_4h":
+		return 4
+	case "12h", "trending_12h":
+		return 12
+	case "48h", "trending_48h":
+		return 48
+	case "7d", "trending_7d", "168h":
+		return 168
+	default:
+		return 24
+	}
+}
+
+func knownTrendingHour(value any) int {
+	switch toInt(value, 0) {
+	case 1, 4, 12, 24, 48, 168:
+		return toInt(value, 0)
+	default:
+		return 0
+	}
+}
+
+func (g WSGateway) repairReposts(ctx context.Context, rows []json.RawMessage) []json.RawMessage {
+	targets := make([]string, 0)
+	needs := make([]int, 0)
+	for i, raw := range rows {
+		if repostTarget(raw) == "" || repostContentReady(raw) {
+			continue
+		}
+		needs = append(needs, i)
+		targets = append(targets, repostTarget(raw))
+	}
+	found := map[string]json.RawMessage{}
+	if len(targets) > 0 {
+		if loaded, err := g.query.GetEventBatch(ctx, targets); err == nil {
+			found = loaded
+		}
+	}
+	out := make([]json.RawMessage, 0, len(rows))
+	pending := map[int]struct{}{}
+	for _, index := range needs {
+		pending[index] = struct{}{}
+	}
+	for i, raw := range rows {
+		if _, ok := pending[i]; !ok {
+			out = append(out, raw)
+			continue
+		}
+		target, ok := found[repostTarget(raw)]
+		if !ok {
+			continue
+		}
+		rewritten := rewriteRepostContent(raw, target)
+		if rewritten == nil {
+			continue
+		}
+		out = append(out, rewritten)
+	}
+	return out
+}
+
+func repostContentReady(raw json.RawMessage) bool {
+	var event struct {
+		Kind    int    `json:"kind"`
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(raw, &event) != nil || event.Kind != 6 {
+		return true
+	}
+	var inner struct {
+		ID string `json:"id"`
+	}
+	return json.Unmarshal([]byte(event.Content), &inner) == nil && inner.ID != ""
+}
+
+func repostTarget(raw json.RawMessage) string {
+	var event struct {
+		Kind int `json:"kind"`
+	}
+	if json.Unmarshal(raw, &event) != nil || event.Kind != 6 {
+		return ""
+	}
+	ids := tagValuesFromRawEvent(raw, "e")
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[0]
+}
+
+func rewriteRepostContent(raw json.RawMessage, target json.RawMessage) json.RawMessage {
+	var event map[string]any
+	if json.Unmarshal(raw, &event) != nil {
+		return nil
+	}
+	event["content"] = string(target)
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 func jsonRawEvents(events []any) []json.RawMessage {

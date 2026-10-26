@@ -35,6 +35,7 @@ type primalV1Reader interface {
 	GetAppSubsettings(context.Context, string, string) (json.RawMessage, error)
 	PutAppSubsettings(context.Context, string, string, json.RawMessage) error
 	ListPrimalNotifications(context.Context, string, []int, int64, int64, int, int) ([]readmodel.PrimalNotification, error)
+	GetPrimalTrendingNotes(context.Context, string, int64, int, int, *int64, bool) ([]readmodel.TrendingNote, error)
 	GetNotificationsSeen(context.Context, string) (int64, error)
 	SetNotificationsSeen(context.Context, string, int64) error
 	ListNotificationCounts(context.Context, string) ([]readmodel.NotificationCount, error)
@@ -196,6 +197,35 @@ func (s Service) PutAppSubsettings(ctx context.Context, pubkey string, subkey st
 		return err
 	}
 	return reader.PutAppSubsettings(ctx, pubkey, subkey, settings)
+}
+
+// GetPrimalTrendingNotes returns one scored Primal feed page.
+func (s Service) GetPrimalTrendingNotes(ctx context.Context, scoreColumn string, minCreatedAt int64, limit, offset int, maxRank *int64, byZaps bool) ([]TrendingNote, error) {
+	reader, err := s.primalV1()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := reader.GetPrimalTrendingNotes(ctx, scoreColumn, minCreatedAt, limit, offset, maxRank, byZaps)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TrendingNote, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, TrendingNote{
+			EventID:       row.EventID,
+			AuthorPubkey:  row.AuthorPubkey,
+			CreatedAt:     row.CreatedAt,
+			Content:       row.Content,
+			Language:      row.Language,
+			ReplyCount:    row.ReplyCount,
+			RepostCount:   row.RepostCount,
+			ReactionCount: row.ReactionCount,
+			ZapCount:      row.ZapCount,
+			ZapMSats:      row.ZapMSats,
+			Score:         row.Score,
+		})
+	}
+	return out, nil
 }
 
 // ListNotifications returns a page of stored notifications.

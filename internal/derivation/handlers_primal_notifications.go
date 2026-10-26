@@ -36,7 +36,8 @@ func (h *Handlers) projectPrimalNotification(ctx context.Context, eventID string
 	var kind int
 	var author string
 	var createdAt int64
-	err := h.pool.QueryRow(ctx, `SELECT kind, pubkey, created_at FROM events WHERE id = $1`, eventID).Scan(&kind, &author, &createdAt)
+	var content string
+	err := h.pool.QueryRow(ctx, `SELECT kind, pubkey, created_at, content FROM events WHERE id = $1`, eventID).Scan(&kind, &author, &createdAt, &content)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -48,7 +49,7 @@ func (h *Handlers) projectPrimalNotification(ctx context.Context, eventID string
 		return err
 	}
 	parentID, parentAuthor, parentIsReply := h.threadParent(ctx, eventID)
-	drafts := primalNotificationDrafts(kind, author, eventID, tags, parentID, parentAuthor, parentIsReply)
+	drafts := primalNotificationDrafts(kind, author, eventID, content, tags, parentID, parentAuthor, parentIsReply)
 	if kind == 3 {
 		rows, err := h.pool.Query(ctx, `
 			SELECT followed_pubkey FROM follower_gain_events
@@ -140,7 +141,7 @@ func (h *Handlers) threadParent(ctx context.Context, eventID string) (string, st
 	return parentID, parentAuthor, parentIsReply
 }
 
-func primalNotificationDrafts(kind int, author string, eventID string, tags [][]string, parentID string, parentAuthor string, parentIsReply bool) []primalNotice {
+func primalNotificationDrafts(kind int, author string, eventID string, content string, tags [][]string, parentID string, parentAuthor string, parentIsReply bool) []primalNotice {
 	author = strings.TrimSpace(author)
 	out := make([]primalNotice, 0)
 	switch kind {
@@ -151,9 +152,9 @@ func primalNotificationDrafts(kind int, author string, eventID string, tags [][]
 				typ = 601
 			}
 			out = append(out, primalNotice{Recipient: parentAuthor, Type: typ, Args: map[string]any{
-				"event_id": parentID,
-				"reply":    eventID,
-				"user":     author,
+				"your_post":         parentID,
+				"reply":             eventID,
+				"who_replied_to_it": author,
 			}})
 		}
 		for _, pubkey := range tagValueList(tags, "p") {
@@ -161,15 +162,13 @@ func primalNotificationDrafts(kind int, author string, eventID string, tags [][]
 				continue
 			}
 			out = append(out, primalNotice{Recipient: pubkey, Type: 7, Args: map[string]any{
-				"event_id": eventID,
-				"user":     author,
+				"you_were_mentioned_in": eventID,
 			}})
 		}
 		for _, mentioned := range mentionEventIDs(tags) {
 			out = append(out, primalNotice{Recipient: "", Type: 8, Args: map[string]any{
-				"event_id": mentioned,
-				"reply":    eventID,
-				"user":     author,
+				"your_post":                   mentioned,
+				"your_post_were_mentioned_in": eventID,
 			}})
 		}
 	case 6:
@@ -177,8 +176,8 @@ func primalNotificationDrafts(kind int, author string, eventID string, tags [][]
 		recipient := firstTag(tags, "p")
 		if recipient != "" && recipient != author {
 			out = append(out, primalNotice{Recipient: recipient, Type: 5, Args: map[string]any{
-				"event_id": target,
-				"user":     author,
+				"your_post":       target,
+				"who_reposted_it": author,
 			}})
 		}
 	case 7:
@@ -186,17 +185,19 @@ func primalNotificationDrafts(kind int, author string, eventID string, tags [][]
 		recipient := firstTag(tags, "p")
 		if recipient != "" && recipient != author {
 			out = append(out, primalNotice{Recipient: recipient, Type: 4, Args: map[string]any{
-				"event_id": target,
-				"user":     author,
+				"your_post":    target,
+				"who_liked_it": author,
+				"reaction":     content,
 			}})
 		}
 	case 9735:
 		recipient := firstTag(tags, "p")
 		if recipient != "" && recipient != author {
+			sats := parseZapAmountSats(firstTag(tags, "amount"))
 			out = append(out, primalNotice{Recipient: recipient, Type: 3, Args: map[string]any{
-				"event_id":    firstTag(tags, "e"),
-				"user":        author,
-				"amount_sats": parseZapAmountSats(firstTag(tags, "amount")),
+				"your_post":     firstTag(tags, "e"),
+				"who_zapped_it": author,
+				"satszapped":    sats,
 			}})
 		}
 	}
@@ -271,21 +272,21 @@ func (h *Handlers) RebuildPrimalNotifications(ctx context.Context, limit int) er
 	statements := []string{
 		`INSERT INTO primal_notifications (dedupe_key, pubkey, type, created_at, args)
 		 SELECT '4:' || target_pubkey || ':' || event_id, target_pubkey, 4, created_at,
-		        jsonb_build_object('event_id', target_event_id, 'user', reactor_pubkey)
+		        jsonb_build_object('your_post', target_event_id, 'who_liked_it', reactor_pubkey, 'reaction', content)
 		 FROM reaction_events
 		 WHERE target_pubkey IS NOT NULL AND target_pubkey <> reactor_pubkey
 		 ORDER BY created_at DESC LIMIT $1
 		 ON CONFLICT (dedupe_key) DO NOTHING`,
 		`INSERT INTO primal_notifications (dedupe_key, pubkey, type, created_at, args)
 		 SELECT '5:' || target_pubkey || ':' || event_id, target_pubkey, 5, created_at,
-		        jsonb_build_object('event_id', target_event_id, 'user', reposter_pubkey)
+		        jsonb_build_object('your_post', target_event_id, 'who_reposted_it', reposter_pubkey)
 		 FROM repost_events
 		 WHERE target_pubkey IS NOT NULL AND target_pubkey <> reposter_pubkey
 		 ORDER BY created_at DESC LIMIT $1
 		 ON CONFLICT (dedupe_key) DO NOTHING`,
 		`INSERT INTO primal_notifications (dedupe_key, pubkey, type, created_at, args)
 		 SELECT '3:' || receiver_pubkey || ':' || zap_receipt_id, receiver_pubkey, 3, created_at,
-		        jsonb_build_object('event_id', event_id, 'user', sender_pubkey, 'amount_sats', amount_sats)
+		        jsonb_build_object('your_post', event_id, 'who_zapped_it', sender_pubkey, 'satszapped', amount_sats)
 		 FROM zap_receipts
 		 WHERE receiver_pubkey IS NOT NULL AND receiver_pubkey <> sender_pubkey
 		 ORDER BY created_at DESC LIMIT $1

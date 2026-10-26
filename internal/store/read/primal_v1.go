@@ -51,31 +51,75 @@ func (s *Read) GetFeedEvents(
 	if authors == nil {
 		authors = []string{}
 	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT e.raw_json
-		FROM events e
-		WHERE (cardinality($1::text[]) = 0 OR e.pubkey = ANY($1::text[]))
-		  AND e.kind = ANY($2::int[])
-		  AND e.created_at >= $3
-		  AND e.created_at <= $4
-		  AND (
-		    ($5::bool AND EXISTS (SELECT 1 FROM thread_edges t WHERE t.child_event_id = e.id))
-		    OR (NOT $5::bool AND $6::bool)
-		    OR (
-		      NOT $5::bool AND NOT $6::bool
-		      AND NOT EXISTS (SELECT 1 FROM thread_edges t WHERE t.child_event_id = e.id)
-		    )
-		  )
-		  AND (
-		    NOT $7::bool
-		    OR EXISTS (
-		      SELECT 1 FROM note_discovery_stats n
-		      WHERE n.event_id = e.id AND n.has_image
-		    )
-		  )
-		ORDER BY e.created_at DESC, e.id DESC
-		LIMIT $8 OFFSET $9
-	`, authors, kinds, since, until, onlyReplies, includeReplies, hasImage, limit, offset)
+	var rows pgx.Rows
+	var err error
+	if len(authors) == 0 {
+		rows, err = s.pool.Query(ctx, `
+			SELECT e.raw_json
+			FROM events e
+			WHERE e.kind = ANY($1::int[])
+			  AND e.created_at >= $2
+			  AND e.created_at <= $3
+			  AND (
+			    ($4::bool AND EXISTS (SELECT 1 FROM thread_edges t WHERE t.child_event_id = e.id))
+			    OR (NOT $4::bool AND $5::bool)
+			    OR (
+			      NOT $4::bool AND NOT $5::bool
+			      AND NOT EXISTS (SELECT 1 FROM thread_edges t WHERE t.child_event_id = e.id)
+			    )
+			  )
+			  AND (
+			    NOT $6::bool
+			    OR EXISTS (
+			      SELECT 1 FROM note_discovery_stats n
+			      WHERE n.event_id = e.id AND n.has_image
+			    )
+			  )
+			ORDER BY e.created_at DESC, e.id DESC
+			LIMIT $7 OFFSET $8
+		`, kinds, since, until, onlyReplies, includeReplies, hasImage, limit, offset)
+	} else {
+		// One short index walk per author, then a merge. A single ANY() over a
+		// large follow list plans a scan that times out the home feed.
+		innerLimit := limit + offset
+		if innerLimit < limit {
+			innerLimit = limit
+		}
+		if innerLimit > 100 {
+			innerLimit = 100
+		}
+		rows, err = s.pool.Query(ctx, `
+			SELECT page.raw_json
+			FROM unnest($1::text[]) AS author(pubkey)
+			JOIN LATERAL (
+				SELECT e.raw_json, e.created_at, e.id
+				FROM events e
+				WHERE e.pubkey = author.pubkey
+				  AND e.kind = ANY($2::int[])
+				  AND e.created_at >= $3
+				  AND e.created_at <= $4
+				  AND (
+				    ($5::bool AND EXISTS (SELECT 1 FROM thread_edges t WHERE t.child_event_id = e.id))
+				    OR (NOT $5::bool AND $6::bool)
+				    OR (
+				      NOT $5::bool AND NOT $6::bool
+				      AND NOT EXISTS (SELECT 1 FROM thread_edges t WHERE t.child_event_id = e.id)
+				    )
+				  )
+				  AND (
+				    NOT $7::bool
+				    OR EXISTS (
+				      SELECT 1 FROM note_discovery_stats n
+				      WHERE n.event_id = e.id AND n.has_image
+				    )
+				  )
+				ORDER BY e.created_at DESC, e.id DESC
+				LIMIT $10
+			) page ON true
+			ORDER BY page.created_at DESC, page.id DESC
+			LIMIT $8 OFFSET $9
+		`, authors, kinds, since, until, onlyReplies, includeReplies, hasImage, limit, offset, innerLimit)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get feed events: %w", err)
 	}
@@ -398,8 +442,11 @@ func (s *Read) ListPrimalNotifications(ctx context.Context, pubkey string, types
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
-	if limit <= 0 || limit > 50 {
-		limit = 50
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
 	}
 	if offset < 0 {
 		offset = 0
@@ -410,16 +457,77 @@ func (s *Read) ListPrimalNotifications(ctx context.Context, pubkey string, types
 	if types == nil {
 		types = []int{}
 	}
+	pubkey = strings.TrimSpace(pubkey)
+	// History lives on the engagement projections. primal_notifications only
+	// supplies mentions, which those tables do not record. Each branch is
+	// capped so a busy profile cannot sort its entire history.
 	rows, err := s.pool.Query(ctx, `
 		SELECT pubkey, type, created_at, args
-		FROM primal_notifications
-		WHERE pubkey = $1
-		  AND created_at >= $2
-		  AND created_at <= $3
-		  AND (cardinality($4::int[]) = 0 OR type = ANY($4::int[]))
-		ORDER BY created_at DESC, dedupe_key DESC
+		FROM (
+			(SELECT $1::text AS pubkey, 4::int AS type, created_at,
+			        jsonb_build_object('your_post', target_event_id, 'who_liked_it', reactor_pubkey, 'reaction', content) AS args
+			 FROM reaction_events
+			 WHERE target_pubkey = $1
+			   AND reactor_pubkey <> $1
+			   AND created_at >= $2 AND created_at <= $3
+			   AND (cardinality($4::int[]) = 0 OR 4 = ANY($4::int[]))
+			 ORDER BY created_at DESC
+			 LIMIT $7)
+			UNION ALL
+			(SELECT $1::text, 5, created_at,
+			        jsonb_build_object('your_post', target_event_id, 'who_reposted_it', reposter_pubkey)
+			 FROM repost_events
+			 WHERE target_pubkey = $1
+			   AND reposter_pubkey <> $1
+			   AND created_at >= $2 AND created_at <= $3
+			   AND (cardinality($4::int[]) = 0 OR 5 = ANY($4::int[]))
+			 ORDER BY created_at DESC
+			 LIMIT $7)
+			UNION ALL
+			(SELECT $1::text, 3, created_at,
+			        jsonb_build_object('your_post', event_id, 'who_zapped_it', sender_pubkey, 'satszapped', amount_sats)
+			 FROM zap_receipts
+			 WHERE receiver_pubkey = $1
+			   AND sender_pubkey <> $1
+			   AND event_id IS NOT NULL
+			   AND created_at >= $2 AND created_at <= $3
+			   AND (cardinality($4::int[]) = 0 OR 3 = ANY($4::int[]))
+			 ORDER BY created_at DESC
+			 LIMIT $7)
+			UNION ALL
+			(SELECT $1::text, 1, gained_at,
+			        jsonb_build_object('follower', follower_pubkey)
+			 FROM follower_gain_events
+			 WHERE followed_pubkey = $1
+			   AND gained_at >= $2 AND gained_at <= $3
+			   AND (cardinality($4::int[]) = 0 OR 1 = ANY($4::int[]))
+			 ORDER BY gained_at DESC
+			 LIMIT $7)
+			UNION ALL
+			(SELECT $1::text, 6, source_created_at,
+			        jsonb_build_object('your_post', target_event_id, 'who_replied_to_it', source_pubkey, 'reply', source_event_id)
+			 FROM reply_count_contributions
+			 WHERE target_pubkey = $1
+			   AND source_pubkey IS NOT NULL
+			   AND source_pubkey <> $1
+			   AND source_created_at IS NOT NULL
+			   AND source_created_at >= $2 AND source_created_at <= $3
+			   AND (cardinality($4::int[]) = 0 OR 6 = ANY($4::int[]) OR 601 = ANY($4::int[]))
+			 ORDER BY source_created_at DESC
+			 LIMIT $7)
+			UNION ALL
+			(SELECT pubkey, type::int, created_at, args
+			 FROM primal_notifications
+			 WHERE pubkey = $1
+			   AND type IN (7, 8)
+			   AND created_at >= $2 AND created_at <= $3
+			   AND (cardinality($4::int[]) = 0 OR type = ANY($4::int[]))
+			 ORDER BY created_at DESC
+			 LIMIT $7)
+		) page
+		ORDER BY created_at DESC, type DESC
 		LIMIT $5 OFFSET $6
-	`, strings.TrimSpace(pubkey), since, until, types, limit, offset)
+	`, pubkey, since, until, types, limit, offset, limit+offset)
 	if err != nil {
 		return nil, fmt.Errorf("list primal notifications: %w", err)
 	}
@@ -427,7 +535,7 @@ func (s *Read) ListPrimalNotifications(ctx context.Context, pubkey string, types
 	out := make([]readmodel.PrimalNotification, 0, limit)
 	for rows.Next() {
 		var row readmodel.PrimalNotification
-		var typ int16
+		var typ int
 		var args []byte
 		if err := rows.Scan(&row.Pubkey, &typ, &row.CreatedAt, &args); err != nil {
 			return nil, fmt.Errorf("scan primal notification: %w", err)
@@ -608,4 +716,99 @@ func (s *Read) PutLinkMetadata(ctx context.Context, row readmodel.LinkMetadata) 
 		return fmt.Errorf("put link metadata: %w", err)
 	}
 	return nil
+}
+
+// GetPrimalTrendingNotes returns one Primal trending page.
+// maxRank nil is the first page. A set maxRank keeps ranks at or below that
+// cursor, and offset skips the boundary row the client already rendered.
+// byZaps ranks by whole sats instead of the discovery score.
+func (s *Read) GetPrimalTrendingNotes(ctx context.Context, scoreColumn string, minCreatedAt int64, limit, offset int, maxRank *int64, byZaps bool) ([]readmodel.TrendingNote, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	rankExpr := "s.score_24h"
+	switch scoreColumn {
+	case "score_7d":
+		rankExpr = "s.score_7d"
+	case "", "score_24h":
+		rankExpr = "s.score_24h"
+	default:
+		return nil, fmt.Errorf("unsupported trending score column")
+	}
+	if byZaps {
+		rankExpr = "(s.zap_msats / 1000.0)"
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	query := fmt.Sprintf(`
+		SELECT event_id, author_pubkey, created_at, content, language,
+		       reply_count, repost_count, reaction_count, zap_count, zap_msats, score
+		FROM (
+			SELECT
+				s.event_id,
+				s.author_pubkey,
+				s.created_at,
+				e.content,
+				''::text AS language,
+				s.reply_count,
+				s.repost_count,
+				s.reaction_count,
+				s.zap_count,
+				s.zap_msats,
+				ROUND(%s)::float8 AS score
+			FROM note_discovery_stats s
+			JOIN events e ON e.id = s.event_id
+			WHERE s.created_at >= $1
+			  AND e.kind = 1
+			  AND NOT EXISTS (
+				SELECT 1 FROM thread_edges te WHERE te.child_event_id = s.event_id
+			  )
+			  AND (
+				EXISTS (SELECT 1 FROM profiles_latest pl WHERE pl.pubkey = s.author_pubkey)
+				OR EXISTS (
+					SELECT 1 FROM events metadata
+					WHERE metadata.pubkey = s.author_pubkey AND metadata.kind = 0
+				)
+			  )
+		) ranked
+		WHERE ($2::bigint IS NULL OR score::bigint <= $2)
+		ORDER BY score DESC, created_at DESC, event_id ASC
+		LIMIT $3 OFFSET $4
+	`, rankExpr)
+	rows, err := s.pool.Query(ctx, query, minCreatedAt, maxRank, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("get primal trending notes: %w", err)
+	}
+	defer rows.Close()
+	out := make([]readmodel.TrendingNote, 0, limit)
+	for rows.Next() {
+		var row readmodel.TrendingNote
+		if err := rows.Scan(
+			&row.EventID,
+			&row.AuthorPubkey,
+			&row.CreatedAt,
+			&row.Content,
+			&row.Language,
+			&row.ReplyCount,
+			&row.RepostCount,
+			&row.ReactionCount,
+			&row.ZapCount,
+			&row.ZapMSats,
+			&row.Score,
+		); err != nil {
+			return nil, fmt.Errorf("scan primal trending note: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read primal trending notes: %w", err)
+	}
+	return out, nil
 }

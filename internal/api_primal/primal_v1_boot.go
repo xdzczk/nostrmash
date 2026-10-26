@@ -93,7 +93,7 @@ func (g WSGateway) readSubsettings(ctx context.Context, kwargs map[string]any, d
 		return nil, errors.New("error")
 	}
 	if defaults {
-		return []any{subsettingsEvent(subkey, json.RawMessage("[]"))}, nil
+		return []any{subsettingsEvent(subkey, defaultSubsettings(subkey))}, nil
 	}
 	stored, err := g.query.GetAppSubsettings(ctx, event.Pubkey, subkey)
 	if query.IsNotFound(err) || query.IsUnsupportedCapability(err) || len(stored) == 0 {
@@ -158,6 +158,24 @@ func subsettingsEvent(subkey string, settings json.RawMessage) map[string]any {
 		"kind":    primalKindSubsettings,
 		"content": string(settings),
 		"tags":    []any{[]any{"d", subkey}},
+	}
+}
+
+func defaultSubsettings(subkey string) json.RawMessage {
+	switch subkey {
+	case "user-home-feeds":
+		return json.RawMessage(`[
+			{"name":"Latest","description":"Latest notes by your follows","feedkind":"primal","enabled":true,"spec":"{\"id\":\"latest\",\"kind\":\"notes\"}"},
+			{"name":"Latest with Replies","description":"Latest notes and replies by your follows","feedkind":"primal","enabled":true,"spec":"{\"id\":\"latest\",\"kind\":\"notes\",\"include_replies\":true}"},
+			{"name":"Trending 4h","description":"Notes trending in the last 4 hours","feedkind":"primal","enabled":true,"spec":"{\"id\":\"global-trending\",\"kind\":\"notes\",\"hours\":4}"},
+			{"name":"Trending 12h","description":"Notes trending in the last 12 hours","feedkind":"primal","enabled":true,"spec":"{\"id\":\"global-trending\",\"kind\":\"notes\",\"hours\":12}"},
+			{"name":"Trending 24h","description":"Notes trending in the last 24 hours","feedkind":"primal","enabled":true,"spec":"{\"id\":\"global-trending\",\"kind\":\"notes\",\"hours\":24}"},
+			{"name":"Most Zapped","description":"Notes most zapped in the last 24 hours","feedkind":"primal","enabled":true,"spec":"{\"id\":\"most-zapped\",\"kind\":\"notes\",\"hours\":24}"}
+		]`)
+	case "user-reads-feeds":
+		return json.RawMessage(`[{"name":"Nostr Reads","description":"Latest reads from your network","feedkind":"primal","enabled":true,"spec":"{\"id\":\"nostr-reads-feed\",\"kind\":\"reads\"}"}]`)
+	default:
+		return json.RawMessage("[]")
 	}
 }
 

@@ -18,7 +18,7 @@ func (g WSGateway) primalV1Notifications(ctx context.Context, kwargs map[string]
 	if err := validatePubkeyHex(pubkey); err != nil {
 		return nil, errors.New("error")
 	}
-	limit := toBoundedPositiveInt(kwargs["limit"], 50, 50)
+	limit := toBoundedPositiveInt(kwargs["limit"], 20, 100)
 	offset := toBoundedNonNegativeInt(kwargs["offset"], 0, 10000)
 	rows, err := g.query.ListNotifications(ctx, pubkey, notificationTypes(kwargs), toInt64(kwargs["since"], 0), toInt64(kwargs["until"], 0), limit, offset)
 	if err != nil {
@@ -36,6 +36,7 @@ func (g WSGateway) primalV1Notifications(ctx context.Context, kwargs map[string]
 		if len(row.Args) > 0 {
 			_ = json.Unmarshal(row.Args, &body)
 		}
+		canonicalNotificationArgs(row.Type, body)
 		body["created_at"] = row.CreatedAt
 		body["pubkey"] = row.Pubkey
 		body["type"] = row.Type
@@ -43,14 +44,15 @@ func (g WSGateway) primalV1Notifications(ctx context.Context, kwargs map[string]
 		sum := sha256.Sum256(encoded)
 		body["id"] = hex.EncodeToString(sum[:])
 		out = append(out, kindObject(primalKindNotification, body))
-		g.rememberPubkey(&pubkeys, seen, stringField(body, "user"), 50)
-		g.rememberPubkey(&pubkeys, seen, stringField(body, "follower"), 50)
-		if id := stringField(body, "event_id"); id != "" {
+		for _, actor := range []string{"follower", "who_zapped_it", "who_liked_it", "who_reposted_it", "who_replied_to_it", "user"} {
+			g.rememberPubkey(&pubkeys, seen, stringField(body, actor), 50)
+		}
+		for _, id := range notificationRefIDs(body) {
 			refIDs = append(refIDs, id)
 		}
-		if id := stringField(body, "reply"); id != "" {
-			refIDs = append(refIDs, id)
-		}
+	}
+	if len(pubkeys) > 0 {
+		out = append(out, g.buildMetadataEvents(ctx, pubkeys)...)
 	}
 	for _, pubkey := range pubkeys {
 		out = append(out, kindObject(primalKindUserStats, map[string]any{
@@ -175,6 +177,59 @@ func notificationStats2(pubkey string, counts []readmodel.NotificationCount) map
 		"pubkey":  pubkey,
 		"content": string(raw),
 	}
+}
+
+func canonicalNotificationArgs(typ int, body map[string]any) {
+	renameArg(body, "event_id", "your_post")
+	renameArg(body, "user", "who_zapped_it")
+	switch typ {
+	case 3:
+		if _, ok := body["satszapped"]; !ok {
+			if amount, ok := body["amount_sats"]; ok {
+				body["satszapped"] = amount
+			}
+		}
+	case 4:
+		renameArg(body, "who_zapped_it", "who_liked_it")
+	case 5:
+		renameArg(body, "who_zapped_it", "who_reposted_it")
+	case 6, 601:
+		renameArg(body, "who_zapped_it", "who_replied_to_it")
+	case 7:
+		renameArg(body, "your_post", "you_were_mentioned_in")
+	case 8:
+		if _, ok := body["your_post_were_mentioned_in"]; !ok {
+			if reply := stringField(body, "reply"); reply != "" {
+				body["your_post_were_mentioned_in"] = reply
+			}
+		}
+	}
+}
+
+func renameArg(body map[string]any, from string, to string) {
+	if _, ok := body[to]; ok {
+		return
+	}
+	if value, ok := body[from]; ok {
+		body[to] = value
+	}
+}
+
+func notificationRefIDs(body map[string]any) []string {
+	out := make([]string, 0, 2)
+	seen := map[string]struct{}{}
+	for _, key := range []string{"your_post", "reply", "you_were_mentioned_in", "your_post_were_mentioned_in", "event_id"} {
+		id := stringField(body, key)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func notificationTypes(kwargs map[string]any) []int {
