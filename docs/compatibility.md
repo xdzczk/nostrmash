@@ -4,7 +4,7 @@ Use this page for policy, not feature inventory. It defines how compatibility-se
 
 - native HTTP API (`/api/v1/...`)
 - Primal-compatible HTTP surface (`/primal/v1/...`)
-- Primal-compatible WebSocket surface (`/primal/ws`)
+- Primal-compatible WebSocket surface (`/primal/ws`, and `/primal/ws/v1` for the iOS cache protocol)
 
 It complements [../VERSIONING.md](../VERSIONING.md) and release guidance in [../RELEASE.md](../RELEASE.md).
 Operational rollout/triage context lives in [operations.md](operations.md), and surface-level ownership context lives in [architecture/orchestration-surfaces.md](architecture/orchestration-surfaces.md).
@@ -32,6 +32,7 @@ Operational rollout/triage context lives in [operations.md](operations.md), and 
 - Future compatibility additions outside that shipped surface may still expand incrementally.
 - Existing implemented compatibility routes/events should not change in breaking ways without explicit release communication.
 - For `/primal/ws`, maintain frame-type and request/response semantics for currently supported flows unless a major-version change is declared.
+- `/primal/ws/v1` is an additive socket. It does not change `/primal/ws` or `/primal/v1/*` payloads.
 
 ### Operator-facing compatibility
 

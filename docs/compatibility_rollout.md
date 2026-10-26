@@ -5,7 +5,8 @@ Use this page for operating the compatibility layer as it exists today. For the 
 ## Current state
 
 - HTTP compatibility routes are implemented and contract-tested.
-- `GET /primal/ws` implements the compatibility WebSocket gateway.
+- `GET /primal/ws` implements the legacy compatibility WebSocket gateway.
+- `GET /primal/ws/v1` implements the Primal iOS cache protocol. Disable it with `PRIMAL_WS_V1_ENABLED=false`.
 - DM compatibility is available on both transports.
 - Compatibility behavior is expected to match the legacy cache surface in payload shape, ordering, and error handling.
 
@@ -24,6 +25,17 @@ Use this page for operating the compatibility layer as it exists today. For the 
 - OpenAPI stays aligned with contract-owned HTTP routes
 - production observability covers request volume, latency, failures, and unsupported calls
 - on-call documentation reflects the currently supported compatibility surface
+
+## iOS smoke test
+
+1. Set the caching service to `wss://<host>/primal/ws/v1`.
+2. Confirm the socket sends `set_primal_protocol` and then receives default settings (`10000103`) and client config (`10000162`).
+3. Open a profile. The header needs a kind `0` and a kind `10000105`.
+4. Open home. Notes render only when the page's kind `10000113` `elements` lists their ids.
+5. Open a thread. The reply page and the root page each end with their own RANGE.
+6. Membership, wallet, and push stay quiet: status is the free tier and the other calls return EOSE.
+
+Watch `nostrmash_primal_ws_requests_total{dialect="primal_v1",outcome="error"}` and notices whose text is `unknown api request`. The `funcall` label is the cache name that still needs a handler.
 
 ## Source of truth
 

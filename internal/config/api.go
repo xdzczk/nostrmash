@@ -41,13 +41,22 @@ type APIHTTPConfig struct {
 }
 
 type APIPrimalWSConfig struct {
-	MaxSubscriptions     int
-	RequestTimeout       time.Duration
-	MaxMessageBytes      int64
-	MaxReqPerMinute      int
-	DMCompatRateLimitRPM int
-	AllowedOrigins       []string
-	AllowAnyOrigin       bool
+	MaxSubscriptions      int
+	RequestTimeout        time.Duration
+	MaxMessageBytes       int64
+	MaxReqPerMinute       int
+	DMCompatRateLimitRPM  int
+	MaxBroadcastPerMinute int
+	AllowedOrigins        []string
+	AllowAnyOrigin        bool
+	V1Enabled             bool
+	V1ServerPubkey        string
+	DefaultRelays         []string
+	DefaultSettingsPath   string
+	ClientConfigPath      string
+	RecommendedUsers      []string
+	BlossomServers        []string
+	MediaFetchEnabled     bool
 }
 
 // APIRelayConfig is read by API for admin diagnostics only.
@@ -163,6 +172,10 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	primalBroadcastPerMinute, err := getEnvPositiveIntStrict("PRIMAL_WS_MAX_BROADCAST_PER_MINUTE", 30)
+	if err != nil {
+		return APIConfig{}, err
+	}
 	relayFallbackTimeout, err := getEnvPositiveDurationStrict("API_RELAY_FALLBACK_TIMEOUT", 2*time.Second)
 	if err != nil {
 		return APIConfig{}, err
@@ -244,13 +257,22 @@ func LoadAPI() (APIConfig, error) {
 			AdminBearerToken:            strings.TrimSpace(getEnv("ADMIN_BEARER_TOKEN", "")),
 		},
 		PrimalWS: APIPrimalWSConfig{
-			MaxSubscriptions:     primalMaxSubscriptions,
-			RequestTimeout:       primalRequestTimeout,
-			MaxMessageBytes:      primalMaxMessageBytes,
-			MaxReqPerMinute:      primalMaxReqPerMinute,
-			DMCompatRateLimitRPM: dmCompatRateLimitRPM,
-			AllowedOrigins:       parseCSVEnv("PRIMAL_WS_ALLOWED_ORIGINS"),
-			AllowAnyOrigin:       getEnvBool("PRIMAL_WS_ALLOW_ANY_ORIGIN", false),
+			MaxSubscriptions:      primalMaxSubscriptions,
+			RequestTimeout:        primalRequestTimeout,
+			MaxMessageBytes:       primalMaxMessageBytes,
+			MaxReqPerMinute:       primalMaxReqPerMinute,
+			DMCompatRateLimitRPM:  dmCompatRateLimitRPM,
+			MaxBroadcastPerMinute: primalBroadcastPerMinute,
+			AllowedOrigins:        parseCSVEnv("PRIMAL_WS_ALLOWED_ORIGINS"),
+			AllowAnyOrigin:        getEnvBool("PRIMAL_WS_ALLOW_ANY_ORIGIN", false),
+			V1Enabled:             getEnvBool("PRIMAL_WS_V1_ENABLED", true),
+			V1ServerPubkey:        strings.TrimSpace(getEnv("PRIMAL_WS_V1_SERVER_PUBKEY", "")),
+			DefaultRelays:         parseCSVEnv("PRIMAL_DEFAULT_RELAYS"),
+			DefaultSettingsPath:   strings.TrimSpace(getEnv("PRIMAL_DEFAULT_SETTINGS_PATH", "")),
+			ClientConfigPath:      strings.TrimSpace(getEnv("PRIMAL_CLIENT_CONFIG_PATH", "")),
+			RecommendedUsers:      parseCSVEnv("PRIMAL_RECOMMENDED_USERS"),
+			BlossomServers:        parseCSVEnv("PRIMAL_BLOSSOM_SERVERS"),
+			MediaFetchEnabled:     getEnvBool("PRIMAL_MEDIA_FETCH_ENABLED", false),
 		},
 		Relay: APIRelayConfig{
 			URLs:     parseCSVEnv("INGESTOR_RELAY_URLS"),

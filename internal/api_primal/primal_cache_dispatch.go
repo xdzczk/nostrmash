@@ -14,11 +14,13 @@ const (
 	cacheCallFamilyDispatch cacheCallHandlerFamily = "dispatch"
 	cacheCallFamilyResolve  cacheCallHandlerFamily = "resolve"
 	cacheCallFamilyBuild    cacheCallHandlerFamily = "build"
+	cacheCallFamilyStub     cacheCallHandlerFamily = "stub"
 )
 
 type cacheCallRoute struct {
-	family  cacheCallHandlerFamily
-	handler cacheCallHandler
+	family   cacheCallHandlerFamily
+	handler  cacheCallHandler
+	moderate bool
 }
 
 var cacheCallRoutes = map[string]cacheCallRoute{
@@ -68,10 +70,25 @@ var cacheCallRoutes = map[string]cacheCallRoute{
 	"user_of_ln_address":              {family: cacheCallFamilyDispatch, handler: WSGateway.cacheDispatchUserOfLNAddress},
 }
 
+func (g WSGateway) cacheRoutes() map[string]cacheCallRoute {
+	if g.opts.Dialect == WSDialectPrimalV1 {
+		return cacheCallRoutesPrimalV1
+	}
+	return cacheCallRoutes
+}
+
 func (g WSGateway) dispatchCacheCall(ctx context.Context, reqName string, kwargs map[string]any) ([]any, error) {
-	route, ok := cacheCallRoutes[strings.ToLower(strings.TrimSpace(reqName))]
+	name := strings.ToLower(strings.TrimSpace(reqName))
+	route, ok := g.cacheRoutes()[name]
 	if !ok {
+		if g.opts.Dialect == WSDialectPrimalV1 {
+			return nil, errors.New("unknown api request")
+		}
 		return nil, errors.New("unsupported")
 	}
-	return route.handler(g, ctx, kwargs)
+	out, err := route.handler(g, ctx, kwargs)
+	if err != nil || len(out) == 0 || !route.moderate || g.opts.Dialect != WSDialectPrimalV1 {
+		return out, err
+	}
+	return g.moderatePrimalEvents(ctx, kwargs, out), nil
 }

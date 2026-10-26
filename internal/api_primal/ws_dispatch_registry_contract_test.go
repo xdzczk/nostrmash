@@ -35,8 +35,56 @@ func TestCacheCallRoutesUseExpectedHandlerFamily(t *testing.T) {
 			if !strings.HasPrefix(handlerName, "build") {
 				t.Fatalf("cache method %q must use a build* handler for %q family (got %s)", method, route.family, handlerName)
 			}
+		case cacheCallFamilyStub:
+			if !strings.HasPrefix(handlerName, "primalV1") {
+				t.Fatalf("cache method %q must use a primalV1* handler for %q family (got %s)", method, route.family, handlerName)
+			}
 		default:
 			t.Fatalf("cache method %q has unsupported handler family %q", method, route.family)
+		}
+	}
+}
+
+func TestPrimalV1RoutesUseExpectedHandlerFamily(t *testing.T) {
+	if len(cacheCallRoutesPrimalV1) == 0 {
+		t.Fatal("cacheCallRoutesPrimalV1 must not be empty")
+	}
+	for method, route := range cacheCallRoutesPrimalV1 {
+		if strings.TrimSpace(method) != method || strings.ToLower(method) != method {
+			t.Fatalf("cache route key must be normalized lower-case without surrounding spaces: %q", method)
+		}
+		handlerName := methodNameFromFunc(route.handler)
+		switch route.family {
+		case cacheCallFamilyDispatch:
+			if !strings.HasPrefix(handlerName, "primalV1") && !strings.HasPrefix(handlerName, "cacheDispatch") {
+				t.Fatalf("v1 method %q must use a primalV1* or cacheDispatch* handler (got %s)", method, handlerName)
+			}
+		case cacheCallFamilyResolve:
+			if !strings.HasPrefix(handlerName, "resolve") && !strings.HasPrefix(handlerName, "primalV1") {
+				t.Fatalf("v1 method %q must use a resolve* handler (got %s)", method, handlerName)
+			}
+		case cacheCallFamilyBuild:
+			if !strings.HasPrefix(handlerName, "build") {
+				t.Fatalf("v1 method %q must use a build* handler (got %s)", method, handlerName)
+			}
+		case cacheCallFamilyStub:
+			if !strings.HasPrefix(handlerName, "primalV1") {
+				t.Fatalf("v1 method %q must use a primalV1* stub (got %s)", method, handlerName)
+			}
+		default:
+			t.Fatalf("v1 method %q has unsupported handler family %q", method, route.family)
+		}
+	}
+}
+
+func TestAllPrimalV1MethodsAreRegistered(t *testing.T) {
+	registered := map[string]struct{}{}
+	for _, route := range cacheCallRoutesPrimalV1 {
+		registered[methodNameFromFunc(route.handler)] = struct{}{}
+	}
+	for _, methodName := range listMethodsWithPrefix(t, "primalV1") {
+		if _, ok := registered[methodName]; !ok {
+			t.Fatalf("%s is not registered in cacheCallRoutesPrimalV1", methodName)
 		}
 	}
 }
@@ -94,6 +142,11 @@ func TestWSFrameHandlersStayExplicit(t *testing.T) {
 
 func listCacheDispatchMethods(t *testing.T) []string {
 	t.Helper()
+	return listMethodsWithPrefix(t, "cacheDispatch")
+}
+
+func listMethodsWithPrefix(t *testing.T, prefix string) []string {
+	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve current file path")
@@ -119,7 +172,7 @@ func listCacheDispatchMethods(t *testing.T) []string {
 			if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 || fn.Name == nil {
 				continue
 			}
-			if !strings.HasPrefix(fn.Name.Name, "cacheDispatch") {
+			if !strings.HasPrefix(fn.Name.Name, prefix) {
 				continue
 			}
 			recvType, ok := fn.Recv.List[0].Type.(*ast.Ident)

@@ -23,8 +23,10 @@ import (
 	"github.com/xdzczk/nostrmash/internal/logging"
 	"github.com/xdzczk/nostrmash/internal/meili"
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/relaylookup"
+	"github.com/xdzczk/nostrmash/internal/relaypublish"
 	"github.com/xdzczk/nostrmash/internal/relayregistry"
 	"github.com/xdzczk/nostrmash/internal/store"
 	"github.com/xdzczk/nostrmash/internal/traceutil"
@@ -269,17 +271,38 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		return err
 	}
 	wsLog := logging.New("api_primal_ws")
-	primalWS, err := api_primal.NewWSGateway(queryStore, api_primal.WSGatewayOptions{
-		MaxSubscriptions:  cfg.PrimalWS.MaxSubscriptions,
-		RequestTimeout:    cfg.PrimalWS.RequestTimeout,
-		MaxMessageBytes:   cfg.PrimalWS.MaxMessageBytes,
-		MaxReqPerMinute:   cfg.PrimalWS.MaxReqPerMinute,
-		MaxDMReqPerMinute: cfg.PrimalWS.DMCompatRateLimitRPM,
-		AllowedOrigins:    cfg.PrimalWS.AllowedOrigins,
-		AllowAnyOrigin:    cfg.PrimalWS.AllowAnyOrigin,
-		Logger:            wsLog,
-		QueryOptions:      queryOptions,
-	})
+	wsOptions := api_primal.WSGatewayOptions{
+		MaxSubscriptions:      cfg.PrimalWS.MaxSubscriptions,
+		RequestTimeout:        cfg.PrimalWS.RequestTimeout,
+		MaxMessageBytes:       cfg.PrimalWS.MaxMessageBytes,
+		MaxReqPerMinute:       cfg.PrimalWS.MaxReqPerMinute,
+		MaxDMReqPerMinute:     cfg.PrimalWS.DMCompatRateLimitRPM,
+		MaxBroadcastPerMinute: cfg.PrimalWS.MaxBroadcastPerMinute,
+		AllowedOrigins:        cfg.PrimalWS.AllowedOrigins,
+		AllowAnyOrigin:        cfg.PrimalWS.AllowAnyOrigin,
+		Logger:                wsLog,
+		QueryOptions:          queryOptions,
+	}
+	primalWS, err := api_primal.NewWSGateway(queryStore, wsOptions)
+	if err != nil {
+		return err
+	}
+	defaultRelays := cfg.PrimalWS.DefaultRelays
+	if len(defaultRelays) == 0 {
+		defaultRelays = cfg.Relay.URLs
+	}
+	v1Options := wsOptions
+	v1Options.Dialect = api_primal.WSDialectPrimalV1
+	v1Options.ServerPubkey = cfg.PrimalWS.V1ServerPubkey
+	v1Options.DefaultRelays = defaultRelays
+	v1Options.DefaultSettings = readOptionalFile(cfg.PrimalWS.DefaultSettingsPath)
+	v1Options.ClientConfig = readOptionalFile(cfg.PrimalWS.ClientConfigPath)
+	v1Options.RecommendedUsers = cfg.PrimalWS.RecommendedUsers
+	v1Options.BlossomServers = cfg.PrimalWS.BlossomServers
+	v1Options.MediaFetchEnabled = cfg.PrimalWS.MediaFetchEnabled
+	v1Options.Persister = primalCanonicalPersister{store: queryStore}
+	v1Options.Publisher = relaypublish.New()
+	primalWSV1, err := api_primal.NewWSGateway(queryStore, v1Options)
 	if err != nil {
 		return err
 	}
@@ -300,7 +323,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 
 	mux := http.NewServeMux()
 	adminMux := http.NewServeMux()
-	registerDeclaredRoutes(mux, adminMux, buildRouteDefinitions(pool, handlers, primalHandlers, primalWS, adminHandlers))
+	registerDeclaredRoutes(mux, adminMux, buildRouteDefinitions(pool, handlers, primalHandlers, primalWS, primalWSV1, cfg.PrimalWS.V1Enabled, adminHandlers))
 	mux.Handle("/admin/", api.RequireBearerToken(strings.TrimSpace(cfg.HTTP.AdminBearerToken), adminMux))
 
 	var handler http.Handler = mux
@@ -569,4 +592,27 @@ func (a personalizedTrustAdapter) GetRanking(
 		})
 	}
 	return out, nil
+}
+
+type primalCanonicalPersister struct {
+	store *store.PostgresStore
+}
+
+func (p primalCanonicalPersister) PersistCanonical(ctx context.Context, event model.Event, tags [][]string, relayURL string) error {
+	if p.store == nil {
+		return nil
+	}
+	return p.store.InsertCanonicalEvent(ctx, event, tags, relayURL, time.Now().UTC())
+}
+
+func readOptionalFile(path string) json.RawMessage {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	return json.RawMessage(raw)
 }

@@ -1,0 +1,17 @@
+{
+  "theme": "sunrise",
+  "defaultZapAmount": 21,
+  "zapOptions": [21, 69, 210, 420, 1000, 4200, 10000, 21000, 42000, 69000],
+  "zapDefault": {
+    "amount": 21,
+    "message": "",
+    "default_emoji": {"file": "1f54a.png", "name": "dove", "unicode": "1f54a"}
+  },
+  "zapConfig": [],
+  "applyContentModeration": false,
+  "contentModeration": [],
+  "feeds": [],
+  "notifications": {},
+  "notificationsAdditional": {},
+  "pushNotifications": {}
+}

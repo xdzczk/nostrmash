@@ -3,6 +3,7 @@ package metrics
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -146,7 +147,7 @@ func registerCoreMetrics() {
 			Name: "nostrmash_primal_ws_requests_total",
 			Help: "Total number of processed Primal websocket requests by kind and outcome.",
 		},
-		[]string{"request_kind", "outcome"},
+		[]string{"dialect", "funcall", "request_kind", "outcome"},
 	)
 	primalWSRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -265,8 +266,18 @@ func IncPrimalWSFrame(frameType string) {
 }
 
 func ObservePrimalWSRequest(requestKind, outcome string, d time.Duration) {
+	ObservePrimalWSRequestLabeled("legacy", requestKind, requestKind, outcome, d)
+}
+
+func ObservePrimalWSRequestLabeled(dialect, funcall, requestKind, outcome string, d time.Duration) {
 	ensureRegistered()
-	primalWSRequestsTotal.WithLabelValues(requestKind, outcome).Inc()
+	if strings.TrimSpace(dialect) == "" {
+		dialect = "legacy"
+	}
+	if strings.TrimSpace(funcall) == "" {
+		funcall = requestKind
+	}
+	primalWSRequestsTotal.WithLabelValues(dialect, funcall, requestKind, outcome).Inc()
 	primalWSRequestDuration.WithLabelValues(requestKind).Observe(d.Seconds())
 }
 

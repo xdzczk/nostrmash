@@ -63,8 +63,14 @@ func buildRouteDefinitions(
 	handlers api.Handlers,
 	primalHandlers api_primal.Handlers,
 	primalWS api_primal.WSGateway,
+	primalWSV1 api_primal.WSGateway,
+	v1Enabled bool,
 	adminHandlers api.AdminHandlers,
 ) []routeDefinition {
+	v1Handler := http.Handler(http.HandlerFunc(primalWSV1.Handle))
+	if !v1Enabled {
+		v1Handler = http.NotFoundHandler()
+	}
 	return []routeDefinition{
 		newPublicRoute("GET /health", true, http.HandlerFunc(api.Health)),
 		newPublicRoute("GET /ready", true, api.Ready(pool)),
@@ -157,6 +163,7 @@ func buildRouteDefinitions(
 		newPublicRoute("POST /primal/v1/dms/reset-count", true, http.HandlerFunc(primalHandlers.PostResetDirectMessageCount)),
 		newPublicRoute("POST /primal/v1/dms/reset-counts", true, http.HandlerFunc(primalHandlers.PostResetDirectMessageCounts)),
 		newPublicRoute("GET /primal/ws", true, http.HandlerFunc(primalWS.Handle)),
+		newPublicRoute("GET /primal/ws/v1", true, v1Handler),
 
 		newAdminRoute("GET /admin/v1/relays", true, http.HandlerFunc(adminHandlers.GetRelays)),
 		newAdminRoute("GET /admin/v1/relays/suggestions", false, http.HandlerFunc(adminHandlers.GetRelaySuggestions)),
@@ -200,5 +207,5 @@ func registerDeclaredRoutes(publicMux, adminMux *http.ServeMux, defs []routeDefi
 }
 
 func ContractOwnedRoutes() []routeDefinition {
-	return buildRouteDefinitions(nil, api.Handlers{}, api_primal.Handlers{}, api_primal.WSGateway{}, api.AdminHandlers{})
+	return buildRouteDefinitions(nil, api.Handlers{}, api_primal.Handlers{}, api_primal.WSGateway{}, api_primal.WSGateway{}, true, api.AdminHandlers{})
 }

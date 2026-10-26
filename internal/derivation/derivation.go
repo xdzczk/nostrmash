@@ -50,6 +50,7 @@ const (
 	DerivationTrustedProfileDiscovery     = "trusted_profile_discovery_candidates"
 	DerivationDMUnreadCounts              = "dm_unread_counts"
 	DerivationZapReceipts                 = "zap_receipts"
+	DerivationPrimalNotifications         = "primal_notifications"
 	DerivationProfilePublicStats          = "profile_public_stats"
 	DerivationAuthorActivityDaily         = "author_activity_daily"
 	DerivationAuthorEngagementStats       = "author_engagement_stats"
@@ -137,6 +138,7 @@ const (
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1
 	TrustInteractionEdgeWeightsVersion = 1
+	PrimalNotificationsVersion         = 1
 )
 
 const (

@@ -140,6 +140,7 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		// transient Meili slowdown can never cap live-pool throughput
 		// at live_concurrency * 2/min the way the inline sync did.
 		h.MarkMeilisearchDirty,
+		h.ProjectPrimalNotification,
 	}
 	for _, step := range steps {
 		if err := step(ctx, eventID); err != nil {

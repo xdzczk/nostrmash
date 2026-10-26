@@ -57,6 +57,7 @@ var RegisteredDerivations = []RegisteredDerivation{
 	{Name: DerivationTrustPubkeysLatest, Version: TrustPubkeysLatestVersion, Description: "Denormalize hop distance and global trust scores per pubkey"},
 	{Name: DerivationTrustNeighborhoodMembers, Version: TrustNeighborhoodMembersVersion, Description: "Compute seeded trust neighborhoods via bounded BFS"},
 	{Name: DerivationTrustInteractionEdgeWeights, Version: TrustInteractionEdgeWeightsVersion, Description: "Aggregate engagement-derived directed interaction edge weights for optional trust ranking"},
+	{Name: DerivationPrimalNotifications, Version: PrimalNotificationsVersion, Description: "Project Primal notification rows from follows, zaps, reactions, reposts, replies, and mentions"},
 }
 
 // EnsureRegisteredDerivations performs a one-time, process-startup

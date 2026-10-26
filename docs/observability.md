@@ -331,7 +331,7 @@ Primal compatibility gateway:
 
 - `nostrmash_primal_ws_connections`
 - `nostrmash_primal_ws_frames_total{frame_type}`
-- `nostrmash_primal_ws_requests_total{request_kind,outcome}`
+- `nostrmash_primal_ws_requests_total{dialect,funcall,request_kind,outcome}`
 - `nostrmash_primal_ws_request_duration_seconds{request_kind}`
 
 Cardinality policy:

@@ -17,7 +17,8 @@
 // - [x] POST /primal/v1/dms/count2
 // - [x] POST /primal/v1/dms/reset-count
 // - [x] POST /primal/v1/dms/reset-counts
-// - [x] GET /primal/ws (REQ/CLOSE gateway)
+// - [x] GET /primal/ws (REQ/CLOSE gateway, legacy cache shapes)
+// - [x] GET /primal/ws/v1 (Primal iOS cache protocol: zlib EVENTS, enrichment, mega feeds)
 //
 // Handler-level contract coverage for this checklist is maintained by fixture/golden
 // tests under internal/api_primal/testdata/primal_contracts.

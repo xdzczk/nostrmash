@@ -7,7 +7,7 @@ import (
 func TestSendFrameQueuesWithoutWriting(t *testing.T) {
 	s := &wsConnSession{
 		done:       make(chan struct{}),
-		writeQueue: make(chan []byte, 2),
+		writeQueue: make(chan wsQueuedFrame, 2),
 	}
 	if err := s.sendFrame([]any{"EOSE", "sub1"}); err != nil {
 		t.Fatalf("sendFrame: %v", err)
@@ -20,7 +20,7 @@ func TestSendFrameQueuesWithoutWriting(t *testing.T) {
 func TestSendFrameFailsAfterSessionClosed(t *testing.T) {
 	s := &wsConnSession{
 		done:       make(chan struct{}),
-		writeQueue: make(chan []byte, 1),
+		writeQueue: make(chan wsQueuedFrame, 1),
 	}
 	close(s.done)
 	if err := s.sendFrame([]any{"NOTICE", "", "x"}); err != errSessionClosed {
@@ -35,9 +35,9 @@ func TestSendFrameBackpressureDisconnects(t *testing.T) {
 
 	s := &wsConnSession{
 		done:       make(chan struct{}),
-		writeQueue: make(chan []byte, 1),
+		writeQueue: make(chan wsQueuedFrame, 1),
 	}
-	s.writeQueue <- []byte(`["NOTICE","",""]`)
+	s.writeQueue <- wsQueuedFrame{payload: []byte(`["NOTICE","",""]`)}
 	if err := s.sendFrame([]any{"EOSE", "sub"}); err != errWriteBackpressure {
 		t.Fatalf("expected errWriteBackpressure, got %v", err)
 	}

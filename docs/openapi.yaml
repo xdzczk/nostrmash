@@ -1771,6 +1771,13 @@ paths:
       responses:
         '101':
           description: WebSocket protocol switch
+  /primal/ws/v1:
+    get:
+      tags: [primal]
+      summary: Primal iOS cache WebSocket (zlib EVENTS, mega feeds, enrichment)
+      responses:
+        '101':
+          description: WebSocket protocol switch
 
   /admin/v1/relays:
     get:
