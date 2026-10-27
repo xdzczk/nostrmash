@@ -591,7 +591,7 @@ Trust fetch and suggestion metrics:
 
 ### Contact list crawl
 
-Follower counts only include kind-3 contact lists stored locally. Live ingest asks relays for events newer than a short lookback, so a follow list published before this server started never arrives. `INGESTOR_CONTACT_CRAWL_ENABLED` (default `false`) turns on a paced crawl in the ingestor:
+Follower counts only include kind-3 contact lists stored locally. Live ingest asks relays for events newer than a short lookback, so a follow list published before this server started never arrives. `INGESTOR_CONTACT_CRAWL_ENABLED` (library default `false`; the Coolify ingestor sets it to `true`) turns on a paced crawl in the ingestor:
 
 - Queue hop 0 from active `trust_seeds`, then from `profile_public_stats` authors who have notes and no `contact_lists_latest` row. The stats scan keeps a cursor and waits `INGESTOR_CONTACT_CRAWL_SEED_RESCAN_INTERVAL` (default `6h`) between full passes.
 - For each pubkey, request kinds `3` and `10002` by author, with no `since`. The first relay that returns a kind 3 stops the walk. A finished fetch (list stored, or every tried relay closed with EOSE and no kind 3) waits `INGESTOR_CONTACT_CRAWL_REFETCH_INTERVAL` (default `168h`). If a relay fails, or a relay closes without EOSE, the pubkey retries after `INGESTOR_CONTACT_CRAWL_RETRY_DELAY` (default `10m`).
