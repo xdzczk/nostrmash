@@ -87,7 +87,7 @@ var cacheCallRoutesPrimalV1 = map[string]cacheCallRoute{
 	"get_featured_authors":                     v1(WSGateway.cacheDispatchFeaturedAuthors, false),
 	"creator_paid_tiers":                       v1(WSGateway.cacheDispatchCreatorPaidTiers, false),
 	"mutual_follows":                           v1(WSGateway.cacheDispatchMutualFollows, false),
-	"event_actions":                            v1(WSGateway.cacheDispatchEventActions, false),
+	"event_actions":                            v1(WSGateway.primalV1EventActions, false),
 	"membership_status":                        v1stub(WSGateway.primalV1MembershipStatus),
 	"membership_media_management_stats":        v1stub(WSGateway.primalV1Empty),
 	"membership_media_management_uploads":      v1stub(WSGateway.primalV1Empty),

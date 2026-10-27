@@ -38,6 +38,7 @@ type fakeEventReader struct {
 	getFollowersFn                func(context.Context, string, int) ([]json.RawMessage, error)
 	getUserZapsFn                 func(context.Context, string, int, bool) ([]json.RawMessage, error)
 	getEventZapsFn                func(context.Context, string, int) ([]json.RawMessage, error)
+	listEventActionPubkeysFn      func(context.Context, string, int, int) ([]string, error)
 	isFollowingFn                 func(context.Context, string, string) (bool, error)
 	getMutualFollowsFn            func(context.Context, string, string, int) ([]string, error)
 	getDMContactsFn               func(context.Context, string, int) ([]string, error)
@@ -216,6 +217,13 @@ func (f fakeEventReader) GetEventZapsBySats(ctx context.Context, eventID string,
 		return nil, errors.New("not implemented")
 	}
 	return f.getEventZapsFn(ctx, eventID, limit)
+}
+
+func (f fakeEventReader) ListEventActionPubkeys(ctx context.Context, eventID string, kind int, limit int) ([]string, error) {
+	if f.listEventActionPubkeysFn == nil {
+		return nil, nil
+	}
+	return f.listEventActionPubkeysFn(ctx, eventID, kind, limit)
 }
 
 func (f fakeEventReader) IsUserFollowing(ctx context.Context, followerPubkey string, followedPubkey string) (bool, error) {

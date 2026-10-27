@@ -36,6 +36,7 @@ type primalV1Reader interface {
 	PutAppSubsettings(context.Context, string, string, json.RawMessage) error
 	ListPrimalNotifications(context.Context, string, []int, int64, int64, int, int) ([]readmodel.PrimalNotification, error)
 	GetPrimalTrendingNotes(context.Context, string, int64, int, int, *int64, bool) ([]readmodel.TrendingNote, error)
+	ListEventActionPubkeys(context.Context, string, int, int) ([]string, error)
 	GetNotificationsSeen(context.Context, string) (int64, error)
 	SetNotificationsSeen(context.Context, string, int64) error
 	ListNotificationCounts(context.Context, string) ([]readmodel.NotificationCount, error)
@@ -64,6 +65,35 @@ func (s Service) GetEventCountsBatch(ctx context.Context, ids []string) (map[str
 		return nil, unsupportedCapabilityError("event counts")
 	}
 	return adapter.GetEventCountsByIDs(ctx, ids)
+}
+
+type eventActionPubkeyReader interface {
+	ListEventActionPubkeys(context.Context, string, int, int) ([]string, error)
+}
+
+// GetEventActionPubkeys lists the people who reacted to or reposted an event.
+// kind 7 is reactions and kind 6 is reposts.
+func (s Service) GetEventActionPubkeys(ctx context.Context, eventID string, kind int, limit int) ([]string, error) {
+	if reader, ok := eventActionReader(s.reader); ok {
+		return reader.ListEventActionPubkeys(ctx, eventID, kind, limit)
+	}
+	reader, err := s.primalV1()
+	if err != nil {
+		return nil, err
+	}
+	return reader.ListEventActionPubkeys(ctx, eventID, kind, limit)
+}
+
+func eventActionReader(reader any) (eventActionPubkeyReader, bool) {
+	if typed, ok := reader.(eventActionPubkeyReader); ok {
+		return typed, true
+	}
+	adapter, ok := reader.(readModelReaderAdapter)
+	if !ok {
+		return nil, false
+	}
+	typed, ok := adapter.readModel.(eventActionPubkeyReader)
+	return typed, ok
 }
 
 // GetFeedEvents returns a raw-event page for a Primal feed.

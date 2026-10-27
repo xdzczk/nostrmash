@@ -1052,3 +1052,62 @@ func mergeAuthorFeedPages(pages [][]json.RawMessage, limit, offset int) []json.R
 	}
 	return out
 }
+
+// ListEventActionPubkeys returns the people behind one note's reactions (kind 7)
+// or reposts (kind 6), newest first.
+func (s *Read) ListEventActionPubkeys(ctx context.Context, eventID string, kind int, limit int) ([]string, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	var query string
+	switch kind {
+	case 7:
+		query = `
+			SELECT reactor_pubkey
+			FROM reaction_events
+			WHERE target_event_id = $1
+			GROUP BY reactor_pubkey
+			ORDER BY MAX(created_at) DESC
+			LIMIT $2`
+	case 6:
+		query = `
+			SELECT reposter_pubkey
+			FROM repost_events
+			WHERE target_event_id = $1
+			GROUP BY reposter_pubkey
+			ORDER BY MAX(created_at) DESC
+			LIMIT $2`
+	default:
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, query, eventID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list event action pubkeys: %w", err)
+	}
+	defer rows.Close()
+	out := make([]string, 0, limit)
+	for rows.Next() {
+		var pubkey string
+		if err := rows.Scan(&pubkey); err != nil {
+			return nil, fmt.Errorf("scan event action pubkey: %w", err)
+		}
+		pubkey = strings.TrimSpace(pubkey)
+		if pubkey != "" {
+			out = append(out, pubkey)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read event action pubkeys: %w", err)
+	}
+	return out, nil
+}
