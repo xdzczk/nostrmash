@@ -4,12 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
+
+// authorFeedChunkSize bounds one follow-list merge. A single lateral over a
+// ~1,300-author list was still inside the 10s websocket budget only while the
+// working set stayed hot; past that the request failed and the app showed an
+// empty Following feed.
+const authorFeedChunkSize = 400
 
 // GetFeedEvents returns raw events for a Primal-style page.
 // An empty authors slice reads across all authors. includeReplies false drops
@@ -51,10 +59,8 @@ func (s *Read) GetFeedEvents(
 	if authors == nil {
 		authors = []string{}
 	}
-	var rows pgx.Rows
-	var err error
 	if len(authors) == 0 {
-		rows, err = s.pool.Query(ctx, `
+		rows, err := s.pool.Query(ctx, `
 			SELECT e.raw_json
 			FROM events e
 			WHERE e.kind = ANY($1::int[])
@@ -78,64 +84,109 @@ func (s *Read) GetFeedEvents(
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT $7 OFFSET $8
 		`, kinds, since, until, onlyReplies, includeReplies, hasImage, limit, offset)
-	} else {
-		// One short index walk per author, then a merge. A single ANY() over a
-		// large follow list plans a scan that times out the home feed.
-		innerLimit := limit + offset
-		if innerLimit < limit {
-			innerLimit = limit
+		if err != nil {
+			return nil, fmt.Errorf("get feed events: %w", err)
 		}
-		if innerLimit > 100 {
-			innerLimit = 100
-		}
-		rows, err = s.pool.Query(ctx, `
-			SELECT page.raw_json
-			FROM unnest($1::text[]) AS author(pubkey)
-			JOIN LATERAL (
-				SELECT e.raw_json, e.created_at, e.id
-				FROM events e
-				WHERE e.pubkey = author.pubkey
-				  AND e.kind = ANY($2::int[])
-				  AND e.created_at >= $3
-				  AND e.created_at <= $4
-				  AND (
-				    ($5::bool AND EXISTS (SELECT 1 FROM thread_edges t WHERE t.child_event_id = e.id))
-				    OR (NOT $5::bool AND $6::bool)
-				    OR (
-				      NOT $5::bool AND NOT $6::bool
-				      AND NOT EXISTS (SELECT 1 FROM thread_edges t WHERE t.child_event_id = e.id)
-				    )
-				  )
-				  AND (
-				    NOT $7::bool
-				    OR EXISTS (
-				      SELECT 1 FROM note_discovery_stats n
-				      WHERE n.event_id = e.id AND n.has_image
-				    )
-				  )
-				ORDER BY e.created_at DESC, e.id DESC
-				LIMIT $10
-			) page ON true
-			ORDER BY page.created_at DESC, page.id DESC
-			LIMIT $8 OFFSET $9
-		`, authors, kinds, since, until, onlyReplies, includeReplies, hasImage, limit, offset, innerLimit)
+		return scanFeedRaw(rows)
 	}
+	return s.getAuthorFeedEvents(ctx, authors, kinds, since, until, limit, offset, includeReplies, onlyReplies, hasImage)
+}
+
+// getAuthorFeedEvents merges a short per-author index walk. raw_json is loaded
+// only for the page itself: pulling it for every candidate from a large follow
+// list exceeded the websocket request budget.
+func (s *Read) getAuthorFeedEvents(
+	ctx context.Context,
+	authors []string,
+	kinds []int,
+	since int64,
+	until int64,
+	limit int,
+	offset int,
+	includeReplies bool,
+	onlyReplies bool,
+	hasImage bool,
+) ([]json.RawMessage, error) {
+	if len(authors) <= authorFeedChunkSize {
+		return s.queryAuthorFeed(ctx, authors, kinds, since, until, limit, offset, includeReplies, onlyReplies, hasImage)
+	}
+	window := limit + offset
+	if window < limit {
+		window = limit
+	}
+	if window > 100 {
+		window = 100
+	}
+	chunks := chunkStrings(authors, authorFeedChunkSize)
+	pages := make([][]json.RawMessage, len(chunks))
+	parent := ctx
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	sem := make(chan struct{}, 3)
+	for i, chunk := range chunks {
+		wg.Add(1)
+		go func(i int, chunk []string) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+			rows, err := s.queryAuthorFeed(ctx, chunk, kinds, since, until, window, 0, includeReplies, onlyReplies, hasImage)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+					cancel()
+				}
+				return
+			}
+			pages[i] = rows
+		}(i, chunk)
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := parent.Err(); err != nil {
+		return nil, err
+	}
+	return mergeAuthorFeedPages(pages, limit, offset), nil
+}
+
+func (s *Read) queryAuthorFeed(
+	ctx context.Context,
+	authors []string,
+	kinds []int,
+	since int64,
+	until int64,
+	limit int,
+	offset int,
+	includeReplies bool,
+	onlyReplies bool,
+	hasImage bool,
+) ([]json.RawMessage, error) {
+	innerLimit := limit + offset
+	if innerLimit < limit {
+		innerLimit = limit
+	}
+	if innerLimit > 100 {
+		innerLimit = 100
+	}
+	rows, err := s.pool.Query(
+		ctx,
+		authorFeedPageSQL(kinds, includeReplies, onlyReplies, hasImage),
+		authors, since, until, limit, offset, innerLimit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("get feed events: %w", err)
 	}
-	defer rows.Close()
-	out := make([]json.RawMessage, 0, limit)
-	for rows.Next() {
-		var raw []byte
-		if err := rows.Scan(&raw); err != nil {
-			return nil, fmt.Errorf("scan feed event: %w", err)
-		}
-		out = append(out, json.RawMessage(raw))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read feed events: %w", err)
-	}
-	return out, nil
+	return scanFeedRaw(rows)
 }
 
 // GetFollowerCountsByPubkeys returns follower totals for the given pubkeys.
@@ -735,8 +786,11 @@ func (s *Read) GetPrimalTrendingNotes(ctx context.Context, scoreColumn string, m
 	default:
 		return nil, fmt.Errorf("unsupported trending score column")
 	}
+	orderColumn := rankExpr
+	scoreExpr := "ROUND(" + rankExpr + ")::float8"
 	if byZaps {
-		rankExpr = "(s.zap_msats / 1000.0)"
+		orderColumn = "s.zap_msats"
+		scoreExpr = "ROUND(s.zap_msats / 1000.0)::float8"
 	}
 	if limit <= 0 {
 		limit = 20
@@ -747,42 +801,20 @@ func (s *Read) GetPrimalTrendingNotes(ctx context.Context, scoreColumn string, m
 	if offset < 0 {
 		offset = 0
 	}
-	query := fmt.Sprintf(`
-		SELECT event_id, author_pubkey, created_at, content, language,
-		       reply_count, repost_count, reaction_count, zap_count, zap_msats, score
-		FROM (
-			SELECT
-				s.event_id,
-				s.author_pubkey,
-				s.created_at,
-				e.content,
-				''::text AS language,
-				s.reply_count,
-				s.repost_count,
-				s.reaction_count,
-				s.zap_count,
-				s.zap_msats,
-				ROUND(%s)::float8 AS score
-			FROM note_discovery_stats s
-			JOIN events e ON e.id = s.event_id
-			WHERE s.created_at >= $1
-			  AND e.kind = 1
-			  AND NOT EXISTS (
-				SELECT 1 FROM thread_edges te WHERE te.child_event_id = s.event_id
-			  )
-			  AND (
-				EXISTS (SELECT 1 FROM profiles_latest pl WHERE pl.pubkey = s.author_pubkey)
-				OR EXISTS (
-					SELECT 1 FROM events metadata
-					WHERE metadata.pubkey = s.author_pubkey AND metadata.kind = 0
-				)
-			  )
-		) ranked
-		WHERE ($2::bigint IS NULL OR score::bigint <= $2)
-		ORDER BY score DESC, created_at DESC, event_id ASC
-		LIMIT $3 OFFSET $4
-	`, rankExpr)
-	rows, err := s.pool.Query(ctx, query, minCreatedAt, maxRank, limit, offset)
+	// Walk the rank index and stop at the page. Rounding every note in the
+	// window, then sorting, exceeded the 10s websocket budget (the 7d feed
+	// timed out and the app showed nothing).
+	cursorSQL := ""
+	args := []any{minCreatedAt, limit, offset}
+	if maxRank != nil {
+		cursorSQL = "AND " + orderColumn + " < $4"
+		args = append(args, primalTrendingCursorValue(*maxRank, byZaps))
+	}
+	if byZaps {
+		cursorSQL = "AND s.zap_msats > 0 " + cursorSQL
+	}
+	query := primalTrendingSQL(orderColumn, scoreExpr, cursorSQL)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get primal trending notes: %w", err)
 	}
@@ -811,4 +843,212 @@ func (s *Read) GetPrimalTrendingNotes(ctx context.Context, scoreColumn string, m
 		return nil, fmt.Errorf("read primal trending notes: %w", err)
 	}
 	return out, nil
+}
+
+func primalTrendingSQL(orderColumn, scoreExpr, cursorSQL string) string {
+	return fmt.Sprintf(`
+		SELECT
+			s.event_id,
+			s.author_pubkey,
+			s.created_at,
+			''::text AS content,
+			''::text AS language,
+			s.reply_count,
+			s.repost_count,
+			s.reaction_count,
+			s.zap_count,
+			s.zap_msats,
+			%s AS score
+		FROM note_discovery_stats s
+		JOIN events e ON e.id = s.event_id
+		WHERE s.created_at >= $1
+		  AND e.kind = 1
+		  AND NOT EXISTS (
+			SELECT 1 FROM thread_edges te WHERE te.child_event_id = s.event_id
+		  )
+		  AND (
+			EXISTS (SELECT 1 FROM profiles_latest pl WHERE pl.pubkey = s.author_pubkey)
+			OR EXISTS (
+				SELECT 1 FROM events metadata
+				WHERE metadata.pubkey = s.author_pubkey AND metadata.kind = 0
+			)
+		  )
+		  %s
+		ORDER BY %s DESC, s.created_at DESC, s.event_id ASC
+		LIMIT $2 OFFSET $3
+	`, scoreExpr, cursorSQL, orderColumn)
+}
+
+// primalTrendingCursorValue is the exclusive upper bound for the next page.
+// The client only has the rounded integer rank, so the bound sits half a unit
+// above it and still matches the rank index.
+func primalTrendingCursorValue(maxRank int64, byZaps bool) any {
+	if byZaps {
+		return int64((float64(maxRank) + 0.5) * 1000)
+	}
+	return float64(maxRank) + 0.5
+}
+
+func authorFeedPageSQL(kinds []int, includeReplies, onlyReplies, hasImage bool) string {
+	kinds = feedKindLiterals(kinds)
+	visibility := feedVisibilitySQL(includeReplies, onlyReplies, hasImage)
+	var branches strings.Builder
+	for i, kind := range kinds {
+		if i > 0 {
+			branches.WriteString("\n\t\t\t\tUNION ALL\n")
+		}
+		fmt.Fprintf(&branches, `				(
+					SELECT e.id, e.created_at
+					FROM events e
+					WHERE e.pubkey = author.pubkey
+					  AND e.kind = %d
+					  AND e.created_at >= $2
+					  AND e.created_at <= $3
+					  %s
+					ORDER BY e.created_at DESC, e.id DESC
+					LIMIT $6
+				)`, kind, visibility)
+	}
+	return fmt.Sprintf(`
+		SELECT e.raw_json
+		FROM (
+			SELECT page.id, page.created_at
+			FROM unnest($1::text[]) AS author(pubkey)
+			JOIN LATERAL (
+				SELECT id, created_at
+				FROM (
+%s
+				) candidates
+				ORDER BY created_at DESC, id DESC
+				LIMIT $6
+			) page ON true
+			ORDER BY page.created_at DESC, page.id DESC
+			LIMIT $4 OFFSET $5
+		) chosen
+		JOIN events e ON e.id = chosen.id
+		ORDER BY chosen.created_at DESC, chosen.id DESC
+	`, branches.String())
+}
+
+func feedKindLiterals(kinds []int) []int {
+	if len(kinds) == 0 {
+		return []int{1}
+	}
+	out := make([]int, 0, len(kinds))
+	seen := map[int]struct{}{}
+	for _, kind := range kinds {
+		if kind < 0 || kind > 65535 {
+			continue
+		}
+		if _, ok := seen[kind]; ok {
+			continue
+		}
+		seen[kind] = struct{}{}
+		out = append(out, kind)
+		if len(out) == 8 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return []int{1}
+	}
+	return out
+}
+
+func feedVisibilitySQL(includeReplies, onlyReplies, hasImage bool) string {
+	var clause string
+	switch {
+	case onlyReplies:
+		clause = `AND EXISTS (SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id)`
+	case !includeReplies:
+		clause = `AND NOT EXISTS (SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id)`
+	}
+	if hasImage {
+		clause += `
+					  AND EXISTS (
+					    SELECT 1 FROM note_discovery_stats n
+					    WHERE n.event_id = e.id AND n.has_image
+					  )`
+	}
+	return clause
+}
+
+func scanFeedRaw(rows pgx.Rows) ([]json.RawMessage, error) {
+	defer rows.Close()
+	out := make([]json.RawMessage, 0, 20)
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan feed event: %w", err)
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read feed events: %w", err)
+	}
+	return out, nil
+}
+
+func chunkStrings(values []string, size int) [][]string {
+	if size <= 0 {
+		size = len(values)
+	}
+	out := make([][]string, 0, (len(values)+size-1)/size)
+	for len(values) > 0 {
+		n := size
+		if n > len(values) {
+			n = len(values)
+		}
+		out = append(out, values[:n])
+		values = values[n:]
+	}
+	return out
+}
+
+type orderedFeedRaw struct {
+	raw     json.RawMessage
+	created int64
+	id      string
+}
+
+func mergeAuthorFeedPages(pages [][]json.RawMessage, limit, offset int) []json.RawMessage {
+	total := 0
+	for _, page := range pages {
+		total += len(page)
+	}
+	rows := make([]orderedFeedRaw, 0, total)
+	for _, page := range pages {
+		for _, raw := range page {
+			var payload struct {
+				ID        string `json:"id"`
+				CreatedAt int64  `json:"created_at"`
+			}
+			_ = json.Unmarshal(raw, &payload)
+			rows = append(rows, orderedFeedRaw{raw: raw, created: payload.CreatedAt, id: payload.ID})
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].created != rows[j].created {
+			return rows[i].created > rows[j].created
+		}
+		return rows[i].id > rows[j].id
+	})
+	if limit <= 0 {
+		return []json.RawMessage{}
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(rows) {
+		offset = len(rows)
+	}
+	rows = rows[offset:]
+	if limit < len(rows) {
+		rows = rows[:limit]
+	}
+	out := make([]json.RawMessage, len(rows))
+	for i, row := range rows {
+		out[i] = row.raw
+	}
+	return out
 }
