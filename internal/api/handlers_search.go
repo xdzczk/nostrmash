@@ -603,7 +603,7 @@ func parseSearchLanguage(r *http.Request) (string, error) {
 	return lang, nil
 }
 
-func projectSearchProfiles(snap query.SearchDiagnostics, rows []query.Profile) []searchProfileResponse {
+func projectSearchProfiles(snap query.SearchDiagnosticsSnapshot, rows []query.Profile) []searchProfileResponse {
 	projected := make([]searchProfileResponse, 0, len(rows))
 	for _, profile := range rows {
 		fields := parseSearchProfileFields(profile.ProfileJSON)
@@ -772,7 +772,7 @@ func matchSpans(preview string, needles []string) []searchMatchSpan {
 	return spans
 }
 
-func noteCorpusTotal(snap query.SearchDiagnostics, pageLen, limit int) (int64, bool) {
+func noteCorpusTotal(snap query.SearchDiagnosticsSnapshot, pageLen, limit int) (int64, bool) {
 	total := snap.Notes.EstimatedTotal
 	if snap.HashtagFrequency > total {
 		total = snap.HashtagFrequency

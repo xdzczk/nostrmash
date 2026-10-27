@@ -591,7 +591,7 @@ func (s *Read) ListPrimalNotifications(ctx context.Context, pubkey string, types
 		if err := rows.Scan(&row.Pubkey, &typ, &row.CreatedAt, &args); err != nil {
 			return nil, fmt.Errorf("scan primal notification: %w", err)
 		}
-		row.Type = int(typ)
+		row.Type = typ
 		row.Args = json.RawMessage(args)
 		out = append(out, row)
 	}
@@ -777,7 +777,7 @@ func (s *Read) GetPrimalTrendingNotes(ctx context.Context, scoreColumn string, m
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
-	rankExpr := "s.score_24h"
+	var rankExpr string
 	switch scoreColumn {
 	case "score_7d":
 		rankExpr = "s.score_7d"

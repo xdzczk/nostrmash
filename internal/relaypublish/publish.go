@@ -78,7 +78,7 @@ func (c *Client) publishOne(ctx context.Context, relay string, event json.RawMes
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
 	conn := slot.conn
-	payload, err := json.Marshal([]any{"EVENT", json.RawMessage(event)})
+	payload, err := json.Marshal([]any{"EVENT", event})
 	if err != nil {
 		return fail
 	}
@@ -123,7 +123,10 @@ func (c *Client) connection(ctx context.Context, relay string) (*relayConn, erro
 	if dialer == nil {
 		dialer = websocket.DefaultDialer
 	}
-	conn, _, err := dialer.DialContext(ctx, relay, nil)
+	conn, resp, err := dialer.DialContext(ctx, relay, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -72,7 +72,9 @@ func (s Service) SearchNotes(ctx context.Context, params NotesSearchParams) (out
 	ctx, span := traceutil.StartSpan(ctx, "query.search_notes")
 	defer func() { span.End(err) }()
 	started := time.Now()
-	defer readmodel.SearchDiagnosticsFrom(ctx).AddDuration("notes", time.Since(started))
+	defer func() {
+		readmodel.SearchDiagnosticsFrom(ctx).AddDuration("notes", time.Since(started))
+	}()
 
 	normalized, err := normalizeNotesSearchParams(params)
 	if err != nil {
@@ -114,7 +116,9 @@ func (s Service) SearchProfiles(ctx context.Context, params ProfileSearchParams)
 	ctx, span := traceutil.StartSpan(ctx, "query.search_profiles")
 	defer func() { span.End(err) }()
 	started := time.Now()
-	defer readmodel.SearchDiagnosticsFrom(ctx).AddDuration("profiles", time.Since(started))
+	defer func() {
+		readmodel.SearchDiagnosticsFrom(ctx).AddDuration("profiles", time.Since(started))
+	}()
 
 	normalized, err := normalizeProfileSearchParams(params)
 	if err != nil {

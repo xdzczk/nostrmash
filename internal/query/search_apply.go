@@ -41,6 +41,9 @@ type eventCountReader interface {
 // SearchDiagnostics is the per-request timing and scoring bag.
 type SearchDiagnostics = readmodel.SearchDiagnostics
 
+// SearchDiagnosticsSnapshot is the mutex-free copy handlers log and render.
+type SearchDiagnosticsSnapshot = readmodel.SearchDiagnosticsSnapshot
+
 // SearchSectionStat is one sub-query's timing and corpus estimate.
 type SearchSectionStat = readmodel.SearchSectionStat
 
@@ -58,7 +61,7 @@ func WithSearchDiagnostics(ctx context.Context) context.Context {
 }
 
 // CurrentSearchDiagnostics copies the bag for logging and response fields.
-func CurrentSearchDiagnostics(ctx context.Context) SearchDiagnostics {
+func CurrentSearchDiagnostics(ctx context.Context) SearchDiagnosticsSnapshot {
 	return readmodel.SearchDiagnosticsFrom(ctx).Snapshot()
 }
 
@@ -212,7 +215,9 @@ func (s Service) SearchSuggestionsPrepared(ctx context.Context, params Suggestio
 	ctx, span := traceutil.StartSpan(ctx, "query.search_suggestions")
 	defer func() { span.End(err) }()
 	started := time.Now()
-	defer readmodel.SearchDiagnosticsFrom(ctx).AddDuration("suggest", time.Since(started))
+	defer func() {
+		readmodel.SearchDiagnosticsFrom(ctx).AddDuration("suggest", time.Since(started))
+	}()
 
 	normalized, err := normalizeSuggestionParams(params)
 	if err != nil {
@@ -323,7 +328,9 @@ func (s Service) SearchSuggestionsPrepared(ctx context.Context, params Suggestio
 
 func (s Service) suggestHashtags(ctx context.Context, query string, limit int) ([]HashtagSuggestion, error) {
 	started := time.Now()
-	defer readmodel.SearchDiagnosticsFrom(ctx).AddDuration("hashtags", time.Since(started))
+	defer func() {
+		readmodel.SearchDiagnosticsFrom(ctx).AddDuration("hashtags", time.Since(started))
+	}()
 	if s.queryIsObviousMiss(ctx, query) {
 		return []HashtagSuggestion{}, nil
 	}

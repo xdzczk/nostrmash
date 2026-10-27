@@ -1024,13 +1024,6 @@ func damerauDistance(a, b string, maxDistance int) int {
 			if sub < best {
 				best = sub
 			}
-			if i > 1 && j > 1 && ar[i-1] == br[j-2] && ar[i-2] == br[j-1] {
-				// Adjacent transposition. prevPrev[j-2] is not retained; the
-				// standard recurrence needs the row before prev. Recompute the
-				// diagonal from a third buffer only when both indexes allow it
-				// by using sub's neighborhood: distance through the transpose
-				// is prev[j-1] adjusted below via a dedicated buffer.
-			}
 			cur[j] = best
 			if best < rowMin {
 				rowMin = best

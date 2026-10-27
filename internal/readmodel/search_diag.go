@@ -27,12 +27,9 @@ type SearchSectionStat struct {
 	Error           string
 }
 
-// SearchDiagnostics collects per-request search timings, engine scores, and
-// profile signals. Handlers install it on the request context; Meilisearch
-// and the query service record into the same value.
-type SearchDiagnostics struct {
-	mu sync.Mutex
-
+// SearchDiagnosticsSnapshot is a mutex-free copy of SearchDiagnostics for
+// logging and response fields. Handlers must not share the live bag by value.
+type SearchDiagnosticsSnapshot struct {
 	Notes    SearchSectionStat
 	Profiles SearchSectionStat
 	Hashtags SearchSectionStat
@@ -50,14 +47,33 @@ type SearchDiagnostics struct {
 	obviousMissChecked bool
 }
 
+// ProfileSignal returns stored signals. The boolean is false when absent.
+func (s SearchDiagnosticsSnapshot) ProfileSignal(pubkey string) (ProfileSearchSignal, bool) {
+	if pubkey == "" {
+		return ProfileSearchSignal{}, false
+	}
+	signal, ok := s.ProfileSignals[pubkey]
+	return signal, ok
+}
+
+// SearchDiagnostics collects per-request search timings, engine scores, and
+// profile signals. Handlers install it on the request context; Meilisearch
+// and the query service record into the same value.
+type SearchDiagnostics struct {
+	mu sync.Mutex
+	SearchDiagnosticsSnapshot
+}
+
 type searchDiagKey struct{}
 
 // WithSearchDiagnostics returns a context that carries a fresh diagnostics bag.
 func WithSearchDiagnostics(ctx context.Context) (context.Context, *SearchDiagnostics) {
 	diag := &SearchDiagnostics{
-		NoteEngineScore: map[string]float64{},
-		ProfileSignals:  map[string]ProfileSearchSignal{},
-		SurfaceErrors:   map[string]string{},
+		SearchDiagnosticsSnapshot: SearchDiagnosticsSnapshot{
+			NoteEngineScore: map[string]float64{},
+			ProfileSignals:  map[string]ProfileSearchSignal{},
+			SurfaceErrors:   map[string]string{},
+		},
 	}
 	return context.WithValue(ctx, searchDiagKey{}, diag), diag
 }
@@ -258,23 +274,14 @@ func (d *SearchDiagnostics) CorrectionAlreadyChecked() bool {
 }
 
 // Snapshot copies the diagnostics under the lock for logging and responses.
-func (d *SearchDiagnostics) Snapshot() SearchDiagnostics {
+func (d *SearchDiagnostics) Snapshot() SearchDiagnosticsSnapshot {
 	if d == nil {
-		return SearchDiagnostics{}
+		return SearchDiagnosticsSnapshot{}
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	out := SearchDiagnostics{
-		Notes:             d.Notes,
-		Profiles:          d.Profiles,
-		Hashtags:          d.Hashtags,
-		Relays:            d.Relays,
-		Suggest:           d.Suggest,
-		HashtagFrequency:  d.HashtagFrequency,
-		CorrectedQuery:    d.CorrectedQuery,
-		CorrectionApplied: d.CorrectionApplied,
-		CorrectionChecked: d.CorrectionChecked,
-	}
+	out := d.SearchDiagnosticsSnapshot
+	out.NoteEngineScore = nil
 	if len(d.SurfaceErrors) > 0 {
 		out.SurfaceErrors = make(map[string]string, len(d.SurfaceErrors))
 		for key, value := range d.SurfaceErrors {
