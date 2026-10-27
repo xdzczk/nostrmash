@@ -589,6 +589,29 @@ Trust fetch and suggestion metrics:
 - `nostrmash_trust_fetch_pubkeys_total{outcome}`
 - `nostrmash_trust_fetch_pubkeys_selected_total`
 
+### Contact list crawl
+
+Follower counts only include kind-3 contact lists stored locally. Live ingest asks relays for events newer than a short lookback, so a follow list published before this server started never arrives. `INGESTOR_CONTACT_CRAWL_ENABLED` (default `false`) turns on a paced crawl in the ingestor:
+
+- Queue hop 0 from active `trust_seeds`, then from `profile_public_stats` authors who have notes and no `contact_lists_latest` row. The stats scan keeps a cursor and waits `INGESTOR_CONTACT_CRAWL_SEED_RESCAN_INTERVAL` (default `6h`) between full passes.
+- For each pubkey, request kinds `3` and `10002` by author, with no `since`. The first relay that returns a kind 3 stops the walk. A finished fetch (list stored, or every tried relay closed with EOSE and no kind 3) waits `INGESTOR_CONTACT_CRAWL_REFETCH_INTERVAL` (default `168h`). If a relay fails, or a relay closes without EOSE, the pubkey retries after `INGESTOR_CONTACT_CRAWL_RETRY_DELAY` (default `10m`).
+- Try the author's write relays (NIP-65 marker missing or `write`) when they are on `INGESTOR_CONTACT_CRAWL_RELAY_ALLOWLIST`, or on `INGESTOR_RELAY_ALLOWLIST` when that crawl allowlist is empty. Otherwise use `INGESTOR_RELAY_URLS`. Relays in `INGESTOR_RELAY_DISABLED` are skipped. The crawl does not dial arbitrary hosts advertised in kind 10002.
+- Persist events through the normal ingest path. Derivation updates `follower_edges` and `follower_count`.
+- Enqueue `p` tags at the next hop, up to `INGESTOR_CONTACT_CRAWL_MAX_HOPS` (default 2), while due queue rows are under `INGESTOR_CONTACT_CRAWL_MAX_PENDING`.
+
+A first import of a list older than 7 days does not count as new followers and does not emit new-follower notifications. A later edit still does.
+
+The crawl stays a lower bound. Lists that are not on an allowlisted write relay or on `INGESTOR_RELAY_URLS`, and followers more than `MAX_HOPS` away from a queued author, are still missing. Widen `INGESTOR_CONTACT_CRAWL_RELAY_ALLOWLIST` with common write relays without adding those relays to the live subscription set.
+
+Pacing is `INGESTOR_CONTACT_CRAWL_BATCH_SIZE` (default 20) every `INGESTOR_CONTACT_CRAWL_INTERVAL` (default `1m`). One current list per pubkey is kept; superseded copies are purged by replaceable retention. Kind-3 `raw_json` is the disk cost of the first import.
+
+Metrics:
+
+- `nostrmash_contact_list_crawl_queue_depth{hop}`
+- `nostrmash_contact_list_crawl_cycles_total{outcome}`
+- `nostrmash_contact_list_crawl_pubkeys_total{outcome}`
+- `nostrmash_contact_list_crawl_tags_enqueued_total`
+
 ### Invalid events
 
 Invalid relay payloads are not dropped silently. They are written to `invalid_events` with error code, message, optional payload, and relay source when available.

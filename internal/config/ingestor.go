@@ -24,6 +24,7 @@ type IngestorConfig struct {
 	Replay                  ReplayConfig
 	TrustPrioritization     IngestorTrustPrioritizationConfig
 	TrustFetch              IngestorTrustFetchConfig
+	ContactCrawl            IngestorContactCrawlConfig
 	TrustGate               IngestorTrustGateConfig
 	AuthorMetadataDiscovery IngestorAuthorMetadataDiscoveryConfig
 	AccountObservation      IngestorAccountObservationConfig
@@ -77,6 +78,23 @@ type IngestorTrustFetchConfig struct {
 	RetryDelay            time.Duration
 }
 
+// IngestorContactCrawlConfig controls the paced kind-3 contact-list crawl.
+// It fetches the current follow list for each queued pubkey with no time
+// filter, then walks p-tags out to MaxHops.
+type IngestorContactCrawlConfig struct {
+	Enabled            bool
+	Interval           time.Duration
+	BatchSize          int
+	SeedBatch          int
+	SeedRescanInterval time.Duration
+	MaxHops            int
+	MaxPending         int
+	MaxRelaysPerPubkey int
+	RefetchInterval    time.Duration
+	RetryDelay         time.Duration
+	RelayAllowlist     []string
+}
+
 // LoadIngestor reads ingestor configuration from environment variables.
 func LoadIngestor() (IngestorConfig, error) {
 	shared, err := loadSharedConfig("ingestor")
@@ -109,6 +127,10 @@ func LoadIngestor() (IngestorConfig, error) {
 		return IngestorConfig{}, err
 	}
 	dedupCacheSize, err := getEnvNonNegativeIntStrict("INGESTOR_DEDUP_CACHE_SIZE", 100000)
+	if err != nil {
+		return IngestorConfig{}, err
+	}
+	contactCrawlMaxHops, err := getEnvNonNegativeIntStrict("INGESTOR_CONTACT_CRAWL_MAX_HOPS", 2)
 	if err != nil {
 		return IngestorConfig{}, err
 	}
@@ -168,6 +190,19 @@ func LoadIngestor() (IngestorConfig, error) {
 			RecentLookbackSeconds: getEnvInt64("INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS", 86400),
 			PageLimitPerRelay:     getEnvInt("INGESTOR_TRUST_FETCH_PAGE_LIMIT_PER_RELAY", 200),
 			RetryDelay:            getEnvDuration("INGESTOR_TRUST_FETCH_RETRY_DELAY", 10*time.Minute),
+		},
+		ContactCrawl: IngestorContactCrawlConfig{
+			Enabled:            getEnvBool("INGESTOR_CONTACT_CRAWL_ENABLED", false),
+			Interval:           getEnvDuration("INGESTOR_CONTACT_CRAWL_INTERVAL", time.Minute),
+			BatchSize:          getEnvInt("INGESTOR_CONTACT_CRAWL_BATCH_SIZE", 20),
+			SeedBatch:          getEnvInt("INGESTOR_CONTACT_CRAWL_SEED_BATCH", 200),
+			SeedRescanInterval: getEnvDuration("INGESTOR_CONTACT_CRAWL_SEED_RESCAN_INTERVAL", 6*time.Hour),
+			MaxHops:            contactCrawlMaxHops,
+			MaxPending:         getEnvInt("INGESTOR_CONTACT_CRAWL_MAX_PENDING", 100000),
+			MaxRelaysPerPubkey: getEnvInt("INGESTOR_CONTACT_CRAWL_MAX_RELAYS_PER_PUBKEY", 3),
+			RefetchInterval:    getEnvDuration("INGESTOR_CONTACT_CRAWL_REFETCH_INTERVAL", 168*time.Hour),
+			RetryDelay:         getEnvDuration("INGESTOR_CONTACT_CRAWL_RETRY_DELAY", 10*time.Minute),
+			RelayAllowlist:     parseCSVEnv("INGESTOR_CONTACT_CRAWL_RELAY_ALLOWLIST"),
 		},
 		AuthorMetadataDiscovery: IngestorAuthorMetadataDiscoveryConfig{
 			Enabled:           getEnvBool("INGESTOR_AUTHOR_METADATA_DISCOVERY_ENABLED", true),
@@ -246,6 +281,9 @@ func LoadIngestor() (IngestorConfig, error) {
 			return IngestorConfig{}, fmt.Errorf("INGESTOR_TRUST_FETCH_RETRY_DELAY must be >= 0 when trust fetch is enabled")
 		}
 	}
+	if err := validateContactCrawlConfig(cfg.ContactCrawl, cfg.Relay.RequireTLS); err != nil {
+		return IngestorConfig{}, err
+	}
 	if cfg.AuthorMetadataDiscovery.Enabled {
 		if cfg.AuthorMetadataDiscovery.BatchSize <= 0 {
 			return IngestorConfig{}, fmt.Errorf("INGESTOR_AUTHOR_METADATA_DISCOVERY_BATCH_SIZE must be > 0 when author metadata discovery is enabled")
@@ -258,4 +296,43 @@ func LoadIngestor() (IngestorConfig, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func validateContactCrawlConfig(cfg IngestorContactCrawlConfig, requireTLS bool) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.Interval <= 0 {
+		return fmt.Errorf("INGESTOR_CONTACT_CRAWL_INTERVAL must be > 0 when contact list crawl is enabled")
+	}
+	if cfg.BatchSize <= 0 {
+		return fmt.Errorf("INGESTOR_CONTACT_CRAWL_BATCH_SIZE must be > 0 when contact list crawl is enabled")
+	}
+	if cfg.SeedBatch <= 0 {
+		return fmt.Errorf("INGESTOR_CONTACT_CRAWL_SEED_BATCH must be > 0 when contact list crawl is enabled")
+	}
+	if cfg.SeedRescanInterval <= 0 {
+		return fmt.Errorf("INGESTOR_CONTACT_CRAWL_SEED_RESCAN_INTERVAL must be > 0 when contact list crawl is enabled")
+	}
+	if cfg.MaxHops < 0 {
+		return fmt.Errorf("INGESTOR_CONTACT_CRAWL_MAX_HOPS must be >= 0 when contact list crawl is enabled")
+	}
+	if cfg.MaxPending <= 0 {
+		return fmt.Errorf("INGESTOR_CONTACT_CRAWL_MAX_PENDING must be > 0 when contact list crawl is enabled")
+	}
+	if cfg.MaxRelaysPerPubkey <= 0 {
+		return fmt.Errorf("INGESTOR_CONTACT_CRAWL_MAX_RELAYS_PER_PUBKEY must be > 0 when contact list crawl is enabled")
+	}
+	if cfg.RefetchInterval <= 0 {
+		return fmt.Errorf("INGESTOR_CONTACT_CRAWL_REFETCH_INTERVAL must be > 0 when contact list crawl is enabled")
+	}
+	if cfg.RetryDelay < 0 {
+		return fmt.Errorf("INGESTOR_CONTACT_CRAWL_RETRY_DELAY must be >= 0 when contact list crawl is enabled")
+	}
+	for _, relayURL := range cfg.RelayAllowlist {
+		if _, err := normalizeRelayURL(relayURL, requireTLS); err != nil {
+			return fmt.Errorf("invalid INGESTOR_CONTACT_CRAWL_RELAY_ALLOWLIST entry %q: %w", relayURL, err)
+		}
+	}
+	return nil
 }

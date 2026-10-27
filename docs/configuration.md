@@ -67,6 +67,17 @@ Do not hand-edit this file.
 | `INGESTOR_BACKFILL_PAGE_LIMIT` | `ingestor` | optional | `500` | Page size used by backfill fetches. |
 | `INGESTOR_BACKFILL_SINCE` | `ingestor` | optional | `-` | Optional inclusive lower timestamp bound for backfill. |
 | `INGESTOR_BACKFILL_UNTIL` | `ingestor` | optional | `-` | Optional inclusive upper timestamp bound for backfill. |
+| `INGESTOR_CONTACT_CRAWL_BATCH_SIZE` | `ingestor` | optional | `20` | Pubkeys fetched per contact-list crawl cycle. |
+| `INGESTOR_CONTACT_CRAWL_ENABLED` | `ingestor` | optional | `false` | Enable the paced contact-list crawl. When on, the ingestor fetches current kind-3 follow lists with no time filter and walks their p-tags so follower counts include lists published before this server started. |
+| `INGESTOR_CONTACT_CRAWL_INTERVAL` | `ingestor` | optional | `1m` | How often the contact-list crawl seeds and fetches a batch. |
+| `INGESTOR_CONTACT_CRAWL_MAX_HOPS` | `ingestor` | optional | `2` | How far to walk p-tags from hop-0 pubkeys. 0 fetches queued authors and does not enqueue who they follow. |
+| `INGESTOR_CONTACT_CRAWL_MAX_PENDING` | `ingestor` | optional | `100000` | Maximum due rows in the contact-list crawl queue. p-tags beyond this cap wait until the backlog drains. |
+| `INGESTOR_CONTACT_CRAWL_MAX_RELAYS_PER_PUBKEY` | `ingestor` | optional | `3` | Maximum relays dialed for one pubkey during a contact-list crawl. |
+| `INGESTOR_CONTACT_CRAWL_REFETCH_INTERVAL` | `ingestor` | optional | `168h` | Wait after a finished contact-list fetch (list found or confirmed absent) before fetching that pubkey again. |
+| `INGESTOR_CONTACT_CRAWL_RELAY_ALLOWLIST` | `ingestor` | optional | `-` | CSV of relay URLs the crawl may dial for an author's write relays. Empty uses INGESTOR_RELAY_ALLOWLIST. Configured INGESTOR_RELAY_URLS are the fallback when no allowlisted write relay matches. |
+| `INGESTOR_CONTACT_CRAWL_RETRY_DELAY` | `ingestor` | optional | `10m` | Wait after every relay fails before retrying that pubkey. Also how long a claimed row stays leased if the process stops mid-fetch. |
+| `INGESTOR_CONTACT_CRAWL_SEED_BATCH` | `ingestor` | optional | `200` | Hop-0 pubkeys queued per contact-list crawl cycle. Active trust seeds are queued first, then note authors who have no contact list yet. |
+| `INGESTOR_CONTACT_CRAWL_SEED_RESCAN_INTERVAL` | `ingestor` | optional | `6h` | After one full pass of profile_public_stats, wait this long before scanning for new authors again. |
 | `INGESTOR_DEDUP_CACHE_SIZE` | `ingestor` | optional | `100000` | Entries in the in-memory duplicate short-circuit cache; repeat relay sightings of already-persisted events skip validation and the canonical insert (a provenance upsert still runs). 0 disables. |
 | `INGESTOR_FILTER_GROUP` | `ingestor` | optional | `default_v1` | Active relay filter group name. |
 | `INGESTOR_FILTER_GROUPS_JSON` | `ingestor` | optional | `-` | Optional JSON map of relay filter groups; `default_v1` remains required and must keep the built-in live-ingest kind set. |

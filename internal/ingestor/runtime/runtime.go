@@ -31,8 +31,9 @@ type BuildInfo struct {
 }
 
 // backgroundDrainTimeout bounds how long shutdown waits for background ingest
-// loops (relay reconciler/manager, metrics, trust fetch, discovery) to exit
-// after their context is cancelled, before the caller closes the DB pool.
+// loops (relay reconciler/manager, metrics, trust fetch, contact-list crawl,
+// discovery) to exit after their context is cancelled, before the caller
+// closes the DB pool.
 const backgroundDrainTimeout = 15 * time.Second
 
 type runner struct {
@@ -326,6 +327,33 @@ func runLifecycle(
 			"max_tracked_pubkeys", cfg.TrustFetch.MaxTrackedPubkeys,
 			"max_selected_per_cycle", cfg.TrustFetch.MaxSelectedPerCycle,
 			"refresh_interval", cfg.TrustFetch.RefreshInterval.String(),
+		)
+	}
+
+	if cfg.ContactCrawl.Enabled {
+		spawn(func(c context.Context) {
+			runContactListCrawlLoop(
+				c,
+				log,
+				runner.eventStore,
+				cfg.ContactCrawl,
+				prioritizedRelays,
+				cfg.Relay.Allowlist,
+				cfg.Relay.Disabled,
+				cfg.Relay.RequireTLS,
+				backfill.WebsocketFetcher{
+					Log:            log,
+					ConnectTimeout: cfg.Backfill.ConnectTimeout,
+					IdleTimeout:    cfg.Backfill.IdleTimeout,
+				},
+				handlerWithPool(runner.processor.Handle, jobs.WorkerPoolBackfill),
+			)
+		})
+		log.Info(
+			"contact_list_crawl_started",
+			"batch_size", cfg.ContactCrawl.BatchSize,
+			"interval", cfg.ContactCrawl.Interval.String(),
+			"max_hops", cfg.ContactCrawl.MaxHops,
 		)
 	}
 

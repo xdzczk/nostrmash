@@ -841,6 +841,77 @@ func TestLoad_LiveResumeDefaults(t *testing.T) {
 	if cfg.TrustFetch.Enabled {
 		t.Fatalf("expected trust fetch disabled by default, got %#v", cfg.TrustFetch)
 	}
+	if cfg.ContactCrawl.Enabled ||
+		cfg.ContactCrawl.Interval != time.Minute ||
+		cfg.ContactCrawl.BatchSize != 20 ||
+		cfg.ContactCrawl.SeedBatch != 200 ||
+		cfg.ContactCrawl.SeedRescanInterval != 6*time.Hour ||
+		cfg.ContactCrawl.MaxHops != 2 ||
+		cfg.ContactCrawl.MaxPending != 100000 ||
+		cfg.ContactCrawl.MaxRelaysPerPubkey != 3 ||
+		cfg.ContactCrawl.RefetchInterval != 168*time.Hour ||
+		cfg.ContactCrawl.RetryDelay != 10*time.Minute ||
+		len(cfg.ContactCrawl.RelayAllowlist) != 0 {
+		t.Fatalf("unexpected contact crawl defaults: %#v", cfg.ContactCrawl)
+	}
+}
+
+func TestLoadIngestor_ContactCrawlOverrides(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("INGESTOR_MODE", "live")
+	t.Setenv("INGESTOR_RELAY_URLS", "wss://relay.example.com")
+	t.Setenv("INGESTOR_RELAY_ALLOWLIST", "wss://relay.example.com")
+	t.Setenv("INGESTOR_FILTER_GROUP", "default_v1")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_ENABLED", "true")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_INTERVAL", "45s")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_BATCH_SIZE", "7")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_SEED_BATCH", "9")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_SEED_RESCAN_INTERVAL", "2h")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_MAX_HOPS", "0")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_MAX_PENDING", "11")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_MAX_RELAYS_PER_PUBKEY", "4")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_REFETCH_INTERVAL", "24h")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_RETRY_DELAY", "3m")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_RELAY_ALLOWLIST", "wss://write.example.com")
+
+	cfg, err := LoadIngestor()
+	if err != nil {
+		t.Fatalf("load contact crawl config: %v", err)
+	}
+	if !cfg.ContactCrawl.Enabled ||
+		cfg.ContactCrawl.Interval != 45*time.Second ||
+		cfg.ContactCrawl.BatchSize != 7 ||
+		cfg.ContactCrawl.SeedBatch != 9 ||
+		cfg.ContactCrawl.SeedRescanInterval != 2*time.Hour ||
+		cfg.ContactCrawl.MaxHops != 0 ||
+		cfg.ContactCrawl.MaxPending != 11 ||
+		cfg.ContactCrawl.MaxRelaysPerPubkey != 4 ||
+		cfg.ContactCrawl.RefetchInterval != 24*time.Hour ||
+		cfg.ContactCrawl.RetryDelay != 3*time.Minute ||
+		len(cfg.ContactCrawl.RelayAllowlist) != 1 ||
+		cfg.ContactCrawl.RelayAllowlist[0] != "wss://write.example.com" {
+		t.Fatalf("unexpected contact crawl config: %#v", cfg.ContactCrawl)
+	}
+}
+
+func TestLoadIngestor_ContactCrawlRejectsBadAllowlistAndHops(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("INGESTOR_MODE", "live")
+	t.Setenv("INGESTOR_RELAY_URLS", "wss://relay.example.com")
+	t.Setenv("INGESTOR_RELAY_ALLOWLIST", "wss://relay.example.com")
+	t.Setenv("INGESTOR_FILTER_GROUP", "default_v1")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_ENABLED", "true")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_RELAY_ALLOWLIST", "not-a-url")
+	if _, err := LoadIngestor(); err == nil || !strings.Contains(err.Error(), "INGESTOR_CONTACT_CRAWL_RELAY_ALLOWLIST") {
+		t.Fatalf("expected allowlist error, got %v", err)
+	}
+
+	t.Setenv("INGESTOR_CONTACT_CRAWL_ENABLED", "false")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_RELAY_ALLOWLIST", "")
+	t.Setenv("INGESTOR_CONTACT_CRAWL_MAX_HOPS", "-3")
+	if _, err := LoadIngestor(); err == nil || !strings.Contains(err.Error(), "INGESTOR_CONTACT_CRAWL_MAX_HOPS") {
+		t.Fatalf("expected max hops error, got %v", err)
+	}
 }
 
 func TestLoad_RejectsInvalidLiveResumeConfig(t *testing.T) {

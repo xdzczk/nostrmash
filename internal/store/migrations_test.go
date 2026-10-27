@@ -36,6 +36,8 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"author_topic_stats",
 		"follower_gain_events",
 		"follower_gains_daily",
+		"contact_list_crawl",
+		"contact_list_crawl_cursor",
 		"contact_lists_latest",
 		"curated_creator_paid_tiers",
 		"curated_featured_authors",

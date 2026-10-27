@@ -49,6 +49,8 @@ var trackedStorageTableTiers = map[string]string{
 	"trust_runs":                 StorageTierOperational,
 	"trust_seeds":                StorageTierOperational,
 	"account_state_transitions":  StorageTierOperational,
+	"contact_list_crawl":         StorageTierOperational,
+	"contact_list_crawl_cursor":  StorageTierOperational,
 	// Derived / rebuildable projections.
 	"event_references":                     StorageTierDerived,
 	"replaceable_state":                    StorageTierDerived,
@@ -130,6 +132,8 @@ var trackedStorageTables = []string{
 	"reaction_counts",
 	"repost_counts",
 	"contact_lists_latest",
+	"contact_list_crawl",
+	"contact_list_crawl_cursor",
 	"relay_lists_latest",
 	"unresolved_thread_references",
 	"trusted_note_discovery_candidates",

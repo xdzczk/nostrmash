@@ -62,6 +62,7 @@ func ensureRegistered() {
 	registerBuildMetrics()
 	registerStorageMetrics()
 	registerAuthorMetadataMetrics()
+	registerContactListCrawlMetrics()
 	registerMeiliMetrics()
 	registerRelayRegistryMetrics()
 	registerAccountMetrics()

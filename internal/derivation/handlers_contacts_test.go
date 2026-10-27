@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/store"
@@ -99,4 +101,88 @@ func TestProjectContactListsLatest_DerivesFollowerEdgesFromLatestList(t *testing
 	if followerRow.FollowerPubkey != "alice" || followerRow.SourceEventID != second.ID {
 		t.Fatalf("unexpected follower row: %+v", followerRow)
 	}
+}
+
+func TestProjectContactListsLatest_HistoricalImportSkipsFollowerGains(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+	oldCreatedAt := now.Add(-200 * time.Hour).Unix()
+
+	oldList := newEventForTest("hist_old", "alice", oldCreatedAt, 3, [][]string{{"p", "bob"}, {"p", "carol"}}, "", now)
+	editedList := newEventForTest("hist_new", "alice", now.Unix(), 3, [][]string{{"p", "bob"}, {"p", "eve"}}, "", now)
+	recentList := newEventForTest("recent_list", "dave", now.Unix(), 3, [][]string{{"p", "frank"}}, "", now)
+	for _, event := range []model.Event{oldList, editedList, recentList} {
+		tags := extractTagsFromRaw(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert %s: %v", event.ID, err)
+		}
+	}
+
+	if err := handlers.ProjectContactListsLatest(ctx, oldList.ID); err != nil {
+		t.Fatalf("project old list: %v", err)
+	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
+	if gains := countFollowerGains(t, ctx, pool, "alice"); gains != 0 {
+		t.Fatalf("historical import gains = %d, want 0", gains)
+	}
+	if followers := countFollowerEdges(t, ctx, pool, "bob"); followers != 1 {
+		t.Fatalf("bob followers after historical import = %d, want 1", followers)
+	}
+	if count := profileFollowerCount(t, ctx, pool, "bob"); count != 1 {
+		t.Fatalf("bob follower_count = %d, want 1", count)
+	}
+
+	if err := handlers.ProjectContactListsLatest(ctx, editedList.ID); err != nil {
+		t.Fatalf("project edited list: %v", err)
+	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
+	if gains := countFollowerGains(t, ctx, pool, "alice"); gains != 1 {
+		t.Fatalf("edited list gains = %d, want 1", gains)
+	}
+	var gained string
+	if err := pool.QueryRow(ctx, `SELECT followed_pubkey FROM follower_gain_events WHERE follower_pubkey = 'alice'`).Scan(&gained); err != nil {
+		t.Fatalf("read gain: %v", err)
+	}
+	if gained != "eve" {
+		t.Fatalf("gained pubkey = %q, want eve", gained)
+	}
+	if followers := countFollowerEdges(t, ctx, pool, "carol"); followers != 0 {
+		t.Fatalf("carol followers after edit = %d, want 0", followers)
+	}
+
+	if err := handlers.ProjectContactListsLatest(ctx, recentList.ID); err != nil {
+		t.Fatalf("project recent list: %v", err)
+	}
+	if gains := countFollowerGains(t, ctx, pool, "dave"); gains != 1 {
+		t.Fatalf("recent list gains = %d, want 1", gains)
+	}
+}
+
+func countFollowerGains(t *testing.T, ctx context.Context, pool *pgxpool.Pool, follower string) int {
+	t.Helper()
+	return queryInt(t, ctx, pool, `SELECT COUNT(*) FROM follower_gain_events WHERE follower_pubkey = $1`, follower)
+}
+
+func countFollowerEdges(t *testing.T, ctx context.Context, pool *pgxpool.Pool, followed string) int {
+	t.Helper()
+	return queryInt(t, ctx, pool, `SELECT COUNT(*) FROM follower_edges WHERE followed_pubkey = $1`, followed)
+}
+
+func profileFollowerCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pubkey string) int {
+	t.Helper()
+	return queryInt(t, ctx, pool, `SELECT follower_count FROM profile_public_stats WHERE pubkey = $1`, pubkey)
+}
+
+func queryInt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, arg string) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(ctx, sql, arg).Scan(&n); err != nil {
+		t.Fatalf("query %s: %v", sql, err)
+	}
+	return n
 }
