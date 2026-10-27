@@ -80,10 +80,10 @@ type RankOptions struct {
 
 // ParsedQuery is a search string split into a phrase operator and loose terms.
 type ParsedQuery struct {
-	Raw      string
-	Phrases  []string
-	Terms    []string
-	Folded   string
+	Raw     string
+	Phrases []string
+	Terms   []string
+	Folded  string
 }
 
 // TermFrequency is a lexicon entry used for spelling correction.
