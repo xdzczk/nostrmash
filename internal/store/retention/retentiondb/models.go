@@ -172,6 +172,26 @@ type AuthorTopicStat struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type ContactListCrawl struct {
+	Pubkey         string
+	Hop            int32
+	NextEligibleAt pgtype.Timestamptz
+	Attempts       int32
+	LastFetchedAt  pgtype.Timestamptz
+	FoundList      pgtype.Bool
+	LastError      pgtype.Text
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type ContactListCrawlCursor struct {
+	ID               int16
+	RecentActivityAt pgtype.Int8
+	Pubkey           string
+	InNullActivity   bool
+	NextSeedAt       pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
 type ContactListsLatest struct {
 	Pubkey            string
 	EventID           string
@@ -455,6 +475,58 @@ type PendingProfileStatsRecompute struct {
 	ClaimToken pgtype.UUID
 }
 
+type PrimalAppSetting struct {
+	Pubkey       string
+	Client       string
+	SettingsJson []byte
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type PrimalAppSubsetting struct {
+	Pubkey       string
+	Subkey       string
+	SettingsJson []byte
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type PrimalLinkMetadatum struct {
+	Url         string
+	Title       string
+	Description string
+	Image       string
+	IconUrl     string
+	FetchedAt   pgtype.Timestamptz
+}
+
+type PrimalMediaMetadatum struct {
+	Url       string
+	Mimetype  string
+	Width     int32
+	Height    int32
+	Duration  int32
+	Blurhash  string
+	FetchedAt pgtype.Timestamptz
+}
+
+type PrimalNotification struct {
+	DedupeKey string
+	Pubkey    string
+	Type      int16
+	CreatedAt int64
+	Args      []byte
+}
+
+type PrimalNotificationCount struct {
+	Pubkey string
+	Type   int16
+	Cnt    int64
+}
+
+type PrimalNotificationsSeen struct {
+	Pubkey    string
+	SeenUntil int64
+}
+
 type ProfileDiscoveryRecentActivity struct {
 	Pubkey           string
 	RecentActivityAt int64
@@ -493,6 +565,12 @@ type ProfilePublicStat struct {
 	RecentActivityAt  pgtype.Int8
 	DerivationVersion int32
 	UpdatedAt         pgtype.Timestamptz
+	LongFormNoteCount int64
+	MediaCount        int64
+	ZapReceivedCount  int64
+	SatsZapped        int64
+	ContentZapCount   int64
+	TimeJoined        pgtype.Int8
 }
 
 type ProfilesLatest struct {
