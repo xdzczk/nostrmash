@@ -21,6 +21,7 @@ func (s *PostgresStore) GetProfilePublicStatsByPubkey(ctx context.Context, pubke
 	}
 
 	var recentActivityAt *int64
+	var timeJoined *int64
 	err := s.pool.QueryRow(ctx, `
 		SELECT
 			pubkey,
@@ -28,7 +29,13 @@ func (s *PostgresStore) GetProfilePublicStatsByPubkey(ctx context.Context, pubke
 			following_count,
 			note_count,
 			reply_count,
-			recent_activity_at
+			recent_activity_at,
+			long_form_note_count,
+			media_count,
+			zap_received_count,
+			sats_zapped,
+			content_zap_count,
+			time_joined
 		FROM profile_public_stats
 		WHERE pubkey = $1
 	`, pubkey).Scan(
@@ -38,6 +45,12 @@ func (s *PostgresStore) GetProfilePublicStatsByPubkey(ctx context.Context, pubke
 		&out.NoteCount,
 		&out.ReplyCount,
 		&recentActivityAt,
+		&out.LongFormNoteCount,
+		&out.MediaCount,
+		&out.ZapReceivedCount,
+		&out.SatsZapped,
+		&out.ContentZapCount,
+		&timeJoined,
 	)
 	if err != nil {
 		// Missing stats are allowed while projections catch up.
@@ -48,5 +61,6 @@ func (s *PostgresStore) GetProfilePublicStatsByPubkey(ctx context.Context, pubke
 		return out, fmt.Errorf("get profile public stats by pubkey: %w", err)
 	}
 	out.RecentActivityAt = recentActivityAt
+	out.TimeJoined = timeJoined
 	return out, nil
 }

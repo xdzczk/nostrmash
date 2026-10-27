@@ -12,12 +12,18 @@ import (
 type Profile = readmodel.Profile
 
 type ProfilePublicStats struct {
-	Pubkey           string
-	FollowerCount    int64
-	FollowingCount   int64
-	NoteCount        int64
-	ReplyCount       int64
-	RecentActivityAt *int64
+	Pubkey            string
+	FollowerCount     int64
+	FollowingCount    int64
+	NoteCount         int64
+	ReplyCount        int64
+	RecentActivityAt  *int64
+	LongFormNoteCount int64
+	MediaCount        int64
+	ZapReceivedCount  int64
+	SatsZapped        int64
+	ContentZapCount   int64
+	TimeJoined        *int64
 }
 
 type ProfilePublicSummary struct {

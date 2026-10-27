@@ -191,6 +191,20 @@ func TestPrimalV1UserProfileShape(t *testing.T) {
 			}
 			return json.RawMessage(`{"id":"meta1","pubkey":"` + pubkey + `","created_at":5,"kind":0,"tags":[],"content":"{\"name\":\"ada\"}","sig":"ab"}`), nil
 		},
+		getProfilePublicStatsByPubkey: func(context.Context, string) (store.ProfilePublicStatsProjection, error) {
+			joined := int64(90)
+			return store.ProfilePublicStatsProjection{
+				Pubkey:            pubkey,
+				NoteCount:         8,
+				ReplyCount:        9,
+				LongFormNoteCount: 3,
+				MediaCount:        4,
+				ZapReceivedCount:  5,
+				SatsZapped:        6,
+				ContentZapCount:   7,
+				TimeJoined:        &joined,
+			}, nil
+		},
 	}, WSGatewayOptions{Dialect: WSDialectPrimalV1})
 	events, err := gateway.primalV1UserProfile(context.Background(), map[string]any{"pubkey": pubkey})
 	if err != nil {
@@ -207,6 +221,13 @@ func TestPrimalV1UserProfileShape(t *testing.T) {
 	kind, _ := kindOf(stats["kind"])
 	if kind != primalKindUserStats || !strings.Contains(stringValue(stats["content"]), `"pubkey":"`+pubkey+`"`) {
 		t.Fatalf("stats: %#v", stats)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(stringValue(stats["content"])), &body); err != nil {
+		t.Fatalf("stats content: %v", err)
+	}
+	if body["note_count"] != float64(8) || body["reply_count"] != float64(9) || body["long_form_note_count"] != float64(3) || body["media_count"] != float64(4) || body["total_zap_count"] != float64(5) || body["total_satszapped"] != float64(6) || body["content_zap_count"] != float64(7) || body["time_joined"] != float64(90) {
+		t.Fatalf("stats content: %#v", body)
 	}
 }
 

@@ -31,6 +31,7 @@ import (
 // derivation Handlers exist, so the dependency can't flow through New.
 type IncrementalStatsReverser interface {
 	ReverseIncrementalAuthorStatsTx(ctx context.Context, tx pgx.Tx, eventID string) error
+	RefreshProfileTimeJoinedTx(ctx context.Context, tx pgx.Tx, pubkeys []string) error
 }
 
 // Store is the retention data-access surface backed by a shared pool.
@@ -119,18 +120,32 @@ func (s *Retention) reverseAndDeleteTx(ctx context.Context, tx pgx.Tx, q *retent
 	if len(ids) == 0 {
 		return 0, nil
 	}
+	var pubkeys []string
 	if s.reverser != nil {
+		rows, err := tx.Query(ctx, `SELECT DISTINCT pubkey FROM events WHERE id = ANY($1)`, ids)
+		if err != nil {
+			return 0, fmt.Errorf("load pubkeys for time_joined refresh: %w", err)
+		}
+		pubkeys, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return 0, fmt.Errorf("load pubkeys for time_joined refresh: %w", err)
+		}
 		for _, id := range ids {
 			if err := s.reverser.ReverseIncrementalAuthorStatsTx(ctx, tx, id); err != nil {
 				return 0, fmt.Errorf("reverse incremental stats for %s: %w", id, err)
 			}
 		}
 	}
-	rows, err := q.DeleteEventsByID(ctx, ids)
+	deleted, err := q.DeleteEventsByID(ctx, ids)
 	if err != nil {
 		return 0, fmt.Errorf("delete events by id: %w", err)
 	}
-	return rows, nil
+	if s.reverser != nil {
+		if err := s.reverser.RefreshProfileTimeJoinedTx(ctx, tx, pubkeys); err != nil {
+			return 0, err
+		}
+	}
+	return deleted, nil
 }
 
 // tsz converts a domain time.Time into the pgtype.Timestamptz the generated

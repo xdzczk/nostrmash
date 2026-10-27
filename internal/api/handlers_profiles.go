@@ -27,11 +27,33 @@ type profileResponse struct {
 }
 
 type profileSummaryStatsResponse struct {
-	FollowerCount    int64  `json:"follower_count"`
-	FollowingCount   int64  `json:"following_count"`
-	NoteCount        int64  `json:"note_count"`
-	ReplyCount       int64  `json:"reply_count"`
-	RecentActivityAt *int64 `json:"recent_activity_at,omitempty"`
+	FollowerCount     int64  `json:"follower_count"`
+	FollowingCount    int64  `json:"following_count"`
+	NoteCount         int64  `json:"note_count"`
+	ReplyCount        int64  `json:"reply_count"`
+	RecentActivityAt  *int64 `json:"recent_activity_at,omitempty"`
+	LongFormNoteCount int64  `json:"long_form_note_count"`
+	MediaCount        int64  `json:"media_count"`
+	ZapReceivedCount  int64  `json:"zap_received_count"`
+	SatsZapped        int64  `json:"sats_zapped"`
+	ContentZapCount   int64  `json:"content_zap_count"`
+	TimeJoined        *int64 `json:"time_joined,omitempty"`
+}
+
+func profileSummaryStatsFrom(stats query.ProfilePublicStats) profileSummaryStatsResponse {
+	return profileSummaryStatsResponse{
+		FollowerCount:     stats.FollowerCount,
+		FollowingCount:    stats.FollowingCount,
+		NoteCount:         stats.NoteCount,
+		ReplyCount:        stats.ReplyCount,
+		RecentActivityAt:  stats.RecentActivityAt,
+		LongFormNoteCount: stats.LongFormNoteCount,
+		MediaCount:        stats.MediaCount,
+		ZapReceivedCount:  stats.ZapReceivedCount,
+		SatsZapped:        stats.SatsZapped,
+		ContentZapCount:   stats.ContentZapCount,
+		TimeJoined:        stats.TimeJoined,
+	}
 }
 
 type profilePublicSummaryResponse struct {
@@ -243,13 +265,7 @@ func (h Handlers) GetProfilePublicSummary(w http.ResponseWriter, r *http.Request
 	identity := profileIdentityFieldsFromProfile(summary.Profile)
 	recentNotes, recentNotePreviews, notesPartial := h.loadProfileRecentNotes(r, summary.Profile.Pubkey)
 	relatedDiscovery, discoveryPartial := h.loadProfileRelatedDiscovery(r, summary.Profile.Pubkey)
-	heroCounters := profileSummaryStatsResponse{
-		FollowerCount:    summary.Stats.FollowerCount,
-		FollowingCount:   summary.Stats.FollowingCount,
-		NoteCount:        summary.Stats.NoteCount,
-		ReplyCount:       summary.Stats.ReplyCount,
-		RecentActivityAt: summary.Stats.RecentActivityAt,
-	}
+	heroCounters := profileSummaryStatsFrom(summary.Stats)
 	identityDetails := profileIdentityDetails{
 		Title:  "Identity details",
 		Fields: buildIdentityDetailFields(summary.Profile, identity),
@@ -259,13 +275,7 @@ func (h Handlers) GetProfilePublicSummary(w http.ResponseWriter, r *http.Request
 		MetadataEventID:   summary.Profile.MetadataEventID,
 		MetadataCreatedAt: summary.Profile.MetadataCreatedAt,
 		Profile:           summary.Profile.ProfileJSON,
-		Stats: profileSummaryStatsResponse{
-			FollowerCount:    summary.Stats.FollowerCount,
-			FollowingCount:   summary.Stats.FollowingCount,
-			NoteCount:        summary.Stats.NoteCount,
-			ReplyCount:       summary.Stats.ReplyCount,
-			RecentActivityAt: summary.Stats.RecentActivityAt,
-		},
+		Stats:             profileSummaryStatsFrom(summary.Stats),
 		Hero: profileHeroResponse{
 			Avatar:      identity.Picture,
 			DisplayName: chooseProfileDisplayName(identity),

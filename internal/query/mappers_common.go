@@ -33,12 +33,18 @@ func profileFromStore(row readmodel.ProfileProjection) Profile {
 
 func profilePublicStatsFromStore(row readmodel.ProfilePublicStatsProjection) ProfilePublicStats {
 	return ProfilePublicStats{
-		Pubkey:           row.Pubkey,
-		FollowerCount:    row.FollowerCount,
-		FollowingCount:   row.FollowingCount,
-		NoteCount:        row.NoteCount,
-		ReplyCount:       row.ReplyCount,
-		RecentActivityAt: row.RecentActivityAt,
+		Pubkey:            row.Pubkey,
+		FollowerCount:     row.FollowerCount,
+		FollowingCount:    row.FollowingCount,
+		NoteCount:         row.NoteCount,
+		ReplyCount:        row.ReplyCount,
+		RecentActivityAt:  row.RecentActivityAt,
+		LongFormNoteCount: row.LongFormNoteCount,
+		MediaCount:        row.MediaCount,
+		ZapReceivedCount:  row.ZapReceivedCount,
+		SatsZapped:        row.SatsZapped,
+		ContentZapCount:   row.ContentZapCount,
+		TimeJoined:        row.TimeJoined,
 	}
 }
 

@@ -443,14 +443,8 @@ func (h *Handlers) sampleReconciliationPubkeys(ctx context.Context, sampleSize i
 }
 
 // profilePublicStatsSnapshot is the comparable subset of one
-// profile_public_stats row.
-type profilePublicStatsSnapshot struct {
-	FollowerCount    int64
-	FollowingCount   int64
-	NoteCount        int64
-	ReplyCount       int64
-	RecentActivityAt *int64
-}
+// profile_public_stats row. It is the same shape as a full recompute.
+type profilePublicStatsSnapshot = profilePublicStatsCounts
 
 // reconcileProfilePublicStatsForPubkey compares the live
 // profile_public_stats row for pubkey against a fresh full-history
@@ -462,7 +456,9 @@ func (h *Handlers) reconcileProfilePublicStatsForPubkey(ctx context.Context, pub
 	var incremental profilePublicStatsSnapshot
 	found := true
 	if err := h.pool.QueryRow(ctx, `
-		SELECT follower_count, following_count, note_count, reply_count, recent_activity_at
+		SELECT follower_count, following_count, note_count, reply_count, recent_activity_at,
+		       long_form_note_count, media_count, zap_received_count, sats_zapped,
+		       content_zap_count, time_joined
 		FROM profile_public_stats
 		WHERE pubkey = $1
 	`, pubkey).Scan(
@@ -471,6 +467,12 @@ func (h *Handlers) reconcileProfilePublicStatsForPubkey(ctx context.Context, pub
 		&incremental.NoteCount,
 		&incremental.ReplyCount,
 		&incremental.RecentActivityAt,
+		&incremental.LongFormNoteCount,
+		&incremental.MediaCount,
+		&incremental.ZapReceivedCount,
+		&incremental.SatsZapped,
+		&incremental.ContentZapCount,
+		&incremental.TimeJoined,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			found = false
@@ -508,6 +510,20 @@ func (h *Handlers) reconcileProfilePublicStatsForPubkey(ctx context.Context, pub
 	appendIfDiff("following_count", incremental.FollowingCount, recomputed.FollowingCount)
 	appendIfDiff("note_count", incremental.NoteCount, recomputed.NoteCount)
 	appendIfDiff("reply_count", incremental.ReplyCount, recomputed.ReplyCount)
+	appendIfDiff("long_form_note_count", incremental.LongFormNoteCount, recomputed.LongFormNoteCount)
+	appendIfDiff("media_count", incremental.MediaCount, recomputed.MediaCount)
+	appendIfDiff("zap_received_count", incremental.ZapReceivedCount, recomputed.ZapReceivedCount)
+	appendIfDiff("sats_zapped", incremental.SatsZapped, recomputed.SatsZapped)
+	appendIfDiff("content_zap_count", incremental.ContentZapCount, recomputed.ContentZapCount)
+	incrementalJoined := int64(0)
+	if incremental.TimeJoined != nil {
+		incrementalJoined = *incremental.TimeJoined
+	}
+	recomputedJoined := int64(0)
+	if recomputed.TimeJoined != nil {
+		recomputedJoined = *recomputed.TimeJoined
+	}
+	appendIfDiff("time_joined", incrementalJoined, recomputedJoined)
 
 	incrementalActivity := int64(0)
 	if incremental.RecentActivityAt != nil {
@@ -531,53 +547,8 @@ func (h *Handlers) reconcileProfilePublicStatsForPubkey(ctx context.Context, pub
 // writing anything. Kept in exact sync with that function intentionally —
 // any change there should be mirrored here.
 func (h *Handlers) computeTrueProfilePublicStats(ctx context.Context, pubkey string) (profilePublicStatsSnapshot, error) {
-	var out profilePublicStatsSnapshot
-	if err := h.pool.QueryRow(ctx, `
-		SELECT
-			COALESCE((
-				SELECT COUNT(*)
-				FROM follower_edges
-				WHERE followed_pubkey = $1
-			), 0) AS follower_count,
-			COALESCE((
-				SELECT COUNT(*)
-				FROM follower_edges
-				WHERE follower_pubkey = $1
-			), 0) AS following_count,
-			COALESCE((
-				SELECT COUNT(*)
-				FROM events e
-				WHERE e.pubkey = $1
-				  AND e.kind = 1
-				  AND NOT EXISTS (
-				      SELECT 1
-				      FROM thread_edges te
-				      WHERE te.child_event_id = e.id
-				  )
-			), 0) AS note_count,
-			COALESCE((
-				SELECT COUNT(*)
-				FROM events e
-				WHERE e.pubkey = $1
-				  AND e.kind = 1
-				  AND EXISTS (
-				      SELECT 1
-				      FROM thread_edges te
-				      WHERE te.child_event_id = e.id
-				  )
-			), 0) AS reply_count,
-			(
-				SELECT MAX(created_at)
-				FROM events
-				WHERE pubkey = $1
-			) AS recent_activity_at
-	`, pubkey).Scan(
-		&out.FollowerCount,
-		&out.FollowingCount,
-		&out.NoteCount,
-		&out.ReplyCount,
-		&out.RecentActivityAt,
-	); err != nil {
+	out, err := scanProfilePublicStats(h.pool.QueryRow(ctx, profilePublicStatsComputeSQL, pubkey))
+	if err != nil {
 		return profilePublicStatsSnapshot{}, fmt.Errorf("compute true profile public stats for %s: %w", pubkey, err)
 	}
 	return out, nil

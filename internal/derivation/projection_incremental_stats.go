@@ -119,15 +119,14 @@ func (h *Handlers) ApplyIncrementalAuthorStats(ctx context.Context, eventID stri
 // those still-intact rows. See internal/store/retention for the purge
 // wrappers that wire this in.
 //
-// Deliberate simplification: this decrements note_count / reply_count and
-// all daily/hourly counters, but does not roll back
-// profile_public_stats.recent_activity_at, since that would require
-// knowing the pubkey's second-most-recent activity timestamp. Retention
-// only purges old events, so the purged event's created_at is essentially
-// never the current recent_activity_at in practice — leaving it stale (but
-// never wrong in a way that matters) is preferable to the cost of tracking
-// a full timestamp history just to support an edge case that doesn't occur
-// in the purge-by-age access pattern.
+// Deliberate simplification: this decrements note, reply, media, and zap
+// counters and rolls time_joined forward when this event is the stored
+// oldest, but it does not roll back profile_public_stats.recent_activity_at.
+// That would require the pubkey's second-most-recent timestamp. Retention
+// only purges old events, so the purged event is essentially never the
+// current recent_activity_at. A purge batch can reverse several of one
+// author's events before any of them are deleted; RefreshProfileTimeJoinedTx
+// runs after that delete and sets time_joined from the events that remain.
 func (h *Handlers) ReverseIncrementalAuthorStatsTx(ctx context.Context, tx pgx.Tx, eventID string) error {
 	if h == nil {
 		return fmt.Errorf("handlers are not initialized")
@@ -158,7 +157,7 @@ func (h *Handlers) ReverseIncrementalAuthorStatsTx(ctx context.Context, tx pgx.T
 	}
 	isReply, replyTargetEventID := replyTargetFromTags(eventID, tags)
 
-	if err := h.reverseIncrementalProfilePublicStatsTx(ctx, tx, eventID, pubkey, kind, isReply); err != nil {
+	if err := h.reverseIncrementalProfilePublicStatsTx(ctx, tx, eventID, pubkey, kind, createdAt, isReply); err != nil {
 		return err
 	}
 	if err := h.reverseIncrementalAuthorActivityDailyTx(ctx, tx, eventID, pubkey, kind, createdAt, isReply, replyTargetEventID, tags); err != nil {
@@ -244,6 +243,12 @@ func unclaimStatDeltaTx(ctx context.Context, tx pgx.Tx, eventID, projection stri
 //     events (rebuild uses SELECT MAX(created_at) FROM events WHERE pubkey=$1;
 //     we approximate that with GREATEST against the current event)
 //   - note_count / reply_count only move for kind=1
+//   - media_count moves for kind 20 and for kind 1 that contains an image,
+//     a video, or an imeta tag
+//   - time_joined moves down to the oldest created_at seen for the author
+//   - kind 9735 moves zap counters for the sender and the receiver
+//   - long_form_note_count is maintained when the kind-30023 address is
+//     first stored, in UpdateReplaceableState, not here
 func (h *Handlers) applyIncrementalProfilePublicStatsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -276,6 +281,10 @@ func (h *Handlers) applyIncrementalProfilePublicStatsTx(
 			noteDelta = 1
 		}
 	}
+	mediaDelta, err := profileMediaDeltaTx(ctx, tx, eventID, kind)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO profile_public_stats (
 			pubkey,
@@ -284,42 +293,211 @@ func (h *Handlers) applyIncrementalProfilePublicStatsTx(
 			note_count,
 			reply_count,
 			recent_activity_at,
+			media_count,
+			time_joined,
 			derivation_version
 		)
-		VALUES ($1, 0, 0, $2, $3, $4, $5)
+		VALUES ($1, 0, 0, $2, $3, $4, $5, $4, $6)
 		ON CONFLICT (pubkey) DO UPDATE
 		SET note_count = GREATEST(profile_public_stats.note_count + EXCLUDED.note_count, 0),
 		    reply_count = GREATEST(profile_public_stats.reply_count + EXCLUDED.reply_count, 0),
+		    media_count = GREATEST(profile_public_stats.media_count + EXCLUDED.media_count, 0),
 		    recent_activity_at = GREATEST(
 				COALESCE(profile_public_stats.recent_activity_at, 0),
 				COALESCE(EXCLUDED.recent_activity_at, 0)
 			),
+		    time_joined = CASE
+				WHEN profile_public_stats.time_joined IS NULL OR EXCLUDED.time_joined < profile_public_stats.time_joined
+				THEN EXCLUDED.time_joined
+				ELSE profile_public_stats.time_joined
+			END,
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
-	`, pubkey, noteDelta, replyDelta, createdAt, writeVersion); err != nil {
+	`, pubkey, noteDelta, replyDelta, createdAt, mediaDelta, writeVersion); err != nil {
 		return fmt.Errorf("apply profile public stats delta: %w", err)
+	}
+	if kind == 9735 {
+		if err := applyZapProfileCountersTx(ctx, tx, eventID, pubkey, 1, writeVersion); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// reverseIncrementalProfilePublicStatsTx undoes the note_count/reply_count
-// delta applyIncrementalProfilePublicStatsTx previously applied for kind=1.
-// For every other kind the apply path only touched recent_activity_at (and
-// ensured a row existed); we still unclaim the ledger row so a retry is a
-// no-op, but leave recent_activity_at alone — see the
-// ReverseIncrementalAuthorStatsTx doc comment for why.
+// reverseIncrementalProfilePublicStatsTx undoes the note, reply, media, zap,
+// and time_joined deltas applied for this event. recent_activity_at is left
+// in place; see ReverseIncrementalAuthorStatsTx. A kind-30023 event that is
+// still the current address also decrements long_form_note_count.
 func (h *Handlers) reverseIncrementalProfilePublicStatsTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	eventID, pubkey string,
 	kind int,
+	createdAt int64,
 	isReply bool,
 ) error {
 	unclaimed, err := unclaimStatDeltaTx(ctx, tx, eventID, statDeltaProfilePublicStats)
-	if err != nil || !unclaimed {
+	if err != nil {
 		return err
 	}
-	if kind != 1 {
+	if unclaimed {
+		writeVersion, err := resolveDerivationWriteVersion(
+			ctx,
+			tx,
+			DerivationProfilePublicStats,
+			ProfilePublicStatsVersion,
+			"Project public profile counters and recent activity",
+			nil,
+		)
+		if err != nil {
+			return err
+		}
+		noteDelta := int64(0)
+		replyDelta := int64(0)
+		if kind == 1 {
+			if isReply {
+				replyDelta = -1
+			} else {
+				noteDelta = -1
+			}
+		}
+		mediaDelta, err := profileMediaDeltaTx(ctx, tx, eventID, kind)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE profile_public_stats
+			SET note_count = GREATEST(note_count + $2, 0),
+			    reply_count = GREATEST(reply_count + $3, 0),
+			    media_count = GREATEST(media_count - $4, 0),
+			    derivation_version = $5,
+			    updated_at = now()
+			WHERE pubkey = $1
+		`, pubkey, noteDelta, replyDelta, mediaDelta, writeVersion); err != nil {
+			return fmt.Errorf("reverse profile public stats delta: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE profile_public_stats
+			SET time_joined = (
+				    SELECT MIN(created_at) FROM events WHERE pubkey = $1 AND id <> $2
+			    ),
+			    derivation_version = $4,
+			    updated_at = now()
+			WHERE pubkey = $1
+			  AND time_joined IS NOT DISTINCT FROM $3
+		`, pubkey, eventID, createdAt, writeVersion); err != nil {
+			return fmt.Errorf("reverse profile time_joined: %w", err)
+		}
+		if kind == 9735 {
+			if err := applyZapProfileCountersTx(ctx, tx, eventID, pubkey, -1, writeVersion); err != nil {
+				return err
+			}
+		}
+	}
+	if kind == 30023 {
+		if err := reverseLongFormIfCurrentTx(ctx, tx, eventID, pubkey); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// profileMediaDeltaTx reports 1 when this event counts as a media post.
+// Kind 20 is a picture event. Kind 1 counts when it has an image, a video,
+// or an imeta tag. The full recompute in profilePublicStatsComputeSQL uses
+// the same rule.
+func profileMediaDeltaTx(ctx context.Context, tx pgx.Tx, eventID string, kind int) (int64, error) {
+	switch kind {
+	case 20:
+		return 1, nil
+	case 1:
+		hasImage, hasVideo, _, _, _, err := loadNoteMediaFlagsTx(ctx, tx, eventID)
+		if err != nil {
+			return 0, err
+		}
+		if hasImage || hasVideo {
+			return 1, nil
+		}
+		var hasImeta bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM event_tags
+				WHERE event_id = $1 AND LOWER(tag_name) = 'imeta'
+			)
+		`, eventID).Scan(&hasImeta); err != nil {
+			return 0, fmt.Errorf("check imeta tag: %w", err)
+		}
+		if hasImeta {
+			return 1, nil
+		}
+		return 0, nil
+	default:
+		return 0, nil
+	}
+}
+
+func applyZapProfileCountersTx(ctx context.Context, tx pgx.Tx, eventID, sender string, sign int64, writeVersion int) error {
+	var receiver *string
+	var amount int64
+	err := tx.QueryRow(ctx, `
+		SELECT NULLIF(receiver_pubkey, ''), amount_sats
+		FROM zap_receipts
+		WHERE zap_receipt_id = $1
+	`, eventID).Scan(&receiver, &amount)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("load zap receipt for profile stats: %w", err)
+	}
+	received := sign
+	sats := amount * sign
+	if receiver != nil && *receiver == sender {
+		return adjustProfileZapCountersTx(ctx, tx, sender, received, sats, sign, writeVersion)
+	}
+	if err := adjustProfileZapCountersTx(ctx, tx, sender, 0, 0, sign, writeVersion); err != nil {
+		return err
+	}
+	if receiver == nil || *receiver == "" {
+		return nil
+	}
+	return adjustProfileZapCountersTx(ctx, tx, *receiver, received, sats, 0, writeVersion)
+}
+
+func adjustProfileZapCountersTx(ctx context.Context, tx pgx.Tx, pubkey string, receivedDelta, satsDelta, sentDelta int64, writeVersion int) error {
+	if receivedDelta == 0 && satsDelta == 0 && sentDelta == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO profile_public_stats (
+			pubkey, follower_count, following_count, note_count, reply_count,
+			zap_received_count, sats_zapped, content_zap_count, derivation_version
+		)
+		VALUES ($1, 0, 0, 0, 0, GREATEST($2, 0), GREATEST($3, 0), GREATEST($4, 0), $5)
+		ON CONFLICT (pubkey) DO UPDATE
+		SET zap_received_count = GREATEST(profile_public_stats.zap_received_count + $2, 0),
+		    sats_zapped = GREATEST(profile_public_stats.sats_zapped + $3, 0),
+		    content_zap_count = GREATEST(profile_public_stats.content_zap_count + $4, 0),
+		    derivation_version = EXCLUDED.derivation_version,
+		    updated_at = now()
+	`, pubkey, receivedDelta, satsDelta, sentDelta, writeVersion); err != nil {
+		return fmt.Errorf("adjust zap profile counters for %s: %w", pubkey, err)
+	}
+	return nil
+}
+
+func reverseLongFormIfCurrentTx(ctx context.Context, tx pgx.Tx, eventID, pubkey string) error {
+	// Delete the address row so a retried reversal, before the event delete
+	// commits, does not decrement the count twice. A replaced article is
+	// not this event_id, so it deletes nothing and leaves the count.
+	tag, err := tx.Exec(ctx, `
+		DELETE FROM replaceable_state
+		WHERE event_id = $1 AND kind = 30023
+	`, eventID)
+	if err != nil {
+		return fmt.Errorf("check current long-form address: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
 		return nil
 	}
 	writeVersion, err := resolveDerivationWriteVersion(
@@ -333,22 +511,51 @@ func (h *Handlers) reverseIncrementalProfilePublicStatsTx(
 	if err != nil {
 		return err
 	}
-	noteDelta := int64(0)
-	replyDelta := int64(0)
-	if isReply {
-		replyDelta = -1
-	} else {
-		noteDelta = -1
-	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE profile_public_stats
-		SET note_count = GREATEST(note_count + $2, 0),
-		    reply_count = GREATEST(reply_count + $3, 0),
-		    derivation_version = $4,
+		SET long_form_note_count = GREATEST(long_form_note_count - 1, 0),
+		    derivation_version = $2,
 		    updated_at = now()
 		WHERE pubkey = $1
-	`, pubkey, noteDelta, replyDelta, writeVersion); err != nil {
-		return fmt.Errorf("reverse profile public stats delta: %w", err)
+	`, pubkey, writeVersion); err != nil {
+		return fmt.Errorf("reverse long-form note count: %w", err)
+	}
+	return nil
+}
+
+// RefreshProfileTimeJoinedTx sets time_joined to the oldest stored event
+// for each pubkey, or NULL when none remain. Retention calls it after the
+// event delete, because reversing a batch leaves every doomed row visible
+// until that delete.
+func (h *Handlers) RefreshProfileTimeJoinedTx(ctx context.Context, tx pgx.Tx, pubkeys []string) error {
+	if h == nil || len(pubkeys) == 0 {
+		return nil
+	}
+	writeVersion, err := resolveDerivationWriteVersion(
+		ctx,
+		tx,
+		DerivationProfilePublicStats,
+		ProfilePublicStatsVersion,
+		"Project public profile counters and recent activity",
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE profile_public_stats AS s
+		SET time_joined = m.min_created,
+		    derivation_version = $2,
+		    updated_at = now()
+		FROM (
+			SELECT p.pubkey,
+			       (SELECT MIN(e.created_at) FROM events e WHERE e.pubkey = p.pubkey) AS min_created
+			FROM unnest($1::text[]) AS p(pubkey)
+		) AS m
+		WHERE s.pubkey = m.pubkey
+		  AND s.time_joined IS DISTINCT FROM m.min_created
+	`, pubkeys, writeVersion); err != nil {
+		return fmt.Errorf("refresh profile time_joined: %w", err)
 	}
 	return nil
 }

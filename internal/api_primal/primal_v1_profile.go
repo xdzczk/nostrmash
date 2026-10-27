@@ -25,27 +25,17 @@ func (g WSGateway) primalV1UserProfile(ctx context.Context, kwargs map[string]an
 		"follows_count":        summary.Stats.FollowingCount,
 		"followers_count":      summary.Stats.FollowerCount,
 		"note_count":           summary.Stats.NoteCount,
-		"long_form_note_count": int64(0),
+		"long_form_note_count": summary.Stats.LongFormNoteCount,
 		"reply_count":          summary.Stats.ReplyCount,
-		"time_joined":          nil,
+		"time_joined":          summary.Stats.TimeJoined,
 		"relay_count":          0,
-		"total_zap_count":      int64(0),
-		"total_satszapped":     int64(0),
-		"media_count":          0,
-		"content_zap_count":    int64(0),
-	}
-	if count, err := g.query.CountAuthorKind(ctx, pubkey, 30023); err == nil {
-		stats["long_form_note_count"] = count
-	}
-	if oldest, ok, err := g.query.GetOldestCreatedAt(ctx, pubkey); err == nil && ok {
-		stats["time_joined"] = oldest
+		"total_zap_count":      summary.Stats.ZapReceivedCount,
+		"total_satszapped":     summary.Stats.SatsZapped,
+		"media_count":          summary.Stats.MediaCount,
+		"content_zap_count":    summary.Stats.ContentZapCount,
 	}
 	if relays, err := g.relayTagsForPubkey(ctx, pubkey); err == nil {
 		stats["relay_count"] = len(relays)
-	}
-	if zaps, err := g.query.GetZapTotals(ctx, pubkey); err == nil {
-		stats["total_zap_count"] = zaps.Count
-		stats["total_satszapped"] = zaps.Sats
 	}
 	out = append(out, kindObject(primalKindUserStats, stats))
 	return out, nil
