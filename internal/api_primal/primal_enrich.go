@@ -2,54 +2,79 @@ package api_primal
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
+const (
+	// A feed page can quote once per note, and each quoted note can quote again.
+	maxReferencedEvents = 64
+	// Quote authors are required to render an embed, so they must not lose to p-tags.
+	maxFeedAuthors = 100
+)
+
+// nostr:note1 and nostr:nevent1 are how Primal marks an embedded note in content.
+var nostrEventRefPattern = regexp.MustCompile(`(?i)(?:nostr:)?((?:note|nevent)1[02-9ac-hj-np-z]{6,})`)
+
 func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []json.RawMessage, orderBy string, since any, until any) []any {
 	elements := make([]string, 0, len(posts))
 	authors := make([]string, 0, len(posts))
 	seenAuthors := map[string]struct{}{}
-	refs := make([]string, 0)
-	seenRefs := map[string]struct{}{}
+	pageIDs := map[string]struct{}{}
 	for _, raw := range posts {
-		if id := eventIDFromRaw(raw); id != "" {
+		if id := strings.TrimSpace(eventIDFromRaw(raw)); id != "" {
 			elements = append(elements, id)
-		}
-		g.rememberPubkey(&authors, seenAuthors, pubkeyFromRaw(raw), 50)
-		if len(seenAuthors) < 50 {
-			for _, pubkey := range tagValuesFromRawEvent(raw, "p") {
-				g.rememberPubkey(&authors, seenAuthors, pubkey, 50)
+			pageIDs[id] = struct{}{}
+			if canonical := canonicalEventID(id); canonical != "" {
+				pageIDs[canonical] = struct{}{}
 			}
 		}
-		for _, ref := range tagValuesFromRawEvent(raw, "e") {
-			ref = strings.TrimSpace(ref)
-			if ref == "" {
-				continue
-			}
-			if _, ok := seenRefs[ref]; ok {
-				continue
-			}
-			if len(refs) >= 20 {
-				break
-			}
-			seenRefs[ref] = struct{}{}
-			refs = append(refs, ref)
+		g.rememberPubkey(&authors, seenAuthors, pubkeyFromRaw(raw), maxFeedAuthors)
+	}
+	// Primal renders "Mentioned note not found" unless the quoted event is
+	// returned as kind 10000107 AND the quoted author's kind 0 is in the same
+	// page. Quote targets (q tags, e-mention/quote, nostr:note1/nevent1) are
+	// collected before reply parents so a page of replies cannot crowd them out.
+	refIDs, refAuthors := collectReferencedEventIDs(posts, pageIDs, maxReferencedEvents)
+	referenced := g.loadReferencedEvents(ctx, refIDs)
+	if len(referenced) > 0 && len(refIDs) < maxReferencedEvents {
+		skip := make(map[string]struct{}, len(pageIDs)+len(refIDs))
+		for id := range pageIDs {
+			skip[id] = struct{}{}
+		}
+		for _, id := range refIDs {
+			skip[id] = struct{}{}
+		}
+		nestedIDs, nestedAuthors := quoteReferences(referenced, skip, maxReferencedEvents-len(refIDs))
+		refAuthors = append(refAuthors, nestedAuthors...)
+		referenced = append(referenced, g.loadReferencedEvents(ctx, nestedIDs)...)
+	}
+	for _, pubkey := range refAuthors {
+		g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
+	}
+	for _, raw := range referenced {
+		g.rememberPubkey(&authors, seenAuthors, pubkeyFromRaw(raw), maxFeedAuthors)
+	}
+	for _, raw := range posts {
+		for _, pubkey := range tagValuesFromRawEvent(raw, "p") {
+			g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
 		}
 	}
 	if since == nil && until == nil {
 		since, until = createdRange(posts)
 	}
 
-	out := make([]any, 0, len(posts)+len(authors)+8)
+	out := make([]any, 0, len(posts)+len(authors)+len(referenced)+8)
 	for _, raw := range posts {
 		out = append(out, raw)
 	}
 	out = append(out, g.buildMetadataEvents(ctx, authors)...)
-	out = append(out, g.referencedEvents(ctx, refs)...)
+	out = append(out, mentionEvents(referenced)...)
 	out = append(out, g.zapEnrichment(ctx, elements)...)
 	for _, id := range elements {
 		out = append(out, noteStatsEvent(id, query.EventCounts{}))
@@ -118,7 +143,7 @@ func (g WSGateway) rememberPubkey(out *[]string, seen map[string]struct{}, pubke
 	*out = append(*out, pubkey)
 }
 
-func (g WSGateway) referencedEvents(ctx context.Context, ids []string) []any {
+func (g WSGateway) loadReferencedEvents(ctx context.Context, ids []string) []json.RawMessage {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -126,12 +151,23 @@ func (g WSGateway) referencedEvents(ctx context.Context, ids []string) []any {
 	if err != nil {
 		return nil
 	}
-	out := make([]any, 0, len(ids))
+	out := make([]json.RawMessage, 0, len(ids))
 	for _, id := range ids {
 		raw, ok := found[id]
-		if !ok {
+		if !ok || len(raw) == 0 {
 			continue
 		}
+		out = append(out, raw)
+	}
+	return out
+}
+
+func mentionEvents(raws []json.RawMessage) []any {
+	if len(raws) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(raws))
+	for _, raw := range raws {
 		out = append(out, map[string]any{
 			"kind":    primalKindMentions,
 			"pubkey":  pubkeyFromRaw(raw),
@@ -139,6 +175,187 @@ func (g WSGateway) referencedEvents(ctx context.Context, ids []string) []any {
 		})
 	}
 	return out
+}
+
+func collectReferencedEventIDs(posts []json.RawMessage, skip map[string]struct{}, limit int) ([]string, []string) {
+	ids, authors := quoteReferences(posts, skip, limit)
+	if len(ids) >= limit {
+		return ids, authors
+	}
+	seen := make(map[string]struct{}, len(skip)+len(ids))
+	for id := range skip {
+		seen[id] = struct{}{}
+	}
+	for _, id := range ids {
+		seen[id] = struct{}{}
+	}
+	for _, raw := range posts {
+		for _, ref := range tagValuesFromRawEvent(raw, "e") {
+			if len(ids) >= limit {
+				return ids, authors
+			}
+			id := canonicalEventID(ref)
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	return ids, authors
+}
+
+func quoteReferences(events []json.RawMessage, skip map[string]struct{}, limit int) ([]string, []string) {
+	ids := make([]string, 0)
+	authors := make([]string, 0)
+	seenIDs := make(map[string]struct{}, len(skip))
+	for id := range skip {
+		seenIDs[id] = struct{}{}
+	}
+	seenAuthors := map[string]struct{}{}
+	addID := func(raw string) {
+		if len(ids) >= limit {
+			return
+		}
+		id := canonicalEventID(raw)
+		if id == "" {
+			return
+		}
+		if _, ok := seenIDs[id]; ok {
+			return
+		}
+		seenIDs[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	addAuthor := func(raw string) {
+		pubkey := canonicalPubkey(raw)
+		if pubkey == "" {
+			return
+		}
+		if _, ok := seenAuthors[pubkey]; ok {
+			return
+		}
+		seenAuthors[pubkey] = struct{}{}
+		authors = append(authors, pubkey)
+	}
+	for _, raw := range events {
+		forEachTag(raw, func(fields []string) {
+			if len(fields) < 2 {
+				return
+			}
+			switch strings.ToLower(fields[0]) {
+			case "q":
+				addID(fields[1])
+				if len(fields) >= 4 {
+					addAuthor(fields[3])
+				}
+			case "e":
+				if len(fields) >= 4 && isQuoteMarker(fields[3]) {
+					addID(fields[1])
+				}
+			}
+		})
+		for _, match := range nostrEventRefPattern.FindAllStringSubmatch(contentFromRaw(raw), -1) {
+			if len(match) > 1 {
+				addID(match[1])
+			}
+		}
+	}
+	return ids, authors
+}
+
+func forEachTag(raw json.RawMessage, fn func(fields []string)) {
+	var payload struct {
+		Tags []any `json:"tags"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return
+	}
+	for _, rawTag := range payload.Tags {
+		items, ok := rawTag.([]any)
+		if !ok || len(items) < 2 {
+			continue
+		}
+		fields := make([]string, len(items))
+		for i, item := range items {
+			text, _ := item.(string)
+			fields[i] = strings.TrimSpace(text)
+		}
+		fn(fields)
+	}
+}
+
+func contentFromRaw(raw json.RawMessage) string {
+	var payload struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	return payload.Content
+}
+
+func isQuoteMarker(marker string) bool {
+	switch strings.ToLower(strings.TrimSpace(marker)) {
+	case "mention", "quote":
+		return true
+	default:
+		return false
+	}
+}
+
+func canonicalEventID(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	lower := strings.ToLower(value)
+	lower = strings.TrimPrefix(lower, "nostr:")
+	if strings.HasPrefix(lower, "note1") || strings.HasPrefix(lower, "nevent1") {
+		decoded, err := decodeNIP19(lower)
+		if err != nil {
+			return ""
+		}
+		data, _ := decoded["data"].(string)
+		return strings.ToLower(strings.TrimSpace(data))
+	}
+	if len(lower) == 64 {
+		if _, err := hex.DecodeString(lower); err == nil {
+			return lower
+		}
+	}
+	return value
+}
+
+func canonicalPubkey(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	lower := strings.ToLower(value)
+	lower = strings.TrimPrefix(lower, "nostr:")
+	if strings.HasPrefix(lower, "npub1") || strings.HasPrefix(lower, "nprofile1") {
+		decoded, err := decodeNIP19(lower)
+		if err != nil {
+			return ""
+		}
+		// npub and nprofile both carry the pubkey in TLV type 0, which
+		// decodeNIP19 reports as "data". nprofile may also set "pubkey".
+		if data, _ := decoded["data"].(string); strings.TrimSpace(data) != "" {
+			return strings.ToLower(strings.TrimSpace(data))
+		}
+		pubkey, _ := decoded["pubkey"].(string)
+		return strings.ToLower(strings.TrimSpace(pubkey))
+	}
+	if len(lower) == 64 {
+		if _, err := hex.DecodeString(lower); err == nil {
+			return lower
+		}
+	}
+	return ""
 }
 
 func (g WSGateway) zapEnrichment(ctx context.Context, ids []string) []any {

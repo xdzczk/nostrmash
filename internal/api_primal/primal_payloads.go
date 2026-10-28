@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/query"
 )
 
 func tagValuesFromRawEvent(raw json.RawMessage, tagName string) []string {
@@ -77,20 +79,59 @@ func (g WSGateway) buildMetadataEvents(ctx context.Context, pubkeys []string) []
 			metadataIDs = append(metadataIDs, id)
 		}
 	}
-	if len(metadataIDs) == 0 {
-		return nil
+	rawByID := map[string]json.RawMessage{}
+	if len(metadataIDs) > 0 {
+		found, err := g.query.GetEventBatch(ctx, metadataIDs)
+		if err == nil {
+			rawByID = found
+		}
 	}
-	rawByID, err := g.query.GetEventBatch(ctx, metadataIDs)
-	if err != nil {
-		return nil
-	}
-	out := make([]any, 0, len(metadataIDs))
-	for _, id := range metadataIDs {
-		if raw, ok := rawByID[id]; ok {
-			out = append(out, raw)
+	out := make([]any, 0, len(infos.Profiles))
+	for _, profile := range infos.Profiles {
+		if event := metadataEventForProfile(profile, rawByID); event != nil {
+			out = append(out, event)
 		}
 	}
 	return out
+}
+
+func metadataEventForProfile(profile query.Profile, rawByID map[string]json.RawMessage) any {
+	id := strings.TrimSpace(profile.MetadataEventID)
+	if raw, ok := rawByID[id]; ok && len(raw) > 0 {
+		return raw
+	}
+	if id == "" && profileContent(profile.ProfileJSON) == "" {
+		return nil
+	}
+	return kind0Payload(profile)
+}
+
+func kind0Payload(profile query.Profile) map[string]any {
+	content := profileContent(profile.ProfileJSON)
+	if content == "" {
+		content = "{}"
+	}
+	id := strings.TrimSpace(profile.MetadataEventID)
+	if id == "" {
+		id = profile.Pubkey
+	}
+	return map[string]any{
+		"id":         id,
+		"pubkey":     profile.Pubkey,
+		"created_at": profile.MetadataCreatedAt,
+		"kind":       0,
+		"tags":       []any{},
+		"content":    content,
+		"sig":        "",
+	}
+}
+
+func profileContent(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" || !json.Valid([]byte(trimmed)) {
+		return ""
+	}
+	return trimmed
 }
 
 func (g WSGateway) buildEventsWithMetadataAndRange(ctx context.Context, values []json.RawMessage, orderBy string) []any {

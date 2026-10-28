@@ -88,19 +88,7 @@ func (g WSGateway) kind0Event(ctx context.Context, profile query.Profile) any {
 			return raw
 		}
 	}
-	content := strings.TrimSpace(string(profile.ProfileJSON))
-	if content == "" {
-		content = "{}"
-	}
-	return map[string]any{
-		"id":         profile.MetadataEventID,
-		"pubkey":     profile.Pubkey,
-		"created_at": profile.MetadataCreatedAt,
-		"kind":       0,
-		"tags":       []any{},
-		"content":    content,
-		"sig":        "",
-	}
+	return kind0Payload(profile)
 }
 
 func (g WSGateway) primalV1IsUserFollowing(ctx context.Context, kwargs map[string]any) ([]any, error) {
