@@ -94,12 +94,12 @@ Do not hand-edit this file.
 | `INGESTOR_RELAY_URLS` | `api, ingestor` | optional | `-` | CSV list of relay URLs (required for INGESTOR_MODE=live). |
 | `INGESTOR_REPLAY_FIXTURE_PATH` | `ingestor` | optional | `-` | Replay fixture path (required for INGESTOR_MODE=replay). |
 | `INGESTOR_TRUST_FETCH_COOLDOWN` | `ingestor` | optional | `30m` | Cooldown between successful trust-targeted fetches for the same pubkey. |
-| `INGESTOR_TRUST_FETCH_ENABLED` | `ingestor` | optional | `false` | Enable bounded trust-targeted pubkey fetch scheduling. |
+| `INGESTOR_TRUST_FETCH_ENABLED` | `ingestor` | optional | `true` | Fetch recent notes (kinds 1, 30023) and replaceables (kinds 0, 3, 10002) for frontier pubkeys, including high-follower accounts. On by default so a note the live firehose missed is requested again. |
 | `INGESTOR_TRUST_FETCH_MAX_PROMOTIONS_PER_CYCLE` | `ingestor` | optional | `50` | Maximum frontier/suggestion promotions allowed per scheduler cycle. |
 | `INGESTOR_TRUST_FETCH_MAX_SELECTED_PER_CYCLE` | `ingestor` | optional | `100` | Maximum trust frontier pubkeys selected for targeted fetch per cycle. |
 | `INGESTOR_TRUST_FETCH_MAX_TRACKED_PUBKEYS` | `ingestor` | optional | `5000` | Maximum trust-ranked pubkeys maintained in the ingest frontier. |
 | `INGESTOR_TRUST_FETCH_PAGE_LIMIT_PER_RELAY` | `ingestor` | optional | `200` | Per-relay page size for trust-targeted pubkey fetch requests. |
-| `INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS` | `ingestor` | optional | `86400` | Recent history lookback window in seconds for targeted pubkey fetches. |
+| `INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS` | `ingestor` | optional | `172800` | Seconds of recent history requested for each targeted pubkey fetch. |
 | `INGESTOR_TRUST_FETCH_REFRESH_INTERVAL` | `ingestor` | optional | `2m` | Scheduler interval for trust frontier refresh and targeted fetch cycles. |
 | `INGESTOR_TRUST_FETCH_RETRY_DELAY` | `ingestor` | optional | `10m` | Delay before retrying a pubkey after targeted fetch errors. |
 | `INGESTOR_TRUST_FETCH_STABLE_WINDOW` | `ingestor` | optional | `10m` | Minimum stability window before newly seen trust candidates become active. |

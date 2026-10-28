@@ -38,10 +38,15 @@ func (s *Trust) RefreshTrustPubkeyFrontier(
 	if maxPromotions <= 0 {
 		maxPromotions = 100
 	}
-	candidates, err := s.ListTrustPubkeyCandidates(ctx, limit)
+	trustCandidates, err := s.ListTrustPubkeyCandidates(ctx, limit)
 	if err != nil {
 		return TrustPubkeyFrontierRefreshResult{}, err
 	}
+	popular, err := s.ListLargeAccountFrontierCandidates(ctx, limit)
+	if err != nil {
+		return TrustPubkeyFrontierRefreshResult{}, err
+	}
+	candidates := mergeFrontierCandidates(trustCandidates, popular, limit)
 	if len(candidates) == 0 {
 		return TrustPubkeyFrontierRefreshResult{}, nil
 	}
@@ -82,6 +87,22 @@ func (s *Trust) RefreshTrustPubkeyFrontier(
 			return TrustPubkeyFrontierRefreshResult{}, fmt.Errorf("upsert trust pubkey frontier candidate %q: %w", pubkey, err)
 		}
 		upserted += int(commandTag.RowsAffected())
+	}
+
+	popularPubkeys := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Rank < 0 && candidate.Pubkey != "" {
+			popularPubkeys = append(popularPubkeys, candidate.Pubkey)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE ingest_pubkey_frontier
+		SET trust_rank = $2,
+		    updated_at = now()
+		WHERE trust_rank < 0
+		  AND NOT (pubkey = ANY($1))
+	`, popularPubkeys, DemotedLargeAccountFrontierRank); err != nil {
+		return TrustPubkeyFrontierRefreshResult{}, fmt.Errorf("demote stale large-account frontier ranks: %w", err)
 	}
 
 	if len(seenPubkeys) == 0 {

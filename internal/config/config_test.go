@@ -838,8 +838,8 @@ func TestLoad_LiveResumeDefaults(t *testing.T) {
 	if !cfg.TrustPrioritization.Enabled || cfg.TrustPrioritization.TopPubkeys != 2000 {
 		t.Fatalf("unexpected ingest trust prioritization defaults: %#v", cfg.TrustPrioritization)
 	}
-	if cfg.TrustFetch.Enabled {
-		t.Fatalf("expected trust fetch disabled by default, got %#v", cfg.TrustFetch)
+	if !cfg.TrustFetch.Enabled || cfg.TrustFetch.RecentLookbackSeconds != 172800 {
+		t.Fatalf("unexpected trust fetch defaults: %#v", cfg.TrustFetch)
 	}
 	if cfg.ContactCrawl.Enabled ||
 		cfg.ContactCrawl.Interval != time.Minute ||

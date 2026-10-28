@@ -251,8 +251,8 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Name:         "INGESTOR_TRUST_FETCH_ENABLED",
 			Runtimes:     []string{"ingestor"},
 			Required:     false,
-			DefaultValue: "false",
-			Description:  "Enable bounded trust-targeted pubkey fetch scheduling.",
+			DefaultValue: "true",
+			Description:  "Fetch recent notes (kinds 1, 30023) and replaceables (kinds 0, 3, 10002) for frontier pubkeys, including high-follower accounts. On by default so a note the live firehose missed is requested again.",
 		},
 		{
 			Name:         "INGESTOR_TRUST_FETCH_MAX_PROMOTIONS_PER_CYCLE",
@@ -286,8 +286,8 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Name:         "INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS",
 			Runtimes:     []string{"ingestor"},
 			Required:     false,
-			DefaultValue: "86400",
-			Description:  "Recent history lookback window in seconds for targeted pubkey fetches.",
+			DefaultValue: "172800",
+			Description:  "Seconds of recent history requested for each targeted pubkey fetch.",
 		},
 		{
 			Name:         "INGESTOR_TRUST_FETCH_REFRESH_INTERVAL",

@@ -112,12 +112,13 @@ func TestGetAuthorEvents_ThinProfileFallbackMergesAndPersists(t *testing.T) {
 func TestGetAuthorEvents_FallbackSkippedWhenEnoughLocalRows(t *testing.T) {
 	t.Parallel()
 	const pubkey = "pk_full_author"
+	fresh := time.Now().Unix()
 	svc := mustNewServiceWithOptions(t, authorEventsFakeReader{
 		getAuthorRecentEventsFn: func(_ context.Context, _ string, _ int) ([]json.RawMessage, error) {
 			return []json.RawMessage{
-				authorEventJSON("evt_1", pubkey, 300),
-				authorEventJSON("evt_2", pubkey, 200),
-				authorEventJSON("evt_3", pubkey, 100),
+				authorEventJSON("evt_1", pubkey, fresh),
+				authorEventJSON("evt_2", pubkey, fresh-1),
+				authorEventJSON("evt_3", pubkey, fresh-2),
 			}, nil
 		},
 	}, ServiceOptions{
@@ -135,6 +136,55 @@ func TestGetAuthorEvents_FallbackSkippedWhenEnoughLocalRows(t *testing.T) {
 	}
 	if len(events) != 3 {
 		t.Fatalf("unexpected event count: %d", len(events))
+	}
+}
+
+func TestGetAuthorEvents_FallbackRunsWhenLocalHeadIsStale(t *testing.T) {
+	t.Parallel()
+	const pubkey = "pk_stale_author"
+	stale := time.Now().Add(-13 * time.Hour).Unix()
+	fetches := 0
+	svc := mustNewServiceWithOptions(t, authorEventsFakeReader{
+		getAuthorRecentEventsFn: func(_ context.Context, _ string, _ int) ([]json.RawMessage, error) {
+			return []json.RawMessage{
+				authorEventJSON("evt_old_1", pubkey, stale),
+				authorEventJSON("evt_old_2", pubkey, stale-1),
+				authorEventJSON("evt_old_3", pubkey, stale-2),
+			}, nil
+		},
+	}, ServiceOptions{
+		FallbackAuthorEventsMinResults: 3,
+		FallbackReader: fakeAuthorEventsFallbackReader{
+			fetchEventsByAuthorFn: func(_ context.Context, gotPubkey string, kinds []int, limit int) ([]json.RawMessage, error) {
+				fetches++
+				if gotPubkey != pubkey {
+					t.Errorf("unexpected pubkey %q", gotPubkey)
+				}
+				if len(kinds) != 2 || kinds[0] != 1 || kinds[1] != 30023 {
+					t.Errorf("unexpected kinds %v", kinds)
+				}
+				if limit != 20 {
+					t.Errorf("unexpected limit %d", limit)
+				}
+				return []json.RawMessage{authorEventJSON("evt_new", pubkey, time.Now().Unix())}, nil
+			},
+		},
+	})
+	events, err := svc.GetAuthorEvents(context.Background(), pubkey, 20)
+	if err != nil {
+		t.Fatalf("GetAuthorEvents: %v", err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("expected merged stale head, got %d", len(events))
+	}
+	if fetches != 1 {
+		t.Fatalf("expected one relay fetch, got %d", fetches)
+	}
+	if _, err := svc.GetAuthorEvents(context.Background(), pubkey, 20); err != nil {
+		t.Fatalf("second GetAuthorEvents: %v", err)
+	}
+	if fetches != 1 {
+		t.Fatalf("stale head must not be rechecked immediately, fetches=%d", fetches)
 	}
 }
 

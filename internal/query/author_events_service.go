@@ -112,6 +112,19 @@ func (s Service) GetAuthorEventsPage(
 	}, nil
 }
 
+func keepAuthorReplyEvents(events []json.RawMessage) []json.RawMessage {
+	if len(events) == 0 {
+		return events
+	}
+	kept := make([]json.RawMessage, 0, len(events))
+	for _, raw := range events {
+		if authorEventIsReply(raw) {
+			kept = append(kept, raw)
+		}
+	}
+	return kept
+}
+
 // omitAuthorReplyEvents drops kind-1 replies that the store query did not
 // already remove, including events merged in from the thin-profile relay
 // fallback. A reply is whatever ReplyParentEventID classifies as one: the
@@ -151,7 +164,12 @@ func normalizeAuthorEventsLimit(limit int) int {
 }
 
 func (s Service) GetAuthorReplies(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error) {
-	return s.reader.GetAuthorReplies(ctx, pubkey, limit)
+	events, err := s.reader.GetAuthorReplies(ctx, pubkey, limit)
+	if err != nil {
+		return nil, err
+	}
+	events = s.maybeAugmentAuthorEventsFromRelays(ctx, pubkey, []int{1}, normalizeAuthorEventsLimit(limit), events)
+	return keepAuthorReplyEvents(events), nil
 }
 
 func (s Service) GetRecentEventsByKindAndPubkey(ctx context.Context, kind int, pubkey string, limit int) ([]json.RawMessage, error) {

@@ -449,6 +449,76 @@ func newDiscoveryTrustEvent(id, pubkey string, ts time.Time, kind int, tags [][]
 	}
 }
 
+func TestTrustGraphSnapshot_IncludesLargeAccounts(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+	s := NewPostgresStore(pool)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trust_seeds (pubkey, is_active)
+		VALUES ('seed', true)
+	`); err != nil {
+		t.Fatalf("insert trust seed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json)
+		VALUES
+			('evt-seed-mid', 'seed', 100, 3, 'sig-seed-mid', '', '{}'::jsonb),
+			('evt-mid-large', 'mid', 101, 3, 'sig-mid-large', '', '{}'::jsonb)
+	`); err != nil {
+		t.Fatalf("insert source events: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO follower_edges (source_event_id, follower_pubkey, followed_pubkey, contact_list_created_at, derivation_version)
+		VALUES
+			('evt-seed-mid', 'seed', 'mid', 100, 1),
+			('evt-mid-large', 'mid', 'large', 101, 1)
+	`); err != nil {
+		t.Fatalf("insert follower edges: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO profile_public_stats (
+			pubkey, follower_count, following_count, note_count, reply_count, derivation_version
+		) VALUES
+			('large', 5000, 0, 0, 0, 1),
+			('quiet', 999, 0, 0, 0, 1)
+	`); err != nil {
+		t.Fatalf("insert profile stats: %v", err)
+	}
+
+	if _, err := s.RefreshTrustGraphSnapshot(ctx, 3); err != nil {
+		t.Fatalf("RefreshTrustGraphSnapshot: %v", err)
+	}
+
+	hops := map[string]int{}
+	rows, err := pool.Query(ctx, `SELECT pubkey, min_hops FROM trust_graph_snapshot`)
+	if err != nil {
+		t.Fatalf("query snapshot: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var pubkey string
+		var minHops int
+		if err := rows.Scan(&pubkey, &minHops); err != nil {
+			t.Fatalf("scan snapshot: %v", err)
+		}
+		hops[pubkey] = minHops
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	if hops["large"] != 1 {
+		t.Fatalf("large account hop = %d, want 1 (snapshot=%v)", hops["large"], hops)
+	}
+	if hops["seed"] != 0 || hops["mid"] != 1 {
+		t.Fatalf("seed graph hops changed: %v", hops)
+	}
+	if _, ok := hops["quiet"]; ok {
+		t.Fatalf("account below the follower floor was snapshotted: %v", hops)
+	}
+}
+
 func mustJSONTags(tags [][]string) string {
 	if len(tags) == 0 {
 		return "[]"

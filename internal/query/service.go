@@ -128,6 +128,7 @@ type Service struct {
 	retentionHooks                  TrustRetentionHooks
 	meilisearch                     MeilisearchSearcher
 	rankedPubkeyCountCache          *rankedPubkeyCountCache
+	authorHeadChecks                *authorHeadCheckCache
 	personalizedTrust               PersonalizedTrustRanker
 }
 
@@ -335,6 +336,7 @@ func buildService(nativeReader Reader, probeSource any, options ServiceOptions) 
 		retentionHooks:                  retentionHooks,
 		meilisearch:                     options.MeilisearchSearcher,
 		rankedPubkeyCountCache:          &rankedPubkeyCountCache{},
+		authorHeadChecks:                &authorHeadCheckCache{},
 		personalizedTrust:               options.PersonalizedTrustRanker,
 	}, nil
 }

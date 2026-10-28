@@ -471,6 +471,51 @@ func insertTrustRunForFrontierTest(t *testing.T, ctx context.Context, pool *pgxp
 	return runID
 }
 
+func TestTrustPubkeyFrontier_PrefersLargeAccounts(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+	s := NewPostgresStore(pool)
+
+	runID := insertTrustRunForFrontierTest(t, ctx, pool)
+	insertTrustScoresForFrontierTest(t, ctx, pool, runID,
+		trustScoreSeed{Pubkey: "trusted", Score: 9.0, Rank: 1},
+	)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO profile_public_stats (
+			pubkey, follower_count, following_count, note_count, reply_count, derivation_version
+		) VALUES
+			('large', 5000, 0, 0, 0, 1),
+			('small', 10, 0, 0, 0, 1)
+	`); err != nil {
+		t.Fatalf("insert profile stats: %v", err)
+	}
+
+	refresh, err := s.RefreshTrustPubkeyFrontier(ctx, 10, 0, 10)
+	if err != nil {
+		t.Fatalf("refresh frontier: %v", err)
+	}
+	if refresh.PromotedToActive != 2 {
+		t.Fatalf("expected large account and trust candidate promoted, got %+v", refresh)
+	}
+
+	claimed, err := s.ClaimTrustPubkeyFrontierForFetch(ctx, 1, time.Minute)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].Pubkey != "large" || claimed[0].TrustRank >= 0 {
+		t.Fatalf("expected large account claimed first, got %+v", claimed)
+	}
+
+	var smallPresent bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ingest_pubkey_frontier WHERE pubkey = 'small')`).Scan(&smallPresent); err != nil {
+		t.Fatalf("query small account: %v", err)
+	}
+	if smallPresent {
+		t.Fatal("account below the follower floor should stay off the frontier")
+	}
+}
+
 func insertTrustScoresForFrontierTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID int64, seeds ...trustScoreSeed) {
 	t.Helper()
 	for _, seed := range seeds {

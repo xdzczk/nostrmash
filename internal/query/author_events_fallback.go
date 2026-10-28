@@ -6,10 +6,50 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
+
+const (
+	// authorEventsHeadStaleAfter is how old the newest stored note can be
+	// before a full local page is checked against relays again. A page that
+	// already has enough rows used to skip the relay entirely, so a missed
+	// firehose event stayed missing until something else ingested it.
+	authorEventsHeadStaleAfter = 12 * time.Hour
+	// authorEventsHeadCheckEvery stops a quiet author from being re-fetched
+	// on every profile view once the relay confirms the local head is real.
+	authorEventsHeadCheckEvery = 15 * time.Minute
+)
+
+type authorHeadCheckCache struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+}
+
+func (c *authorHeadCheckCache) allow(pubkey string, now time.Time) bool {
+	if c == nil || pubkey == "" {
+		return true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.last == nil {
+		c.last = make(map[string]time.Time)
+	}
+	if len(c.last) > 10000 {
+		for key, checked := range c.last {
+			if now.Sub(checked) >= authorEventsHeadCheckEvery {
+				delete(c.last, key)
+			}
+		}
+	}
+	if checked, ok := c.last[pubkey]; ok && now.Sub(checked) < authorEventsHeadCheckEvery {
+		return false
+	}
+	c.last[pubkey] = now
+	return true
+}
 
 // authorEventsFallbackReader is the optional relay-fallback capability for
 // fetching an author's recent events. Satisfied by the relaylookup client
@@ -28,12 +68,13 @@ type authorEventEnvelope struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
-// maybeAugmentAuthorEventsFromRelays runs the thin-profile fallback: when the
-// local author-events read returned fewer rows than the configured threshold,
-// fetch the author's recent events from the fallback relays (bounded by the
-// shared fallback time budget), merge them with the local rows, and persist
-// the newly discovered events asynchronously so they enter derivation and
-// future local reads. Returns the merged rows (never fewer than local).
+// maybeAugmentAuthorEventsFromRelays fetches the author's recent events from
+// fallback relays when the local page is thin, or when it is full but its
+// newest event is older than authorEventsHeadStaleAfter. A full page whose
+// head is fresh returns immediately. Stale heads are checked at most once
+// per authorEventsHeadCheckEvery so a quiet author is not hit on every view.
+// Newly discovered events are persisted asynchronously so they enter
+// derivation and future local reads. Returns the merged rows.
 func (s Service) maybeAugmentAuthorEventsFromRelays(
 	ctx context.Context,
 	pubkey string,
@@ -48,7 +89,11 @@ func (s Service) maybeAugmentAuthorEventsFromRelays(
 	if threshold > limit {
 		threshold = limit
 	}
-	if len(local) >= threshold {
+	now := time.Now()
+	if len(local) >= threshold && !authorEventsHeadStale(local, now) {
+		return local
+	}
+	if len(local) >= threshold && !s.authorHeadChecks.allow(strings.TrimSpace(pubkey), now) {
 		return local
 	}
 	fetcher, ok := s.fallback.(authorEventsFallbackReader)
@@ -191,6 +236,23 @@ func mergeAuthorEvents(
 		out = append(out, row.raw)
 	}
 	return out, discovered
+}
+
+func authorEventsHeadStale(local []json.RawMessage, now time.Time) bool {
+	var newest int64
+	for _, raw := range local {
+		var envelope authorEventEnvelope
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			continue
+		}
+		if envelope.CreatedAt > newest {
+			newest = envelope.CreatedAt
+		}
+	}
+	if newest <= 0 {
+		return true
+	}
+	return now.Unix()-newest >= int64(authorEventsHeadStaleAfter/time.Second)
 }
 
 // persistFallbackAuthorEvents saves relay-discovered author events in the

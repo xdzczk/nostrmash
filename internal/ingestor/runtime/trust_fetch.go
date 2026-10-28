@@ -159,31 +159,47 @@ func fetchTrustedPubkeySlice(
 		v := time.Now().UTC().Unix() - recentLookbackSeconds
 		since = &v
 	}
-	kinds := []int{0, 3, 10002}
-	failed := 0
+	// Notes and replaceables are separate requests. A single REQ shares one
+	// limit across every kind, so a busy author's kind-1 page used to crowd
+	// out profile, follow, and relay-list events (and a metadata-only request
+	// never repaired a missed note).
+	succeeded := 0
 	var lastErr error
-	for _, relayURL := range relays {
-		page, err := fetcher.FetchPage(ctx, relayURL, backfill.PageRequest{
-			Kinds:   kinds,
-			Authors: []string{pubkey},
-			Since:   since,
-			Limit:   pageLimit,
-		})
-		if err != nil {
-			failed++
-			lastErr = err
-			continue
-		}
-		for _, payload := range page.Events {
-			if err := onMessage(ctx, relayURL, payload); err != nil {
-				failed++
+	for _, kinds := range trustFetchKindGroups {
+		for _, relayURL := range relays {
+			page, err := fetcher.FetchPage(ctx, relayURL, backfill.PageRequest{
+				Kinds:   kinds,
+				Authors: []string{pubkey},
+				Since:   since,
+				Limit:   pageLimit,
+			})
+			if err != nil {
 				lastErr = err
-				break
+				continue
+			}
+			delivered := true
+			for _, payload := range page.Events {
+				if err := onMessage(ctx, relayURL, payload); err != nil {
+					lastErr = err
+					delivered = false
+					break
+				}
+			}
+			if delivered {
+				succeeded++
 			}
 		}
 	}
-	if failed == len(relays) && lastErr != nil {
+	if succeeded == 0 && lastErr != nil {
 		return fmt.Errorf("all relay fetches failed for %s: %w", pubkey, lastErr)
 	}
 	return nil
+}
+
+// trustFetchKindGroups is the order of author-scoped REQ filters. Notes come
+// first so a process that stops mid-pubkey has already asked for the posts
+// people are missing.
+var trustFetchKindGroups = [][]int{
+	{1, 30023},
+	{0, 3, 10002},
 }

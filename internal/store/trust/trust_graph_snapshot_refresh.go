@@ -97,6 +97,27 @@ func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (Tru
 	if err != nil {
 		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("rebuild trust graph snapshot: %w", err)
 	}
+	rowsUpserted := int(tag.RowsAffected())
+
+	// Popular accounts often sit outside the seed hop limit, and the ingest
+	// gate plus the untrusted-author purge both key off this table. Hop 1
+	// passes every legal gate max-hops setting. A worse existing hop is
+	// improved; a better one (a seed, or someone already closer) is kept.
+	largeTag, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed, source_run_id, refreshed_at)
+		SELECT btrim(p.pubkey), 1, false, $1, now()
+		FROM profile_public_stats p
+		WHERE %s
+		  AND btrim(p.pubkey) <> ''
+		ON CONFLICT (pubkey) DO UPDATE
+		SET min_hops = LEAST(trust_graph_snapshot.min_hops, EXCLUDED.min_hops),
+		    refreshed_at = now()
+		WHERE trust_graph_snapshot.min_hops > EXCLUDED.min_hops
+	`, largeAccountFollowerPredicate()), sourceRunID)
+	if err != nil {
+		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("merge large accounts into trust graph snapshot: %w", err)
+	}
+	rowsUpserted += int(largeTag.RowsAffected())
 
 	// Keep hop+score denormalization atomic with the snapshot rebuild so
 	// GetTrustStates readers never observe a new hop set without matching
@@ -124,7 +145,7 @@ func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (Tru
 	}
 
 	return TrustGraphSnapshotRefreshResult{
-		RowsUpserted: int(tag.RowsAffected()),
+		RowsUpserted: rowsUpserted,
 		SourceRunID:  sourceRunID,
 	}, nil
 }
