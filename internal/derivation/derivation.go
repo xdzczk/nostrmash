@@ -97,7 +97,10 @@ const (
 	// model refuses stay unmarked as separate chart buckets.
 	// v9: score_30d ranks the 30-day window with the same formula as 24h
 	// and 7d. Rows written before a refresh keep the column at 0.
-	NoteDiscoveryStatsVersion = 9
+	// v10: 7d recency keeps 85% at the end of the week, and 30d drops the
+	// recency penalty. 24h is unchanged. score_7d and score_30d stay on
+	// the previous curve until the next derive or a time-range rebuild.
+	NoteDiscoveryStatsVersion = 10
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -123,7 +126,10 @@ const (
 	// people in the window at any note age. scored_rising_engagement_*
 	// holds the rising numerator. Rows written before a refresh keep the
 	// previous scores until the profile-stats sweeper rewrites them.
-	ProfileDiscoveryStatsVersion   = 8
+	// v9: 7d trending keeps 85% at the end of the week, and 30d trending
+	// drops the recency penalty. 24h is unchanged. The profile-stats
+	// sweeper rewrites rows still inside the serving window.
+	ProfileDiscoveryStatsVersion   = 9
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1

@@ -75,21 +75,24 @@ func reasonFromSignal(signal rankedSignal) query.DiscoveryReason {
 	return discoveryReason(signal.code, signal.metric, signal.value, signal.unit)
 }
 
-func noteRankSignals(note query.TrendingNote) []rankedSignal {
-	return []rankedSignal{
+func noteRankSignals(note query.TrendingNote, window string) []rankedSignal {
+	signals := []rankedSignal{
 		countSignal("reply_velocity", "reply_count", note.ReplyCount, "replies"),
 		countSignal("zap_support", "zap_count", note.ZapCount, "zaps"),
 		countSignal("recent_engagement", "reaction_count", note.ReactionCount, "reactions"),
 		countSignal("repost_lift", "repost_count", note.RepostCount, "reposts"),
-		{
+	}
+	if derivation.RankRecencyMatters(window) && note.CreatedAt > 0 {
+		signals = append(signals, rankedSignal{
 			code:       "recency",
 			value:      float64(note.CreatedAt),
-			offer:      note.CreatedAt > 0,
+			offer:      true,
 			comparable: true,
 			bare:       true,
-		},
-		{code: "combined_engagement", offer: true},
+		})
 	}
+	signals = append(signals, rankedSignal{code: "combined_engagement", offer: true})
+	return signals
 }
 
 func countSignal(code, metric string, value int64, unit string) rankedSignal {
@@ -103,10 +106,10 @@ func countSignal(code, metric string, value int64, unit string) rankedSignal {
 	}
 }
 
-func buildNoteRankings(notes []query.TrendingNote) []query.DiscoveryItemRanking {
+func buildNoteRankings(notes []query.TrendingNote, window string) []query.DiscoveryItemRanking {
 	signals := make([][]rankedSignal, len(notes))
 	for i, note := range notes {
-		signals[i] = noteRankSignals(note)
+		signals[i] = noteRankSignals(note, window)
 	}
 	reasons := chooseRankReasons(signals)
 	out := make([]query.DiscoveryItemRanking, len(notes))
@@ -152,7 +155,7 @@ func profileTrendingSignals(profile query.TrendingProfile, window string) []rank
 		offer:      engagement >= 1,
 		comparable: true,
 	})
-	if profile.RecentActivityAt != nil && *profile.RecentActivityAt > 0 {
+	if derivation.RankRecencyMatters(window) && profile.RecentActivityAt != nil && *profile.RecentActivityAt > 0 {
 		signals = append(signals, rankedSignal{
 			code:       "recency",
 			value:      float64(*profile.RecentActivityAt),

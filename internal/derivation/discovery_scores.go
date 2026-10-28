@@ -17,8 +17,61 @@ const cheapEngagementUnlockPerSubstantive = 4.0
 // reactions and reposts, no comments, a single zap) buy the top slot.
 const cheapEngagementFloor = 0.12
 
-// computeTrendingScore blends windowed engagement into a decayed trending
-// score. Engagement inputs are float64 "weights", not raw event counts: the
+// weekRecencyGravity makes a note at the end of the 7-day window keep 85%
+// of a fresh note's score: 1/(1+3/17) = 0.85. The 24-hour window uses
+// gravity 1, which keeps half at the edge. The 30-day window uses gravity
+// 0 and ranks by engagement inside the month.
+const weekRecencyGravity = 3.0 / 17.0
+
+// recencyGravity scales age/window inside the discovery decay. Unknown
+// windows keep the original curve.
+func recencyGravity(window time.Duration) float64 {
+	switch window {
+	case 24 * time.Hour:
+		return 1
+	case 7 * 24 * time.Hour:
+		return weekRecencyGravity
+	case 30 * 24 * time.Hour:
+		return 0
+	default:
+		return 1
+	}
+}
+
+// recencyDecay is the multiplier for a note or profile still inside the
+// window. Callers drop anything older than the window before using it.
+func recencyDecay(window time.Duration, ageSeconds, windowSeconds int64) float64 {
+	if windowSeconds <= 0 {
+		return 0
+	}
+	if ageSeconds < 0 {
+		ageSeconds = 0
+	}
+	gravity := recencyGravity(window)
+	if gravity == 0 || ageSeconds == 0 {
+		return 1
+	}
+	return 1.0 / (1.0 + gravity*(float64(ageSeconds)/float64(windowSeconds)))
+}
+
+// RankRecencyMatters reports whether age changes a discovery score inside
+// this API window label. The 30-day list ranks by engagement; its cutoff
+// is the only recency filter. Unknown labels keep the 24-hour curve.
+func RankRecencyMatters(windowLabel string) bool {
+	var window time.Duration
+	switch windowLabel {
+	case "7d":
+		window = 7 * 24 * time.Hour
+	case "30d":
+		window = 30 * 24 * time.Hour
+	default:
+		window = 24 * time.Hour
+	}
+	return recencyGravity(window) > 0
+}
+
+// computeTrendingScore blends windowed engagement into a trending score.
+// Engagement inputs are float64 "weights", not raw event counts: the
 // projection counts each engager pubkey once per signal (excluding the note
 // author), and optionally scales each engager by trust-graph proximity, so a
 // single account emitting many events cannot inflate the score.
@@ -27,6 +80,11 @@ const cheapEngagementFloor = 0.12
 // budget set by the people who replied or zapped; the surplus counts at
 // cheapEngagementFloor. The discount is linear in every weight, so halving
 // every engager's trust weight still halves the score.
+//
+// Recency depends on the window. A 24-hour score keeps half at the edge of
+// the day, a 7-day score keeps 85% at the end of the week, and a 30-day
+// score does not decay inside the month. Anything older than the window
+// scores 0.
 func computeTrendingScore(
 	window time.Duration,
 	nowUnix int64,
@@ -59,7 +117,7 @@ func computeTrendingScore(
 		zapWeight*2.0 +
 		(zapMSats / 100000.0) +
 		cheapEngagementSignal(reactionWeight, repostWeight, substantive)
-	decay := 1.0 / (1.0 + (float64(ageSeconds) / float64(windowSeconds)))
+	decay := recencyDecay(window, ageSeconds, windowSeconds)
 	score := base * decay
 	if score <= 0 {
 		return 0
@@ -142,7 +200,7 @@ func computeProfileTrendingScore(
 	volumePenalty := 1.0 / (1.0 + math.Max(0.0, postingPressure-1.0))
 
 	base := (engagementSignal + postingSignal + zapSignal + consistencySignal) * qualityBoost * volumePenalty
-	decay := 1.0 / (1.0 + (float64(ageSeconds) / float64(windowSeconds)))
+	decay := recencyDecay(window, ageSeconds, windowSeconds)
 	score := base * decay
 	if score <= 0 {
 		return 0

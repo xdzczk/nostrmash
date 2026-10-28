@@ -37,6 +37,12 @@ func TestComputeTrendingScore(t *testing.T) {
 		if older <= 0 {
 			t.Fatalf("older note should still score positive, got %v", older)
 		}
+		// Half a day on the 24h curve keeps two-thirds. Ten replies are a
+		// base of 30, so the midpoint is 20.
+		mid := computeTrendingScore(window, now, now-int64((12*time.Hour)/time.Second), 10, 0, 0, 0, 0)
+		if mid != 20 {
+			t.Fatalf("12h on the 24h window = %v, want 20", mid)
+		}
 	})
 
 	t.Run("future note clamps age to zero (no decay boost)", func(t *testing.T) {
@@ -112,6 +118,74 @@ func TestComputeTrendingScore(t *testing.T) {
 			t.Fatalf("expected half/full ~0.5, got %v (full=%v half=%v)", ratio, full, half)
 		}
 	})
+}
+
+func TestRecencyDecayByWindow(t *testing.T) {
+	const now = int64(10_000_000)
+	// Ten replies and nothing else: base score 30 when decay is 1.
+	score := func(window, age time.Duration) float64 {
+		return computeTrendingScore(window, now, now-int64(age/time.Second), 10, 0, 0, 0, 0)
+	}
+	day := 24 * time.Hour
+	week := 7 * 24 * time.Hour
+	month := 30 * 24 * time.Hour
+
+	if got := score(day, day); got != 15 {
+		t.Fatalf("24h edge = %v, want 15", got)
+	}
+	if got := score(week, 0); got != 30 {
+		t.Fatalf("fresh 7d = %v, want 30", got)
+	}
+	// 1/(1+3/17) = 0.85, so 30 * 0.85 = 25.5 at the end of the week.
+	if got := score(week, week); got < 25.499 || got > 25.501 {
+		t.Fatalf("7d edge = %v, want 25.5", got)
+	}
+	if got := score(month, 29*24*time.Hour); got != 30 {
+		t.Fatalf("29d on the 30d window = %v, want 30", got)
+	}
+	if got := score(month, month); got != 30 {
+		t.Fatalf("30d edge = %v, want 30", got)
+	}
+	if got := score(month, month+time.Second); got != 0 {
+		t.Fatalf("past 30d = %v, want 0", got)
+	}
+
+	// A week-old thread with a little more engagement stays ahead of a new one.
+	olderWeek := computeTrendingScore(week, now, now-int64(week/time.Second), 12, 0, 0, 0, 0)
+	freshWeek := score(week, 0)
+	if olderWeek <= freshWeek {
+		t.Fatalf("12 replies at the end of the week (%v) should beat 10 fresh replies (%v)", olderWeek, freshWeek)
+	}
+	// The same pair on the 24h list goes the other way: the edge keeps half.
+	olderDay := computeTrendingScore(day, now, now-int64(day/time.Second), 12, 0, 0, 0, 0)
+	if olderDay >= score(day, 0) {
+		t.Fatalf("12 replies at the end of the day (%v) should lose to 10 fresh replies", olderDay)
+	}
+
+	// Profiles use the same curve. A month of quiet motion does not discount
+	// the 30d score; the end of a week keeps about 85%.
+	freshMotion := now
+	weekEdge := now - int64(week/time.Second)
+	monthEdge := now - int64(month/time.Second)
+	profile := func(window time.Duration, motion int64) float64 {
+		return computeProfileTrendingScore(window, now, &motion, 4, 0, 80, 0, 3)
+	}
+	if got, want := profile(month, monthEdge), profile(month, freshMotion); got != want {
+		t.Fatalf("30d profile edge %v, fresh %v, want equal scores", got, want)
+	}
+	weekFresh := profile(week, freshMotion)
+	weekOld := profile(week, weekEdge)
+	if weekFresh <= 0 || weekOld <= 0 {
+		t.Fatalf("week profile scores must be positive: fresh %v edge %v", weekFresh, weekOld)
+	}
+	ratio := weekOld / weekFresh
+	if ratio < 0.84 || ratio > 0.86 {
+		t.Fatalf("7d profile edge/fresh = %v, want ~0.85 (edge %v fresh %v)", ratio, weekOld, weekFresh)
+	}
+	outside := monthEdge - int64(time.Hour/time.Second)
+	if got := profile(month, outside); got != 0 {
+		t.Fatalf("profile motion outside 30d = %v, want 0", got)
+	}
 }
 
 func TestComputeProfileTrendingScore(t *testing.T) {

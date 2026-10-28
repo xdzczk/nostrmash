@@ -140,8 +140,9 @@ func buildDiscoveryProfileItems(
 func buildDiscoveryNoteItems(
 	rows []query.TrendingNote,
 	identities map[string]profileIdentityFields,
+	window string,
 ) []map[string]any {
-	rankings := buildNoteRankings(rows)
+	rankings := buildNoteRankings(rows, window)
 	items := make([]map[string]any, 0, len(rows))
 	for index, note := range rows {
 		item := buildTrendingNoteItem(note)

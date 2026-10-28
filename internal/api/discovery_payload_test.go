@@ -246,7 +246,7 @@ func TestBuildNoteRankings_DoesNotCiteACountThatRisesDownThePage(t *testing.T) {
 		{EventID: "second", ReplyCount: 92, ZapCount: 28, CreatedAt: 100, Score: 9},
 		{EventID: "third", ReplyCount: 10, ZapCount: 1, CreatedAt: 400, Score: 8},
 	}
-	rankings := buildNoteRankings(notes)
+	rankings := buildNoteRankings(notes, "24h")
 	if got := reasonCodes(rankings[0].Reasons); len(got) != 1 || got[0] != "combined_engagement" {
 		t.Fatalf("lead must not claim replies, zaps, or recency when each rises below it, got %v", got)
 	}
@@ -282,6 +282,36 @@ func TestAssignProfileRankings_TrendingCitesPerPostOnlyWhenItDoesNotRise(t *test
 		if got := reasonCodes(ranking.Reasons); len(got) != 1 || got[0] != "engagement_received" {
 			t.Fatalf("7d row %d must not cite a per-post rate, got %v", i, got)
 		}
+	}
+}
+
+func TestRankings_30dDoesNotCiteRecency(t *testing.T) {
+	notes := []query.TrendingNote{
+		{EventID: "newer", ReplyCount: 2, CreatedAt: 300, Score: 10},
+		{EventID: "older", ReplyCount: 9, CreatedAt: 100, Score: 9},
+	}
+	day := buildNoteRankings(notes, "24h")
+	if got := reasonCodes(day[0].Reasons); len(got) != 1 || got[0] != "recency" {
+		t.Fatalf("24h lead is newer with fewer replies, got %v", got)
+	}
+	month := buildNoteRankings(notes, "30d")
+	if got := reasonCodes(month[0].Reasons); len(got) != 1 || got[0] != "combined_engagement" {
+		t.Fatalf("30d list must not cite recency, got %v", got)
+	}
+
+	recent := int64(300)
+	quiet := int64(100)
+	profiles := []query.TrendingProfile{
+		{Pubkey: "newer", Score: 10, RecentEngagementReceived: 4, RecentActivityAt: &recent},
+		{Pubkey: "older", Score: 9, RecentEngagementReceived: 40, RecentActivityAt: &quiet},
+	}
+	week := assignProfileRankings(profiles, discoverySurfaceTrending, "7d")
+	if got := reasonCodes(week[0].Reasons); len(got) != 1 || got[0] != "recency" {
+		t.Fatalf("7d profile lead is the more recent account, got %v", got)
+	}
+	monthProfiles := assignProfileRankings(profiles, discoverySurfaceTrending, "30d")
+	if got := reasonCodes(monthProfiles[0].Reasons); len(got) != 1 || got[0] != "combined_engagement" {
+		t.Fatalf("30d profile list must not cite recency, got %v", got)
 	}
 }
 

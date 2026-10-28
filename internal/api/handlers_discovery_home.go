@@ -65,7 +65,7 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 			noteAuthorIdentities = map[string]profileIdentityFields{}
 			degraded = true
 		}
-		payload := buildDiscoveryNoteItems(notes, noteAuthorIdentities)
+		payload := buildDiscoveryNoteItems(notes, noteAuthorIdentities, windowLabel)
 		payloadResponse := map[string]any{
 			"surface":     "trending",
 			"window":      windowLabel,
@@ -137,7 +137,7 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 			authorIdentities = map[string]profileIdentityFields{}
 			degraded = true
 		}
-		payload := buildDiscoveryNoteItems(articles, authorIdentities)
+		payload := buildDiscoveryNoteItems(articles, authorIdentities, windowLabel)
 		payloadResponse := map[string]any{
 			"surface":     "trending_long_form",
 			"window":      windowLabel,
@@ -524,7 +524,7 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 		profileIdentities = map[string]profileIdentityFields{}
 	}
 
-	noteItems := buildDiscoveryNoteItems(notes, profileIdentities)
+	noteItems := buildDiscoveryNoteItems(notes, profileIdentities, req.windowLabel)
 	domainItems := buildDiscoveryDomainItems(domains, req.windowLabel)
 	trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities, discoverySurfaceTrending, req.windowLabel)
 	risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities, discoverySurfaceRising, req.windowLabel)
