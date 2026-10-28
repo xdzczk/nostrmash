@@ -454,6 +454,7 @@ type NoteDiscoveryStat struct {
 	PrimaryLanguage    pgtype.Text
 	LanguageConfidence pgtype.Float8
 	LanguageSource     pgtype.Text
+	Score30d           float64
 }
 
 type PendingAuthorAnalyticsRecompute struct {
@@ -534,26 +535,34 @@ type ProfileDiscoveryRecentActivity struct {
 }
 
 type ProfileDiscoveryStat struct {
-	Pubkey                   string
-	Score24h                 float64
-	Score7d                  float64
-	RisingScore24h           float64
-	RisingScore7d            float64
-	RecentPostCount          int64
-	RecentReplyCount         int64
-	RecentEngagementReceived int64
-	RecentZapVolumeMsats     int64
-	RecentActiveDays         int32
-	RecentActivityAt         pgtype.Int8
-	LastScoredAt             pgtype.Timestamptz
-	DerivationVersion        int32
-	ProjectedAt              pgtype.Timestamptz
-	ScoredEngagement24h      pgtype.Float8
-	ScoredEngagement7d       pgtype.Float8
-	ScoredNewFollowers24h    pgtype.Float8
-	ScoredNewFollowers7d     pgtype.Float8
-	PrimaryLanguage24h       pgtype.Text
-	PrimaryLanguage7d        pgtype.Text
+	Pubkey                    string
+	Score24h                  float64
+	Score7d                   float64
+	RisingScore24h            float64
+	RisingScore7d             float64
+	RecentPostCount           int64
+	RecentReplyCount          int64
+	RecentEngagementReceived  int64
+	RecentZapVolumeMsats      int64
+	RecentActiveDays          int32
+	RecentActivityAt          pgtype.Int8
+	LastScoredAt              pgtype.Timestamptz
+	DerivationVersion         int32
+	ProjectedAt               pgtype.Timestamptz
+	ScoredEngagement24h       pgtype.Float8
+	ScoredEngagement7d        pgtype.Float8
+	ScoredNewFollowers24h     pgtype.Float8
+	ScoredNewFollowers7d      pgtype.Float8
+	PrimaryLanguage24h        pgtype.Text
+	PrimaryLanguage7d         pgtype.Text
+	Score30d                  float64
+	RisingScore30d            float64
+	ScoredEngagement30d       pgtype.Float8
+	ScoredNewFollowers30d     pgtype.Float8
+	PrimaryLanguage30d        pgtype.Text
+	ScoredRisingEngagement24h pgtype.Float8
+	ScoredRisingEngagement7d  pgtype.Float8
+	ScoredRisingEngagement30d pgtype.Float8
 }
 
 type ProfilePublicStat struct {
@@ -839,6 +848,9 @@ type ThreadSummary struct {
 	ReplyWeight7d     float64
 	Authors24h        int32
 	Authors7d         int32
+	Replies30d        int64
+	Authors30d        int32
+	ReplyWeight30d    float64
 }
 
 type TrustGraphSnapshot struct {
