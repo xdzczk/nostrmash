@@ -100,6 +100,27 @@ func TestResolveWindowHelpers(t *testing.T) {
 	if col, dur, err := resolveTrendingWindow(7 * 24 * time.Hour); err != nil || col != "score_7d" || dur != 7*24*time.Hour {
 		t.Fatalf("resolveTrendingWindow(7d) = %q %v %v", col, dur, err)
 	}
+	if col, dur, err := resolveTrendingWindow(30 * 24 * time.Hour); err != nil || col != "score_30d" || dur != 30*24*time.Hour {
+		t.Fatalf("resolveTrendingWindow(30d) = %q %v %v", col, dur, err)
+	}
+	if lang := profileLanguageColumn("score_30d"); lang != "primary_language_30d" {
+		t.Fatalf("profileLanguageColumn(score_30d) = %q", lang)
+	}
+	if lang := profileLanguageColumn("rising_score_30d"); lang != "primary_language_30d" {
+		t.Fatalf("profileLanguageColumn(rising_score_30d) = %q", lang)
+	}
+	if lang := profileLanguageColumn("score_7d"); lang != "primary_language_7d" {
+		t.Fatalf("profileLanguageColumn(score_7d) = %q", lang)
+	}
+	if eng, fol := profileScoredInputColumns("score_30d"); eng != "scored_engagement_30d" || fol != "scored_new_followers_30d" {
+		t.Fatalf("profileScoredInputColumns(score_30d) = %q %q", eng, fol)
+	}
+	if eng, fol := profileScoredInputColumns("rising_score_24h"); eng != "scored_rising_engagement_24h" || fol != "scored_new_followers_24h" {
+		t.Fatalf("profileScoredInputColumns(rising_score_24h) = %q %q", eng, fol)
+	}
+	if eng, fol := profileScoredInputColumns("rising_score_7d"); eng != "scored_rising_engagement_7d" || fol != "scored_new_followers_7d" {
+		t.Fatalf("profileScoredInputColumns(rising_score_7d) = %q %q", eng, fol)
+	}
 	if _, _, err := resolveTrendingWindow(time.Hour); err == nil {
 		t.Fatal("expected unsupported trending window error")
 	}
@@ -109,6 +130,9 @@ func TestResolveWindowHelpers(t *testing.T) {
 	}
 	if col, weightCol, dur, err := resolveConversationWindow(7 * 24 * time.Hour); err != nil || col != "replies_7d" || weightCol != "reply_weight_7d" || dur != 7*24*time.Hour {
 		t.Fatalf("resolveConversationWindow(7d) = %q %q %v %v", col, weightCol, dur, err)
+	}
+	if col, weightCol, dur, err := resolveConversationWindow(30 * 24 * time.Hour); err != nil || col != "replies_30d" || weightCol != "reply_weight_30d" || dur != 30*24*time.Hour {
+		t.Fatalf("resolveConversationWindow(30d) = %q %q %v %v", col, weightCol, dur, err)
 	}
 	if _, _, _, err := resolveConversationWindow(time.Hour); err == nil {
 		t.Fatal("expected unsupported conversation window error")

@@ -460,7 +460,8 @@ func (s *PostgresStore) GetThreadSummary(ctx context.Context, rootEventID string
 			COALESCE(ts.max_depth, 0),
 			COALESCE(ts.last_activity_at, e.created_at),
 			COALESCE(ts.replies_24h, 0),
-			COALESCE(ts.replies_7d, 0)
+			COALESCE(ts.replies_7d, 0),
+			COALESCE(ts.replies_30d, 0)
 		FROM events e
 		LEFT JOIN thread_summaries ts ON ts.root_event_id = e.id
 		WHERE e.id = $1
@@ -471,6 +472,7 @@ func (s *PostgresStore) GetThreadSummary(ctx context.Context, rootEventID string
 		&out.LastActivityAt,
 		&out.Replies24h,
 		&out.Replies7d,
+		&out.Replies30d,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return out, ErrNotFound

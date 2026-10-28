@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,32 @@ type BuildInfo struct {
 // discovery) to exit after their context is cancelled, before the caller
 // closes the DB pool.
 const backgroundDrainTimeout = 15 * time.Second
+
+// guardBackgroundLoop keeps a panic in an optional ingest loop from exiting
+// the process. Live relay subscriptions run in sibling goroutines; one bad
+// fetch used to take them down with it.
+func guardBackgroundLoop(log *slog.Logger, name string, fn func()) {
+	defer func() {
+		rec := recover()
+		if rec == nil {
+			return
+		}
+		if name == "" {
+			name = "unknown"
+		}
+		if log == nil {
+			log = slog.Default()
+		}
+		log.Error(
+			"ingestor_background_loop_panic",
+			"loop", name,
+			"panic", fmt.Sprint(rec),
+			"stack", string(debug.Stack()),
+		)
+		metrics.IncIngestorBackgroundLoopPanic(name)
+	}()
+	fn()
+}
 
 type runner struct {
 	eventStore   *store.PostgresStore
@@ -167,11 +194,11 @@ func runLifecycle(
 	loopCtx, cancelLoops := context.WithCancel(ctx)
 	defer cancelLoops()
 	var loopWG sync.WaitGroup
-	spawn := func(fn func(context.Context)) {
+	spawn := func(name string, fn func(context.Context)) {
 		loopWG.Add(1)
 		go func() {
 			defer loopWG.Done()
-			fn(loopCtx)
+			guardBackgroundLoop(log, name, func() { fn(loopCtx) })
 		}()
 	}
 	waitLoops := func() {
@@ -190,12 +217,12 @@ func runLifecycle(
 	defer waitLoops()
 
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
-	spawn(func(c context.Context) { runMetricsLogger(c, log, runner.processor, 30*time.Second) })
-	spawn(func(c context.Context) {
+	spawn("metrics_logger", func(c context.Context) { runMetricsLogger(c, log, runner.processor, 30*time.Second) })
+	spawn("trusted_author_refresh", func(c context.Context) {
 		runTrustedAuthorSetRefreshLoop(c, log, runner.trustedSet, runner.eventStore, cfg.TrustGate.Mode, cfg.TrustGate.MaxHops, cfg.TrustGate.RefreshInterval)
 	})
 	if runner.observations != nil {
-		spawn(func(c context.Context) {
+		spawn("observation_flush", func(c context.Context) {
 			RunObservationFlushLoop(c, log, runner.eventStore, runner.observations, cfg.AccountObservation.FlushInterval)
 		})
 	}
@@ -254,7 +281,7 @@ func runLifecycle(
 		"bootstrap_lookback_seconds", cfg.Relay.LiveBootstrapLookbackSeconds,
 		"resume_overlap_seconds", cfg.Relay.LiveResumeOverlapSeconds,
 	)
-	spawn(func(c context.Context) {
+	spawn("checkpoint_freshness", func(c context.Context) {
 		runCheckpointFreshnessReporter(c, log, pool, cfg.Relay.ActiveFilterGroup, 30*time.Second)
 	})
 
@@ -306,7 +333,7 @@ func runLifecycle(
 	}
 
 	if cfg.TrustFetch.Enabled {
-		spawn(func(c context.Context) {
+		spawn("trust_fetch", func(c context.Context) {
 			runTrustTargetedFetchLoop(
 				c,
 				log,
@@ -331,7 +358,7 @@ func runLifecycle(
 	}
 
 	if cfg.ContactCrawl.Enabled {
-		spawn(func(c context.Context) {
+		spawn("contact_list_crawl", func(c context.Context) {
 			runContactListCrawlLoop(
 				c,
 				log,
@@ -358,7 +385,7 @@ func runLifecycle(
 	}
 
 	if cfg.AuthorMetadataDiscovery.Enabled {
-		spawn(func(c context.Context) {
+		spawn("author_metadata_discovery", func(c context.Context) {
 			runAuthorMetadataDiscoveryLoop(
 				c,
 				log,
@@ -405,7 +432,7 @@ func runLifecycle(
 				},
 			},
 		)
-		spawn(reconciler.Run)
+		spawn("relay_reconciler", reconciler.Run)
 		log.Info("relay_reconciler_started", "fallback_relay_count", len(prioritizedRelays))
 	} else {
 		relayManager, err := relay.NewManager(
@@ -432,7 +459,7 @@ func runLifecycle(
 			log.Error("relay_config", "error", err)
 			return err
 		}
-		spawn(relayManager.Start)
+		spawn("relay_manager", relayManager.Start)
 		log.Info("relay_manager_started", "relay_count", len(prioritizedRelays))
 	}
 

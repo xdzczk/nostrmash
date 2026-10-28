@@ -9,7 +9,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/languagelabel"
 )
 
-var errInvalidTrendingWindow = errors.New("window must be one of: 24h, 7d")
+var errInvalidTrendingWindow = errors.New("window must be one of: 24h, 7d, 30d")
 var errInvalidDiscoveryLanguage = errors.New(`language must be "und", "und-uncertain", or a 2-8 letter code`)
 var errInvalidHashtagNotesWindow = errors.New("window must be one of: 24h, 7d, 30d, all")
 var errInvalidHashtagNotesSort = errors.New("sort must be one of: latest, top")
@@ -94,6 +94,8 @@ func parseTrendingWindow(r *http.Request) (time.Duration, string, error) {
 		return 24 * time.Hour, "24h", nil
 	case "7d":
 		return 7 * 24 * time.Hour, "7d", nil
+	case "30d":
+		return 30 * 24 * time.Hour, "30d", nil
 	default:
 		return 0, "", errInvalidTrendingWindow
 	}

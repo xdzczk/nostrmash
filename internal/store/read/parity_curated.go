@@ -117,19 +117,26 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	if err != nil {
 		return out, err
 	}
+	homeWindow30d, err := s.getHomeWindowSnapshot(ctx, relaySnapshotLabelHomeWindow30d)
+	if err != nil {
+		return out, err
+	}
 	out.NoteVolume = WindowedCount{
 		Last24h: homeWindow24h.NoteVolume,
 		Last7d:  homeWindow7d.NoteVolume,
+		Last30d: homeWindow30d.NoteVolume,
 	}
 	out.ActiveAuthors = WindowedCount{
 		Last24h: homeWindow24h.ActiveAuthors,
 		Last7d:  homeWindow7d.ActiveAuthors,
+		Last30d: homeWindow30d.ActiveAuthors,
 	}
 	if !homeWindow24h.ComputedAt.IsZero() {
 		out.ComputedAt = &homeWindow24h.ComputedAt
 	}
 	out.SectionTimes.Home24h = homeWindow24h.ComputedAt
 	out.SectionTimes.Home7d = homeWindow7d.ComputedAt
+	out.SectionTimes.Home30d = homeWindow30d.ComputedAt
 
 	topLanguages24h, languages24hAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages24h, 8)
 	if err != nil {
@@ -139,10 +146,16 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	if err != nil {
 		return out, err
 	}
+	topLanguages30d, languages30dAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages30d, 8)
+	if err != nil {
+		return out, err
+	}
 	out.TopLanguages24h = topLanguages24h
 	out.TopLanguages7d = topLanguages7d
+	out.TopLanguages30d = topLanguages30d
 	out.SectionTimes.Languages24h = languages24hAt
 	out.SectionTimes.Languages7d = languages7dAt
+	out.SectionTimes.Languages30d = languages30dAt
 
 	// Projection tables are schema-scoped in tests; explicitly check current schema
 	// so we don't silently fall back to another schema via search_path.
@@ -157,8 +170,7 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	}
 
 	// Homepage trending hashtags and the topics tab both read this
-	// snapshot. GetTrendingHashtags still runs a live aggregate for
-	// windows other than the snapshotted 24h/7d pair.
+	// snapshot for 24h, 7d, and 30d. Other windows still run a live aggregate.
 	top24h, hashtags24hAt, err := s.getTopHashtagsSnapshot(ctx, relaySnapshotLabelTopHashtags24h, hashtagLimit)
 	if err != nil {
 		return out, err
@@ -167,12 +179,18 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	if err != nil {
 		return out, err
 	}
+	top30d, hashtags30dAt, err := s.getTopHashtagsSnapshot(ctx, relaySnapshotLabelTopHashtags30d, hashtagLimit)
+	if err != nil {
+		return out, err
+	}
 	out.TopHashtags = &TrendingHashtagWindows{
 		Last24h: top24h,
 		Last7d:  top7d,
+		Last30d: top30d,
 	}
 	out.SectionTimes.Hashtags24h = hashtags24hAt
 	out.SectionTimes.Hashtags7d = hashtags7dAt
+	out.SectionTimes.Hashtags30d = hashtags30dAt
 	if lang == "" {
 		return out, nil
 	}
@@ -184,8 +202,12 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	if err != nil {
 		return out, err
 	}
-	out.NoteVolume = WindowedCount{Last24h: home24.NoteVolume, Last7d: home7.NoteVolume}
-	out.ActiveAuthors = WindowedCount{Last24h: home24.ActiveAuthors, Last7d: home7.ActiveAuthors}
+	home30, err := s.homeWindowLanguage(ctx, relaySnapshotLabelHomeWindow30dLang, lang)
+	if err != nil {
+		return out, err
+	}
+	out.NoteVolume = WindowedCount{Last24h: home24.NoteVolume, Last7d: home7.NoteVolume, Last30d: home30.NoteVolume}
+	out.ActiveAuthors = WindowedCount{Last24h: home24.ActiveAuthors, Last7d: home7.ActiveAuthors, Last30d: home30.ActiveAuthors}
 	tags24, err := s.languageHashtags(ctx, relaySnapshotLabelTopHashtags24hLang, lang, hashtagLimit, 0)
 	if err != nil {
 		return out, err
@@ -194,7 +216,11 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	if err != nil {
 		return out, err
 	}
-	out.TopHashtags = &TrendingHashtagWindows{Last24h: tags24, Last7d: tags7}
+	tags30, err := s.languageHashtags(ctx, relaySnapshotLabelTopHashtags30dLang, lang, hashtagLimit, 0)
+	if err != nil {
+		return out, err
+	}
+	out.TopHashtags = &TrendingHashtagWindows{Last24h: tags24, Last7d: tags7, Last30d: tags30}
 	return out, nil
 }
 
@@ -212,13 +238,19 @@ const (
 	relaySnapshotLabelTopLanguages7d  = "top_languages_7d"
 	relaySnapshotLabelTopHashtags24h  = "top_hashtags_24h"
 	relaySnapshotLabelTopHashtags7d   = "top_hashtags_7d"
+	relaySnapshotLabelTopHashtags30d  = "top_hashtags_30d"
 	relaySnapshotLabelTopDomains24h   = "top_domains_24h"
 	relaySnapshotLabelTopDomains7d    = "top_domains_7d"
+	relaySnapshotLabelTopDomains30d   = "top_domains_30d"
+	relaySnapshotLabelHomeWindow30d   = "home_window_30d"
+	relaySnapshotLabelTopLanguages30d = "top_languages_30d"
 
 	relaySnapshotLabelHomeWindow24hLang  = "home_window_24h.lang"
 	relaySnapshotLabelHomeWindow7dLang   = "home_window_7d.lang"
+	relaySnapshotLabelHomeWindow30dLang  = "home_window_30d.lang"
 	relaySnapshotLabelTopHashtags24hLang = "top_hashtags_24h.lang"
 	relaySnapshotLabelTopHashtags7dLang  = "top_hashtags_7d.lang"
+	relaySnapshotLabelTopHashtags30dLang = "top_hashtags_30d.lang"
 )
 
 // relaySummarySnapshotPayload mirrors the JSONB shape stored under
@@ -588,6 +620,8 @@ func resolveHomeHashtagsSnapshotLabel(window time.Duration) (string, error) {
 		return relaySnapshotLabelTopHashtags24h, nil
 	case 7 * 24 * time.Hour:
 		return relaySnapshotLabelTopHashtags7d, nil
+	case 30 * 24 * time.Hour:
+		return relaySnapshotLabelTopHashtags30d, nil
 	default:
 		return "", fmt.Errorf("unsupported home trending hashtags window: %s", window)
 	}

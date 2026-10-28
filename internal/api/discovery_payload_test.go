@@ -38,8 +38,9 @@ func TestBuildProfileRanking_TrendingSurface(t *testing.T) {
 		}
 	}
 
-	// Trending confidence sample excludes follower growth entirely.
-	wantSample := profile.RecentPostCount + profile.RecentReplyCount + profile.RecentEngagementReceived
+	// Trending confidence sample is root posts plus the engagement the
+	// score used. Replies and follower growth are not part of it.
+	wantSample := profile.RecentPostCount + profile.RecentEngagementReceived
 	if got, want := discoveryConfidence(wantSample), ranking.Confidence; got != want {
 		t.Fatalf("confidence = %q want %q (sample=%d)", want, got, wantSample)
 	}

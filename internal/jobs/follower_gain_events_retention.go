@@ -26,7 +26,7 @@ type FollowerGainEventsRetentionConfig struct {
 
 // RunFollowerGainEventsRetentionLoop periodically prunes follower_gain_events
 // rows whose insert time has aged past MaxAge. Every reader windows gains to
-// at most 7 days, so MaxAge only needs to exceed that; the loop is pure
+// at most 30 days, so MaxAge only needs to exceed that; the loop is pure
 // hygiene keeping the table bounded by roughly one horizon of true follower
 // gains. Uses the shared auto-pacing drain. Blocks until ctx is done.
 func RunFollowerGainEventsRetentionLoop(ctx context.Context, log RetentionLogger, purger FollowerGainEventsRetentionPurger, cfg FollowerGainEventsRetentionConfig) {

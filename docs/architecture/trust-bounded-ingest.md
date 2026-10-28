@@ -83,7 +83,7 @@ Rejected events increment metrics only. They are **not** written to `invalid_eve
 | Env | Default | Meaning |
 | --- | --- | --- |
 | `WORKER_RETENTION_ENGAGEMENT_ENABLED` | `true` | Enable the engagement purge loop. |
-| `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` | `336h` (14d) | Purge raw kinds `6`/`7`/`9735` older than this (by `events.created_at`). |
+| `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` | `768h` (32d) | Purge raw kinds `6`/`7`/`9735` older than this (by `events.created_at`). One day past the 30d discovery window. |
 | `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` | `168h` (7d) | Derivation-safety: block purge while `derive_event_bundle` is pending/running, or dead with `updated_at` within this window. |
 | `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL` | `1h` | Scheduled purge cadence. |
 | `WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT` | `2000` | Max rows deleted per batch (auto-paced like job retention). |

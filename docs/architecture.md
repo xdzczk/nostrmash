@@ -188,7 +188,7 @@ The model:
 
 - **Trust prerequisites** (`trust_worker`): reconcile `TRUST_SEED_PUBKEYS` into `trust_seeds`, refresh `trust_graph_snapshot` on an interval, and schedule periodic global trust runs.
 - **Ingest gate** (`ingestor`): an in-memory trusted-author set loaded from the snapshot gates authored kinds `1`/`4`/`9802`/`10000`/`10003`/`30023` by author trust and kinds `6`/`7`/`9735` by target-exists. Deploy in shadow mode (`INGESTOR_TRUST_GATE_MODE=open`) first, then flip to `trusted_only`.
-- **Engagement retention** (`worker`): purge raw engagement events after ~14 days while lifetime aggregate counters survive.
+- **Engagement retention** (`worker`): purge raw engagement events after ~32 days while lifetime aggregate counters survive.
 
 Open kinds (`0`, `3`, `10002`) still enter canonical storage so the trust graph and profiles can bootstrap. That tradeoff is intentional for the first rollout but is not a permanent spam guarantee. Kind `5` deletions are target-gated like engagement: kept only from trusted authors or when a referenced `e`-tag target exists locally.
 

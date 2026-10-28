@@ -57,31 +57,38 @@ func (f WebsocketFetcher) FetchPage(ctx context.Context, relayURL string, reques
 	}
 
 	result := PageResult{}
-	idleTimer := time.NewTimer(f.IdleTimeout)
-	defer idleTimer.Stop()
-	resetIdle := func() {
-		if !idleTimer.Stop() {
-			select {
-			case <-idleTimer.C:
-			default:
-			}
-		}
-		idleTimer.Reset(f.IdleTimeout)
-	}
 
+	// A cancelled caller has to close the socket. ReadMessage does not watch
+	// ctx, and gorilla/websocket treats a failed read as permanent: another
+	// ReadMessage returns that same error immediately and panics after 1000
+	// repeats ("repeated read on failed websocket connection").
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+
+	readFailed := false
 	defer func() {
+		if readFailed {
+			return
+		}
 		closeMsg, _ := json.Marshal([]any{"CLOSE", subID})
 		_ = conn.WriteMessage(websocket.TextMessage, closeMsg)
 	}()
 
 	for {
 		if err := ctx.Err(); err != nil {
+			readFailed = true
 			return PageResult{}, err
 		}
 
-		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		// One deadline for the whole idle window. Timing out is a finished
+		// read; the connection cannot be read again.
+		_ = conn.SetReadDeadline(time.Now().Add(f.IdleTimeout))
 		_, frame, err := conn.ReadMessage()
 		if err != nil {
+			readFailed = true
+			if ctx.Err() != nil {
+				return PageResult{}, ctx.Err()
+			}
 			if websocket.IsCloseError(err,
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
@@ -91,16 +98,10 @@ func (f WebsocketFetcher) FetchPage(ctx context.Context, relayURL string, reques
 				return result, nil
 			}
 			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
-				select {
-				case <-idleTimer.C:
-					return result, nil
-				default:
-				}
-				continue
+				return result, nil
 			}
 			return PageResult{}, fmt.Errorf("read relay frame: %w", err)
 		}
-		resetIdle()
 
 		envType, gotSubID, payload, ok := parseNostrEnvelope(frame)
 		if !ok || gotSubID != subID {

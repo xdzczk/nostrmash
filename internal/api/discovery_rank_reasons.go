@@ -124,11 +124,13 @@ func buildNoteRankings(notes []query.TrendingNote) []query.DiscoveryItemRanking 
 
 func profileTrendingSignals(profile query.TrendingProfile, window string) []rankedSignal {
 	engagement := profileRankingEngagement(profile)
-	totalPosts := profile.RecentPostCount + profile.RecentReplyCount
+	// Root notes only. Replies are not the posts the trending score divides by,
+	// and recent_post_count is already that root-note counter. It is the 24h
+	// window only, so a 7d rate would divide 7d engagement by 24h posts and
+	// the 7d list never cites it.
+	totalPosts := profile.RecentPostCount
 	signals := make([]rankedSignal, 0, 4)
-	// recent_post_count is the 24h window only. A 7d rate would divide 7d
-	// engagement by 24h posts, so the 7d list never cites it.
-	if window != "7d" {
+	if window != "7d" && window != "30d" {
 		rate := 0.0
 		if totalPosts > 0 {
 			rate = engagement / (1 + float64(totalPosts))
@@ -234,7 +236,7 @@ func assignProfileRankings(rows []query.TrendingProfile, surface, window string)
 		engagement := profileRankingEngagement(profile)
 		var sample float64
 		if surface == discoverySurfaceTrending {
-			sample = float64(profile.RecentPostCount+profile.RecentReplyCount) + engagement
+			sample = float64(profile.RecentPostCount) + engagement
 		} else {
 			sample = profileRankingNewFollowers(profile) + engagement
 		}

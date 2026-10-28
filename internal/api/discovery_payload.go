@@ -100,11 +100,19 @@ func buildHashtagRanking(topic query.TrendingHashtag, rank int) query.DiscoveryI
 	}
 }
 
-func buildDomainRanking(row query.DomainSummary, rank int, window string) query.DiscoveryItemRanking {
-	activity := row.Activity.Last24h
-	if window == "7d" {
-		activity = row.Activity.Last7d
+func domainActivityForWindow(stats query.DomainActivityStats, window string) query.DomainActivity {
+	switch window {
+	case "30d":
+		return stats.Last30d
+	case "7d":
+		return stats.Last7d
+	default:
+		return stats.Last24h
 	}
+}
+
+func buildDomainRanking(row query.DomainSummary, rank int, window string) query.DiscoveryItemRanking {
+	activity := domainActivityForWindow(row.Activity, window)
 	sourceBreadth := activity.UniqueAuthors
 	reasons := []query.DiscoveryReason{
 		discoveryReason("author_breadth", "unique_authors", float64(activity.UniqueAuthors), "authors"),
@@ -119,17 +127,20 @@ func buildDomainRanking(row query.DomainSummary, rank int, window string) query.
 	}
 }
 
-// pickHashtagWindow selects the 24h or 7d list out of a snapshot's
-// TrendingHashtagWindows for the given window label ("24h" or "7d"),
+// pickHashtagWindow selects the list for window ("24h", "7d", or "30d"),
 // returning nil if windows is nil (capability unavailable / snapshot empty).
 func pickHashtagWindow(windows *query.TrendingHashtagWindows, window string) []query.TrendingHashtag {
 	if windows == nil {
 		return nil
 	}
-	if window == "7d" {
+	switch window {
+	case "30d":
+		return windows.Last30d
+	case "7d":
 		return windows.Last7d
+	default:
+		return windows.Last24h
 	}
-	return windows.Last24h
 }
 
 // sliceHashtags bounds rows to at most limit entries. Snapshots are
@@ -158,12 +169,13 @@ func buildDiscoveryHashtagItems(rows []query.TrendingHashtag) []map[string]any {
 func buildDiscoveryDomainItems(rows []query.DomainSummary, window string) []map[string]any {
 	items := make([]map[string]any, 0, len(rows))
 	for index, row := range rows {
+		activity := domainActivityForWindow(row.Activity, window)
 		items = append(items, map[string]any{
 			"domain":          row.Domain,
 			"latest_event_at": row.LatestEventAt,
-			"link_count":      row.Activity.Last7d.LinkCount,
-			"note_count":      row.Activity.Last7d.NoteCount,
-			"unique_authors":  row.Activity.Last7d.UniqueAuthors,
+			"link_count":      activity.LinkCount,
+			"note_count":      activity.NoteCount,
+			"unique_authors":  activity.UniqueAuthors,
 			"trend_windows": map[string]any{
 				"24h": map[string]any{
 					"link_count":     row.Activity.Last24h.LinkCount,
@@ -174,6 +186,11 @@ func buildDiscoveryDomainItems(rows []query.DomainSummary, window string) []map[
 					"link_count":     row.Activity.Last7d.LinkCount,
 					"note_count":     row.Activity.Last7d.NoteCount,
 					"unique_authors": row.Activity.Last7d.UniqueAuthors,
+				},
+				"30d": map[string]any{
+					"link_count":     row.Activity.Last30d.LinkCount,
+					"note_count":     row.Activity.Last30d.NoteCount,
+					"unique_authors": row.Activity.Last30d.UniqueAuthors,
 				},
 			},
 			"ranking": buildDomainRanking(row, index+1, window),

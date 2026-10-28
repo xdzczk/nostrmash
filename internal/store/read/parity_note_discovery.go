@@ -189,6 +189,8 @@ func resolveTrendingWindow(window time.Duration) (string, time.Duration, error) 
 		return "score_24h", 24 * time.Hour, nil
 	case 7 * 24 * time.Hour:
 		return "score_7d", 7 * 24 * time.Hour, nil
+	case 30 * 24 * time.Hour:
+		return "score_30d", 30 * 24 * time.Hour, nil
 	default:
 		return "", 0, fmt.Errorf("unsupported trending window: %s", strings.TrimSpace(window.String()))
 	}
@@ -198,6 +200,9 @@ func resolveTrendingWindow(window time.Duration) (string, time.Duration, error) 
 // columns that match the requested ranking window so "why now" reasons
 // cite the same inputs the score used.
 func profileLanguageColumn(scoreColumn string) string {
+	if strings.Contains(scoreColumn, "30d") {
+		return "primary_language_30d"
+	}
 	if strings.Contains(scoreColumn, "7d") {
 		return "primary_language_7d"
 	}
@@ -205,8 +210,35 @@ func profileLanguageColumn(scoreColumn string) string {
 }
 
 func profileScoredInputColumns(scoreColumn string) (engagementCol, newFollowersCol string) {
-	if strings.Contains(scoreColumn, "7d") {
-		return "scored_engagement_7d", "scored_new_followers_7d"
+	window := "24h"
+	switch {
+	case strings.Contains(scoreColumn, "30d"):
+		window = "30d"
+	case strings.Contains(scoreColumn, "7d"):
+		window = "7d"
 	}
-	return "scored_engagement_24h", "scored_new_followers_24h"
+	engagement := "scored_engagement_" + window
+	if strings.Contains(scoreColumn, "rising") {
+		engagement = "scored_rising_engagement_" + window
+	}
+	return engagement, "scored_new_followers_" + window
+}
+
+// profileRootNoteExistsSQL requires a root kind-1 note inside the requested
+// window. Trending lists use it so a stale score cannot outlive the posts
+// it claims to rank. pubkeyExpr is the profile pubkey SQL expression.
+func profileRootNoteExistsSQL(pubkeyExpr string) string {
+	return fmt.Sprintf(`
+		  AND EXISTS (
+			SELECT 1
+			FROM events e
+			WHERE e.pubkey = %s
+			  AND e.kind = 1
+			  AND e.created_at >= $1
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM thread_edges te
+				WHERE te.child_event_id = e.id
+			  )
+		  )`, pubkeyExpr)
 }

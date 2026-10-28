@@ -105,6 +105,7 @@ func (h Handlers) GetNoteSummary(w http.ResponseWriter, r *http.Request) {
 		payload["conversation_activity"] = map[string]any{
 			"replies_24h": summary.ConversationActivity.Replies24h,
 			"replies_7d":  summary.ConversationActivity.Replies7d,
+			"replies_30d": summary.ConversationActivity.Replies30d,
 		}
 	}
 	writeJSON(w, http.StatusOK, payload)

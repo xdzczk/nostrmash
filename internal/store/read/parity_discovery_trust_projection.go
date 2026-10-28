@@ -170,9 +170,12 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 		return nil, false, err
 	}
 	if rising {
-		if scoreColumn == "score_24h" {
+		switch scoreColumn {
+		case "score_24h":
 			scoreColumn = "rising_score_24h"
-		} else {
+		case "score_30d":
+			scoreColumn = "rising_score_30d"
+		default:
 			scoreColumn = "rising_score_7d"
 		}
 	}
@@ -195,6 +198,10 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 	}
 	if mode == discoveryProjectionModePreferTrusted {
 		orderBy = fmt.Sprintf("%s DESC, p.%s DESC, p.recent_engagement_received DESC, p.recent_activity_at DESC, p.pubkey ASC", trustedExpr, scoreColumn)
+	}
+	rootNoteClause := ""
+	if !rising {
+		rootNoteClause = profileRootNoteExistsSQL("p.pubkey")
 	}
 	langClause := ""
 	args := []any{minCreatedAt, policy.MaxHops, policy.MinimumScore, limit, offset}
@@ -233,9 +240,10 @@ func (s *Read) GetTrustQualifiedTrendingProfiles(
 		  AND p.%s > 0
 		  %s
 		  %s
+		  %s
 		ORDER BY %s
 		LIMIT $4 OFFSET $5
-	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, trustedExpr, scoreColumn, whereTrusted, langClause, orderBy)
+	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, trustedExpr, scoreColumn, rootNoteClause, whereTrusted, langClause, orderBy)
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("get trust-qualified trending profiles: %w", err)

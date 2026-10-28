@@ -42,6 +42,7 @@ func threadSummaryFromStore(row readmodel.ThreadSummaryProjection) ThreadSummary
 		Velocity: ThreadVelocityHints{
 			Replies24h: row.Replies24h,
 			Replies7d:  row.Replies7d,
+			Replies30d: row.Replies30d,
 		},
 		Consistency: row.Consistency,
 	}
@@ -67,6 +68,7 @@ func noteConversationActivityFromStore(row readmodel.NoteConversationVelocity) N
 	return NoteConversationActivity{
 		Replies24h: row.Replies24h,
 		Replies7d:  row.Replies7d,
+		Replies30d: row.Replies30d,
 	}
 }
 

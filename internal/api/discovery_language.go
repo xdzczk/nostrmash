@@ -28,12 +28,13 @@ func (h Handlers) attachDiscoveryLanguage(ctx context.Context, payload map[strin
 	if err != nil {
 		return
 	}
-	if len(stats.TopLanguages24h) == 0 && len(stats.TopLanguages7d) == 0 {
+	if len(stats.TopLanguages24h) == 0 && len(stats.TopLanguages7d) == 0 && len(stats.TopLanguages30d) == 0 {
 		return
 	}
 	payload["top_languages"] = map[string]any{
 		"24h": stats.TopLanguages24h,
 		"7d":  stats.TopLanguages7d,
+		"30d": stats.TopLanguages30d,
 	}
 }
 

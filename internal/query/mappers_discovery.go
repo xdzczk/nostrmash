@@ -32,10 +32,12 @@ func publicDiscoveryNetworkStatsFromStore(row readmodel.PublicDiscoveryNetworkSt
 		ActiveAuthors: WindowedCount{
 			Last24h: row.ActiveAuthors.Last24h,
 			Last7d:  row.ActiveAuthors.Last7d,
+			Last30d: row.ActiveAuthors.Last30d,
 		},
 		NoteVolume: WindowedCount{
 			Last24h: row.NoteVolume.Last24h,
 			Last7d:  row.NoteVolume.Last7d,
+			Last30d: row.NoteVolume.Last30d,
 		},
 		TopRelays24h: relayUsagesFromStore(row.TopRelays24h),
 		TopRelays7d:  relayUsagesFromStore(row.TopRelays7d),
@@ -46,6 +48,9 @@ func publicDiscoveryNetworkStatsFromStore(row readmodel.PublicDiscoveryNetworkSt
 			Languages7d:  row.SectionTimes.Languages7d,
 			Hashtags24h:  row.SectionTimes.Hashtags24h,
 			Hashtags7d:   row.SectionTimes.Hashtags7d,
+			Home30d:      row.SectionTimes.Home30d,
+			Languages30d: row.SectionTimes.Languages30d,
+			Hashtags30d:  row.SectionTimes.Hashtags30d,
 			Relays:       row.SectionTimes.Relays,
 			TopRelays24h: row.SectionTimes.TopRelays24h,
 			TopRelays7d:  row.SectionTimes.TopRelays7d,
@@ -63,6 +68,12 @@ func publicDiscoveryNetworkStatsFromStore(row readmodel.PublicDiscoveryNetworkSt
 			out.TopLanguages7d = append(out.TopLanguages7d, languageSummaryFromStore(lang))
 		}
 	}
+	if len(row.TopLanguages30d) > 0 {
+		out.TopLanguages30d = make([]LanguageSummary, 0, len(row.TopLanguages30d))
+		for _, lang := range row.TopLanguages30d {
+			out.TopLanguages30d = append(out.TopLanguages30d, languageSummaryFromStore(lang))
+		}
+	}
 	out.TopRelays = relayUsagesFromStore(row.TopRelays)
 	if row.TopHashtags == nil {
 		return out
@@ -70,12 +81,16 @@ func publicDiscoveryNetworkStatsFromStore(row readmodel.PublicDiscoveryNetworkSt
 	topHashtags := &TrendingHashtagWindows{
 		Last24h: make([]TrendingHashtag, 0, len(row.TopHashtags.Last24h)),
 		Last7d:  make([]TrendingHashtag, 0, len(row.TopHashtags.Last7d)),
+		Last30d: make([]TrendingHashtag, 0, len(row.TopHashtags.Last30d)),
 	}
 	for _, hashtag := range row.TopHashtags.Last24h {
 		topHashtags.Last24h = append(topHashtags.Last24h, trendingHashtagFromStore(hashtag))
 	}
 	for _, hashtag := range row.TopHashtags.Last7d {
 		topHashtags.Last7d = append(topHashtags.Last7d, trendingHashtagFromStore(hashtag))
+	}
+	for _, hashtag := range row.TopHashtags.Last30d {
+		topHashtags.Last30d = append(topHashtags.Last30d, trendingHashtagFromStore(hashtag))
 	}
 	out.TopHashtags = topHashtags
 	return out
@@ -242,6 +257,7 @@ func hotConversationFromStore(row readmodel.HotConversation) HotConversation {
 		LastActivityAt:   row.LastActivityAt,
 		Replies24h:       row.Replies24h,
 		Replies7d:        row.Replies7d,
+		Replies30d:       row.Replies30d,
 		VelocityScore:    row.VelocityScore,
 		Consistency:      row.Consistency,
 	}

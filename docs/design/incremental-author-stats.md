@@ -48,7 +48,7 @@ Implemented (cutover defaults on):
   and the trust-weighted input — reads it (the legacy
   `contact_list_created_at` edge scan re-counted every follower whose latest
   list rewrite fell in-window). Rows are pruned by insert age via
-  `WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_*` once older than the widest (7d)
+  `WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_*` once older than the widest (30d)
   read window. The migration is deliberately DDL-only (a withdrawn 000085
   variant bulk-seeded from `follower_edges` and dropped
   `follower_gains_daily` inside the single boot-blocking migration

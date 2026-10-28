@@ -267,18 +267,39 @@ type domainSnapshotRow struct {
 	LatestEventAt *int64                    `json:"latest_event_at"`
 	Activity24h   domainSnapshotActivityRow `json:"activity_24h"`
 	Activity7d    domainSnapshotActivityRow `json:"activity_7d"`
+	Activity30d   domainSnapshotActivityRow `json:"activity_30d"`
 }
 
-// resolveHomeDomainsSnapshotLabel maps the homepage's fixed trending window
-// to the matching precomputed snapshot label. Only 24h/7d are snapshotted —
-// the same fixed shape RefreshRelayWindowSnapshots computes — because those
-// are the only windows the homepage bundle ever requests.
+func domainSummaryFromSnapshot(row domainSnapshotRow) DomainSummaryProjection {
+	return DomainSummaryProjection{
+		Domain:        row.Domain,
+		LatestEventAt: row.LatestEventAt,
+		Activity: DomainActivityStatsProjection{
+			Last24h: domainActivityFromSnapshot(row.Activity24h),
+			Last7d:  domainActivityFromSnapshot(row.Activity7d),
+			Last30d: domainActivityFromSnapshot(row.Activity30d),
+		},
+	}
+}
+
+func domainActivityFromSnapshot(row domainSnapshotActivityRow) DomainActivityProjection {
+	return DomainActivityProjection{
+		LinkCount:     row.LinkCount,
+		NoteCount:     row.NoteCount,
+		UniqueAuthors: row.UniqueAuthors,
+	}
+}
+
+// resolveHomeDomainsSnapshotLabel maps a fixed trending window to the
+// matching precomputed snapshot label. 24h, 7d, and 30d are snapshotted.
 func resolveHomeDomainsSnapshotLabel(window time.Duration) (string, error) {
 	switch window {
 	case 24 * time.Hour:
 		return relaySnapshotLabelTopDomains24h, nil
 	case 7 * 24 * time.Hour:
 		return relaySnapshotLabelTopDomains7d, nil
+	case 30 * 24 * time.Hour:
+		return relaySnapshotLabelTopDomains30d, nil
 	default:
 		return "", fmt.Errorf("unsupported home trending domains window: %s", window)
 	}
@@ -336,22 +357,7 @@ func (s *Read) GetHomeTrendingDomains(
 	}
 	out := make([]DomainSummaryProjection, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, DomainSummaryProjection{
-			Domain:        row.Domain,
-			LatestEventAt: row.LatestEventAt,
-			Activity: DomainActivityStatsProjection{
-				Last24h: DomainActivityProjection{
-					LinkCount:     row.Activity24h.LinkCount,
-					NoteCount:     row.Activity24h.NoteCount,
-					UniqueAuthors: row.Activity24h.UniqueAuthors,
-				},
-				Last7d: DomainActivityProjection{
-					LinkCount:     row.Activity7d.LinkCount,
-					NoteCount:     row.Activity7d.NoteCount,
-					UniqueAuthors: row.Activity7d.UniqueAuthors,
-				},
-			},
-		})
+		out = append(out, domainSummaryFromSnapshot(row))
 	}
 	return out, nil
 }
@@ -371,22 +377,7 @@ func (s *Read) homeTrendingDomainsForLanguage(ctx context.Context, label, lang s
 	}
 	out := make([]DomainSummaryProjection, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, DomainSummaryProjection{
-			Domain:        row.Domain,
-			LatestEventAt: row.LatestEventAt,
-			Activity: DomainActivityStatsProjection{
-				Last24h: DomainActivityProjection{
-					LinkCount:     row.Activity24h.LinkCount,
-					NoteCount:     row.Activity24h.NoteCount,
-					UniqueAuthors: row.Activity24h.UniqueAuthors,
-				},
-				Last7d: DomainActivityProjection{
-					LinkCount:     row.Activity7d.LinkCount,
-					NoteCount:     row.Activity7d.NoteCount,
-					UniqueAuthors: row.Activity7d.UniqueAuthors,
-				},
-			},
-		})
+		out = append(out, domainSummaryFromSnapshot(row))
 	}
 	return out, nil
 }

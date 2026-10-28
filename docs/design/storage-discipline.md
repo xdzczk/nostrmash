@@ -171,7 +171,7 @@ See [architecture/trust-bounded-ingest.md](../architecture/trust-bounded-ingest.
 
 ### Engagement raw retention
 
-- **Target**: raw `events WHERE kind IN (6,7,9735)` older than `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` (default 14d).
+- **Target**: raw `events WHERE kind IN (6,7,9735)` older than `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` (default 32d).
 - **Survivors**: `reaction_counts`, `repost_counts` (no FK to `events`); windowed discovery scores unaffected.
 - **Derivation-safe guard**: do not purge while `derive_event_bundle` is pending/running, or dead within `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` (default 7d).
 - **Metrics**: `nostrmash_retention_purged_rows_total{target="engagement_events"}`.

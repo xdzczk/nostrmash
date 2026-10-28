@@ -99,8 +99,8 @@ const trustedAuthorJoinClause = `INNER JOIN trust_graph_snapshot trusted ON trus
 //
 // Failure handling
 // ----------------
-// This is split into two independently-committed phases, each its
-// own transaction:
+// This is split into independently-committed phases, each its own
+// transaction:
 //
 //  1. refreshCoreRelayWindowSnapshots — relay summary, top relays,
 //     home window (note volume / active authors), top languages.
@@ -119,11 +119,16 @@ const trustedAuthorJoinClause = `INNER JOIN trust_graph_snapshot trusted ON trus
 //     means a slow or failing hashtags/domains computation only
 //     staleness-affects those two snapshot labels, not the whole
 //     bundle.
+//  3. refreshDiscovery30dSnapshots — 30-day home window, languages,
+//     hashtags, and domains. Hashtags/home and domains commit separately
+//     so a slow 30d domain aggregate cannot roll back the 30d note-volume
+//     row, and neither can stall the 24h/7d phases above. Relay
+//     leaderboards stay 24h/7d.
 //
 // Within each phase, a failure still rolls back that phase's own
 // upserts, leaving its previous snapshot rows in place — callers
 // (the worker loop) log the error but do not block. RefreshRelayWindowSnapshots
-// runs both phases regardless of whether the first one failed, and
+// runs every phase regardless of whether an earlier one failed, and
 // joins their errors so callers see everything that went wrong in a
 // single tick.
 func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
@@ -137,7 +142,13 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 	rollupErr := h.refreshRelayActivityRollup(ctx)
 	coreErr := h.refreshCoreRelayWindowSnapshots(ctx)
 	trendingErr := h.refreshTrendingLinksSnapshots(ctx)
-	return errors.Join(rollupErr, coreErr, trendingErr)
+	// 30d home/hashtag/domain snapshots run after the 24h/7d phases and in
+	// their own transactions. A slow 30d statement must not roll back the
+	// rows the homepage already serves. Relay distinct-author scans stay
+	// on 24h/7d: a 30d COUNT(DISTINCT pubkey) over event_relays does not
+	// fit the per-statement timeout.
+	window30dErr := h.refreshDiscovery30dSnapshots(ctx)
+	return errors.Join(rollupErr, coreErr, trendingErr, window30dErr)
 }
 
 // Relay-activity rollup cadence knobs.
@@ -439,6 +450,91 @@ func (h *Handlers) refreshTrendingLinksSnapshots(ctx context.Context) error {
 	})
 }
 
+// refreshDiscovery30dSnapshots writes the 30-day homepage snapshots in two
+// transactions so a slow domain aggregate cannot roll back note volume,
+// languages, or hashtags. It does not recompute relay leaderboards.
+func (h *Handlers) refreshDiscovery30dSnapshots(ctx context.Context) error {
+	coreErr := h.refreshDiscovery30dCoreSnapshots(ctx)
+	domainErr := h.refreshDiscovery30dDomainSnapshots(ctx)
+	return errors.Join(coreErr, domainErr)
+}
+
+func (h *Handlers) refreshDiscovery30dCoreSnapshots(ctx context.Context) error {
+	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
+		if err := configureRelayWindowSnapshotTx(ctx, tx); err != nil {
+			return err
+		}
+		cutoff30d := time.Now().UTC().Add(-30 * 24 * time.Hour).Unix()
+
+		homeWindow30d, err := computeHomeWindowSnapshot(ctx, tx, cutoff30d)
+		if err != nil {
+			return fmt.Errorf("compute home window 30d snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow30d, homeWindow30d); err != nil {
+			return err
+		}
+		topLanguages30d, err := computeTopLanguagesSnapshot(ctx, tx, cutoff30d, 8)
+		if err != nil {
+			return fmt.Errorf("compute top languages 30d snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopLanguages30d, jsonArray(topLanguages30d)); err != nil {
+			return err
+		}
+		langs30, err := computeRankingLanguages(ctx, tx, cutoff30d)
+		if err != nil {
+			return fmt.Errorf("compute ranking languages 30d: %w", err)
+		}
+		homeLang30, err := computeHomeWindowByLanguage(ctx, tx, cutoff30d, langs30)
+		if err != nil {
+			return fmt.Errorf("compute home window languages 30d: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow30dLang, homeLang30); err != nil {
+			return err
+		}
+		topHashtags30d, err := computeTopHashtagsSnapshot(ctx, tx, cutoff30d, 50)
+		if err != nil {
+			return fmt.Errorf("compute top hashtags 30d snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags30d, jsonArray(topHashtags30d)); err != nil {
+			return err
+		}
+		hashtagsLang30, err := computeTopHashtagsByLanguage(ctx, tx, cutoff30d, langs30, 50)
+		if err != nil {
+			return fmt.Errorf("compute top hashtags by language 30d: %w", err)
+		}
+		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags30dLang, hashtagsLang30)
+	})
+}
+
+func (h *Handlers) refreshDiscovery30dDomainSnapshots(ctx context.Context) error {
+	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
+		if err := configureRelayWindowSnapshotTx(ctx, tx); err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		cutoff24h := now.Add(-24 * time.Hour).Unix()
+		cutoff7d := now.Add(-7 * 24 * time.Hour).Unix()
+		cutoff30d := now.Add(-30 * 24 * time.Hour).Unix()
+
+		topDomains30d, err := computeTopDomains30dSnapshot(ctx, tx, cutoff24h, cutoff7d, cutoff30d, 50)
+		if err != nil {
+			return fmt.Errorf("compute top domains 30d snapshot: %w", err)
+		}
+		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopDomains30d, jsonArray(topDomains30d)); err != nil {
+			return err
+		}
+		langs30, err := computeRankingLanguages(ctx, tx, cutoff30d)
+		if err != nil {
+			return fmt.Errorf("compute ranking languages 30d for domains: %w", err)
+		}
+		domainsLang30, err := computeTopDomains30dByLanguage(ctx, tx, cutoff24h, cutoff7d, cutoff30d, langs30, 50)
+		if err != nil {
+			return fmt.Errorf("compute top domains by language 30d: %w", err)
+		}
+		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopDomains30dLang, domainsLang30)
+	})
+}
+
 // RelayWindowSnapshotAge reports how long ago the "home_window_24h" row was
 // last successfully computed — the same row backing the note-volume /
 // active-authors numbers and the "Updated Xd ago" freshness label callers
@@ -488,8 +584,12 @@ const (
 	relaySnapshotLabelTopLanguages7d  = "top_languages_7d"
 	relaySnapshotLabelTopHashtags24h  = "top_hashtags_24h"
 	relaySnapshotLabelTopHashtags7d   = "top_hashtags_7d"
+	relaySnapshotLabelTopHashtags30d  = "top_hashtags_30d"
 	relaySnapshotLabelTopDomains24h   = "top_domains_24h"
 	relaySnapshotLabelTopDomains7d    = "top_domains_7d"
+	relaySnapshotLabelTopDomains30d   = "top_domains_30d"
+	relaySnapshotLabelHomeWindow30d   = "home_window_30d"
+	relaySnapshotLabelTopLanguages30d = "top_languages_30d"
 )
 
 // jsonArray normalizes a nil slice to an empty slice so json.Marshal
@@ -844,6 +944,9 @@ type domainRow struct {
 	LatestEventAt *int64            `json:"latest_event_at"`
 	Activity24h   domainActivityRow `json:"activity_24h"`
 	Activity7d    domainActivityRow `json:"activity_7d"`
+	// Activity30d is set only by the 30d snapshot. omitempty keeps the
+	// 24h/7d payloads unchanged: those scans are not a real 30d count.
+	Activity30d domainActivityRow `json:"activity_30d,omitempty"`
 }
 
 // computeTopDomainsSnapshot mirrors the ranking used by
@@ -919,6 +1022,79 @@ func computeTopDomainsSnapshot(
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read top domain rows: %w", err)
+	}
+	return out, nil
+}
+
+// computeTopDomains30dSnapshot ranks domains inside the 30-day candidate set
+// and fills 24h, 7d, and 30d activity from that same set. It is separate from
+// computeTopDomainsSnapshot so the 5-minute 24h/7d scans do not grow a 30d
+// aggregate. activity_30d on this payload is a real 30-day count.
+func computeTopDomains30dSnapshot(
+	ctx context.Context,
+	tx pgx.Tx,
+	cutoff24h int64,
+	cutoff7d int64,
+	cutoff30d int64,
+	limit int,
+) ([]domainRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := fmt.Sprintf(`
+		SELECT
+			u.canonical_domain,
+			MAX(u.created_at),
+			COUNT(*) FILTER (WHERE u.created_at >= $1),
+			COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $1),
+			COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $1),
+			COUNT(*) FILTER (WHERE u.created_at >= $2),
+			COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $2),
+			COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $2),
+			COUNT(*) FILTER (WHERE u.created_at >= $3),
+			COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $3),
+			COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $3)
+		FROM event_urls u
+		%s
+		WHERE u.created_at >= $3
+		  AND %s
+		GROUP BY u.canonical_domain
+		ORDER BY
+			COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $3) DESC,
+			(COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $3))::double precision /
+				GREATEST(COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $3), 1) DESC,
+			COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $3) DESC,
+			COUNT(*) FILTER (WHERE u.created_at >= $3) DESC,
+			u.canonical_domain ASC
+		LIMIT $4
+	`, fmt.Sprintf(trustedAuthorJoinClause, "u"), domainMediaURLFilterClause)
+	rows, err := tx.Query(ctx, query, cutoff24h, cutoff7d, cutoff30d, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query top domains 30d: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domainRow, 0, limit)
+	for rows.Next() {
+		var row domainRow
+		if err := rows.Scan(
+			&row.Domain,
+			&row.LatestEventAt,
+			&row.Activity24h.LinkCount,
+			&row.Activity24h.NoteCount,
+			&row.Activity24h.UniqueAuthors,
+			&row.Activity7d.LinkCount,
+			&row.Activity7d.NoteCount,
+			&row.Activity7d.UniqueAuthors,
+			&row.Activity30d.LinkCount,
+			&row.Activity30d.NoteCount,
+			&row.Activity30d.UniqueAuthors,
+		); err != nil {
+			return nil, fmt.Errorf("scan top domain 30d row: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read top domain 30d rows: %w", err)
 	}
 	return out, nil
 }

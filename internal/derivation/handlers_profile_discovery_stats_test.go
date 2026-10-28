@@ -246,6 +246,102 @@ func TestProjectProfileDiscoveryStats_LegacyFullScanExcludesSelfEngagement(t *te
 	}
 }
 
+// Likes on notes from outside the window, and likes on replies, must not
+// become a per-post trending rate. One person liking several in-window root
+// notes counts once. Rising still counts each person who showed up, including
+// on older notes, but a single person stays under the noise floor.
+func TestProjectProfileDiscoveryStats_EngagementFollowsInWindowRootNotes(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+	old := now.Add(-72 * time.Hour)
+	fresh := now.Add(-1 * time.Hour)
+	like := now.Add(-20 * time.Minute)
+
+	events := []model.Event{
+		newEventForTest("win_old", "win_author", old.Unix(), 1, nil, "old root", old),
+		newEventForTest("win_new_a", "win_author", fresh.Unix(), 1, nil, "new root a", fresh),
+		newEventForTest("win_new_b", "win_author", fresh.Add(time.Minute).Unix(), 1, nil, "new root b", fresh.Add(time.Minute)),
+		newEventForTest("win_parent", "win_parent_author", old.Unix(), 1, nil, "parent", old),
+		newEventForTest("win_reply", "win_author", fresh.Unix(), 1, [][]string{{"e", "win_parent", "", "reply"}}, "reply", fresh),
+		// One person likes the old root, both new roots, and the reply.
+		newEventForTest("win_boost_old", "win_booster", like.Unix(), 7, [][]string{{"e", "win_old"}}, "+", like),
+		newEventForTest("win_boost_a", "win_booster", like.Unix(), 7, [][]string{{"e", "win_new_a"}}, "+", like),
+		newEventForTest("win_boost_b", "win_booster", like.Unix(), 7, [][]string{{"e", "win_new_b"}}, "+", like),
+		newEventForTest("win_boost_reply", "win_booster", like.Unix(), 7, [][]string{{"e", "win_reply"}}, "+", like),
+		// A second person only likes the old root. A third only likes the reply.
+		newEventForTest("win_stranger_old", "win_stranger", like.Unix(), 7, [][]string{{"e", "win_old"}}, "+", like),
+		newEventForTest("win_reply_fan", "win_reply_fan", like.Unix(), 7, [][]string{{"e", "win_reply"}}, "+", like),
+		// No in-window root note. One like on a three-day-old note.
+		newEventForTest("quiet_old", "quiet_author", old.Unix(), 1, nil, "quiet", old),
+		newEventForTest("quiet_like", "quiet_fan", like.Unix(), 7, [][]string{{"e", "quiet_old"}}, "+", like),
+	}
+	for _, event := range events {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
+
+	var raw int64
+	var trending, rising float64
+	var score, risingScore float64
+	if err := pool.QueryRow(ctx, `
+		SELECT recent_engagement_received,
+		       COALESCE(scored_engagement_24h, -1),
+		       COALESCE(scored_rising_engagement_24h, -1),
+		       score_24h, rising_score_24h
+		FROM profile_discovery_stats
+		WHERE pubkey = 'win_author'
+	`).Scan(&raw, &trending, &rising, &score, &risingScore); err != nil {
+		t.Fatalf("query win_author stats: %v", err)
+	}
+	// Four likes from the booster plus one old-note like and one reply like.
+	if raw != 6 {
+		t.Fatalf("display engagement = %d, want 6 raw events", raw)
+	}
+	if trending != 1 {
+		t.Fatalf("trending engagement = %v, want 1 (one person, in-window root notes only)", trending)
+	}
+	if rising != 3 {
+		t.Fatalf("rising engagement = %v, want 3 distinct people", rising)
+	}
+	if score <= 0 {
+		t.Fatalf("in-window root note with a real engager should trend, score=%v", score)
+	}
+	if risingScore <= 0 {
+		t.Fatalf("three distinct people should clear the rising noise floor, score=%v", risingScore)
+	}
+
+	var quietTrending, quietRising, quietScore, quietRisingScore float64
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(scored_engagement_24h, -1),
+		       COALESCE(scored_rising_engagement_24h, -1),
+		       score_24h, rising_score_24h
+		FROM profile_discovery_stats
+		WHERE pubkey = 'quiet_author'
+	`).Scan(&quietTrending, &quietRising, &quietScore, &quietRisingScore); err != nil {
+		t.Fatalf("query quiet_author stats: %v", err)
+	}
+	if quietTrending != 0 || quietScore != 0 {
+		t.Fatalf("old-note like must not trend a profile with no in-window root note: engagement=%v score=%v", quietTrending, quietScore)
+	}
+	if quietRising != 1 {
+		t.Fatalf("rising engagement = %v, want the one person who liked the old note", quietRising)
+	}
+	if quietRisingScore != 0 {
+		t.Fatalf("one person is noise for rising, score=%v", quietRisingScore)
+	}
+}
+
 func TestProjectionRebuildScopes_ProfileDiscoveryStatsFull(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

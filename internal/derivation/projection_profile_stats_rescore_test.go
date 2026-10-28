@@ -12,7 +12,7 @@ import (
 // Stored discovery scores are only recomputed when an event dirty-marks the
 // pubkey, so the re-score enqueue is what propagates formula changes and
 // freshness decay to quiet profiles. It must target exactly the rows that
-// can still be served: stale-scored AND active within the 7d serving window.
+// can still be served: stale-scored AND active within the 30d serving window.
 func TestEnqueueStaleProfileDiscoveryRescores(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
@@ -22,7 +22,7 @@ func TestEnqueueStaleProfileDiscoveryRescores(t *testing.T) {
 	handlers := derivation.NewHandlers(pool)
 	now := time.Now().UTC()
 
-	insert := func(pubkey string, activityAt time.Time, scoredAt time.Time) {
+	insert := func(pubkey string, activityAt time.Time, scoredAt time.Time, version int) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO profile_discovery_stats (
@@ -30,35 +30,50 @@ func TestEnqueueStaleProfileDiscoveryRescores(t *testing.T) {
 				recent_post_count, recent_reply_count, recent_engagement_received,
 				recent_zap_volume_msats, recent_active_days, recent_activity_at,
 				last_scored_at, derivation_version
-			) VALUES ($1, 1, 1, 1, 1, 1, 0, 2, 0, 1, $2, $3, 1)
-		`, pubkey, activityAt.Unix(), scoredAt); err != nil {
+			) VALUES ($1, 1, 1, 1, 1, 1, 0, 2, 0, 1, $2, $3, $4)
+		`, pubkey, activityAt.Unix(), scoredAt, version); err != nil {
 			t.Fatalf("insert profile_discovery_stats for %s: %v", pubkey, err)
 		}
 	}
 
-	// Stale score, still inside the 7d serving window: must be enqueued.
-	insert("stale_in_window", now.Add(-24*time.Hour), now.Add(-3*time.Hour))
+	current := derivation.ProfileDiscoveryStatsVersion
+	// Stale score, still inside the 30d serving window: must be enqueued.
+	insert("stale_in_window", now.Add(-24*time.Hour), now.Add(-3*time.Hour), current)
 	// Stale score but outside the serving window: can never be served, so
 	// re-scoring is wasted work and it must be skipped.
-	insert("stale_out_of_window", now.Add(-8*24*time.Hour), now.Add(-8*24*time.Hour))
-	// Freshly scored: nothing to do.
-	insert("fresh", now.Add(-1*time.Hour), now.Add(-10*time.Minute))
+	insert("stale_out_of_window", now.Add(-31*24*time.Hour), now.Add(-31*24*time.Hour), current)
+	// Freshly scored on the current formula: nothing to do.
+	insert("fresh", now.Add(-1*time.Hour), now.Add(-10*time.Minute), current)
+	// Freshly scored, but by an older formula. A version bump has to reach
+	// it without waiting out the freshness window, because that is the row
+	// still sitting on the page.
+	insert("old_formula", now.Add(-1*time.Hour), now.Add(-10*time.Minute), current-1)
 
 	enqueued, err := handlers.EnqueueStaleProfileDiscoveryRescores(ctx, 2*time.Hour, 100)
 	if err != nil {
 		t.Fatalf("EnqueueStaleProfileDiscoveryRescores: %v", err)
 	}
-	if enqueued != 1 {
-		t.Fatalf("expected exactly the stale in-window profile to be enqueued, got %d", enqueued)
+	if enqueued != 2 {
+		t.Fatalf("expected the stale in-window profile and the old formula to be enqueued, got %d", enqueued)
 	}
-	var pending string
-	if err := pool.QueryRow(ctx, `
-		SELECT pubkey FROM pending_profile_stats_recomputes
-	`).Scan(&pending); err != nil {
+	pending := map[string]bool{}
+	rows, err := pool.Query(ctx, `SELECT pubkey FROM pending_profile_stats_recomputes`)
+	if err != nil {
 		t.Fatalf("read pending queue: %v", err)
 	}
-	if pending != "stale_in_window" {
-		t.Fatalf("expected stale_in_window in the pending queue, got %q", pending)
+	defer rows.Close()
+	for rows.Next() {
+		var pubkey string
+		if err := rows.Scan(&pubkey); err != nil {
+			t.Fatalf("scan pending pubkey: %v", err)
+		}
+		pending[pubkey] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read pending pubkeys: %v", err)
+	}
+	if !pending["stale_in_window"] || !pending["old_formula"] || len(pending) != 2 {
+		t.Fatalf("pending queue = %v", pending)
 	}
 
 	// Re-running must not bump marked_at for the already-pending row

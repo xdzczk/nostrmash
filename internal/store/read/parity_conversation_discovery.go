@@ -68,8 +68,15 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, la
 	// use lifetime participant_count so a three-person pile-on drops on the
 	// next read, before the rebuild.
 	authorsColumn := "authors_24h"
-	if windowDuration == 7*24*time.Hour {
+	authorVersion := conversationWindowAuthorVersion
+	switch windowDuration {
+	case 7 * 24 * time.Hour:
 		authorsColumn = "authors_7d"
+	case 30 * 24 * time.Hour:
+		authorsColumn = "authors_30d"
+		// authors_30d is written at thread summary v5. Older rows still
+		// rank from lifetime participant_count until they are rewritten.
+		authorVersion = 5
 	}
 	velocityBase := fmt.Sprintf(`
 		CASE
@@ -81,7 +88,7 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, la
 		CASE
 			WHEN COALESCE(ts.derivation_version, 0) >= %d THEN COALESCE(ts.%s, 0)
 			ELSE COALESCE(ts.participant_count, 1)
-		END`, conversationWindowAuthorVersion, authorsColumn)
+		END`, authorVersion, authorsColumn)
 	repliesExpr := fmt.Sprintf(`COALESCE(ts.%s, 0)`, repliesColumn)
 	velocityScore := fmt.Sprintf(`
 		CASE
@@ -117,6 +124,7 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, la
 			COALESCE(ts.last_activity_at, e.created_at),
 			COALESCE(ts.replies_24h, 0),
 			COALESCE(ts.replies_7d, 0),
+			COALESCE(ts.replies_30d, 0),
 			%s AS velocity_score
 		FROM thread_summaries ts
 		INNER JOIN events e ON e.id = ts.root_event_id
@@ -156,6 +164,7 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, la
 			&row.LastActivityAt,
 			&row.Replies24h,
 			&row.Replies7d,
+			&row.Replies30d,
 			&row.VelocityScore,
 		); err != nil {
 			return nil, fmt.Errorf("scan hot conversation row: %w", err)
@@ -174,6 +183,8 @@ func resolveConversationWindow(window time.Duration) (string, string, time.Durat
 		return "replies_24h", "reply_weight_24h", 24 * time.Hour, nil
 	case 7 * 24 * time.Hour:
 		return "replies_7d", "reply_weight_7d", 7 * 24 * time.Hour, nil
+	case 30 * 24 * time.Hour:
+		return "replies_30d", "reply_weight_30d", 30 * 24 * time.Hour, nil
 	default:
 		return "", "", 0, fmt.Errorf("unsupported conversation window: %s", strings.TrimSpace(window.String()))
 	}

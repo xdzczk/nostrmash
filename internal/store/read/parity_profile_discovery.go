@@ -444,6 +444,8 @@ func (s *Read) getProfileDiscoveryRows(
 		switch scoreColumn {
 		case "score_24h":
 			scoreColumn = "rising_score_24h"
+		case "score_30d":
+			scoreColumn = "rising_score_30d"
 		case "score_7d":
 			scoreColumn = "rising_score_7d"
 		}
@@ -460,6 +462,13 @@ func (s *Read) getProfileDiscoveryRows(
 
 	minCreatedAt := time.Now().UTC().Add(-windowDuration).Unix()
 	scoredEngagementCol, scoredFollowersCol := profileScoredInputColumns(scoreColumn)
+	// Rising can be follower growth with no new note. Trending is a rate
+	// over root notes in the window, so a row with no such note is not servable
+	// even when a previous score is still stored.
+	rootNoteClause := ""
+	if !rising {
+		rootNoteClause = profileRootNoteExistsSQL("profile_discovery_stats.pubkey")
+	}
 	langClause := ""
 	args := []any{minCreatedAt, limit, offset}
 	if lang != "" {
@@ -506,22 +515,11 @@ func (s *Read) getProfileDiscoveryRows(
 				  AND metadata.kind = 0
 			)
 		  )
-		  AND EXISTS (
-			SELECT 1
-			FROM events e
-			WHERE e.pubkey = profile_discovery_stats.pubkey
-			  AND e.kind = 1
-			  AND e.created_at >= $1
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM thread_edges te
-				WHERE te.child_event_id = e.id
-			  )
-		  )
+		  %s
 		  %s
 		ORDER BY score DESC, recent_engagement_received DESC, recent_activity_at DESC, pubkey ASC
 		LIMIT $2 OFFSET $3
-	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, scoreColumn, langClause)
+	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, scoreColumn, rootNoteClause, langClause)
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get profile discovery rows: %w", err)

@@ -219,7 +219,7 @@ const (
 // profiles that stopped producing events. Scores are otherwise recomputed
 // only when a new event dirty-marks the pubkey, so quiet profiles keep
 // stale scores (with stale freshness decay, computed by possibly obsolete
-// formulas) for up to the full 7d serving window. This loop re-enqueues
+// formulas) for up to the full 30d serving window. This loop re-enqueues
 // them into pending_profile_stats_recomputes; the profile-stats sweeper
 // does the actual recompute, so the loop itself is one cheap INSERT..SELECT
 // per tick. It must only run when that sweeper is enabled, otherwise the

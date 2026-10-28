@@ -83,7 +83,7 @@ Use this section when enabling the storage-bounding layer after deploy. Full des
 
 1. **`trust_worker`** writes seeds → refreshes `trust_graph_snapshot` → runs global trust scores.
 2. **`ingestor`** loads the snapshot into memory and gates authored kinds `1`/`4`/`9802`/`10000`/`10003`/`30023` (author) and kinds `6`/`7`/`9735` (target-exists) before canonical writes.
-3. **`worker`** purges raw engagement events older than ~14 days (lifetime counters survive).
+3. **`worker`** purges raw engagement events older than ~32 days (lifetime counters survive).
 
 ### Required env vars (production)
 
@@ -132,7 +132,7 @@ INGESTOR_TRUST_GATE_MODE=trusted_only
 
 ```bash
 WORKER_RETENTION_ENGAGEMENT_ENABLED=true
-WORKER_RETENTION_ENGAGEMENT_MAX_AGE=336h
+WORKER_RETENTION_ENGAGEMENT_MAX_AGE=768h
 WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE=168h
 WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL=1h
 WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT=2000
@@ -454,7 +454,7 @@ Worker throughput tuning:
 - `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_ENABLED` enables optional payload-only trimming (`raw_payload -> NULL`) before full-row retention.
 - `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE` and `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT` bound payload trimming when enabled.
 - `WORKER_RETENTION_ENGAGEMENT_ENABLED` enables periodic purge of raw engagement events (kinds `6`/`7`/`9735`; default `true`).
-- `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` (default `336h`/14d), `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL`, and `WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT` bound engagement retention. Lifetime `reaction_counts`/`repost_counts` survive; derivation-safe guard blocks in-flight jobs.
+- `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` (default `768h`/32d), `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL`, and `WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT` bound engagement retention. Lifetime `reaction_counts`/`repost_counts` survive; derivation-safe guard blocks in-flight jobs.
 - `WORKER_RETENTION_REPLACEABLE_ENABLED` enables periodic purge of superseded raw replaceable events (kinds `0`/`3`/`10000`/`10002`/`10003` and parameterized `30023`; default `true`). Only versions strictly older than the current winner are removed.
 - `WORKER_RETENTION_REPLACEABLE_MIN_AGE` (default `24h`, by `first_seen_at`), `WORKER_RETENTION_REPLACEABLE_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL`, and `WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT` bound replaceable retention. The latest-version projections (`contact_lists_latest`, `relay_lists_latest`, `profiles_latest`, `replaceable_state`) survive; derivation-safe guard blocks in-flight jobs.
 - `WORKER_RETENTION_DELETION_ENABLED` enables periodic purge of processed raw deletion events (kind `5`; default `true`). The `deletion_events` tombstone ledger survives (migration `000050` dropped the `events` FK cascade).
@@ -611,6 +611,7 @@ Metrics:
 - `nostrmash_contact_list_crawl_cycles_total{outcome}`
 - `nostrmash_contact_list_crawl_pubkeys_total{outcome}`
 - `nostrmash_contact_list_crawl_tags_enqueued_total`
+- `nostrmash_ingestor_background_loop_panics_total{loop}` counts a recovered panic in the crawl or any other ingestor background loop. Live relay subscriptions stay up; the named loop stops until the process restarts.
 
 ### Invalid events
 

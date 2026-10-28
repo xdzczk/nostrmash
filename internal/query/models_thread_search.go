@@ -42,6 +42,7 @@ type ThreadView struct {
 type ThreadVelocityHints struct {
 	Replies24h int64
 	Replies7d  int64
+	Replies30d int64
 }
 
 type ThreadSummary struct {
@@ -202,6 +203,7 @@ type NoteMediaFlags struct {
 type NoteConversationActivity struct {
 	Replies24h int64 `json:"replies_24h"`
 	Replies7d  int64 `json:"replies_7d"`
+	Replies30d int64 `json:"replies_30d"`
 }
 
 type NoteSummary struct {

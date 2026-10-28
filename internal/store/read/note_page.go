@@ -90,10 +90,13 @@ func (s *Read) GetNoteConversationVelocity(ctx context.Context, eventID string) 
 			) AS replies_24h,
 			COUNT(*) FILTER (
 				WHERE te.child_created_at >= extract(epoch FROM now())::bigint - (7 * 24 * 60 * 60)
-			) AS replies_7d
+			) AS replies_7d,
+			COUNT(*) FILTER (
+				WHERE te.child_created_at >= extract(epoch FROM now())::bigint - (30 * 24 * 60 * 60)
+			) AS replies_30d
 		FROM thread_edges te
 		WHERE te.parent_event_id = $1 OR te.root_event_id = $1
-	`, eventID).Scan(&out.Replies24h, &out.Replies7d); err != nil {
+	`, eventID).Scan(&out.Replies24h, &out.Replies7d, &out.Replies30d); err != nil {
 		return out, fmt.Errorf("get note conversation velocity: %w", err)
 	}
 	return out, nil

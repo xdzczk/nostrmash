@@ -147,6 +147,24 @@ func TestComputeProfileTrendingScore(t *testing.T) {
 		}
 	})
 
+	t.Run("no root posts is ineligible even with replies and engagement", func(t *testing.T) {
+		// Likes on old notes, or on replies, must not fill a slot when the
+		// account published no root note in the window. The denominator used
+		// to be (1 + posts), so zero posts became one imaginary post.
+		got := computeProfileTrendingScore(window, now, &activity, 0, 12, 500, 9_000_000, 6)
+		if got != 0 {
+			t.Fatalf("want 0 for a profile with no root posts, got %v", got)
+		}
+	})
+
+	t.Run("replies do not change the per-post rate", func(t *testing.T) {
+		withReplies := computeProfileTrendingScore(window, now, &activity, 2, 40, 30, 0, 2)
+		withoutReplies := computeProfileTrendingScore(window, now, &activity, 2, 0, 30, 0, 2)
+		if withReplies != withoutReplies {
+			t.Fatalf("replies must not move the trending score: with %v without %v", withReplies, withoutReplies)
+		}
+	})
+
 	t.Run("zero engagement is ineligible even with posts and consistency", func(t *testing.T) {
 		// A profile that only posted (or only received zaps recorded as
 		// volume, or was active for several days) must not fill a

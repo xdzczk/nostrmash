@@ -13,10 +13,13 @@ const rankingLanguageLimit = 8
 const (
 	relaySnapshotLabelHomeWindow24hLang  = "home_window_24h.lang"
 	relaySnapshotLabelHomeWindow7dLang   = "home_window_7d.lang"
+	relaySnapshotLabelHomeWindow30dLang  = "home_window_30d.lang"
 	relaySnapshotLabelTopHashtags24hLang = "top_hashtags_24h.lang"
 	relaySnapshotLabelTopHashtags7dLang  = "top_hashtags_7d.lang"
+	relaySnapshotLabelTopHashtags30dLang = "top_hashtags_30d.lang"
 	relaySnapshotLabelTopDomains24hLang  = "top_domains_24h.lang"
 	relaySnapshotLabelTopDomains7dLang   = "top_domains_7d.lang"
+	relaySnapshotLabelTopDomains30dLang  = "top_domains_30d.lang"
 )
 
 // computeRankingLanguages is the set of real languages a language view can
@@ -231,6 +234,106 @@ func computeTopDomainsByLanguage(
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read domain language rows: %w", err)
+	}
+	return out, nil
+}
+
+// computeTopDomains30dByLanguage is the language-scoped twin of
+// computeTopDomains30dSnapshot. The candidate set is the 30-day floor, so
+// the 24h and 7d activity filters are true subsets.
+func computeTopDomains30dByLanguage(
+	ctx context.Context,
+	tx pgx.Tx,
+	cutoff24h int64,
+	cutoff7d int64,
+	cutoff30d int64,
+	languages []string,
+	limit int,
+) (map[string][]domainRow, error) {
+	out := map[string][]domainRow{}
+	if len(languages) == 0 {
+		return out, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	query := fmt.Sprintf(`
+		SELECT
+			language,
+			canonical_domain,
+			latest_event_at,
+			links_24h,
+			notes_24h,
+			authors_24h,
+			links_7d,
+			notes_7d,
+			authors_7d,
+			links_30d,
+			notes_30d,
+			authors_30d
+		FROM (
+			SELECT
+				nds.primary_language AS language,
+				u.canonical_domain,
+				MAX(u.created_at) AS latest_event_at,
+				COUNT(*) FILTER (WHERE u.created_at >= $1) AS links_24h,
+				COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $1) AS notes_24h,
+				COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $1) AS authors_24h,
+				COUNT(*) FILTER (WHERE u.created_at >= $2) AS links_7d,
+				COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $2) AS notes_7d,
+				COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $2) AS authors_7d,
+				COUNT(*) FILTER (WHERE u.created_at >= $3) AS links_30d,
+				COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $3) AS notes_30d,
+				COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $3) AS authors_30d,
+				ROW_NUMBER() OVER (
+					PARTITION BY nds.primary_language
+					ORDER BY
+						COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $3) DESC,
+						(COUNT(DISTINCT u.author_pubkey) FILTER (WHERE u.created_at >= $3))::double precision /
+							GREATEST(COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $3), 1) DESC,
+						COUNT(DISTINCT u.event_id) FILTER (WHERE u.created_at >= $3) DESC,
+						COUNT(*) FILTER (WHERE u.created_at >= $3) DESC,
+						u.canonical_domain ASC
+				) AS rn
+			FROM event_urls u
+			INNER JOIN note_discovery_stats nds ON nds.event_id = u.event_id
+			%s
+			WHERE u.created_at >= $3
+			  AND nds.primary_language = ANY($4::text[])
+			  AND %s
+			GROUP BY nds.primary_language, u.canonical_domain
+		) ranked
+		WHERE rn <= $5
+		ORDER BY language ASC, rn ASC
+	`, fmt.Sprintf(trustedAuthorJoinClause, "u"), domainMediaURLFilterClause)
+	rows, err := tx.Query(ctx, query, cutoff24h, cutoff7d, cutoff30d, languages, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query top domains by language 30d: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var language string
+		var row domainRow
+		if err := rows.Scan(
+			&language,
+			&row.Domain,
+			&row.LatestEventAt,
+			&row.Activity24h.LinkCount,
+			&row.Activity24h.NoteCount,
+			&row.Activity24h.UniqueAuthors,
+			&row.Activity7d.LinkCount,
+			&row.Activity7d.NoteCount,
+			&row.Activity7d.UniqueAuthors,
+			&row.Activity30d.LinkCount,
+			&row.Activity30d.NoteCount,
+			&row.Activity30d.UniqueAuthors,
+		); err != nil {
+			return nil, fmt.Errorf("scan domain language 30d row: %w", err)
+		}
+		out[language] = append(out[language], row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read domain language 30d rows: %w", err)
 	}
 	return out, nil
 }

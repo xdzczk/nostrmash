@@ -335,7 +335,7 @@ type WorkerAppliedStatDeltasRetentionConfig struct {
 // WorkerFollowerGainEventsRetentionConfig configures the pruner that deletes
 // follower_gain_events rows (true kind=3 edge-diff follower gains, see
 // migrations/000086_follower_gain_events.sql) whose insert time has aged
-// past MaxAge. Every reader windows gains to at most 7 days, so MaxAge only
+// past MaxAge. Every reader windows gains to at most 30 days, so MaxAge only
 // needs to exceed that; the prune is hygiene that keeps the table bounded
 // by roughly one horizon of gains, not a correctness horizon.
 type WorkerFollowerGainEventsRetentionConfig struct {
@@ -686,8 +686,8 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 	}
 	if cfg.FollowerGainRetention.Enabled {
-		if cfg.FollowerGainRetention.MaxAge < 7*24*time.Hour {
-			return fmt.Errorf("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE must be >= 168h (rows feed the 7d discovery window)")
+		if cfg.FollowerGainRetention.MaxAge < 31*24*time.Hour {
+			return fmt.Errorf("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE must be >= 744h (rows feed the 30d discovery window)")
 		}
 		if cfg.FollowerGainRetention.RunInterval <= 0 {
 			return fmt.Errorf("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_RUN_INTERVAL must be > 0")

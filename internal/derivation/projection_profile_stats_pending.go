@@ -338,10 +338,10 @@ func (h *Handlers) releasePendingProfileStatsClaim(ctx context.Context, pubkey, 
 }
 
 // profileDiscoveryServingWindow mirrors the widest window the profile
-// discovery read queries serve (7d): rows whose recent_activity_at is
+// discovery read queries serve (30d): rows whose recent_activity_at is
 // older than this can never appear in a trending/rising list, so
 // re-scoring them is wasted work.
-const profileDiscoveryServingWindow = 7 * 24 * time.Hour
+const profileDiscoveryServingWindow = 30 * 24 * time.Hour
 
 // EnqueueStaleProfileDiscoveryRescores marks window-eligible profiles whose
 // discovery scores have not been recomputed for staleAfter as dirty, so the
@@ -354,7 +354,10 @@ const profileDiscoveryServingWindow = 7 * 24 * time.Hour
 // (derivation version bumps) never reach rows nobody touches. In production
 // this left hundreds of thousands of rows ranked by formulas several
 // versions old, with bot accounts pinned to the top of "Up and coming" by
-// scores from weeks earlier.
+// scores from weeks earlier. A row still inside its freshness window is
+// queued immediately when its derivation_version is behind the binary, and
+// those rows are ordered ahead of merely-stale ones so a formula change
+// reaches the profiles currently on the page first.
 //
 // ON CONFLICT DO NOTHING (unlike MarkProfileStatsDirty's DO UPDATE):
 // a row already pending will be recomputed anyway, and bumping marked_at
@@ -376,14 +379,20 @@ func (h *Handlers) EnqueueStaleProfileDiscoveryRescores(
 		FROM profile_discovery_stats
 		WHERE recent_activity_at IS NOT NULL
 		  AND recent_activity_at >= extract(epoch FROM now() - make_interval(secs => $1::bigint))::bigint
-		  AND last_scored_at < now() - make_interval(secs => $2::bigint)
-		ORDER BY last_scored_at ASC
+		  AND (
+			last_scored_at < now() - make_interval(secs => $2::bigint)
+			OR derivation_version < $4
+		  )
+		ORDER BY derivation_version ASC,
+			GREATEST(score_24h, score_7d, score_30d, rising_score_24h, rising_score_7d, rising_score_30d) DESC,
+			last_scored_at ASC
 		LIMIT $3
 		ON CONFLICT (pubkey) DO NOTHING
 	`,
 		int64(profileDiscoveryServingWindow.Seconds()),
 		int64(staleAfter.Seconds()),
 		limit,
+		ProfileDiscoveryStatsVersion,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("enqueue stale profile discovery rescores: %w", err)

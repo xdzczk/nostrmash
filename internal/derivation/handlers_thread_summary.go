@@ -157,8 +157,10 @@ func (h *Handlers) refreshThreadSummaryTx(
 	var lastActivityAt int64
 	var replies24h int64
 	var replies7d int64
+	var replies30d int64
 	var authors24h int
 	var authors7d int
+	var authors30d int
 	if err := tx.QueryRow(ctx, `
 		WITH descendant_events AS (
 			SELECT e.pubkey, e.created_at, te.child_created_at
@@ -188,6 +190,11 @@ func (h *Handlers) refreshThreadSummaryTx(
 				FROM descendant_events
 				WHERE child_created_at >= extract(epoch FROM now())::bigint - (7 * 24 * 60 * 60)
 			), 0) AS replies_7d,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM descendant_events
+				WHERE child_created_at >= extract(epoch FROM now())::bigint - (30 * 24 * 60 * 60)
+			), 0) AS replies_30d,
 			-- The root always counts as one author. Everyone else counts only
 			-- when they replied inside the window.
 			1 + COALESCE((
@@ -201,15 +208,23 @@ func (h *Handlers) refreshThreadSummaryTx(
 				FROM descendant_events
 				WHERE child_created_at >= extract(epoch FROM now())::bigint - (7 * 24 * 60 * 60)
 				  AND pubkey <> $3
-			), 0) AS authors_7d
+			), 0) AS authors_7d,
+			1 + COALESCE((
+				SELECT COUNT(DISTINCT pubkey)
+				FROM descendant_events
+				WHERE child_created_at >= extract(epoch FROM now())::bigint - (30 * 24 * 60 * 60)
+				  AND pubkey <> $3
+			), 0) AS authors_30d
 	`, rootEventID, rootCreatedAt, rootPubkey).Scan(
 		&replyCount,
 		&participantCount,
 		&lastActivityAt,
 		&replies24h,
 		&replies7d,
+		&replies30d,
 		&authors24h,
 		&authors7d,
+		&authors30d,
 	); err != nil {
 		return fmt.Errorf("compute thread summary aggregates: %w", err)
 	}
@@ -224,6 +239,10 @@ func (h *Handlers) refreshThreadSummaryTx(
 		return err
 	}
 	replyWeight7d, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 7*24*time.Hour, h.engagementWeighting)
+	if err != nil {
+		return err
+	}
+	replyWeight30d, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 30*24*time.Hour, h.engagementWeighting)
 	if err != nil {
 		return err
 	}
@@ -258,13 +277,16 @@ func (h *Handlers) refreshThreadSummaryTx(
 			last_activity_at,
 			replies_24h,
 			replies_7d,
+			replies_30d,
 			reply_weight_24h,
 			reply_weight_7d,
+			reply_weight_30d,
 			authors_24h,
 			authors_7d,
+			authors_30d,
 			derivation_version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (root_event_id) DO UPDATE
 		SET reply_count = EXCLUDED.reply_count,
 		    participant_count = EXCLUDED.participant_count,
@@ -272,10 +294,13 @@ func (h *Handlers) refreshThreadSummaryTx(
 		    last_activity_at = EXCLUDED.last_activity_at,
 		    replies_24h = EXCLUDED.replies_24h,
 		    replies_7d = EXCLUDED.replies_7d,
+		    replies_30d = EXCLUDED.replies_30d,
 		    reply_weight_24h = EXCLUDED.reply_weight_24h,
 		    reply_weight_7d = EXCLUDED.reply_weight_7d,
+		    reply_weight_30d = EXCLUDED.reply_weight_30d,
 		    authors_24h = EXCLUDED.authors_24h,
 		    authors_7d = EXCLUDED.authors_7d,
+		    authors_30d = EXCLUDED.authors_30d,
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
 	`,
@@ -286,10 +311,13 @@ func (h *Handlers) refreshThreadSummaryTx(
 		lastActivityAt,
 		replies24h,
 		replies7d,
+		replies30d,
 		replyWeight24h,
 		replyWeight7d,
+		replyWeight30d,
 		authors24h,
 		authors7d,
+		authors30d,
 		writeVersion,
 	); err != nil {
 		return fmt.Errorf("upsert thread summary: %w", err)

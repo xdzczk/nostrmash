@@ -262,6 +262,11 @@ func (h *Handlers) reconcileProfileDiscoveryStatsForPubkey(ctx context.Context, 
 	appendIfDiff("engagement_7d", incremental.window7d.engagement, full.window7d.engagement)
 	appendIfDiff("zap_msats_7d", incremental.window7d.zapVolumeMSats, full.window7d.zapVolumeMSats)
 	appendIfDiff("active_days_7d", int64(incremental.window7d.activeDays), int64(full.window7d.activeDays))
+	appendIfDiff("post_count_30d", incremental.window30d.postCount, full.window30d.postCount)
+	appendIfDiff("reply_count_30d", incremental.window30d.replyCount, full.window30d.replyCount)
+	appendIfDiff("engagement_30d", incremental.window30d.engagement, full.window30d.engagement)
+	appendIfDiff("zap_msats_30d", incremental.window30d.zapVolumeMSats, full.window30d.zapVolumeMSats)
+	appendIfDiff("active_days_30d", int64(incremental.window30d.activeDays), int64(full.window30d.activeDays))
 	appendIfDiff("follower_count", incremental.followerCount, full.followerCount)
 
 	incActivity := int64(0)

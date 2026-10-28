@@ -446,7 +446,7 @@ WHERE a.pubkey = c.pubkey;
 
 -- name: PruneExpiredFollowerGainEvents :execrows
 -- Deletes follower_gain_events rows older than the retention horizon.
--- Nothing reads gains past the widest (7d) discovery window, so any row
+-- Nothing reads gains past the widest (30d) discovery window, so any row
 -- whose insert time has aged past that plus a grace buffer is garbage.
 -- Pruning keys off created_at (the insert time, served by
 -- idx_follower_gain_events_created_at) rather than the event-supplied

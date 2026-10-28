@@ -306,6 +306,7 @@ type HotConversation struct {
 	LastActivityAt   int64
 	Replies24h       int64
 	Replies7d        int64
+	Replies30d       int64
 	VelocityScore    float64
 	Consistency      string
 }
@@ -324,6 +325,7 @@ type NetworkStats struct {
 type NoteConversationVelocity struct {
 	Replies24h int64
 	Replies7d  int64
+	Replies30d int64
 }
 
 type NoteQuoteRepostLinkageProjection struct {
@@ -379,6 +381,9 @@ type PublicStatsSectionTimes struct {
 	Languages7d  time.Time
 	Hashtags24h  time.Time
 	Hashtags7d   time.Time
+	Home30d      time.Time
+	Languages30d time.Time
+	Hashtags30d  time.Time
 	Relays       time.Time
 	TopRelays24h time.Time
 	TopRelays7d  time.Time
@@ -398,6 +403,7 @@ type PublicDiscoveryNetworkStats struct {
 	TopHashtags       *TrendingHashtagWindows `json:"top_hashtags,omitempty"`
 	TopLanguages24h   []LanguageSummary       `json:"top_languages_24h,omitempty"`
 	TopLanguages7d    []LanguageSummary       `json:"top_languages_7d,omitempty"`
+	TopLanguages30d   []LanguageSummary       `json:"top_languages_30d,omitempty"`
 	SectionTimes      PublicStatsSectionTimes `json:"-"`
 }
 
@@ -503,6 +509,7 @@ type ThreadSummaryProjection struct {
 	LastActivityAt   int64
 	Replies24h       int64
 	Replies7d        int64
+	Replies30d       int64
 	Consistency      string
 }
 
@@ -515,6 +522,7 @@ type TrendingHashtag struct {
 type TrendingHashtagWindows struct {
 	Last24h []TrendingHashtag `json:"24h"`
 	Last7d  []TrendingHashtag `json:"7d"`
+	Last30d []TrendingHashtag `json:"30d,omitempty"`
 }
 
 type TrendingNote struct {
@@ -633,4 +641,7 @@ type TrustState struct {
 type WindowedCount struct {
 	Last24h int64 `json:"24h"`
 	Last7d  int64 `json:"7d"`
+	// Last30d is omitted when zero so relay event volume and unique-author
+	// counts, which stay 24h/7d, do not grow a "30d": 0 field.
+	Last30d int64 `json:"30d,omitempty"`
 }

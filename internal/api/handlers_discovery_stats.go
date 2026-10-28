@@ -304,6 +304,7 @@ func slicePublicStatsHashtags(stats query.PublicDiscoveryNetworkStats, limit int
 	windows := *stats.TopHashtags
 	windows.Last24h = sliceHashtags(windows.Last24h, limit)
 	windows.Last7d = sliceHashtags(windows.Last7d, limit)
+	windows.Last30d = sliceHashtags(windows.Last30d, limit)
 	stats.TopHashtags = &windows
 	return stats
 }
@@ -323,10 +324,11 @@ func (h Handlers) networkStatsPayload(stats query.PublicDiscoveryNetworkStats) m
 	if stats.TopHashtags != nil {
 		network["top_hashtags"] = stats.TopHashtags
 	}
-	if len(stats.TopLanguages24h) > 0 || len(stats.TopLanguages7d) > 0 {
+	if len(stats.TopLanguages24h) > 0 || len(stats.TopLanguages7d) > 0 || len(stats.TopLanguages30d) > 0 {
 		network["top_languages"] = map[string]any{
 			"24h": stats.TopLanguages24h,
 			"7d":  stats.TopLanguages7d,
+			"30d": stats.TopLanguages30d,
 		}
 	}
 	payload := map[string]any{
@@ -351,10 +353,11 @@ func (h Handlers) contentStatsPayload(stats query.PublicDiscoveryNetworkStats) m
 	if stats.TopHashtags != nil {
 		content["top_hashtags"] = stats.TopHashtags
 	}
-	if len(stats.TopLanguages24h) > 0 || len(stats.TopLanguages7d) > 0 {
+	if len(stats.TopLanguages24h) > 0 || len(stats.TopLanguages7d) > 0 || len(stats.TopLanguages30d) > 0 {
 		content["top_languages"] = map[string]any{
 			"24h": stats.TopLanguages24h,
 			"7d":  stats.TopLanguages7d,
+			"30d": stats.TopLanguages30d,
 		}
 	}
 	sections := publicStatsSections(stats)
@@ -391,25 +394,25 @@ func publicStatsSections(stats query.PublicDiscoveryNetworkStats) map[string]any
 			"indexed_notes",
 			false,
 			"Distinct notes in the discovery projection, counted by the note's created_at.",
-			map[string]time.Time{"24h": times.Home24h, "7d": times.Home7d},
+			map[string]time.Time{"24h": times.Home24h, "7d": times.Home7d, "30d": times.Home30d},
 		),
 		"active_authors": statsSection(
 			"indexed_notes",
 			false,
 			"Distinct authors of those notes. This is not the number of pubkeys seen on relays.",
-			map[string]time.Time{"24h": times.Home24h, "7d": times.Home7d},
+			map[string]time.Time{"24h": times.Home24h, "7d": times.Home7d, "30d": times.Home30d},
 		),
 		"top_hashtags": statsSection(
 			"trust_graph",
 			true,
 			"Hashtags from notes whose authors are inside the trust graph.",
-			map[string]time.Time{"24h": times.Hashtags24h, "7d": times.Hashtags7d},
+			map[string]time.Time{"24h": times.Hashtags24h, "7d": times.Hashtags7d, "30d": times.Hashtags30d},
 		),
 		"top_languages": statsSection(
 			"indexed_notes",
 			false,
 			"Languages of indexed notes.",
-			map[string]time.Time{"24h": times.Languages24h, "7d": times.Languages7d},
+			map[string]time.Time{"24h": times.Languages24h, "7d": times.Languages7d, "30d": times.Languages30d},
 		),
 		"relays": statsSection(
 			"event_relays",

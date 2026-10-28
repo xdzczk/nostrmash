@@ -108,32 +108,26 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 
 	w24 := metrics.window24h
 	w7 := metrics.window7d
+	w30 := metrics.window30d
 
-	// Score inputs default to the raw window counters. With trust-weighted
-	// discovery engagement enabled they swap to deduplicated, self-excluded,
-	// trust-weighted values so engagement-farming rings buy no trending or
-	// rising score. Raw counters keep feeding the display columns and
-	// reconciliation unchanged; the scored_* columns persist whatever the
-	// scores actually used so ranking reasons can cite the same numbers.
-	engagement24h, engagement7d := float64(w24.engagement), float64(w7.engagement)
-	zapMSats24h, zapMSats7d := float64(w24.zapVolumeMSats), float64(w7.zapVolumeMSats)
-	newFollowers24h, newFollowers7d := float64(w24.newFollowers), float64(w7.newFollowers)
-	if h.engagementWeighting.TrustWeighted {
-		weighted, err := loadProfileWeightedScoreInputsTx(ctx, tx, pubkey, nowUnix, h.engagementWeighting)
-		if err != nil {
-			return err
-		}
-		engagement24h, engagement7d = weighted.engagement24h, weighted.engagement7d
-		zapMSats24h, zapMSats7d = weighted.zapMSats24h, weighted.zapMSats7d
-		newFollowers24h, newFollowers7d = weighted.newFollowers24h, weighted.newFollowers7d
+	// Raw counters keep feeding the display columns and reconciliation.
+	// Score inputs are a separate population: trending counts distinct
+	// engagers on root notes published in the window, rising counts distinct
+	// people who showed up in the window. scored_* persists those inputs so
+	// ranking reasons cite the same numbers the score used.
+	inputs, err := loadProfileWeightedScoreInputsTx(ctx, tx, pubkey, nowUnix, h.engagementWeighting)
+	if err != nil {
+		return err
 	}
 
-	score24h := computeProfileTrendingScore(24*time.Hour, nowUnix, recentActivityAt, w24.postCount, w24.replyCount, engagement24h, zapMSats24h, w24.activeDays)
-	score7d := computeProfileTrendingScore(7*24*time.Hour, nowUnix, recentActivityAt, w7.postCount, w7.replyCount, engagement7d, zapMSats7d, w7.activeDays)
-	risingScore24h := computeProfileRisingScore(score24h, metrics.followerCount, newFollowers24h, engagement24h, w24.postCount, w24.replyCount, w24.activeDays)
-	risingScore7d := computeProfileRisingScore(score7d, metrics.followerCount, newFollowers7d, engagement7d, w7.postCount, w7.replyCount, w7.activeDays)
+	score24h := computeProfileTrendingScore(24*time.Hour, nowUnix, inputs.motionAt24h, w24.postCount, w24.replyCount, inputs.trendingEngagement24h, inputs.trendingZapMSats24h, w24.activeDays)
+	score7d := computeProfileTrendingScore(7*24*time.Hour, nowUnix, inputs.motionAt7d, w7.postCount, w7.replyCount, inputs.trendingEngagement7d, inputs.trendingZapMSats7d, w7.activeDays)
+	score30d := computeProfileTrendingScore(30*24*time.Hour, nowUnix, inputs.motionAt30d, w30.postCount, w30.replyCount, inputs.trendingEngagement30d, inputs.trendingZapMSats30d, w30.activeDays)
+	risingScore24h := computeProfileRisingScore(score24h, metrics.followerCount, inputs.newFollowers24h, inputs.risingEngagement24h, w24.postCount, w24.replyCount, w24.activeDays)
+	risingScore7d := computeProfileRisingScore(score7d, metrics.followerCount, inputs.newFollowers7d, inputs.risingEngagement7d, w7.postCount, w7.replyCount, w7.activeDays)
+	risingScore30d := computeProfileRisingScore(score30d, metrics.followerCount, inputs.newFollowers30d, inputs.risingEngagement30d, w30.postCount, w30.replyCount, w30.activeDays)
 
-	if score7d <= 0 && risingScore7d <= 0 && w7.postCount == 0 && w7.replyCount == 0 && w7.engagement == 0 {
+	if score30d <= 0 && risingScore30d <= 0 && w30.postCount == 0 && w30.replyCount == 0 && w30.engagement == 0 {
 		if _, err := tx.Exec(ctx, `DELETE FROM profile_discovery_stats WHERE pubkey = $1`, pubkey); err != nil {
 			return fmt.Errorf("delete stale profile discovery row: %w", err)
 		}
@@ -145,6 +139,10 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 		return err
 	}
 	lang7, err := lookupWindowDominantLanguage(ctx, tx, pubkey, nowUnix-int64((7*24*time.Hour)/time.Second))
+	if err != nil {
+		return err
+	}
+	lang30, err := lookupWindowDominantLanguage(ctx, tx, pubkey, nowUnix-int64((30*24*time.Hour)/time.Second))
 	if err != nil {
 		return err
 	}
@@ -168,10 +166,18 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 			scored_new_followers_7d,
 			primary_language_24h,
 			primary_language_7d,
+			score_30d,
+			rising_score_30d,
+			scored_engagement_30d,
+			scored_new_followers_30d,
+			primary_language_30d,
+			scored_rising_engagement_24h,
+			scored_rising_engagement_7d,
+			scored_rising_engagement_30d,
 			last_scored_at,
 			derivation_version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now(), $18)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, now(), $26)
 		ON CONFLICT (pubkey) DO UPDATE
 		SET score_24h = EXCLUDED.score_24h,
 		    score_7d = EXCLUDED.score_7d,
@@ -189,10 +195,18 @@ func (h *Handlers) refreshProfileDiscoveryStatsTx(
 		    scored_new_followers_7d = EXCLUDED.scored_new_followers_7d,
 		    primary_language_24h = EXCLUDED.primary_language_24h,
 		    primary_language_7d = EXCLUDED.primary_language_7d,
+		    score_30d = EXCLUDED.score_30d,
+		    rising_score_30d = EXCLUDED.rising_score_30d,
+		    scored_engagement_30d = EXCLUDED.scored_engagement_30d,
+		    scored_new_followers_30d = EXCLUDED.scored_new_followers_30d,
+		    primary_language_30d = EXCLUDED.primary_language_30d,
+		    scored_rising_engagement_24h = EXCLUDED.scored_rising_engagement_24h,
+		    scored_rising_engagement_7d = EXCLUDED.scored_rising_engagement_7d,
+		    scored_rising_engagement_30d = EXCLUDED.scored_rising_engagement_30d,
 		    last_scored_at = now(),
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
-	`, pubkey, score24h, score7d, risingScore24h, risingScore7d, w24.postCount, w24.replyCount, w24.engagement, w24.zapVolumeMSats, w24.activeDays, recentActivityAt, engagement24h, engagement7d, newFollowers24h, newFollowers7d, lang24, lang7, writeVersion); err != nil {
+	`, pubkey, score24h, score7d, risingScore24h, risingScore7d, w24.postCount, w24.replyCount, w24.engagement, w24.zapVolumeMSats, w24.activeDays, recentActivityAt, inputs.trendingEngagement24h, inputs.trendingEngagement7d, inputs.newFollowers24h, inputs.newFollowers7d, lang24, lang7, score30d, risingScore30d, inputs.trendingEngagement30d, inputs.newFollowers30d, lang30, inputs.risingEngagement24h, inputs.risingEngagement7d, inputs.risingEngagement30d, writeVersion); err != nil {
 		return fmt.Errorf("upsert profile discovery stats: %w", err)
 	}
 	return nil
@@ -214,7 +228,7 @@ func loadProfileDiscoveryRecentActivityAtTx(ctx context.Context, tx pgx.Tx, pubk
 	return recentActivityAt, nil
 }
 
-// loadProfileDualWindowMetricsIncrementalTx rolls 24h/7d discovery windows
+// loadProfileDualWindowMetricsIncrementalTx rolls 24h/7d/30d discovery windows
 // from author_hourly_activity / author_activity_daily / follower_gain_events
 // and reads follower_count from profile_public_stats. Bounded to a few dozen
 // indexed rows per pubkey instead of scanning raw engagement tables.
@@ -226,15 +240,16 @@ func loadProfileDualWindowMetricsIncrementalTx(
 ) (profileDualWindowMetrics, error) {
 	cutoff24h := nowUnix - int64((24*time.Hour)/time.Second)
 	cutoff7d := nowUnix - int64((7*24*time.Hour)/time.Second)
-	cutoff7dDate := time.Unix(cutoff7d, 0).UTC().Truncate(24 * time.Hour)
+	cutoff30d := nowUnix - int64((30*24*time.Hour)/time.Second)
+	cutoff30dDate := time.Unix(cutoff30d, 0).UTC().Truncate(24 * time.Hour)
 
 	var out profileDualWindowMetrics
-	var activeDays24h, activeDays7d int64
+	var activeDays24h, activeDays7d, activeDays30d int64
 
-	// 24h/7d authored metrics + engagement/zaps from hourly buckets whose hour
-	// start falls inside each rolling window. The LEFT JOIN from a dummy row
-	// keeps the query returning exactly one row when the pubkey has no hourly
-	// activity yet (plain FROM author_hourly_activity would yield ErrNoRows).
+	// 24h/7d/30d authored metrics + engagement/zaps from hourly buckets whose
+	// hour start falls inside each rolling window. The LEFT JOIN from a dummy
+	// row keeps the query returning exactly one row when the pubkey has no
+	// hourly activity yet (plain FROM author_hourly_activity would yield ErrNoRows).
 	if err := tx.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(h.note_count) FILTER (WHERE h.bucket_start >= $2), 0),
@@ -250,6 +265,13 @@ func loadProfileDualWindowMetricsIncrementalTx(
 			COALESCE(SUM(h.zap_msats_received) FILTER (WHERE h.bucket_start >= $3), 0),
 			COALESCE(COUNT(DISTINCT h.activity_date) FILTER (
 				WHERE h.bucket_start >= $3 AND h.authored_event_count > 0
+			), 0),
+			COALESCE(SUM(h.note_count) FILTER (WHERE h.bucket_start >= $4), 0),
+			COALESCE(SUM(h.reply_count) FILTER (WHERE h.bucket_start >= $4), 0),
+			COALESCE(SUM(h.engagement_received) FILTER (WHERE h.bucket_start >= $4), 0),
+			COALESCE(SUM(h.zap_msats_received) FILTER (WHERE h.bucket_start >= $4), 0),
+			COALESCE(COUNT(DISTINCT h.activity_date) FILTER (
+				WHERE h.bucket_start >= $4 AND h.authored_event_count > 0
 			), 0)
 		FROM (SELECT 1) AS _
 		LEFT JOIN (
@@ -266,9 +288,9 @@ func loadProfileDualWindowMetricsIncrementalTx(
 				) AS bucket_start
 			FROM author_hourly_activity
 			WHERE pubkey = $1
-			  AND activity_date >= $4::date
+			  AND activity_date >= $5::date
 		) h ON TRUE
-	`, pubkey, cutoff24h, cutoff7d, cutoff7dDate).Scan(
+	`, pubkey, cutoff24h, cutoff7d, cutoff30d, cutoff30dDate).Scan(
 		&out.window24h.postCount,
 		&out.window24h.replyCount,
 		&out.window24h.engagement,
@@ -279,11 +301,17 @@ func loadProfileDualWindowMetricsIncrementalTx(
 		&out.window7d.engagement,
 		&out.window7d.zapVolumeMSats,
 		&activeDays7d,
+		&out.window30d.postCount,
+		&out.window30d.replyCount,
+		&out.window30d.engagement,
+		&out.window30d.zapVolumeMSats,
+		&activeDays30d,
 	); err != nil {
 		return profileDualWindowMetrics{}, fmt.Errorf("load incremental dual-window hourly metrics: %w", err)
 	}
 	out.window24h.activeDays = int(activeDays24h)
 	out.window7d.activeDays = int(activeDays7d)
+	out.window30d.activeDays = int(activeDays30d)
 
 	// Follower gains come from follower_gain_events: one row per true
 	// kind=3 edge-diff gain, so contact-list rewrites by existing followers
@@ -293,19 +321,22 @@ func loadProfileDualWindowMetricsIncrementalTx(
 		SELECT
 			COALESCE(g.gained_24h, 0),
 			COALESCE(g.gained_7d, 0),
+			COALESCE(g.gained_30d, 0),
 			COALESCE((
 				SELECT follower_count FROM profile_public_stats WHERE pubkey = $1
 			), 0)
 		FROM (
 			SELECT
 				COUNT(*) FILTER (WHERE gained_at >= $2) AS gained_24h,
-				COUNT(*) FILTER (WHERE gained_at >= $3) AS gained_7d
+				COUNT(*) FILTER (WHERE gained_at >= $3) AS gained_7d,
+				COUNT(*) FILTER (WHERE gained_at >= $4) AS gained_30d
 			FROM follower_gain_events
 			WHERE followed_pubkey = $1
 		) g
-	`, pubkey, cutoff24h, cutoff7d).Scan(
+	`, pubkey, cutoff24h, cutoff7d, cutoff30d).Scan(
 		&out.window24h.newFollowers,
 		&out.window7d.newFollowers,
+		&out.window30d.newFollowers,
 		&out.followerCount,
 	); err != nil {
 		return profileDualWindowMetrics{}, fmt.Errorf("load incremental follower discovery metrics: %w", err)
@@ -360,13 +391,14 @@ type profileWindowMetrics struct {
 type profileDualWindowMetrics struct {
 	window24h     profileWindowMetrics
 	window7d      profileWindowMetrics
+	window30d     profileWindowMetrics
 	followerCount int64
 }
 
-// loadProfileDualWindowMetricsTx collapses the previous ~20 sequential
-// COUNT round-trips (9 metrics × 2 windows + follower total) into two
-// FILTER-aggregate queries over the 7d floor (superset of 24h). Replies
-// come via reply_count_contributions, zap key = receiver_pubkey.
+// loadProfileDualWindowMetricsTx collapses the previous sequential
+// COUNT round-trips into two FILTER-aggregate queries over the 30d floor
+// (superset of 24h and 7d). Replies come via reply_count_contributions,
+// zap key = receiver_pubkey.
 // Self-engagement (replying to / reposting / reacting to / zapping /
 // following yourself) is excluded, matching the incremental delta path —
 // an account must never be able to farm its own trending inputs.
@@ -378,9 +410,10 @@ func loadProfileDualWindowMetricsTx(
 ) (profileDualWindowMetrics, error) {
 	cutoff24h := nowUnix - int64((24*time.Hour)/time.Second)
 	cutoff7d := nowUnix - int64((7*24*time.Hour)/time.Second)
+	cutoff30d := nowUnix - int64((30*24*time.Hour)/time.Second)
 
 	var out profileDualWindowMetrics
-	var activeDays24h, activeDays7d int64
+	var activeDays24h, activeDays7d, activeDays30d int64
 	if err := tx.QueryRow(ctx, `
 		SELECT
 			COALESCE(COUNT(*) FILTER (
@@ -400,6 +433,15 @@ func loadProfileDualWindowMetricsTx(
 			), 0),
 			COALESCE(COUNT(DISTINCT to_timestamp(a.created_at)::date) FILTER (
 				WHERE a.created_at >= $3 AND a.created_at <= $4
+			), 0),
+			COALESCE(COUNT(*) FILTER (
+				WHERE a.kind = 1 AND a.created_at >= $5 AND NOT a.is_reply
+			), 0),
+			COALESCE(COUNT(*) FILTER (
+				WHERE a.kind = 1 AND a.created_at >= $5 AND a.is_reply
+			), 0),
+			COALESCE(COUNT(DISTINCT to_timestamp(a.created_at)::date) FILTER (
+				WHERE a.created_at >= $5 AND a.created_at <= $4
 			), 0)
 		FROM (
 			SELECT
@@ -412,22 +454,26 @@ func loadProfileDualWindowMetricsTx(
 				) AS is_reply
 			FROM events e
 			WHERE e.pubkey = $1
-			  AND e.created_at >= $3
+			  AND e.created_at >= $5
 		) a
-	`, pubkey, cutoff24h, cutoff7d, maxSaneUnixCreatedAt).Scan(
+	`, pubkey, cutoff24h, cutoff7d, maxSaneUnixCreatedAt, cutoff30d).Scan(
 		&out.window24h.postCount,
 		&out.window24h.replyCount,
 		&out.window7d.postCount,
 		&out.window7d.replyCount,
 		&activeDays24h,
 		&activeDays7d,
+		&out.window30d.postCount,
+		&out.window30d.replyCount,
+		&activeDays30d,
 	); err != nil {
 		return profileDualWindowMetrics{}, fmt.Errorf("load profile dual-window authored metrics: %w", err)
 	}
 	out.window24h.activeDays = int(activeDays24h)
 	out.window7d.activeDays = int(activeDays7d)
+	out.window30d.activeDays = int(activeDays30d)
 
-	var engagement24h, engagement7d int64
+	var engagement24h, engagement7d, engagement30d int64
 	if err := tx.QueryRow(ctx, `
 		SELECT
 			COALESCE(COUNT(*) FILTER (
@@ -436,10 +482,15 @@ func loadProfileDualWindowMetricsTx(
 			COALESCE(COUNT(*) FILTER (
 				WHERE s.src IN ('reply', 'repost', 'reaction', 'zap') AND s.ts >= $3
 			), 0),
+			COALESCE(COUNT(*) FILTER (
+				WHERE s.src IN ('reply', 'repost', 'reaction', 'zap') AND s.ts >= $4
+			), 0),
 			COALESCE(SUM(s.zap_msats) FILTER (WHERE s.src = 'zap' AND s.ts >= $2), 0),
 			COALESCE(SUM(s.zap_msats) FILTER (WHERE s.src = 'zap' AND s.ts >= $3), 0),
+			COALESCE(SUM(s.zap_msats) FILTER (WHERE s.src = 'zap' AND s.ts >= $4), 0),
 			COALESCE(COUNT(*) FILTER (WHERE s.src = 'new_follow' AND s.ts >= $2), 0),
 			COALESCE(COUNT(*) FILTER (WHERE s.src = 'new_follow' AND s.ts >= $3), 0),
+			COALESCE(COUNT(*) FILTER (WHERE s.src = 'new_follow' AND s.ts >= $4), 0),
 			COALESCE((
 				SELECT COUNT(*)
 				FROM follower_edges fe
@@ -452,45 +503,49 @@ func loadProfileDualWindowMetricsTx(
 			JOIN events target_event ON target_event.id = c.target_event_id
 			WHERE target_event.pubkey = $1
 			  AND source_event.pubkey <> $1
-			  AND source_event.created_at >= $3
+			  AND source_event.created_at >= $4
 			UNION ALL
 			SELECT 'repost', r.created_at, 0
 			FROM repost_events r
 			JOIN events target_event ON target_event.id = r.target_event_id
 			WHERE target_event.pubkey = $1
 			  AND r.reposter_pubkey <> $1
-			  AND r.created_at >= $3
+			  AND r.created_at >= $4
 			UNION ALL
 			SELECT 'reaction', r.created_at, 0
 			FROM reaction_events r
 			JOIN events target_event ON target_event.id = r.target_event_id
 			WHERE target_event.pubkey = $1
 			  AND r.reactor_pubkey <> $1
-			  AND r.created_at >= $3
+			  AND r.created_at >= $4
 			UNION ALL
 			SELECT 'zap', zr.created_at, zr.amount_sats * 1000
 			FROM zap_receipts zr
 			WHERE zr.receiver_pubkey = $1
 			  AND zr.sender_pubkey <> $1
-			  AND zr.created_at >= $3
+			  AND zr.created_at >= $4
 			UNION ALL
 			SELECT 'new_follow', fge.gained_at, 0
 			FROM follower_gain_events fge
 			WHERE fge.followed_pubkey = $1
-			  AND fge.gained_at >= $3
+			  AND fge.gained_at >= $4
 		) s
-	`, pubkey, cutoff24h, cutoff7d).Scan(
+	`, pubkey, cutoff24h, cutoff7d, cutoff30d).Scan(
 		&engagement24h,
 		&engagement7d,
+		&engagement30d,
 		&out.window24h.zapVolumeMSats,
 		&out.window7d.zapVolumeMSats,
+		&out.window30d.zapVolumeMSats,
 		&out.window24h.newFollowers,
 		&out.window7d.newFollowers,
+		&out.window30d.newFollowers,
 		&out.followerCount,
 	); err != nil {
 		return profileDualWindowMetrics{}, fmt.Errorf("load profile dual-window received metrics: %w", err)
 	}
 	out.window24h.engagement = engagement24h
 	out.window7d.engagement = engagement7d
+	out.window30d.engagement = engagement30d
 	return out, nil
 }

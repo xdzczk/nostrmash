@@ -138,7 +138,7 @@ func loadInvalidEventRetentionConfig() (WorkerInvalidEventRetentionConfig, error
 }
 
 func loadEngagementRetentionConfig() (WorkerEngagementRetentionConfig, error) {
-	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_MAX_AGE", 14*24*time.Hour)
+	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_MAX_AGE", 32*24*time.Hour)
 	if err != nil {
 		return WorkerEngagementRetentionConfig{}, err
 	}
@@ -402,11 +402,11 @@ func loadAppliedStatDeltasRetentionConfig() (WorkerAppliedStatDeltasRetentionCon
 }
 
 // loadFollowerGainEventsRetentionConfig reads the
-// WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_* envs. The default max age (8d)
-// is the widest read window (7d) plus a day of grace; run interval matches
+// WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_* envs. The default max age (32d)
+// is the widest read window (30d) plus two days of grace; run interval matches
 // the other low-priority hygiene loops.
 func loadFollowerGainEventsRetentionConfig() (WorkerFollowerGainEventsRetentionConfig, error) {
-	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE", 8*24*time.Hour)
+	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE", 32*24*time.Hour)
 	if err != nil {
 		return WorkerFollowerGainEventsRetentionConfig{}, err
 	}

@@ -190,6 +190,10 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 	if err != nil {
 		return err
 	}
+	engagement30d, err := loadWindowedEngagementWeights(ctx, tx, noteID, authorPubkey, nowUnix, 30*24*time.Hour, weighting)
+	if err != nil {
+		return err
+	}
 	// Thread roots score by conversation size: replace the direct-reply weight
 	// with unique thread-wide repliers (same dedup / self-exclusion / trust
 	// weighting) so Discover matches other clients' conversation sizes without
@@ -203,6 +207,9 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		if engagement7d.ReplyWeight, err = loadWindowedThreadReplyWeight(ctx, tx, noteID, authorPubkey, nowUnix, 7*24*time.Hour, weighting); err != nil {
 			return err
 		}
+		if engagement30d.ReplyWeight, err = loadWindowedThreadReplyWeight(ctx, tx, noteID, authorPubkey, nowUnix, 30*24*time.Hour, weighting); err != nil {
+			return err
+		}
 	}
 	hasImage, hasVideo, hasLink, hasArticle, attachmentCount, err := loadNoteMediaFlagsTx(ctx, tx, noteID)
 	if err != nil {
@@ -212,6 +219,8 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		engagement24h.ReplyWeight, engagement24h.RepostWeight, engagement24h.ReactionWeight, engagement24h.ZapWeight, engagement24h.ZapMSats)
 	score7d := computeTrendingScore(7*24*time.Hour, nowUnix, noteCreatedAt,
 		engagement7d.ReplyWeight, engagement7d.RepostWeight, engagement7d.ReactionWeight, engagement7d.ZapWeight, engagement7d.ZapMSats)
+	score30d := computeTrendingScore(30*24*time.Hour, nowUnix, noteCreatedAt,
+		engagement30d.ReplyWeight, engagement30d.RepostWeight, engagement30d.ReactionWeight, engagement30d.ZapWeight, engagement30d.ZapMSats)
 	primaryLanguage, languageConfidence, languageSource, err := resolveNoteLanguageTx(
 		ctx, tx, noteID, authorPubkey, noteContent, nowUnix,
 		existingVersion, existingLang, existingConf, existingSource,
@@ -240,10 +249,11 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 			language_source,
 			score_24h,
 			score_7d,
+			score_30d,
 			last_scored_at,
 			derivation_version
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), $20)
 		ON CONFLICT (event_id) DO UPDATE
 		SET author_pubkey = EXCLUDED.author_pubkey,
 		    created_at = EXCLUDED.created_at,
@@ -262,10 +272,11 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		    language_source = EXCLUDED.language_source,
 		    score_24h = EXCLUDED.score_24h,
 		    score_7d = EXCLUDED.score_7d,
+		    score_30d = EXCLUDED.score_30d,
 		    last_scored_at = now(),
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
-	`, noteID, authorPubkey, noteCreatedAt, replyCount, repostCount, reactionCount, zapCount, zapMSats, hasImage, hasVideo, hasLink, hasArticle, attachmentCount, primaryLanguage, languageConfidence, nullableLanguageSource(languageSource), score24h, score7d, writeVersion); err != nil {
+	`, noteID, authorPubkey, noteCreatedAt, replyCount, repostCount, reactionCount, zapCount, zapMSats, hasImage, hasVideo, hasLink, hasArticle, attachmentCount, primaryLanguage, languageConfidence, nullableLanguageSource(languageSource), score24h, score7d, score30d, writeVersion); err != nil {
 		return fmt.Errorf("upsert note discovery stats: %w", err)
 	}
 	return nil

@@ -216,6 +216,7 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 				"activity": map[string]any{
 					"replies_24h": conversation.Replies24h,
 					"replies_7d":  conversation.Replies7d,
+					"replies_30d": conversation.Replies30d,
 				},
 				"velocity_score": conversation.VelocityScore,
 				"ranking":        buildConversationRanking(conversation, index+1),
@@ -547,12 +548,14 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 		network["top_hashtags"] = &query.TrendingHashtagWindows{
 			Last24h: sliceHashtags(networkStats.TopHashtags.Last24h, req.hashtagStatLimit),
 			Last7d:  sliceHashtags(networkStats.TopHashtags.Last7d, req.hashtagStatLimit),
+			Last30d: sliceHashtags(networkStats.TopHashtags.Last30d, req.hashtagStatLimit),
 		}
 	}
-	if len(networkStats.TopLanguages24h) > 0 || len(networkStats.TopLanguages7d) > 0 {
+	if len(networkStats.TopLanguages24h) > 0 || len(networkStats.TopLanguages7d) > 0 || len(networkStats.TopLanguages30d) > 0 {
 		network["top_languages"] = map[string]any{
 			"24h": networkStats.TopLanguages24h,
 			"7d":  networkStats.TopLanguages7d,
+			"30d": networkStats.TopLanguages30d,
 		}
 	}
 

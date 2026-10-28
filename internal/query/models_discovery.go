@@ -57,6 +57,8 @@ type NetworkStats struct {
 type WindowedCount struct {
 	Last24h int64 `json:"24h"`
 	Last7d  int64 `json:"7d"`
+	// Last30d is omitted when zero so relay payloads stay 24h/7d.
+	Last30d int64 `json:"30d,omitempty"`
 }
 
 type RelayUsageSummary struct {
@@ -81,6 +83,7 @@ type LanguageSummary struct {
 type TrendingHashtagWindows struct {
 	Last24h []TrendingHashtag `json:"24h"`
 	Last7d  []TrendingHashtag `json:"7d"`
+	Last30d []TrendingHashtag `json:"30d,omitempty"`
 }
 
 // PublicStatsSectionTimes records when each homepage snapshot row was
@@ -92,6 +95,9 @@ type PublicStatsSectionTimes struct {
 	Languages7d  time.Time
 	Hashtags24h  time.Time
 	Hashtags7d   time.Time
+	Home30d      time.Time
+	Languages30d time.Time
+	Hashtags30d  time.Time
 	Relays       time.Time
 	TopRelays24h time.Time
 	TopRelays7d  time.Time
@@ -111,6 +117,7 @@ type PublicDiscoveryNetworkStats struct {
 	TopHashtags       *TrendingHashtagWindows `json:"top_hashtags,omitempty"`
 	TopLanguages24h   []LanguageSummary       `json:"top_languages_24h,omitempty"`
 	TopLanguages7d    []LanguageSummary       `json:"top_languages_7d,omitempty"`
+	TopLanguages30d   []LanguageSummary       `json:"top_languages_30d,omitempty"`
 	SectionTimes      PublicStatsSectionTimes `json:"-"`
 }
 
@@ -263,6 +270,7 @@ type HotConversation struct {
 	LastActivityAt   int64   `json:"last_activity_at"`
 	Replies24h       int64   `json:"replies_24h"`
 	Replies7d        int64   `json:"replies_7d"`
+	Replies30d       int64   `json:"replies_30d"`
 	VelocityScore    float64 `json:"velocity_score"`
 	Consistency      string  `json:"consistency"`
 }

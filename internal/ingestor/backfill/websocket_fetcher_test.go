@@ -1,6 +1,17 @@
 package backfill
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
 
 func TestBuildFilter_IncludesAuthorsWhenProvided(t *testing.T) {
 	since := int64(100)
@@ -90,4 +101,132 @@ func TestParseNostrEnvelope(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFetchPageSilentRelayReturnsAfterIdle(t *testing.T) {
+	url := startTestRelay(t, func(ctx context.Context, conn *websocket.Conn) {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+		<-ctx.Done()
+	})
+
+	idle := 300 * time.Millisecond
+	start := time.Now()
+	result, err := (WebsocketFetcher{IdleTimeout: idle, ConnectTimeout: time.Second}).FetchPage(
+		context.Background(),
+		url,
+		PageRequest{Kinds: []int{3, 10002}, Authors: []string{"aa"}, Limit: 2},
+	)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if result.EOSESeen || len(result.Events) != 0 {
+		t.Fatalf("expected an empty partial page, got %+v", result)
+	}
+	if elapsed < idle-50*time.Millisecond || elapsed > 2*time.Second {
+		t.Fatalf("idle wait took %s, want about %s", elapsed, idle)
+	}
+}
+
+func TestFetchPageReturnsEventAndEOSE(t *testing.T) {
+	url := startTestRelay(t, func(ctx context.Context, conn *websocket.Conn) {
+		subID, err := readReqSubID(conn)
+		if err != nil {
+			return
+		}
+		event := `["EVENT",` + jsonString(subID) + `,{"id":"e1","kind":3}]`
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(event)); err != nil {
+			return
+		}
+		eose := `["EOSE",` + jsonString(subID) + `]`
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(eose))
+		_, _, _ = conn.ReadMessage()
+		<-ctx.Done()
+	})
+
+	start := time.Now()
+	result, err := (WebsocketFetcher{IdleTimeout: 2 * time.Second, ConnectTimeout: time.Second}).FetchPage(
+		context.Background(),
+		url,
+		PageRequest{Kinds: []int{3}, Authors: []string{"aa"}, Limit: 2},
+	)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if !result.EOSESeen {
+		t.Fatal("expected EOSE")
+	}
+	if len(result.Events) != 1 || !strings.Contains(string(result.Events[0]), `"e1"`) {
+		t.Fatalf("events: %s", result.Events)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("EOSE took %s", time.Since(start))
+	}
+}
+
+func TestFetchPageContextCancelUnblocksRead(t *testing.T) {
+	url := startTestRelay(t, func(ctx context.Context, conn *websocket.Conn) {
+		_, _, _ = conn.ReadMessage()
+		<-ctx.Done()
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := (WebsocketFetcher{IdleTimeout: 5 * time.Second, ConnectTimeout: time.Second}).FetchPage(
+		ctx,
+		url,
+		PageRequest{Kinds: []int{3}, Limit: 1},
+	)
+	elapsed := time.Since(start)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error: %v", err)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("cancel took %s", elapsed)
+	}
+}
+
+func startTestRelay(t *testing.T, handle func(context.Context, *websocket.Conn)) string {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	upgrader := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		handle(ctx, conn)
+	}))
+	t.Cleanup(srv.Close)
+	return "ws" + strings.TrimPrefix(srv.URL, "http")
+}
+
+func readReqSubID(conn *websocket.Conn) (string, error) {
+	_, frame, err := conn.ReadMessage()
+	if err != nil {
+		return "", err
+	}
+	var env []json.RawMessage
+	if err := json.Unmarshal(frame, &env); err != nil || len(env) < 2 {
+		return "", errors.New("req envelope")
+	}
+	var subID string
+	if err := json.Unmarshal(env[1], &subID); err != nil {
+		return "", err
+	}
+	return subID, nil
+}
+
+func jsonString(s string) string {
+	raw, _ := json.Marshal(s)
+	return string(raw)
 }

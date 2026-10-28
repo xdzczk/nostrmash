@@ -99,7 +99,7 @@ func (s Service) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]Cu
 }
 
 func (s Service) GetTrendingHashtags(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingHashtag, error) {
-	// 24h and 7d are the windows the overview and the topics tab both
+	// 24h, 7d, and 30d are the windows the overview and the topics tab
 	// request. Serve the same trust-filtered snapshot the homepage uses.
 	// The trust-aware fallback counts hashtags inside a small sample of
 	// trending notes, which ranks a different set (and reports sample-sized

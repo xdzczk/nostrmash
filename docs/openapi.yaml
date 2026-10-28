@@ -228,7 +228,7 @@ paths:
           schema: { type: string }
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d], default: 24h }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
       responses:
         '200':
           description: Thread activity snapshot with velocity score
@@ -842,7 +842,7 @@ paths:
       parameters:
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d], default: 24h }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
@@ -865,7 +865,7 @@ paths:
       parameters:
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d], default: 24h }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
@@ -890,7 +890,7 @@ paths:
       parameters:
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d], default: 24h }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
@@ -918,7 +918,7 @@ paths:
       parameters:
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d], default: 24h }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: notes_limit
@@ -966,7 +966,7 @@ paths:
       parameters:
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d], default: 24h }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
@@ -1021,7 +1021,7 @@ paths:
       parameters:
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d], default: 24h }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
@@ -1063,7 +1063,7 @@ paths:
       parameters:
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d], default: 24h }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
@@ -1151,7 +1151,7 @@ paths:
       parameters:
         - in: query
           name: window
-          schema: { type: string, enum: [24h, 7d], default: 24h }
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
         - in: query
           name: limit
@@ -2072,7 +2072,7 @@ components:
     DiscoveryListMeta:
       type: object
       properties:
-        window: { type: string, enum: [24h, 7d] }
+        window: { type: string, enum: [24h, 7d, 30d] }
         computed_at: { type: string, format: date-time }
         ranking_version: { type: string }
         confidence: { type: string, enum: [low, medium, high] }
@@ -2087,7 +2087,7 @@ components:
       additionalProperties: true
       properties:
         surface: { type: string }
-        window: { type: string, enum: [24h, 7d] }
+        window: { type: string, enum: [24h, 7d, 30d] }
         computed_at: { type: string, format: date-time }
         ranking_version: { type: string }
         meta: { $ref: '#/components/schemas/DiscoveryListMeta' }
@@ -2114,7 +2114,7 @@ components:
       additionalProperties: true
       properties:
         surface: { type: string, const: home }
-        window: { type: string, enum: [24h, 7d] }
+        window: { type: string, enum: [24h, 7d, 30d] }
         computed_at: { type: string, format: date-time }
         ranking_version: { type: string }
         meta: { $ref: '#/components/schemas/DiscoveryListMeta' }

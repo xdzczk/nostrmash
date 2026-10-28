@@ -185,6 +185,7 @@ func (h Handlers) GetThreadSummary(w http.ResponseWriter, r *http.Request) {
 		"conversation_velocity": map[string]any{
 			"replies_24h": summary.Velocity.Replies24h,
 			"replies_7d":  summary.Velocity.Replies7d,
+			"replies_30d": summary.Velocity.Replies30d,
 		},
 		"consistency": summary.Consistency,
 	})
@@ -216,8 +217,11 @@ func (h Handlers) GetThreadActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	velocityScore := float64(summary.Velocity.Replies24h)
-	if window == 7*24*time.Hour {
+	switch window {
+	case 7 * 24 * time.Hour:
 		velocityScore = float64(summary.Velocity.Replies7d)
+	case 30 * 24 * time.Hour:
+		velocityScore = float64(summary.Velocity.Replies30d)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"root_event_id":     summary.RootEventID,
@@ -227,6 +231,7 @@ func (h Handlers) GetThreadActivity(w http.ResponseWriter, r *http.Request) {
 		"activity": map[string]any{
 			"replies_24h": summary.Velocity.Replies24h,
 			"replies_7d":  summary.Velocity.Replies7d,
+			"replies_30d": summary.Velocity.Replies30d,
 		},
 		"velocity_score": velocityScore,
 		"consistency":    summary.Consistency,

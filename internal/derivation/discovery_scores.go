@@ -86,12 +86,16 @@ func cheapEngagementSignal(reactionWeight, repostWeight, substantive float64) fl
 	return unlocked + cheapEngagementFloor*(cheap-unlocked)
 }
 
-// computeProfileTrendingScore takes float64 engagement/zap inputs so callers
-// can pass either raw counters or deduplicated trust-weighted votes.
+// computeProfileTrendingScore ranks profiles by engagement on the root notes
+// they published in the window. motionAt is the newest of those notes or the
+// latest engagement on them — an outbound like is not activity. replyCount is
+// accepted so callers can keep passing the authored reply counter, and it
+// does not enter the rate: replies are not posts. engagementReceived is
+// distinct (signal, engager) votes on those notes, not a count of events.
 func computeProfileTrendingScore(
 	window time.Duration,
 	nowUnix int64,
-	recentActivityAt *int64,
+	motionAt *int64,
 	postCount int64,
 	replyCount int64,
 	engagementReceived float64,
@@ -99,10 +103,10 @@ func computeProfileTrendingScore(
 	activeDays int,
 ) float64 {
 	windowSeconds := int64(window / time.Second)
-	if windowSeconds <= 0 || recentActivityAt == nil {
+	if windowSeconds <= 0 || motionAt == nil {
 		return 0
 	}
-	ageSeconds := nowUnix - *recentActivityAt
+	ageSeconds := nowUnix - *motionAt
 	if ageSeconds < 0 {
 		ageSeconds = 0
 	}
@@ -110,15 +114,12 @@ func computeProfileTrendingScore(
 		return 0
 	}
 	safePosts := maxInt64(0, postCount)
-	safeReplies := maxInt64(0, replyCount)
 	safeEngagement := math.Max(0, engagementReceived)
 	safeZapVolume := math.Max(0, zapVolumeMSats)
 	safeActiveDays := maxInt64(0, int64(activeDays))
-	totalPosts := safePosts + safeReplies
-	// "Profiles in motion" is an engagement-per-post ranking. Posting,
-	// consistency, and zap volume are secondary signals and must not let a
-	// profile with zero (weighted) engagement occupy a slot.
-	if safeEngagement <= 0 {
+	// No root note in the window is not "infinite engagement per post".
+	// The +1 smoothing below is only for accounts that did publish.
+	if safePosts <= 0 || safeEngagement <= 0 {
 		return 0
 	}
 
@@ -127,7 +128,7 @@ func computeProfileTrendingScore(
 	// engagement their posts earn, not by how often they post. Volume
 	// mostly matters through engagementPerPost/qualityBoost below.
 	engagementSignal := 3.0 * math.Log1p(safeEngagement)
-	postingSignal := 0.35 * math.Log1p(float64(totalPosts))
+	postingSignal := 0.35 * math.Log1p(float64(safePosts))
 	zapSignal := math.Log1p(safeZapVolume / 100000.0)
 	consistencySignal := 0.5 * math.Log1p(float64(safeActiveDays))
 
@@ -135,9 +136,9 @@ func computeProfileTrendingScore(
 	// returns instead of a hard cap, so accounts with exceptional per-post
 	// engagement keep pulling ahead of merely-good ones rather than
 	// flattening out at the same boost.
-	engagementPerPost := safeEngagement / (1.0 + float64(totalPosts))
+	engagementPerPost := safeEngagement / (1.0 + float64(safePosts))
 	qualityBoost := 1.0 + math.Min(6.0, math.Sqrt(engagementPerPost))
-	postingPressure := float64(totalPosts) / (1.0 + safeEngagement + float64(safeActiveDays))
+	postingPressure := float64(safePosts) / (1.0 + safeEngagement + float64(safeActiveDays))
 	volumePenalty := 1.0 / (1.0 + math.Max(0.0, postingPressure-1.0))
 
 	base := (engagementSignal + postingSignal + zapSignal + consistencySignal) * qualityBoost * volumePenalty

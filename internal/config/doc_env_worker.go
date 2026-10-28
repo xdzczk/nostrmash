@@ -391,8 +391,8 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Name:         "WORKER_RETENTION_ENGAGEMENT_MAX_AGE",
 			Runtimes:     []string{"worker"},
 			Required:     false,
-			DefaultValue: "336h0m0s",
-			Description:  "Age (by event created_at) beyond which raw engagement events become eligible for retention purge.",
+			DefaultValue: "768h0m0s",
+			Description:  "Age (by event created_at) beyond which raw engagement events become eligible for retention purge. The default is 32d, one day past the 30d discovery window.",
 		},
 		{
 			Name:         "WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL",
@@ -756,14 +756,14 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "true",
-			Description:  "Enable pruning of follower_gain_events rows (true kind=3 edge-diff follower gains feeding discovery new-follower counts and rising scores) whose insert time has aged past WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE. Nothing reads gains past the 7d discovery window; the prune keeps the table bounded by roughly one horizon of gains.",
+			Description:  "Enable pruning of follower_gain_events rows (true kind=3 edge-diff follower gains feeding discovery new-follower counts and rising scores) whose insert time has aged past WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE. Nothing reads gains past the 30d discovery window; the prune keeps the table bounded by roughly one horizon of gains.",
 		},
 		{
 			Name:         "WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_MAX_AGE",
 			Runtimes:     []string{"worker"},
 			Required:     false,
-			DefaultValue: "192h0m0s",
-			Description:  "Insert-age horizon after which follower_gain_events rows are pruned. Must be >= 168h (the widest discovery read window is 7d); the default adds a day of grace. Also bounds the unfollow/refollow dedupe: a pruned (followed, follower) pair counts as a new gain again if re-followed after this horizon.",
+			DefaultValue: "768h0m0s",
+			Description:  "Insert-age horizon after which follower_gain_events rows are pruned. Must be >= 744h (the widest discovery read window is 30d); the default adds two days of grace. Also bounds the unfollow/refollow dedupe: a pruned (followed, follower) pair counts as a new gain again if re-followed after this horizon.",
 		},
 		{
 			Name:         "WORKER_RETENTION_FOLLOWER_GAIN_EVENTS_RUN_INTERVAL",

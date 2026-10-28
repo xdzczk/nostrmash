@@ -13,10 +13,10 @@ import (
 // top_hashtags_* and top_domains_*. Callers page inside that list.
 const homeTrendingSnapshotLimit = 50
 
-// isFixedDiscoveryWindow reports the two windows the overview and the
+// isFixedDiscoveryWindow reports the windows the overview and the
 // topics/links tabs share. Those are the windows the relay snapshots cover.
 func isFixedDiscoveryWindow(window time.Duration) bool {
-	return window == 24*time.Hour || window == 7*24*time.Hour
+	return window == 24*time.Hour || window == 7*24*time.Hour || window == 30*24*time.Hour
 }
 
 func (s Service) GetEventLinkedDomains(ctx context.Context, eventID string, limit int) ([]EventDomainLink, error) {
@@ -120,7 +120,7 @@ func (s Service) GetTrendingDomains(
 	if offset < 0 {
 		offset = 0
 	}
-	// 24h and 7d are the windows the overview and the links tab both
+	// 24h, 7d, and 30d are the windows the overview and the links tab
 	// request. Serve the same trust-filtered snapshot the homepage uses so
 	// the two surfaces rank the same domains. The live aggregate stays
 	// available for readers that have no snapshot and for other windows.

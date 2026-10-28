@@ -95,7 +95,9 @@ const (
 	// tag, or the parent thread / author's content language. A settled label
 	// is kept across later engagement refreshes. Short notes and text the
 	// model refuses stay unmarked as separate chart buckets.
-	NoteDiscoveryStatsVersion = 8
+	// v9: score_30d ranks the 30-day window with the same formula as 24h
+	// and 7d. Rows written before a refresh keep the column at 0.
+	NoteDiscoveryStatsVersion = 9
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -113,7 +115,15 @@ const (
 	// language in each window so profile rankings can filter on it. Rows
 	// written before a refresh leave the columns null and drop out of a
 	// language view until the hot path or the language backfill fills them.
-	ProfileDiscoveryStatsVersion   = 6
+	// v7: score_30d, rising_score_30d, and the matching scored-input and
+	// language columns cover the 30-day window. Rows written before a
+	// refresh keep the scores at 0 and the language null.
+	// v8: trending engagement is distinct (signal, engager) votes on root
+	// notes published in the window, and rising engagement is distinct
+	// people in the window at any note age. scored_rising_engagement_*
+	// holds the rising numerator. Rows written before a refresh keep the
+	// previous scores until the profile-stats sweeper rewrites them.
+	ProfileDiscoveryStatsVersion   = 8
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1
@@ -133,7 +143,10 @@ const (
 	// v4: authors_24h/7d count the root plus everyone who replied in that
 	// window, so conversation rank can follow the window's headcount instead
 	// of the lifetime participant total.
-	ThreadSummaryVersion               = 4
+	// v5: replies_30d, reply_weight_30d, and authors_30d cover the 30-day
+	// window. Readers use authors_30d only at this version; older rows fall
+	// back to participant_count.
+	ThreadSummaryVersion               = 5
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1
