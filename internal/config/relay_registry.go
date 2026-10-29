@@ -13,6 +13,7 @@ type RelayRegistryConfig struct {
 
 	Discovery RelayRegistryDiscoveryConfig
 	Probing   RelayRegistryProbingConfig
+	NIP11     RelayRegistryNIP11Config
 	Admission RelayRegistryAdmissionConfig
 	Retention RelayRegistryRetentionConfig
 	Reconcile RelayRegistryReconcileConfig
@@ -58,6 +59,17 @@ type RelayRegistryProbingConfig struct {
 	CatalogHead int
 }
 
+// RelayRegistryNIP11Config controls background fetches of relay NIP-11 documents.
+// The fetch is independent of the websocket liveness probe.
+type RelayRegistryNIP11Config struct {
+	Enabled     bool
+	Interval    time.Duration
+	Freshness   time.Duration
+	Timeout     time.Duration
+	MaxParallel int
+	BatchSize   int
+}
+
 // RelayRegistryAdmissionConfig controls scoring thresholds and dynamic set caps.
 type RelayRegistryAdmissionConfig struct {
 	MaxTotalActive         int
@@ -97,6 +109,10 @@ func LoadRelayRegistryConfig() (RelayRegistryConfig, error) {
 	if err != nil {
 		return RelayRegistryConfig{}, err
 	}
+	nip11, err := loadRelayNIP11Config()
+	if err != nil {
+		return RelayRegistryConfig{}, err
+	}
 	purgeRunInterval, err := getEnvPositiveDurationStrict("RELAY_REGISTRY_RETENTION_PURGE_INTERVAL", 1*time.Hour)
 	if err != nil {
 		return RelayRegistryConfig{}, err
@@ -129,6 +145,7 @@ func LoadRelayRegistryConfig() (RelayRegistryConfig, error) {
 			CatalogFreshness: catalogFreshness,
 			CatalogHead:      loadRelayCatalogHead(),
 		},
+		NIP11: nip11,
 		Admission: RelayRegistryAdmissionConfig{
 			MaxTotalActive:         getEnvInt("RELAY_REGISTRY_ADMISSION_MAX_TOTAL_ACTIVE", 20),
 			MaxDynamicActive:       getEnvInt("RELAY_REGISTRY_ADMISSION_MAX_DYNAMIC_ACTIVE", 15),
@@ -179,7 +196,47 @@ func validateRelayRegistryConfig(cfg RelayRegistryConfig) error {
 			return fmt.Errorf("RELAY_REGISTRY_PROBING_MAX_PARALLEL must be > 0")
 		}
 	}
+	if cfg.NIP11.Enabled {
+		if cfg.NIP11.Interval <= 0 {
+			return fmt.Errorf("RELAY_REGISTRY_NIP11_INTERVAL must be > 0")
+		}
+		if cfg.NIP11.Freshness <= 0 {
+			return fmt.Errorf("RELAY_REGISTRY_NIP11_FRESHNESS must be > 0")
+		}
+		if cfg.NIP11.Timeout <= 0 {
+			return fmt.Errorf("RELAY_REGISTRY_NIP11_TIMEOUT must be > 0")
+		}
+		if cfg.NIP11.MaxParallel <= 0 {
+			return fmt.Errorf("RELAY_REGISTRY_NIP11_MAX_PARALLEL must be > 0")
+		}
+		if cfg.NIP11.BatchSize <= 0 {
+			return fmt.Errorf("RELAY_REGISTRY_NIP11_BATCH_SIZE must be > 0")
+		}
+	}
 	return nil
+}
+
+func loadRelayNIP11Config() (RelayRegistryNIP11Config, error) {
+	interval, err := getEnvPositiveDurationStrict("RELAY_REGISTRY_NIP11_INTERVAL", 15*time.Minute)
+	if err != nil {
+		return RelayRegistryNIP11Config{}, err
+	}
+	freshness, err := getEnvPositiveDurationStrict("RELAY_REGISTRY_NIP11_FRESHNESS", 24*time.Hour)
+	if err != nil {
+		return RelayRegistryNIP11Config{}, err
+	}
+	timeout, err := getEnvPositiveDurationStrict("RELAY_REGISTRY_NIP11_TIMEOUT", 8*time.Second)
+	if err != nil {
+		return RelayRegistryNIP11Config{}, err
+	}
+	return RelayRegistryNIP11Config{
+		Enabled:     getEnvBool("RELAY_REGISTRY_NIP11_ENABLED", true),
+		Interval:    interval,
+		Freshness:   freshness,
+		Timeout:     timeout,
+		MaxParallel: getEnvInt("RELAY_REGISTRY_NIP11_MAX_PARALLEL", 4),
+		BatchSize:   getEnvInt("RELAY_REGISTRY_NIP11_BATCH_SIZE", 25),
+	}, nil
 }
 
 // loadRelayCatalogFreshness is shared by the API and the worker so the

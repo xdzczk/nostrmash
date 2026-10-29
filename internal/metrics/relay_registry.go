@@ -10,6 +10,7 @@ var (
 	relayProbeLatency        *prometheus.HistogramVec
 	relayAdmissionChanges    *prometheus.CounterVec
 	relayReconcilerActions   *prometheus.CounterVec
+	relayNIP11Fetch          *prometheus.CounterVec
 )
 
 func registerRelayRegistryMetrics() {
@@ -62,6 +63,13 @@ func registerRelayRegistryMetrics() {
 		},
 		[]string{"action"},
 	)
+	relayNIP11Fetch = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nostrmash_relay_nip11_fetch_total",
+			Help: "NIP-11 document fetches by outcome. http_error covers any non-200 HTTP status.",
+		},
+		[]string{"outcome"},
+	)
 
 	registry.MustRegister(
 		relayRegistryByState,
@@ -71,6 +79,7 @@ func registerRelayRegistryMetrics() {
 		relayProbeLatency,
 		relayAdmissionChanges,
 		relayReconcilerActions,
+		relayNIP11Fetch,
 	)
 }
 
@@ -107,4 +116,9 @@ func IncRelayAdmissionChange(direction string) {
 func IncRelayReconcilerAction(action string) {
 	ensureRegistered()
 	relayReconcilerActions.WithLabelValues(action).Inc()
+}
+
+func IncRelayNIP11Fetch(outcome string) {
+	ensureRegistered()
+	relayNIP11Fetch.WithLabelValues(outcome).Inc()
 }

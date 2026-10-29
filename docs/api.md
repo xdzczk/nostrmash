@@ -105,6 +105,7 @@ Representative implemented native routes include:
 - `GET /api/v1/threads/{root_event_id}/activity`
 - `GET /api/v1/notes/{event_id}/summary`
 - `GET /api/v1/notes/{event_id}/related`
+- `GET /api/v1/relays/catalog` and `GET /api/v1/relays/info`
 - `GET /api/v1/users/{pubkey}/summary`
 - `GET /api/v1/users/{pubkey}/mute-list`
 - `GET /api/v1/users/{pubkey}/muted-by`

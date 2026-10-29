@@ -1040,6 +1040,35 @@ func TestGenerateConfigurationMarkdown_MatchesCommittedDocumentation(t *testing.
 	}
 }
 
+func TestRelayNIP11ConfigDefaults(t *testing.T) {
+	t.Setenv("RELAY_REGISTRY_NIP11_ENABLED", "")
+	t.Setenv("RELAY_REGISTRY_NIP11_INTERVAL", "")
+	t.Setenv("RELAY_REGISTRY_NIP11_FRESHNESS", "")
+	t.Setenv("RELAY_REGISTRY_NIP11_TIMEOUT", "")
+	t.Setenv("RELAY_REGISTRY_NIP11_MAX_PARALLEL", "")
+	t.Setenv("RELAY_REGISTRY_NIP11_BATCH_SIZE", "")
+
+	cfg, err := LoadRelayRegistryConfig()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.NIP11.Enabled || cfg.NIP11.Interval != 15*time.Minute || cfg.NIP11.Freshness != 24*time.Hour {
+		t.Fatalf("defaults = %+v", cfg.NIP11)
+	}
+	if cfg.NIP11.Timeout != 8*time.Second || cfg.NIP11.MaxParallel != 4 || cfg.NIP11.BatchSize != 25 {
+		t.Fatalf("defaults = %+v", cfg.NIP11)
+	}
+
+	t.Setenv("RELAY_REGISTRY_NIP11_ENABLED", "false")
+	cfg, err = LoadRelayRegistryConfig()
+	if err != nil {
+		t.Fatalf("load disabled: %v", err)
+	}
+	if cfg.NIP11.Enabled {
+		t.Fatal("expected nip11 fetch to be disabled")
+	}
+}
+
 func TestRelayCatalogFreshness_SharedByAPIAndWorker(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("RELAY_REGISTRY_CATALOG_FRESHNESS", "45m")

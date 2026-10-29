@@ -170,6 +170,19 @@ func TestLoopbackRelayHostPattern(t *testing.T) {
 	}
 }
 
+func TestHostIsPublic(t *testing.T) {
+	for _, host := range []string{"relay.example.com", "damus.io"} {
+		if err := HostIsPublic(host); err != nil {
+			t.Fatalf("%s: %v", host, err)
+		}
+	}
+	for _, host := range []string{"localhost", "127.0.0.1", "::1", "10.1.2.3", "169.254.1.1", "0.0.0.0", "::ffff:127.0.0.1"} {
+		if err := HostIsPublic(host); err == nil {
+			t.Fatalf("%s should be rejected", host)
+		}
+	}
+}
+
 func TestCanonicalKey(t *testing.T) {
 	a := CanonicalKey("wss://relay.example.com")
 	b := CanonicalKey("wss://relay.example.com")

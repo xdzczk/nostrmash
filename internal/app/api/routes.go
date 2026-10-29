@@ -106,6 +106,7 @@ func buildRouteDefinitions(
 		newPublicRoute("GET /api/v1/relays/health", true, http.HandlerFunc(handlers.GetRelaysHealth)),
 		newPublicRoute("GET /api/v1/relays/popular", true, http.HandlerFunc(handlers.GetPopularRelays)),
 		newPublicRoute("GET /api/v1/relays/catalog", true, http.HandlerFunc(handlers.GetRelayCatalog)),
+		newPublicRoute("GET /api/v1/relays/info", true, http.HandlerFunc(handlers.GetRelayInfo)),
 		newPublicRoute("GET /api/v1/relays/probe-health", true, http.HandlerFunc(handlers.GetRelayProbeHealth)),
 		newPublicRoute("GET /api/v1/contact-lists/{pubkey}", true, http.HandlerFunc(handlers.GetContactList)),
 		newPublicRoute("GET /api/v1/relay-lists/{pubkey}", true, http.HandlerFunc(handlers.GetRelayList)),

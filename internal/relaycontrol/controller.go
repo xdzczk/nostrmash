@@ -11,6 +11,7 @@ import (
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/relayadmission"
 	"github.com/xdzczk/nostrmash/internal/relaydiscovery"
+	"github.com/xdzczk/nostrmash/internal/relaynip11"
 	"github.com/xdzczk/nostrmash/internal/relayprobe"
 	"github.com/xdzczk/nostrmash/internal/relayregistry"
 	"github.com/xdzczk/nostrmash/internal/relayurl"
@@ -26,6 +27,7 @@ type Controller struct {
 	cfg                 config.RelayRegistryConfig
 	discoveryRunner     *relaydiscovery.Runner
 	probeScheduler      *relayprobe.Scheduler
+	nip11Scheduler      *relaynip11.Scheduler
 	admissionController *relayadmission.Controller
 }
 
@@ -38,6 +40,9 @@ func NewController(log *slog.Logger, store *relayregistry.Store, pool *pgxpool.P
 	}
 	if cfg.Probing.Enabled {
 		c.probeScheduler = relayprobe.NewScheduler(log, store, cfg.Probing)
+	}
+	if cfg.NIP11.Enabled {
+		c.nip11Scheduler = relaynip11.NewScheduler(log, store, cfg.NIP11)
 	}
 	c.admissionController = relayadmission.NewController(log, store, cfg.Admission)
 	return c
@@ -135,8 +140,8 @@ func (c *Controller) PublishDesiredSetFromRegistry(ctx context.Context) error {
 }
 
 // RunRefreshLoop starts all control-plane loops and blocks until ctx is cancelled.
-// Probing and retention run on their own configured intervals; discovery, admission,
-// and desired-set publication run on the main RefreshInterval.
+// Probing, NIP-11 refresh, and retention run on their own configured intervals;
+// discovery, admission, and desired-set publication run on the main RefreshInterval.
 func (c *Controller) RunRefreshLoop(ctx context.Context) {
 	if !c.cfg.Enabled {
 		c.log.Info("relay_registry_disabled")
@@ -146,6 +151,9 @@ func (c *Controller) RunRefreshLoop(ctx context.Context) {
 	// Launch probing on its own interval if enabled.
 	if c.probeScheduler != nil {
 		go c.runProbeLoop(ctx)
+	}
+	if c.nip11Scheduler != nil {
+		go c.nip11Scheduler.RunLoop(ctx)
 	}
 
 	// Launch retention on its own interval.

@@ -109,6 +109,26 @@ func CanonicalKey(normalized string) string {
 	return hex.EncodeToString(h[:16])
 }
 
+// HostIsPublic reports whether hostname may be contacted as a public relay.
+// It rejects localhost and loopback, link-local, private, unspecified, and
+// multicast addresses. A DNS name that is not itself an IP is accepted; the
+// caller still has to check the addresses that name resolves to.
+func HostIsPublic(hostname string) error {
+	host := hostname
+	if ip := net.ParseIP(hostname); ip != nil {
+		if ip4 := ip.To4(); ip4 != nil {
+			host = ip4.String()
+		}
+	}
+	if err := rejectPrivateHost(host); err != nil {
+		return err
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsUnspecified() || ip.IsMulticast()) {
+		return fmt.Errorf("non-public IP address %s is not allowed", ip)
+	}
+	return nil
+}
+
 func rejectPrivateHost(hostname string) error {
 	lower := strings.ToLower(hostname)
 	if lower == "localhost" {

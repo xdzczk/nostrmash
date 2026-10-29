@@ -716,6 +716,75 @@ func (s *Store) queryRelayRecords(ctx context.Context, sql string, args ...any) 
 	return out, nil
 }
 
+// ListRelaysForNIP11 returns public wss relays whose stored NIP-11 summary is
+// missing or older than staleBefore. Blocked and drained relays are skipped.
+// Directory relays are included. limit is applied after the public-URL filter.
+func (s *Store) ListRelaysForNIP11(ctx context.Context, staleBefore time.Time, limit int) ([]RelayRecord, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	records, err := s.queryRelayRecords(ctx, `
+		SELECT `+relayRecordSelectList+`
+		FROM relay_registry
+		WHERE manual_policy NOT IN ('blocked', 'drained')
+		  AND normalized_url LIKE 'wss://%'
+		  AND (
+		    capability_summary_json IS NULL
+		    OR (capability_summary_json->>'fetched_at') IS NULL
+		    OR (capability_summary_json->>'fetched_at')::timestamptz < $1
+		  )
+		ORDER BY (capability_summary_json->>'fetched_at')::timestamptz ASC NULLS FIRST,
+		         normalized_url ASC
+		LIMIT $2
+	`, staleBefore, limit*4)
+	if err != nil {
+		return nil, fmt.Errorf("list relays for nip11: %w", err)
+	}
+	out := make([]RelayRecord, 0, limit)
+	for _, rec := range records {
+		if !NIP11FetchEligible(rec.NormalizedURL) {
+			continue
+		}
+		out = append(out, rec)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// UpdateCapabilitySummary stores one NIP-11 fetch result. It does not change
+// probe fields. summary must be the JSON object produced for capability_summary_json.
+func (s *Store) UpdateCapabilitySummary(ctx context.Context, urlKey string, summary json.RawMessage) error {
+	if !json.Valid(summary) {
+		return fmt.Errorf("capability summary is not valid json")
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE relay_registry
+		SET capability_summary_json = $2::jsonb,
+		    updated_at = now()
+		WHERE url_key = $1
+	`, urlKey, string(summary))
+	if err != nil {
+		return fmt.Errorf("update capability summary: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update capability summary: relay not found")
+	}
+	return nil
+}
+
+// NIP11FetchEligible reports whether a stored relay should have its NIP-11
+// document fetched. Cleartext and non-public URLs are excluded. Directory
+// relays stay eligible so a relay page can still show their document.
+func NIP11FetchEligible(normalizedURL string) bool {
+	if !strings.HasPrefix(normalizedURL, "wss://") {
+		return false
+	}
+	_, err := relayurl.NormalizePublic(normalizedURL)
+	return err == nil
+}
+
 // CatalogRelayEligible reports whether a stored relay URL may appear in the
 // public read catalog or its reserved probe head.
 func CatalogRelayEligible(normalizedURL string) bool {

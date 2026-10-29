@@ -641,7 +641,14 @@ paths:
           schema: { type: integer, default: 50, maximum: 200 }
       responses:
         '200':
-          description: Popular relays ranked by distinct user count. Localhost, loopback, link-local, and private-network URLs are omitted. total is the full ranked population after that filter; relays is capped by limit.
+          description: >
+            Popular relays ranked by distinct user count. Localhost, loopback,
+            link-local, and private-network URLs are omitted. total is the full
+            ranked population after that filter; relays is capped by limit.
+            When the relay is in the registry and a NIP-11 fetch succeeded,
+            name, icon, auth_required, and payment_required are included.
+            auth_required and payment_required are omitted when the relay did
+            not say. They are the relay's claim, not a probe result.
   /api/v1/relays/catalog:
     get:
       tags: [public]
@@ -660,8 +667,40 @@ paths:
             ignored. generated_at is the query time. freshness_seconds is the
             window. Each relay has relay_url, distinct_users, score (number),
             last_probe_at, last_probe_status, avg_connect_latency_ms, and
-            avg_eose_latency_ms. An empty relays array is a successful response.
+            avg_eose_latency_ms. name, icon, auth_required, and payment_required
+            are added when a stored NIP-11 document includes them. auth_required
+            and payment_required are omitted when the relay did not say. An
+            empty relays array is a successful response.
         '400':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/relays/info:
+    get:
+      tags: [public]
+      summary: One registry relay, including its stored NIP-11 document
+      parameters:
+        - in: query
+          name: relay_url
+          required: true
+          schema: { type: string }
+          description: Websocket URL. It is normalized the same way as registry keys.
+      responses:
+        '200':
+          description: >
+            The registry row for relay_url. distinct_users and score match the
+            catalog. probe is the latest read-probe rollup; last_probe_status
+            is empty when the relay has not been probed. activity.event_count_24h
+            and activity.event_count_7d are sums from the hourly event rollup.
+            nip11 is null until a background fetch has completed. nip11.ok false
+            means the last fetch failed; nip11.error is a short code (timeout,
+            connect_failed, private_address, redirect_rejected, too_large,
+            not_json, or http_<status>). nip11.info is what the relay published.
+            auth_required and payment_required inside nip11.info.limitation are
+            omitted when the relay did not say.
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'

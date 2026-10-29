@@ -12,10 +12,14 @@ import (
 )
 
 type popularRelayEntry struct {
-	NormalizedURL  string `json:"normalized_url"`
-	DistinctUsers  int    `json:"distinct_users"`
-	InRegistry     bool   `json:"in_registry"`
-	AdmissionState string `json:"admission_state,omitempty"`
+	NormalizedURL   string `json:"normalized_url"`
+	DistinctUsers   int    `json:"distinct_users"`
+	InRegistry      bool   `json:"in_registry"`
+	AdmissionState  string `json:"admission_state,omitempty"`
+	Name            string `json:"name,omitempty"`
+	Icon            string `json:"icon,omitempty"`
+	AuthRequired    *bool  `json:"auth_required,omitempty"`
+	PaymentRequired *bool  `json:"payment_required,omitempty"`
 }
 
 type popularRelaysResponse struct {
@@ -135,6 +139,7 @@ func (h Handlers) GetPopularRelays(w http.ResponseWriter, r *http.Request) {
 		if rec, err := registryStore.GetRelay(ctx, r.key); err == nil {
 			entry.InRegistry = true
 			entry.AdmissionState = string(rec.AdmissionState)
+			entry.Name, entry.Icon, entry.AuthRequired, entry.PaymentRequired = nip11ListFields(rec.CapabilitySummary)
 		}
 		entries = append(entries, entry)
 	}
@@ -206,6 +211,10 @@ type catalogRelayEntry struct {
 	LastProbeStatus     string     `json:"last_probe_status"`
 	AvgConnectLatencyMs *float64   `json:"avg_connect_latency_ms"`
 	AvgEOSELatencyMs    *float64   `json:"avg_eose_latency_ms"`
+	Name                string     `json:"name,omitempty"`
+	Icon                string     `json:"icon,omitempty"`
+	AuthRequired        *bool      `json:"auth_required,omitempty"`
+	PaymentRequired     *bool      `json:"payment_required,omitempty"`
 }
 
 type catalogRelaysResponse struct {
@@ -243,6 +252,7 @@ func (h Handlers) GetRelayCatalog(w http.ResponseWriter, r *http.Request) {
 		if rec.LastProbeStatus != nil {
 			status = string(*rec.LastProbeStatus)
 		}
+		name, icon, authRequired, paymentRequired := nip11ListFields(rec.CapabilitySummary)
 		entries = append(entries, catalogRelayEntry{
 			RelayURL:            rec.NormalizedURL,
 			DistinctUsers:       rec.DistinctUserRefCount,
@@ -251,6 +261,10 @@ func (h Handlers) GetRelayCatalog(w http.ResponseWriter, r *http.Request) {
 			LastProbeStatus:     status,
 			AvgConnectLatencyMs: rec.AvgConnectLatency,
 			AvgEOSELatencyMs:    rec.AvgEOSELatency,
+			Name:                name,
+			Icon:                icon,
+			AuthRequired:        authRequired,
+			PaymentRequired:     paymentRequired,
 		})
 	}
 	writeJSON(w, http.StatusOK, catalogRelaysResponse{

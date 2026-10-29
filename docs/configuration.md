@@ -134,6 +134,12 @@ Do not hand-edit this file.
 | `RELAY_REGISTRY_DISCOVERY_MAX_VARIANTS_PER_HOST` | `worker` | optional | `3` | Maximum registry entries sharing one hostname before discovery refuses new URL variants of that host. Guards the candidate pool against junk path-variant relay URLs from user relay lists. |
 | `RELAY_REGISTRY_DISCOVERY_MIN_DISTINCT_USER_REFS` | `worker` | optional | `3` | Minimum distinct user references required to consider a relay candidate. |
 | `RELAY_REGISTRY_ENABLED` | `ingestor, worker` | optional | `false` | Enable the dynamic relay registry subsystem. |
+| `RELAY_REGISTRY_NIP11_BATCH_SIZE` | `worker` | optional | `25` | Maximum NIP-11 documents to fetch in one cycle. |
+| `RELAY_REGISTRY_NIP11_ENABLED` | `worker` | optional | `true` | Fetch NIP-11 relay information documents for public wss relays in the registry. Runs only when RELAY_REGISTRY_ENABLED is true. A failed fetch is stored and does not change probe status. |
+| `RELAY_REGISTRY_NIP11_FRESHNESS` | `worker` | optional | `24h` | How old a stored NIP-11 document may be before it is fetched again. Go duration. |
+| `RELAY_REGISTRY_NIP11_INTERVAL` | `worker` | optional | `15m` | How often the worker fetches a batch of stale NIP-11 documents. Go duration. |
+| `RELAY_REGISTRY_NIP11_MAX_PARALLEL` | `worker` | optional | `4` | Maximum parallel NIP-11 document fetches. |
+| `RELAY_REGISTRY_NIP11_TIMEOUT` | `worker` | optional | `8s` | HTTP timeout for one NIP-11 document fetch. Go duration. |
 | `RELAY_REGISTRY_PROBING_ENABLED` | `worker` | optional | `false` | Enable periodic relay health probing. |
 | `RELAY_REGISTRY_PROBING_INTERVAL` | `worker` | optional | `5m` | Interval between probe cycles. |
 | `RELAY_REGISTRY_PROBING_MAX_PARALLEL` | `worker` | optional | `5` | Maximum parallel probe goroutines. |
