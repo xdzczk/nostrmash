@@ -28,5 +28,5 @@ CREATE INDEX IF NOT EXISTS idx_event_tags_disallowed_tag_name
     ON event_tags (tag_name)
     WHERE tag_name NOT IN (
         'a', 'd', 'e', 'g', 'group', 'image', 'imeta', 'm', 'p', 'r',
-        'series', 'starts', 'status', 'summary', 't', 'thumb', 'title', 'u', 'url', 'video', 'word'
+        'series', 't', 'thumb', 'u', 'url', 'video', 'word'
     );

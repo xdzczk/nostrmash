@@ -70,6 +70,10 @@ ON CONFLICT (kind) DO NOTHING;
 -- 000071 created this index with the previous allowlist. IF NOT EXISTS will
 -- not replace that predicate, so drop and recreate it to match
 -- eventtags.AllowedTagNames (title, summary, status, starts).
+-- Production statement_timeout is 15s; building this partial index scans
+-- event_tags and does not finish in that window. This setting lasts only
+-- for the migration transaction.
+SET LOCAL statement_timeout = 0;
 DROP INDEX IF EXISTS idx_event_tags_disallowed_tag_name;
 CREATE INDEX IF NOT EXISTS idx_event_tags_disallowed_tag_name
     ON event_tags (tag_name)

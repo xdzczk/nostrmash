@@ -12,9 +12,11 @@ import (
 
 // The disallowed-tag-name prune query and its supporting partial index
 // cannot use a bind parameter for the allowlist (see the comments on
-// PruneFilteredEventTagsDisallowedNames and migrations/000071); both hold a
-// literal copy of internal/eventtags.AllowedTagNames instead. This test
-// fails loudly if either literal list drifts from the Go source of truth,
+// PruneFilteredEventTagsDisallowedNames). Both the live query and the
+// latest index migration hold a literal copy of
+// internal/eventtags.AllowedTagNames. 000071 is the index as first shipped
+// and must not be edited; 000106 replaces that predicate. This test fails
+// loudly if either live literal list drifts from the Go source of truth,
 // since a silent mismatch would make the query systematically wrong
 // (deleting allowlisted tags, or leaving disallowed ones undeleted) without
 // any test coverage catching it — TestPruneFilteredEventTags only exercises
@@ -27,7 +29,7 @@ func TestAllowedTagNamesMatchesDisallowedNameQuery(t *testing.T) {
 
 	for _, path := range []string{
 		"queries/retention.sql",
-		"../../../migrations/000071_event_tags_disallowed_name_index.sql",
+		"../../../migrations/000106_kind_expansion.sql",
 	} {
 		got := extractQuotedList(t, path)
 		if !slices.Equal(got, want) {
