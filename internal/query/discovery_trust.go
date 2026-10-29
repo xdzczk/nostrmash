@@ -95,6 +95,22 @@ func (s Service) getTrendingNotesTrustAware(ctx context.Context, window time.Dur
 	return s.getTrendingTrustAware(ctx, window, lang, limit, offset, queryTrendingNotesFetch(notesCap.GetTrendingNotes), tqFetch)
 }
 
+func (s Service) getTrendingMediaTrustAware(ctx context.Context, format string, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
+	mediaCap := s.capabilities.curated.trendingMedia
+	if mediaCap == nil {
+		return nil, unsupportedCapabilityError("trending media")
+	}
+	// Media volume is low, like long-form, so qualify on the fly.
+	fetch := func(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
+		rows, err := mediaCap.GetTrendingMedia(ctx, format, window, lang, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, trendingNoteFromStore), nil
+	}
+	return s.getTrendingTrustAware(ctx, window, lang, limit, offset, fetch, nil)
+}
+
 func (s Service) getTrendingLongFormTrustAware(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
 	longFormCap := s.capabilities.curated.trendingLongForm
 	if longFormCap == nil {

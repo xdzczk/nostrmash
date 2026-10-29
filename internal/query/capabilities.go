@@ -39,6 +39,7 @@ type curatedCapabilities struct {
 	readsTopics            curatedReadsTopicsCapability
 	trendingNotes          trendingNotesCapability
 	trendingLongForm       trendingLongFormCapability
+	trendingMedia          trendingMediaCapability
 	hotConversations       hotConversationsCapability
 	trustQualifiedNotes    trustQualifiedTrendingNotesCapability
 	trendingHashtags       trendingHashtagsCapability

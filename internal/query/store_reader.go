@@ -47,6 +47,7 @@ type CuratedReads interface {
 	domainNotesCapability
 	trendingNotesCapability
 	trendingLongFormCapability
+	trendingMediaCapability
 	hotConversationsCapability
 	trustQualifiedTrendingNotesCapability
 	trendingProfilesCapability

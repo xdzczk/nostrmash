@@ -168,6 +168,71 @@ func TestGetTrendingNotes_ExcludesNotesFromAuthorsWithoutLocalMetadata(t *testin
 	}
 }
 
+func TestGetTrendingMedia_RanksEachFormatApart(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+
+	pgStore := NewPostgresStore(pool)
+	handlers := derivation.NewHandlers(pool)
+	now := time.Now().UTC()
+
+	events := []model.Event{
+		newDiscoveryEvent("meta_media", "media_author", now.Add(-5*time.Hour), 0, nil, `{"name":"Media"}`),
+		newDiscoveryEvent("picture_a", "media_author", now.Add(-2*time.Hour), 20, nil, "picture"),
+		newDiscoveryEvent("video_a", "media_author", now.Add(-2*time.Hour), 21, nil, "video"),
+		newDiscoveryEvent("video_addr", "media_author", now.Add(-90*time.Minute), 34235, [][]string{{"d", "clip"}}, "addressable video"),
+		newDiscoveryEvent("short_a", "media_author", now.Add(-2*time.Hour), 22, nil, "short"),
+		newDiscoveryEvent("loud_note", "media_author", now.Add(-1*time.Hour), 1, nil, "not media"),
+		newDiscoveryEvent("picture_react_1", "media_reactor_1", now.Add(-80*time.Minute), 7, [][]string{{"e", "picture_a"}}, "+"),
+		newDiscoveryEvent("picture_react_2", "media_reactor_2", now.Add(-70*time.Minute), 7, [][]string{{"e", "picture_a"}}, "+"),
+		newDiscoveryEvent("video_react_1", "media_reactor_3", now.Add(-60*time.Minute), 7, [][]string{{"e", "video_a"}}, "+"),
+		newDiscoveryEvent("video_react_2", "media_reactor_4", now.Add(-50*time.Minute), 7, [][]string{{"e", "video_a"}}, "+"),
+		newDiscoveryEvent("addr_react_1", "media_reactor_5", now.Add(-40*time.Minute), 7, [][]string{{"e", "video_addr"}}, "+"),
+		newDiscoveryEvent("short_react_1", "media_reactor_6", now.Add(-30*time.Minute), 7, [][]string{{"e", "short_a"}}, "+"),
+		newDiscoveryEvent("short_react_2", "media_reactor_7", now.Add(-20*time.Minute), 7, [][]string{{"e", "short_a"}}, "+"),
+		newDiscoveryEvent("short_react_3", "media_reactor_8", now.Add(-10*time.Minute), 7, [][]string{{"e", "short_a"}}, "+"),
+		newDiscoveryEvent("note_react_1", "media_reactor_9", now.Add(-9*time.Minute), 7, [][]string{{"e", "loud_note"}}, "+"),
+	}
+	for _, event := range events {
+		tags := extractDiscoveryTagsForStoreTest(t, event.RawJSON)
+		if err := pgStore.InsertCanonicalEvent(ctx, event, tags, "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+
+	pictures, err := pgStore.GetTrendingMedia(ctx, "pictures", 24*time.Hour, "", 10, 0)
+	if err != nil {
+		t.Fatalf("pictures: %v", err)
+	}
+	if len(pictures) != 1 || pictures[0].EventID != "picture_a" || pictures[0].Kind != 20 {
+		t.Fatalf("pictures ranking = %#v", pictures)
+	}
+
+	videos, err := pgStore.GetTrendingMedia(ctx, "videos", 24*time.Hour, "", 10, 0)
+	if err != nil {
+		t.Fatalf("videos: %v", err)
+	}
+	if len(videos) != 2 || videos[0].EventID != "video_a" || videos[1].EventID != "video_addr" {
+		t.Fatalf("videos ranking = %#v", videos)
+	}
+	if videos[0].Kind != 21 || videos[1].Kind != 34235 {
+		t.Fatalf("video kinds = %#v", videos)
+	}
+
+	shorts, err := pgStore.GetTrendingMedia(ctx, "shorts", 24*time.Hour, "", 10, 0)
+	if err != nil {
+		t.Fatalf("shorts: %v", err)
+	}
+	if len(shorts) != 1 || shorts[0].EventID != "short_a" || shorts[0].Kind != 22 {
+		t.Fatalf("shorts ranking = %#v", shorts)
+	}
+}
+
 func newDiscoveryEvent(id, pubkey string, ts time.Time, kind int, tags [][]string, content string) model.Event {
 	createdAt := ts.Unix()
 	raw, _ := json.Marshal(map[string]any{

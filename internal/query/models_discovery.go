@@ -219,6 +219,7 @@ type TrendingNote struct {
 	AuthorPubkey  string  `json:"author_pubkey"`
 	CreatedAt     int64   `json:"created_at"`
 	Content       string  `json:"content"`
+	Kind          int     `json:"kind,omitempty"`
 	Language      string  `json:"language,omitempty"`
 	ReplyCount    int64   `json:"reply_count"`
 	RepostCount   int64   `json:"repost_count"`

@@ -945,6 +945,39 @@ paths:
           $ref: '#/components/responses/Error'
         '501':
           $ref: '#/components/responses/Error'
+  /api/v1/discovery/media/trending:
+    get:
+      tags: [public]
+      summary: Trending media from projection-backed discovery stats
+      description: >
+        Ranked separately by format so pictures, videos, and shorts do not
+        share one score list. `pictures` is kind 20. `videos` is kinds 21 and
+        34235. `shorts` is kinds 22 and 34236.
+      parameters:
+        - in: query
+          name: format
+          required: true
+          schema: { type: string, enum: [pictures, videos, shorts] }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Ranked media events for one format, with trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
+        '400':
+          $ref: '#/components/responses/Error'
+        '501':
+          $ref: '#/components/responses/Error'
   /api/v1/discovery/conversations/hot:
     get:
       tags: [public]

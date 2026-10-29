@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/xdzczk/nostrmash/internal/languagelabel"
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 // GetTrendingNotes returns trending short notes (kind 1 only). Long-form
@@ -21,6 +22,15 @@ func (s *Read) GetTrendingNotes(ctx context.Context, window time.Duration, lang 
 // mirrors GetTrendingNotes but scopes the candidate set to articles.
 func (s *Read) GetTrendingLongForm(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
 	return s.getTrendingNotesForKinds(ctx, []int{30023}, window, lang, limit, offset)
+}
+
+// GetTrendingMedia ranks one media format. format is pictures, videos, or shorts.
+func (s *Read) GetTrendingMedia(ctx context.Context, format string, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
+	kinds, ok := nostr.TrendingMediaKinds(format)
+	if !ok {
+		return nil, fmt.Errorf("unsupported media ranking %q", format)
+	}
+	return s.getTrendingNotesForKinds(ctx, kinds, window, lang, limit, offset)
 }
 
 func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
@@ -43,19 +53,20 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 	minCreatedAt := time.Now().UTC().Add(-windowDuration).Unix()
 	// Kind 1 is almost the entire score index, so that surface keeps walking
 	// idx_note_discovery_stats_{24h,7d}_rank and filtering kind afterwards.
-	// Long-form is a few thousand rows. Driving it from the same score index
-	// scans every note in the window (and a profile lookup per note) and
-	// trips the 15s statement_timeout. The handler then caches that failed
-	// empty page. idx_events_kind_created already ranges kind 30023 by time,
-	// so articles start there and only then join discovery stats.
+	// Articles and media are a few thousand rows. Driving them from the same
+	// score index scans every note in the window (and a profile lookup per
+	// note) and trips the 15s statement_timeout. The handler then caches that
+	// failed empty page. idx_events_kind_created already ranges those kinds
+	// by time, so they start there and only then join discovery stats.
 	var rows pgx.Rows
-	if longFormOnly(kinds) {
+	if !kindOneOnly(kinds) {
 		query := fmt.Sprintf(`
 			SELECT
 				s.event_id,
 				s.author_pubkey,
 				s.created_at,
 				e.content,
+				e.kind,
 				`+languagelabel.ChartSQL("s.primary_language", "s.language_source")+` AS language,
 				s.reply_count,
 				s.repost_count,
@@ -65,7 +76,7 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 				%s AS score
 			FROM events e
 			JOIN note_discovery_stats s ON s.event_id = e.id
-			WHERE e.kind = 30023
+			WHERE e.kind = ANY($4::int[])
 			  AND e.created_at >= $1
 			  AND s.created_at >= $1
 			  AND NOT EXISTS (
@@ -89,8 +100,8 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 			  %s
 			ORDER BY score DESC, s.created_at DESC, s.event_id ASC
 			LIMIT $2 OFFSET $3
-		`, scoreColumn, noteLanguageClause("s", "$4::text", lang))
-		args := []any{minCreatedAt, limit, offset}
+		`, scoreColumn, noteLanguageClause("s", "$5::text", lang))
+		args := []any{minCreatedAt, limit, offset, kinds}
 		if lang != "" {
 			args = append(args, lang)
 		}
@@ -102,6 +113,7 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 				s.author_pubkey,
 				s.created_at,
 				e.content,
+				e.kind,
 				`+languagelabel.ChartSQL("s.primary_language", "s.language_source")+` AS language,
 				s.reply_count,
 				s.repost_count,
@@ -154,6 +166,7 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 			&row.AuthorPubkey,
 			&row.CreatedAt,
 			&row.Content,
+			&row.Kind,
 			&row.Language,
 			&row.ReplyCount,
 			&row.RepostCount,
@@ -179,8 +192,8 @@ func noteLanguageClause(alias, placeholder, lang string) string {
 	return "AND " + languagelabel.FilterSQL(alias, placeholder)
 }
 
-func longFormOnly(kinds []int) bool {
-	return len(kinds) == 1 && kinds[0] == 30023
+func kindOneOnly(kinds []int) bool {
+	return len(kinds) == 1 && kinds[0] == 1
 }
 
 func resolveTrendingWindow(window time.Duration) (string, time.Duration, error) {

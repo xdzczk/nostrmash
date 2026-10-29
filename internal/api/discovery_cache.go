@@ -366,7 +366,7 @@ func cacheablePublicPayload(payload map[string]any) bool {
 	if !degraded {
 		return true
 	}
-	for _, key := range []string{"articles", "notes", "profiles", "hashtags", "domains", "conversations"} {
+	for _, key := range []string{"articles", "events", "notes", "profiles", "hashtags", "domains", "conversations"} {
 		value, ok := payload[key]
 		if !ok || value == nil {
 			continue

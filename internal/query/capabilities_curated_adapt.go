@@ -64,6 +64,9 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(trendingLongFormCapability); ok {
 		caps.curated.trendingLongForm = r
 	}
+	if r, ok := reader.(trendingMediaCapability); ok {
+		caps.curated.trendingMedia = r
+	}
 	if r, ok := reader.(hotConversationsCapability); ok {
 		caps.curated.hotConversations = r
 	}

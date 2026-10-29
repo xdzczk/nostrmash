@@ -232,6 +232,7 @@ func trendingNoteFromStore(row readmodel.TrendingNote) TrendingNote {
 		AuthorPubkey:  row.AuthorPubkey,
 		CreatedAt:     row.CreatedAt,
 		Content:       row.Content,
+		Kind:          row.Kind,
 		Language:      row.Language,
 		ReplyCount:    row.ReplyCount,
 		RepostCount:   row.RepostCount,

@@ -100,6 +100,10 @@ type trendingLongFormCapability interface {
 	GetTrendingLongForm(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.TrendingNote, error)
 }
 
+type trendingMediaCapability interface {
+	GetTrendingMedia(ctx context.Context, format string, window time.Duration, lang string, limit int, offset int) ([]readmodel.TrendingNote, error)
+}
+
 type hotConversationsCapability interface {
 	GetHotConversations(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.HotConversation, error)
 }

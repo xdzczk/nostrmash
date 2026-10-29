@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/query"
 )
 
@@ -155,6 +157,85 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
 			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "trending long-form is not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+}
+
+func (h Handlers) GetTrendingMedia(w http.ResponseWriter, r *http.Request) {
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if _, ok := nostr.TrendingMediaKinds(format); !ok {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "format must be pictures, videos, or shorts")
+		return
+	}
+	window, windowLabel, err := parseTrendingWindow(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	lang, err := parseOptionalDiscoveryLanguage(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, 5000)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_media", discoveryCacheParams(map[string]any{
+		"format": format,
+		"window": windowLabel,
+		"limit":  limit,
+		"offset": offset,
+	}, lang))
+	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
+		events, eventsErr := h.service.GetTrendingMedia(ctx, format, window, discoveryScope(lang), limit, offset)
+		degraded := false
+		if eventsErr != nil {
+			if query.IsUnsupportedCapability(eventsErr) {
+				return nil, eventsErr
+			}
+			recordDiscoveryDegrade(ctx, "trending_media", "backend", eventsErr, nil)
+			events = nil
+			degraded = true
+		}
+		authorPubkeys := make([]string, 0, len(events))
+		for _, event := range events {
+			authorPubkeys = append(authorPubkeys, event.AuthorPubkey)
+		}
+		authorIdentities, identitiesErr := h.resolveProfileIdentities(ctx, authorPubkeys)
+		if identitiesErr != nil {
+			recordDiscoveryDegrade(ctx, "trending_media", "profile_identities", identitiesErr, nil)
+			authorIdentities = map[string]profileIdentityFields{}
+			degraded = true
+		}
+		payload := buildDiscoveryNoteItems(events, authorIdentities, windowLabel)
+		payloadResponse := map[string]any{
+			"surface":     "trending_media",
+			"format":      format,
+			"window":      windowLabel,
+			"events":      payload,
+			"consistency": "eventual",
+		}
+		if degraded {
+			payloadResponse["degraded"] = true
+		}
+		computedAt := time.Now().UTC()
+		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
+		h.addDiscoveryTrustMetadata(payloadResponse)
+		h.attachDiscoveryLanguage(ctx, payloadResponse, lang)
+		return payloadResponse, nil
+	}); err != nil {
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "trending media is not available on this deployment")
 			return
 		}
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")

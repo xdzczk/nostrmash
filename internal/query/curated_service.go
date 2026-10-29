@@ -200,6 +200,20 @@ func (s Service) GetTrendingNotes(ctx context.Context, window time.Duration, sco
 	return nil, unsupportedCapabilityError("trending notes")
 }
 
+func (s Service) GetTrendingMedia(ctx context.Context, format string, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingNote, error) {
+	if r := s.capabilities.curated.trendingMedia; r != nil {
+		if s.discoveryTrustMode == trustModeOpen {
+			rows, err := r.GetTrendingMedia(ctx, format, window, scope.Lang(), limit, offset)
+			if err != nil {
+				return nil, err
+			}
+			return mapSlice(rows, trendingNoteFromStore), nil
+		}
+		return s.getTrendingMediaTrustAware(ctx, format, window, scope.Lang(), limit, offset)
+	}
+	return nil, unsupportedCapabilityError("trending media")
+}
+
 func (s Service) GetTrendingLongForm(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingNote, error) {
 	if r := s.capabilities.curated.trendingLongForm; r != nil {
 		if s.discoveryTrustMode == trustModeOpen {

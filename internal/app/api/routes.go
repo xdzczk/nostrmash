@@ -116,6 +116,7 @@ func buildRouteDefinitions(
 		newPublicRoute("GET /api/v1/search/suggest", true, http.HandlerFunc(handlers.SearchSuggest)),
 		newPublicRoute("GET /api/v1/discovery/notes/trending", true, http.HandlerFunc(handlers.GetTrendingNotes)),
 		newPublicRoute("GET /api/v1/discovery/long-form/trending", true, http.HandlerFunc(handlers.GetTrendingLongForm)),
+		newPublicRoute("GET /api/v1/discovery/media/trending", true, http.HandlerFunc(handlers.GetTrendingMedia)),
 		newPublicRoute("GET /api/v1/discovery/conversations/hot", true, http.HandlerFunc(handlers.GetHotConversations)),
 		newPublicRoute("GET /api/v1/discovery/home", true, http.HandlerFunc(handlers.GetDiscoveryHome)),
 		newPublicRoute("GET /api/v1/discovery/profiles/trending", true, http.HandlerFunc(handlers.GetTrendingProfiles)),

@@ -171,6 +171,9 @@ func buildTrendingNoteItem(note query.TrendingNote) map[string]any {
 		"zap_msats":      note.ZapMSats,
 		"score":          note.Score,
 	}
+	if note.Kind > 0 {
+		item["kind"] = note.Kind
+	}
 	item["preview"] = buildNotePreviewPayload(note.EventID, note.Content)
 	return item
 }
