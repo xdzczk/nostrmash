@@ -117,6 +117,8 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.ProjectDMUnreadCounts,
 		h.ProjectZapReceipts,
 		h.UpdateThreadProjection,
+		h.ProjectCommentEdges,
+		h.ProjectReportTargets,
 		h.RepairUnresolvedReferences,
 		h.ProjectNoteDiscoveryStats,
 		// Apply O(1) incremental counter deltas for profile_public_stats and

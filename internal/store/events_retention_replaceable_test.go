@@ -106,18 +106,31 @@ func TestPurgeSupersededReplaceableEvents_SafeGuards(t *testing.T) {
 	insertReplaceableEventRow(t, ctx, pool, "g_old", "G", 10003, 100, oldSeen)
 	insertReplaceableWinner(t, ctx, pool, "G", 10003, "g_win", 200)
 
+	// Pubkey H, kind 10001 pin list: superseded version is purged; the winner stays.
+	insertReplaceableEventRow(t, ctx, pool, "h_win", "H", 10001, 200, oldSeen)
+	insertReplaceableEventRow(t, ctx, pool, "h_old", "H", 10001, 100, oldSeen)
+	insertReplaceableWinner(t, ctx, pool, "H", 10001, "h_win", 200)
+
+	// Pubkey I, kind 30311: superseded d-tag version is purged; the current stream stays.
+	insertReplaceableEventRow(t, ctx, pool, "i_win", "I", 30311, 200, oldSeen)
+	insertReplaceableDTag(t, ctx, pool, "i_win", "stream")
+	insertReplaceableEventRow(t, ctx, pool, "i_old", "I", 30311, 100, oldSeen)
+	insertReplaceableDTag(t, ctx, pool, "i_old", "stream")
+	insertParameterizedReplaceableWinner(t, ctx, pool, "I", 30311, "stream", "i_win", 200)
+
 	deleted, err := NewPostgresStore(pool).PurgeSupersededReplaceableEvents(ctx, supersededBefore, deadGraceBefore, 100)
 	if err != nil {
 		t.Fatalf("purge: %v", err)
 	}
-	if deleted != 4 {
-		t.Fatalf("expected 4 deletions, got %d", deleted)
+	if deleted != 6 {
+		t.Fatalf("expected 6 deletions, got %d", deleted)
 	}
 
 	got := remainingEventIDs(t, ctx, pool)
 	want := []string{
 		"a3_win", "b0_win", "c_win", "c_pending", "c_recent", "d3_only",
 		"e3_old_proj", "e3_new", "k1_old", "f_art_win", "f_bio_only", "g_win",
+		"h_win", "i_win",
 	}
 	sort.Strings(want)
 	if len(got) != len(want) {

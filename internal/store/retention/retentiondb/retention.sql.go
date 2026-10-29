@@ -216,7 +216,7 @@ WITH candidates AS (
     FROM event_tags et
     WHERE et.tag_name NOT IN (
         'a', 'd', 'e', 'g', 'group', 'image', 'imeta', 'm', 'p', 'r',
-        'series', 't', 'thumb', 'u', 'url', 'video', 'word'
+        'series', 'starts', 'status', 'summary', 't', 'thumb', 'title', 'u', 'url', 'video', 'word'
     )
     LIMIT $1
 )

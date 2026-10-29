@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 var hashtagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
@@ -109,7 +111,7 @@ func (h *Handlers) projectEventHashtagsWithVersion(ctx context.Context, eventID 
 }
 
 func isHashtagProjectableKind(kind int) bool {
-	return kind == 1 || kind == 30023
+	return nostr.IsIndexedNoteKind(kind)
 }
 
 func extractNormalizedHashtags(tags [][]string) []string {

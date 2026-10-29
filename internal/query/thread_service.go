@@ -51,6 +51,12 @@ func (s threadService) GetThread(ctx context.Context, req ThreadRequest) (out Th
 	if err != nil {
 		return out, err
 	}
+	if req.Cursor == nil {
+		replies, err = appendCommentEvents(s.reader, ctx, eventID, replies)
+		if err != nil {
+			return out, err
+		}
+	}
 	out.Event = raw
 	out.Ancestors = ancestors
 	out.MissingAncestorIDs = missing
@@ -111,6 +117,12 @@ func (s threadService) GetThreadWindow(ctx context.Context, req ThreadWindowRequ
 	if descendingReader, ok := s.reader.(descendingThreadWindowReader); ok {
 		replies, next, err := descendingReader.GetEventRepliesDescending(ctx, eventID, req.Limit, req.Cursor, req.Offset)
 		if err == nil {
+			if req.Cursor == nil && req.Offset == 0 {
+				replies, err = appendCommentEvents(s.reader, ctx, eventID, replies)
+				if err != nil {
+					return ThreadView{}, err
+				}
+			}
 			out.Replies = replies
 			out.NextCursor = next
 			return out, nil
@@ -123,6 +135,12 @@ func (s threadService) GetThreadWindow(ctx context.Context, req ThreadWindowRequ
 	window, next, err := s.getThreadWindowFromAscendingScan(ctx, eventID, req, fetchPageSize)
 	if err != nil {
 		return ThreadView{}, err
+	}
+	if req.Cursor == nil && req.Offset == 0 {
+		window, err = appendCommentEvents(s.reader, ctx, eventID, window)
+		if err != nil {
+			return ThreadView{}, err
+		}
 	}
 	out.Replies = window
 	out.NextCursor = next
@@ -269,10 +287,36 @@ func (s Service) GetThreadView(
 	if err != nil {
 		return out, err
 	}
+	if cursor == nil {
+		replies, err = appendCommentEvents(s.reader, ctx, eventID, replies)
+		if err != nil {
+			return out, err
+		}
+	}
 	out.Event = raw
 	out.Ancestors = ancestors
 	out.MissingAncestorIDs = missing
 	out.Replies = replies
 	out.NextCursor = next
 	return out, nil
+}
+
+func appendCommentEvents(reader any, ctx context.Context, eventID string, replies []json.RawMessage) ([]json.RawMessage, error) {
+	commenter, ok := reader.(interface {
+		GetEventComments(context.Context, string, int) ([]json.RawMessage, error)
+	})
+	if !ok {
+		return replies, nil
+	}
+	comments, err := commenter.GetEventComments(ctx, eventID, 100)
+	if err != nil {
+		if IsUnsupportedCapability(err) {
+			return replies, nil
+		}
+		return nil, err
+	}
+	if len(comments) == 0 {
+		return replies, nil
+	}
+	return append(replies, comments...), nil
 }

@@ -642,6 +642,29 @@ paths:
       responses:
         '200':
           description: Popular relays ranked by distinct user count. Localhost, loopback, link-local, and private-network URLs are omitted. total is the full ranked population after that filter; relays is capped by limit.
+  /api/v1/relays/catalog:
+    get:
+      tags: [public]
+      summary: Popular relays with a recent successful read probe
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 100 }
+      responses:
+        '200':
+          description: >
+            Relays from relay_registry whose latest read probe succeeded inside
+            the freshness window, ordered by distinct_users, score, then
+            relay_url. Localhost, private-network, and directory relays are
+            omitted, as are blocked and drained relays. Admission state is
+            ignored. generated_at is the query time. freshness_seconds is the
+            window. Each relay has relay_url, distinct_users, score (number),
+            last_probe_at, last_probe_status, avg_connect_latency_ms, and
+            avg_eose_latency_ms. An empty relays array is a successful response.
+        '400':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
   /api/v1/relays/probe-health:
     get:
       tags: [public]
@@ -1315,6 +1338,109 @@ paths:
           description: >
             Highlight events with eventual engagement counters attached for
             note-card rendering.
+  /api/v1/users/{pubkey}/media:
+    get:
+      tags: [public]
+      summary: Picture and video events for pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: >
+            Kinds 20, 21, 22, 34235, and 34236. Addressable video is the current
+            replaceable winner. Envelope is pubkey, items, and consistency.
+  /api/v1/users/{pubkey}/live:
+    get:
+      tags: [public]
+      summary: Current kind 30311 live activities for pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Latest kind 30311 row per d tag for the pubkey.
+  /api/v1/users/{pubkey}/pins:
+    get:
+      tags: [public]
+      summary: e and a tags from the latest kind 10001 pin list
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Pin items as tag and value, with eventual consistency.
+  /api/v1/live:
+    get:
+      tags: [public]
+      summary: Current kind 30311 live activities
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [planned, live, ended], default: live }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Current live activities ordered by starts, then created_at.
+  /api/v1/events/{id}/comments:
+    get:
+      tags: [public]
+      summary: Kind 1111 comments on an event or its address
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Comment events with eventual consistency.
+  /api/v1/events/{id}/reports:
+    get:
+      tags: [public]
+      summary: NIP-56 reports targeting an event
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Report targets for the event.
+  /api/v1/users/{pubkey}/reports:
+    get:
+      tags: [public]
+      summary: NIP-56 reports targeting a pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Report targets for the pubkey.
   /api/v1/users/{pubkey}/long-form:
     get:
       tags: [public]

@@ -13,7 +13,9 @@ import (
 // untrustedPurgeKinds are the author-gated kinds PurgeUntrustedAuthorEvents
 // reclaims. Kind 1 replies are filtered out per page (thread_edges), not by
 // dropping kind 1 entirely.
-var untrustedPurgeKinds = []int32{1, 4, 5, 9802, 10000, 10003, 30023}
+var untrustedPurgeKinds = []int32{
+	1, 4, 5, 20, 21, 22, 1984, 9802, 10000, 10001, 10003, 30000, 30023, 30311, 34235, 34236,
+}
 
 const (
 	untrustedPurgePageSize = 2000

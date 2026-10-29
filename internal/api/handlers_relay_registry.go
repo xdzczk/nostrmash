@@ -197,3 +197,65 @@ func (h Handlers) GetRelayProbeHealth(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, relayProbeHealthResponse{Relays: entries, Total: probedTotal, Limit: limit})
 }
+
+type catalogRelayEntry struct {
+	RelayURL            string     `json:"relay_url"`
+	DistinctUsers       int        `json:"distinct_users"`
+	Score               float64    `json:"score"`
+	LastProbeAt         *time.Time `json:"last_probe_at"`
+	LastProbeStatus     string     `json:"last_probe_status"`
+	AvgConnectLatencyMs *float64   `json:"avg_connect_latency_ms"`
+	AvgEOSELatencyMs    *float64   `json:"avg_eose_latency_ms"`
+}
+
+type catalogRelaysResponse struct {
+	GeneratedAt      time.Time           `json:"generated_at"`
+	FreshnessSeconds int                 `json:"freshness_seconds"`
+	Relays           []catalogRelayEntry `json:"relays"`
+}
+
+func (h Handlers) GetRelayCatalog(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseBoundedPositiveInt(r, "limit", 50, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if h.pool == nil {
+		writeError(r.Context(), w, http.StatusServiceUnavailable, "not_available", "relay registry data is not available")
+		return
+	}
+
+	freshness := h.relayCatalogFreshness
+	if freshness <= 0 {
+		freshness = time.Hour
+	}
+	generatedAt := time.Now().UTC()
+	ctx := r.Context()
+	records, err := relayregistry.NewStore(h.pool).ListRelayCatalog(ctx, generatedAt.Add(-freshness), limit)
+	if err != nil {
+		writeInternalError(ctx, w, err)
+		return
+	}
+
+	entries := make([]catalogRelayEntry, 0, len(records))
+	for _, rec := range records {
+		status := ""
+		if rec.LastProbeStatus != nil {
+			status = string(*rec.LastProbeStatus)
+		}
+		entries = append(entries, catalogRelayEntry{
+			RelayURL:            rec.NormalizedURL,
+			DistinctUsers:       rec.DistinctUserRefCount,
+			Score:               rec.Score,
+			LastProbeAt:         rec.LastProbeAt,
+			LastProbeStatus:     status,
+			AvgConnectLatencyMs: rec.AvgConnectLatency,
+			AvgEOSELatencyMs:    rec.AvgEOSELatency,
+		})
+	}
+	writeJSON(w, http.StatusOK, catalogRelaysResponse{
+		GeneratedAt:      generatedAt,
+		FreshnessSeconds: int(freshness.Seconds()),
+		Relays:           entries,
+	})
+}

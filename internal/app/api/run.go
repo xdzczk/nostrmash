@@ -245,10 +245,11 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 	}
 	discoveryCacheEnabled := cfg.DiscoveryCache.Enabled
 	handlers, err := api.NewHandlersWithOptions(queryStore, api.HandlersOptions{
-		MaxBatchSize: cfg.HTTP.MaxBatchSize,
-		Pool:         pool,
-		QueryOptions: queryOptions,
-		Hydration:    cfg.Hydration,
+		MaxBatchSize:          cfg.HTTP.MaxBatchSize,
+		Pool:                  pool,
+		QueryOptions:          queryOptions,
+		Hydration:             cfg.Hydration,
+		RelayCatalogFreshness: cfg.RelayCatalogFreshness,
 		DiscoveryCache: &api.DiscoveryCacheOptions{
 			Enabled:        &discoveryCacheEnabled,
 			MaxEntries:     cfg.DiscoveryCache.MaxEntries,

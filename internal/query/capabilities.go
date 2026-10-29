@@ -95,6 +95,7 @@ type eventCapabilities struct {
 	authorReactions          authorReactionsCapability
 	authorRecentEventsByKind authorRecentEventsByKindCapability
 	authorRecentEventsPage   authorRecentEventsPageCapability
+	kindExpansion            kindExpansionCapability
 }
 
 type threadCapabilities struct {

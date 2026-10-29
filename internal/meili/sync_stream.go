@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 // FullSync streams can legitimately exceed the production 15s statement_timeout
@@ -60,14 +62,14 @@ func streamNotesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, con
 		)
 		if !haveCursor {
 			rows, err = conn.Query(ctx, noteDocumentSelect+`
-				WHERE e.kind IN (1, 30023)
+				WHERE e.kind IN (`+nostr.IndexedNoteKindsSQL+`)
 				  AND e.created_at >= $2::bigint
 				ORDER BY e.created_at DESC, e.id DESC
 				LIMIT $1
 			`, batchSize, minCreatedAt)
 		} else {
 			rows, err = conn.Query(ctx, noteDocumentSelect+`
-				WHERE e.kind IN (1, 30023)
+				WHERE e.kind IN (`+nostr.IndexedNoteKindsSQL+`)
 				  AND e.created_at >= $4::bigint
 				  AND (e.created_at, e.id) < ($2::bigint, $3::text)
 				ORDER BY e.created_at DESC, e.id DESC

@@ -82,7 +82,7 @@ Use this section when enabling the storage-bounding layer after deploy. Full des
 ### Architecture at a glance
 
 1. **`trust_worker`** writes seeds → refreshes `trust_graph_snapshot` → runs global trust scores.
-2. **`ingestor`** loads the snapshot into memory and gates authored kinds `1`/`4`/`9802`/`10000`/`10003`/`30023` (author) and kinds `6`/`7`/`9735` (target-exists) before canonical writes.
+2. **`ingestor`** loads the snapshot into memory and gates authored kinds `1`/`4`/`5`/`20`/`21`/`22`/`1984`/`9802`/`10000`/`10001`/`10003`/`30000`/`30023`/`30311`/`34235`/`34236` (author), kind `1111` (stored NIP-22 root, else author), and kinds `6`/`7`/`16`/`9735` (target-exists) before canonical writes.
 3. **`worker`** purges raw engagement events older than ~32 days (lifetime counters survive).
 
 ### Required env vars (production)
@@ -455,7 +455,7 @@ Worker throughput tuning:
 - `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_MAX_AGE` and `WORKER_INVALID_EVENTS_PAYLOAD_TRIM_BATCH_LIMIT` bound payload trimming when enabled.
 - `WORKER_RETENTION_ENGAGEMENT_ENABLED` enables periodic purge of raw engagement events (kinds `6`/`7`/`9735`; default `true`).
 - `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` (default `768h`/32d), `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL`, and `WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT` bound engagement retention. Lifetime `reaction_counts`/`repost_counts` survive; derivation-safe guard blocks in-flight jobs.
-- `WORKER_RETENTION_REPLACEABLE_ENABLED` enables periodic purge of superseded raw replaceable events (kinds `0`/`3`/`10000`/`10002`/`10003` and parameterized `30023`; default `true`). Only versions strictly older than the current winner are removed.
+- `WORKER_RETENTION_REPLACEABLE_ENABLED` enables periodic purge of superseded raw replaceable events (kinds `0`/`3`/`10000`/`10001`/`10002`/`10003` and parameterized `30000`/`30023`/`30311`/`34235`/`34236`; default `true`). Only versions strictly older than the current winner are removed.
 - `WORKER_RETENTION_REPLACEABLE_MIN_AGE` (default `24h`, by `first_seen_at`), `WORKER_RETENTION_REPLACEABLE_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL`, and `WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT` bound replaceable retention. The latest-version projections (`contact_lists_latest`, `relay_lists_latest`, `profiles_latest`, `replaceable_state`) survive; derivation-safe guard blocks in-flight jobs.
 - `WORKER_RETENTION_DELETION_ENABLED` enables periodic purge of processed raw deletion events (kind `5`; default `true`). The `deletion_events` tombstone ledger survives (migration `000050` dropped the `events` FK cascade).
 - `WORKER_RETENTION_DELETION_MAX_AGE` (default `336h`/14d), `WORKER_RETENTION_DELETION_DEAD_GRACE` (default `168h`/7d), `WORKER_RETENTION_DELETION_RUN_INTERVAL`, and `WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT` bound deletion retention. Derivation-safe guard blocks raw events whose `derive_event_bundle` job is still in-flight, so a tombstone is always projected before its raw event is purged.
@@ -571,13 +571,13 @@ Trust-driven ingest prioritization:
 - Relay ordering is currently calculated at ingestor startup from `trust_scores_global` + `relay_lists_latest`.
 - Use `INGESTOR_TRUST_PRIORITIZATION_ENABLED` and `INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS` to control trust ordering behavior.
 - If trust prioritization is disabled or fails, ingest falls back to configured relay order.
-- Trust-targeted pubkey fetch is on by default (`INGESTOR_TRUST_FETCH_ENABLED`). Each selected author is requested twice: recent notes and long-form (kinds `1`, `30023`), then replaceables (kinds `0`, `3`, `10002`). Accounts with at least 1000 followers are included in `trust_graph_snapshot` at hop 1 and fetched ahead of ordinary trust ranks, so a note the live firehose missed is filled in without replaying the whole relay stream. Set `INGESTOR_TRUST_FETCH_ENABLED=false` to turn the backfill off.
+- Trust-targeted pubkey fetch is on by default (`INGESTOR_TRUST_FETCH_ENABLED`). Each selected author is requested in separate REQs: recent notes and long-form (kinds `1`, `30023`), replaceables (kinds `0`, `3`, `10002`), media and live activities (kinds `20`, `21`, `22`, `34235`, `34236`, `30311`), and lists (kinds `10000`, `10001`, `10003`, `30000`). Accounts with at least 1000 followers are included in `trust_graph_snapshot` at hop 1 and fetched ahead of ordinary trust ranks, so a note the live firehose missed is filled in without replaying the whole relay stream. Set `INGESTOR_TRUST_FETCH_ENABLED=false` to turn the backfill off.
 - Frontier behavior is bounded and smoothed by `INGESTOR_TRUST_FETCH_MAX_TRACKED_PUBKEYS`, `INGESTOR_TRUST_FETCH_MAX_SELECTED_PER_CYCLE`, `INGESTOR_TRUST_FETCH_REFRESH_INTERVAL`, `INGESTOR_TRUST_FETCH_STABLE_WINDOW`, and `INGESTOR_TRUST_FETCH_MAX_PROMOTIONS_PER_CYCLE`.
 - Retry and fetch pacing are controlled by `INGESTOR_TRUST_FETCH_COOLDOWN` and `INGESTOR_TRUST_FETCH_RETRY_DELAY`; recent lookback is bounded by `INGESTOR_TRUST_FETCH_RECENT_LOOKBACK_SECONDS`.
 
 Trust-bounded ingest gate (storage bounding):
 
-- `INGESTOR_TRUST_GATE_MODE`: `open` (shadow, default) or `trusted_only` (enforce author trust for kind-1 roots and kinds 4/5/9802/10000/10003/30023; kind-1 replies and kinds 6/7/9735 use target-exists).
+- `INGESTOR_TRUST_GATE_MODE`: `open` (shadow, default) or `trusted_only` (enforce author trust for kind-1 roots and kinds 4/5/20/21/22/1984/9802/10000/10001/10003/30000/30023/30311/34235/34236; kind-1 replies and kind 1111 use a stored root, otherwise author trust; kinds 6/7/16/9735 use target-exists).
 - `INGESTOR_TRUST_GATE_MAX_HOPS` (default `2`) and `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` (default `2m`) control the in-memory trusted set loaded from `trust_graph_snapshot`.
 - Prerequisites on `trust_worker`: `TRUST_SEED_PUBKEYS`, `TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL`, `TRUST_RUN_INTERVAL`.
 - Rollout guide: [Trust-bounded ingest rollout](#trust-bounded-ingest-rollout).

@@ -67,6 +67,7 @@ type fakeEventReader struct {
 	getCuratedFeaturedAuthorsFn   func(context.Context, int) ([]storeread.CuratedFeaturedAuthor, error)
 	getCreatorPaidTiersFn         func(context.Context, string) ([]json.RawMessage, error)
 	getPubkeyByLNAddressFn        func(context.Context, string) (string, error)
+	kindExpansionHooks
 }
 
 func (f fakeEventReader) GetEventRawByID(ctx context.Context, id string) (json.RawMessage, error) {

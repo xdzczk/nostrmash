@@ -252,7 +252,7 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Runtimes:     []string{"ingestor"},
 			Required:     false,
 			DefaultValue: "true",
-			Description:  "Fetch recent notes (kinds 1, 30023) and replaceables (kinds 0, 3, 10002) for frontier pubkeys, including high-follower accounts. On by default so a note the live firehose missed is requested again.",
+			Description:  "Fetch recent notes (kinds 1, 30023), media and live activities (kinds 20, 21, 22, 34235, 34236, 30311), lists (kinds 10000, 10001, 10003, 30000), and replaceables (kinds 0, 3, 10002) for frontier pubkeys, including high-follower accounts. On by default so a note the live firehose missed is requested again.",
 		},
 		{
 			Name:         "INGESTOR_TRUST_FETCH_MAX_PROMOTIONS_PER_CYCLE",
@@ -322,7 +322,7 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Runtimes:     []string{"ingestor"},
 			Required:     false,
 			DefaultValue: "open",
-			Description:  "Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce author trust for kind-1 roots and kinds 4/5/9802/10000/10003/30023; kind-1 replies and kinds 6/7/9735 use target-exists).",
+			Description:  "Trust-bounded ingest gate mode: open (shadow, record metrics only) or trusted_only (enforce author trust for kind-1 roots and kinds 4/5/20/21/22/1984/9802/10000/10001/10003/30000/30023/30311/34235/34236; kind-1 replies and kind 1111 use a stored root, otherwise author trust; kinds 6/7/16/9735 use target-exists).",
 		},
 		{
 			Name:         "INGESTOR_TRUST_GATE_REFRESH_INTERVAL",
@@ -437,6 +437,20 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Required:     false,
 			DefaultValue: "5",
 			Description:  "Maximum parallel probe goroutines.",
+		},
+		{
+			Name:         "RELAY_REGISTRY_CATALOG_FRESHNESS",
+			Runtimes:     []string{"api", "worker"},
+			Required:     false,
+			DefaultValue: "1h",
+			Description:  "How recently a read probe must have succeeded for a relay to appear in GET /api/v1/relays/catalog. The worker reserves extra probe slots so the most-listed public relays stay inside this window. Go duration.",
+		},
+		{
+			Name:         "RELAY_REGISTRY_CATALOG_HEAD",
+			Runtimes:     []string{"worker"},
+			Required:     false,
+			DefaultValue: "80",
+			Description:  "How many of the most-listed public wss relays the probe loop keeps inside RELAY_REGISTRY_CATALOG_FRESHNESS. These dials are in addition to the live and discovery probe budgets.",
 		},
 		{
 			Name:         "RELAY_REGISTRY_ADMISSION_MAX_TOTAL_ACTIVE",

@@ -638,6 +638,23 @@ type TrustState struct {
 	IsSeed       bool
 }
 
+// PinItem is one e or a tag from the latest kind 10001 pin list.
+type PinItem struct {
+	Tag   string `json:"tag"`
+	Value string `json:"value"`
+}
+
+// ReportTarget is one NIP-56 report aimed at an event or a pubkey.
+type ReportTarget struct {
+	ReportEventID  string `json:"report_event_id"`
+	ReporterPubkey string `json:"reporter_pubkey"`
+	ReportType     string `json:"report_type"`
+	Content        string `json:"content"`
+	CreatedAt      int64  `json:"created_at"`
+	TargetEventID  string `json:"target_event_id,omitempty"`
+	TargetPubkey   string `json:"target_pubkey,omitempty"`
+}
+
 type WindowedCount struct {
 	Last24h int64 `json:"24h"`
 	Last7d  int64 `json:"7d"`

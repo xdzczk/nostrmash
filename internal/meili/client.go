@@ -10,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	ms "github.com/meilisearch/meilisearch-go"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 // DefaultHTTPTimeout bounds every Meilisearch HTTP call (search + sync).
@@ -195,7 +197,7 @@ func (c *Client) NeedsSync(ctx context.Context, pool *pgxpool.Pool) (bool, error
 	}
 	checks := []countQuery{
 		{IndexProfiles, `SELECT count(*) FROM profiles_latest`},
-		{IndexNotes, `SELECT count(*) FROM events WHERE kind IN (1, 30023) AND created_at >= $1::bigint`},
+		{IndexNotes, `SELECT count(*) FROM events WHERE kind IN (` + nostr.IndexedNoteKindsSQL + `) AND created_at >= $1::bigint`},
 	}
 	const syncThreshold = 0.80
 	minNotesCreatedAt := indexedNotesMinCreatedAt(time.Now())

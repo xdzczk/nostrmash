@@ -82,4 +82,18 @@ func adaptEventCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(authorRecentEventsPageCapability); ok {
 		caps.event.authorRecentEventsPage = r
 	}
+	if r, ok := reader.(kindExpansionCapability); ok {
+		caps.event.kindExpansion = r
+	}
+}
+
+type kindExpansionCapability interface {
+	GetAuthorMedia(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
+	GetAuthorLive(ctx context.Context, pubkey string, limit int) ([]json.RawMessage, error)
+	GetAuthorPins(ctx context.Context, pubkey string) ([]readmodel.PinItem, error)
+	GetLiveActivities(ctx context.Context, status string, followedBy string, limit int) ([]json.RawMessage, error)
+	GetShortVideos(ctx context.Context, followedBy string, limit int) ([]json.RawMessage, error)
+	GetEventComments(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error)
+	GetEventReports(ctx context.Context, eventID string, limit int) ([]readmodel.ReportTarget, error)
+	GetUserReports(ctx context.Context, pubkey string, limit int) ([]readmodel.ReportTarget, error)
 }

@@ -46,26 +46,28 @@ func Ready(pool *pgxpool.Pool) http.HandlerFunc {
 type EventReader = query.StoreReader
 
 type Handlers struct {
-	service             query.Service
-	pool                *pgxpool.Pool
-	maxBatchSize        int
-	discoveryCache      *discoveryResponseCache
-	publicStatsMemo     *publicStatsMemo
-	cacheConfig         discoveryCacheConfig
-	cacheLookupObserver cacheLookupObserver
-	hydration           config.HydrationConfig
-	hydrationLimiter    *minuteRateLimiter
+	service               query.Service
+	pool                  *pgxpool.Pool
+	maxBatchSize          int
+	discoveryCache        *discoveryResponseCache
+	publicStatsMemo       *publicStatsMemo
+	cacheConfig           discoveryCacheConfig
+	cacheLookupObserver   cacheLookupObserver
+	hydration             config.HydrationConfig
+	hydrationLimiter      *minuteRateLimiter
+	relayCatalogFreshness time.Duration
 }
 
 var apiErrLog = logging.New("api")
 
 type HandlersOptions struct {
-	MaxBatchSize        int
-	Pool                *pgxpool.Pool
-	QueryOptions        query.ServiceOptions
-	DiscoveryCache      *DiscoveryCacheOptions
-	CacheLookupObserver cacheLookupObserver
-	Hydration           config.HydrationConfig
+	MaxBatchSize          int
+	Pool                  *pgxpool.Pool
+	QueryOptions          query.ServiceOptions
+	DiscoveryCache        *DiscoveryCacheOptions
+	CacheLookupObserver   cacheLookupObserver
+	Hydration             config.HydrationConfig
+	RelayCatalogFreshness time.Duration
 }
 
 func NewHandlers(reader EventReader, maxBatchSize int) (Handlers, error) {
@@ -101,16 +103,21 @@ func NewHandlersWithOptions(reader EventReader, options HandlersOptions) (Handle
 	if options.Hydration.PublicEnabled && options.Hydration.RateLimitPerMinute > 0 {
 		hydrationLimiter = newMinuteRateLimiter(options.Hydration.RateLimitPerMinute)
 	}
+	catalogFreshness := options.RelayCatalogFreshness
+	if catalogFreshness <= 0 {
+		catalogFreshness = time.Hour
+	}
 	return Handlers{
-		service:             service,
-		pool:                options.Pool,
-		maxBatchSize:        maxBatchSize,
-		discoveryCache:      discoveryCache,
-		publicStatsMemo:     statsMemo,
-		cacheConfig:         cacheConfig,
-		cacheLookupObserver: lookupObserver,
-		hydration:           options.Hydration,
-		hydrationLimiter:    hydrationLimiter,
+		service:               service,
+		pool:                  options.Pool,
+		maxBatchSize:          maxBatchSize,
+		discoveryCache:        discoveryCache,
+		publicStatsMemo:       statsMemo,
+		cacheConfig:           cacheConfig,
+		cacheLookupObserver:   lookupObserver,
+		hydration:             options.Hydration,
+		hydrationLimiter:      hydrationLimiter,
+		relayCatalogFreshness: catalogFreshness,
 	}, nil
 }
 

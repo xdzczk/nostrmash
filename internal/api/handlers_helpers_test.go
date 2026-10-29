@@ -100,6 +100,7 @@ type fakeEventReader struct {
 	getNoteConversationVelocityFn    func(context.Context, string) (storeread.NoteConversationVelocity, error)
 	getNoteQuoteRepostLinkageFn      func(context.Context, string, int) (store.NoteQuoteRepostLinkageProjection, error)
 	getRelatedNotesFn                func(context.Context, string, int) ([]storeread.RelatedNote, error)
+	kindExpansionHooks
 }
 
 type trustQualifiedFakeReader struct {

@@ -360,6 +360,7 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	t.Setenv("API_DISCOVERY_CACHE_STATS_TTL", "")
 	t.Setenv("API_DISCOVERY_CACHE_TRENDING_TTL", "")
 	t.Setenv("API_DISCOVERY_CACHE_PUBLIC_STATS_TTL", "")
+	t.Setenv("RELAY_REGISTRY_CATALOG_FRESHNESS", "")
 
 	cfg, err := LoadAPI()
 	if err != nil {
@@ -389,6 +390,9 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	}
 	if cfg.TrustRedis.URL != "" || cfg.TrustRedis.KeyPrefix != "nostrmash" {
 		t.Fatalf("expected trust redis cache disabled by default with nostrmash prefix, got %#v", cfg.TrustRedis)
+	}
+	if cfg.RelayCatalogFreshness != time.Hour {
+		t.Fatalf("expected relay catalog freshness default 1h, got %s", cfg.RelayCatalogFreshness)
 	}
 	if !cfg.DiscoveryCache.Enabled || cfg.DiscoveryCache.MaxEntries != 256 ||
 		cfg.DiscoveryCache.BundleTTL != 5*time.Minute ||
@@ -1036,10 +1040,37 @@ func TestGenerateConfigurationMarkdown_MatchesCommittedDocumentation(t *testing.
 	}
 }
 
+func TestRelayCatalogFreshness_SharedByAPIAndWorker(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("RELAY_REGISTRY_CATALOG_FRESHNESS", "45m")
+	t.Setenv("RELAY_REGISTRY_CATALOG_HEAD", "12")
+
+	apiCfg, err := LoadAPI()
+	if err != nil {
+		t.Fatalf("load api: %v", err)
+	}
+	regCfg, err := LoadRelayRegistryConfig()
+	if err != nil {
+		t.Fatalf("load relay registry: %v", err)
+	}
+	if apiCfg.RelayCatalogFreshness != 45*time.Minute || regCfg.Probing.CatalogFreshness != 45*time.Minute {
+		t.Fatalf("catalog freshness drifted: api=%s worker=%s", apiCfg.RelayCatalogFreshness, regCfg.Probing.CatalogFreshness)
+	}
+	if regCfg.Probing.CatalogHead != 12 {
+		t.Fatalf("catalog head = %d, want 12", regCfg.Probing.CatalogHead)
+	}
+	if regCfg.Admission.MaxTotalActive != 20 {
+		t.Fatalf("catalog config changed the ingest cap: %d", regCfg.Admission.MaxTotalActive)
+	}
+}
+
 func testRelayConfig() RelayConfig {
 	return RelayConfig{
 		FilterGroups: map[string]FilterGroup{
-			"default_v1": {Kinds: []int{0, 1, 3, 4, 5, 6, 7, 9735, 9802, 10000, 10002, 10003, 30023}},
+			"default_v1": {Kinds: []int{
+				0, 1, 3, 4, 5, 6, 7, 16, 20, 21, 22, 1111, 1984,
+				9735, 9802, 10000, 10001, 10002, 10003, 30000, 30023, 30311, 34235, 34236,
+			}},
 		},
 		ActiveFilterGroup:            "default_v1",
 		LiveBootstrapLookbackSeconds: 300,

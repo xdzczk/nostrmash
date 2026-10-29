@@ -168,15 +168,32 @@ func (s *Service) Hydrate(ctx context.Context, pubkey string, reason string) (Re
 	// 1. Profile / contacts / relay list.
 	run.fetchAndPersist(runCtx, FetchFilter{Kinds: []int{0, 3, 10002}, Authors: []string{pubkey}, Limit: 10})
 
-	// 2. Recent authored notes.
+	// 2. Lists and media before the note page, each on its own REQ, so a busy
+	// kind-1 author cannot crowd them out of the account budget.
+	if run.remaining() > 0 {
+		limit := 10
+		if rem := run.remaining(); rem < limit {
+			limit = rem
+		}
+		run.fetchAndPersist(runCtx, FetchFilter{Kinds: []int{10000, 10001, 10003, 30000}, Authors: []string{pubkey}, Limit: limit})
+	}
+	if run.remaining() > 0 {
+		limit := 40
+		if rem := run.remaining(); rem < limit {
+			limit = rem
+		}
+		run.fetchAndPersist(runCtx, FetchFilter{Kinds: []int{20, 21, 22, 34235, 34236, 30311}, Authors: []string{pubkey}, Since: since, Limit: limit})
+	}
+
+	// 3. Recent authored notes.
 	noteIDs := run.fetchAndPersist(runCtx, FetchFilter{Kinds: []int{1}, Authors: []string{pubkey}, Since: since, Limit: run.remaining()})
 
-	// 3. Engagement referencing the fetched notes (bounded #e set).
+	// 4. Engagement referencing the fetched notes (bounded #e set).
 	if len(noteIDs) > 0 && run.remaining() > 0 {
 		run.fetchAndPersist(runCtx, FetchFilter{Kinds: []int{6, 7, 9735}, ETags: capStrings(noteIDs, 100), Limit: run.remaining()})
 	}
 
-	// 4. Thread-parent events referenced by the fetched notes.
+	// 5. Thread-parent events referenced by the fetched notes.
 	if len(run.parentIDs) > 0 && run.remaining() > 0 {
 		run.fetchAndPersist(runCtx, FetchFilter{IDs: capStrings(run.parentIDs, 100), Limit: run.remaining()})
 	}

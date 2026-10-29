@@ -42,8 +42,22 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 		return projectionDefinition{
 			name:           DerivationRepostCounts,
 			compiled:       RepostCountsVersion,
-			description:    "Project eventually-consistent repost counts from kind=6 e references",
+			description:    "Project eventually-consistent repost counts from kind=6 and kind=16 references",
 			rebuildProject: h.projectRepostCountsWithVersion,
+		}, nil
+	case DerivationCommentEdges:
+		return projectionDefinition{
+			name:           DerivationCommentEdges,
+			compiled:       CommentEdgesVersion,
+			description:    "Project NIP-22 comment edges from kind=1111 root and parent tags",
+			rebuildProject: h.projectCommentEdgesWithVersion,
+		}, nil
+	case DerivationReportTargets:
+		return projectionDefinition{
+			name:           DerivationReportTargets,
+			compiled:       ReportTargetsVersion,
+			description:    "Project NIP-56 report targets from kind=1984 e and p tags",
+			rebuildProject: h.projectReportTargetsWithVersion,
 		}, nil
 	case DerivationReactionEvents:
 		return projectionDefinition{

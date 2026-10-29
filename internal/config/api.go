@@ -16,6 +16,9 @@ type APIConfig struct {
 	DiscoveryCache APIDiscoveryCacheConfig
 	Meilisearch    MeilisearchConfig
 	Hydration      HydrationConfig
+	// RelayCatalogFreshness is how recently a read probe must have succeeded
+	// for GET /api/v1/relays/catalog. Same env var as the worker probe loop.
+	RelayCatalogFreshness time.Duration
 	// TrustRedis optionally points the API at the trust Redis instance so the
 	// personalized trust ranker can cache viewer rankings. Empty URL (the
 	// default) disables the cache; rankings are then computed per request.
@@ -236,6 +239,10 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	relayCatalogFreshness, err := loadRelayCatalogFreshness()
+	if err != nil {
+		return APIConfig{}, err
+	}
 
 	cfg := APIConfig{
 		Shared: shared,
@@ -307,6 +314,7 @@ func LoadAPI() (APIConfig, error) {
 			URL:       strings.TrimSpace(getEnv("TRUST_REDIS_URL", "")),
 			KeyPrefix: strings.TrimSpace(getEnv("TRUST_REDIS_KEY_PREFIX", "nostrmash")),
 		},
+		RelayCatalogFreshness: relayCatalogFreshness,
 	}
 	if cfg.Meilisearch.SearchAPIKey == "" {
 		cfg.Meilisearch.SearchAPIKey = cfg.Meilisearch.MasterKey

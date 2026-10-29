@@ -328,6 +328,16 @@ func (a readModelReaderAdapter) GetFollowersByPubkey(ctx context.Context, target
 	return a.readModel.GetFollowersByPubkey(ctx, targetPubkey, limit)
 }
 
+func (a readModelReaderAdapter) GetEventComments(ctx context.Context, eventID string, limit int) ([]json.RawMessage, error) {
+	reader, ok := a.readModel.(interface {
+		GetEventComments(context.Context, string, int) ([]json.RawMessage, error)
+	})
+	if !ok {
+		return nil, unsupportedCapabilityError("event comments")
+	}
+	return reader.GetEventComments(ctx, eventID, limit)
+}
+
 func (a readModelReaderAdapter) HashtagDocumentFrequencies(ctx context.Context, terms []string) (map[string]int64, error) {
 	reader, ok := a.readModel.(interface {
 		HashtagDocumentFrequencies(context.Context, []string) (map[string]int64, error)

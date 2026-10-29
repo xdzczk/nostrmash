@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/languagelabel"
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 // SearchEventsByContent returns note-like events filtered by content text.
@@ -77,7 +78,7 @@ func (s *Read) SearchNotes(
 				) AS rank
 			FROM events
 			LEFT JOIN note_discovery_stats nds ON nds.event_id = events.id
-			WHERE events.kind IN (1, 30023)
+			WHERE events.kind IN (`+nostr.IndexedNoteKindsSQL+`)
 			  AND ($3::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $3::bigint))
 			  AND (
 				$4::text IS NULL OR (
@@ -163,7 +164,7 @@ func (s *Read) SearchNotesBefore(
 		SELECT events.raw_json::text
 		FROM events
 		LEFT JOIN note_discovery_stats nds ON nds.event_id = events.id
-		WHERE events.kind IN (1, 30023)
+		WHERE events.kind IN (`+nostr.IndexedNoteKindsSQL+`)
 		  AND (events.created_at, events.id) < ($2::bigint, $3::text)
 		  AND ($4::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $4::bigint))
 		  AND (

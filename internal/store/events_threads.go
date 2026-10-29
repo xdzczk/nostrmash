@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
@@ -57,9 +58,9 @@ func (s *PostgresStore) GetEventCounts(ctx context.Context, eventID string) (Eve
 		         (SELECT reply_count FROM thread_summaries WHERE root_event_id = $1),
 		         (SELECT count FROM reply_counts WHERE event_id = $1),
 		         0
-		       ),
+		       ) + `+nostr.CommentCountSQL("$1")+`,
 		       COALESCE((SELECT count FROM reaction_counts WHERE event_id = $1), 0),
-		       COALESCE((SELECT count FROM repost_counts WHERE event_id = $1), 0),
+		       COALESCE((SELECT count FROM repost_counts WHERE event_id = $1), 0) + `+nostr.AddressRepostCountSQL("$1")+`,
 		       COALESCE((SELECT zap_count FROM note_discovery_stats WHERE event_id = $1), 0),
 		       COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = $1), 0)
 	`, eventID).Scan(&out.ReplyCount, &out.ReactionCount, &out.RepostCount, &out.ZapCount, &out.ZapMSats); err != nil {

@@ -46,6 +46,10 @@ type ProfilePublicStatsProjection = readmodel.ProfilePublicStatsProjection
 
 type EventCounts = readmodel.EventCounts
 
+type PinItem = readmodel.PinItem
+
+type ReportTarget = readmodel.ReportTarget
+
 type ThreadSummaryProjection = readmodel.ThreadSummaryProjection
 
 type HotConversation = readmodel.HotConversation

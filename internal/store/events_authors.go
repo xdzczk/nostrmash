@@ -5,16 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
-const authorEventCountsSelect = `
+var authorEventCountsSelect = `
 			COALESCE(
 				(SELECT reply_count FROM thread_summaries WHERE root_event_id = e.id),
 				(SELECT count FROM reply_counts WHERE event_id = e.id),
 				0
-			),
+			) + ` + nostr.CommentCountSQL("e.id") + `,
 			COALESCE((SELECT count FROM reaction_counts WHERE event_id = e.id), 0),
-			COALESCE((SELECT count FROM repost_counts WHERE event_id = e.id), 0),
+			COALESCE((SELECT count FROM repost_counts WHERE event_id = e.id), 0) + ` + nostr.AddressRepostCountSQL("e.id") + `,
 			COALESCE((SELECT zap_count FROM note_discovery_stats WHERE event_id = e.id), 0),
 			COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = e.id), 0)
 `

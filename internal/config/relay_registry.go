@@ -49,6 +49,13 @@ type RelayRegistryProbingConfig struct {
 	TimeoutConnect time.Duration
 	TimeoutEOSE    time.Duration
 	MaxParallel    int
+	// CatalogFreshness is how recently a read probe must have succeeded for
+	// GET /api/v1/relays/catalog. The probe loop uses the same window.
+	CatalogFreshness time.Duration
+	// CatalogHead is how many of the most-listed public wss relays are kept
+	// inside CatalogFreshness. Those dials are in addition to the live and
+	// discovery probe budgets.
+	CatalogHead int
 }
 
 // RelayRegistryAdmissionConfig controls scoring thresholds and dynamic set caps.
@@ -86,6 +93,10 @@ func LoadRelayRegistryConfig() (RelayRegistryConfig, error) {
 	if err != nil {
 		return RelayRegistryConfig{}, err
 	}
+	catalogFreshness, err := loadRelayCatalogFreshness()
+	if err != nil {
+		return RelayRegistryConfig{}, err
+	}
 	purgeRunInterval, err := getEnvPositiveDurationStrict("RELAY_REGISTRY_RETENTION_PURGE_INTERVAL", 1*time.Hour)
 	if err != nil {
 		return RelayRegistryConfig{}, err
@@ -110,11 +121,13 @@ func LoadRelayRegistryConfig() (RelayRegistryConfig, error) {
 			MaxVariantsPerHost:     getEnvInt("RELAY_REGISTRY_DISCOVERY_MAX_VARIANTS_PER_HOST", 3),
 		},
 		Probing: RelayRegistryProbingConfig{
-			Enabled:        getEnvBool("RELAY_REGISTRY_PROBING_ENABLED", false),
-			Interval:       probeInterval,
-			TimeoutConnect: probeTimeoutConnect,
-			TimeoutEOSE:    probeTimeoutEOSE,
-			MaxParallel:    getEnvInt("RELAY_REGISTRY_PROBING_MAX_PARALLEL", 5),
+			Enabled:          getEnvBool("RELAY_REGISTRY_PROBING_ENABLED", false),
+			Interval:         probeInterval,
+			TimeoutConnect:   probeTimeoutConnect,
+			TimeoutEOSE:      probeTimeoutEOSE,
+			MaxParallel:      getEnvInt("RELAY_REGISTRY_PROBING_MAX_PARALLEL", 5),
+			CatalogFreshness: catalogFreshness,
+			CatalogHead:      loadRelayCatalogHead(),
 		},
 		Admission: RelayRegistryAdmissionConfig{
 			MaxTotalActive:         getEnvInt("RELAY_REGISTRY_ADMISSION_MAX_TOTAL_ACTIVE", 20),
@@ -167,4 +180,14 @@ func validateRelayRegistryConfig(cfg RelayRegistryConfig) error {
 		}
 	}
 	return nil
+}
+
+// loadRelayCatalogFreshness is shared by the API and the worker so the
+// catalog response and the probe loop use one window.
+func loadRelayCatalogFreshness() (time.Duration, error) {
+	return getEnvPositiveDurationStrict("RELAY_REGISTRY_CATALOG_FRESHNESS", time.Hour)
+}
+
+func loadRelayCatalogHead() int {
+	return getEnvInt("RELAY_REGISTRY_CATALOG_HEAD", 80)
 }

@@ -37,6 +37,13 @@ type AccountStateTransition struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type AddressRepostContribution struct {
+	SourceEventID     string
+	TargetAddress     string
+	DerivationVersion int32
+	ProjectedAt       pgtype.Timestamptz
+}
+
 type AppliedStatDelta struct {
 	EventID    string
 	Projection string
@@ -170,6 +177,18 @@ type AuthorTopicStat struct {
 	ActiveDays        int32
 	DerivationVersion int32
 	UpdatedAt         pgtype.Timestamptz
+}
+
+type CommentEdge struct {
+	SourceEventID     string
+	RootEventID       string
+	RootAddress       string
+	ParentEventID     string
+	ParentAddress     string
+	AuthorPubkey      string
+	CreatedAt         int64
+	DerivationVersion int32
+	ProjectedAt       pgtype.Timestamptz
 }
 
 type ContactListCrawl struct {
@@ -757,6 +776,18 @@ type ReplyCountContribution struct {
 	TargetPubkey      pgtype.Text
 	SourcePubkey      pgtype.Text
 	SourceCreatedAt   pgtype.Int8
+}
+
+type ReportTarget struct {
+	ReportEventID     string
+	TagName           string
+	TargetValue       string
+	ReporterPubkey    string
+	ReportType        string
+	Content           string
+	CreatedAt         int64
+	DerivationVersion int32
+	ProjectedAt       pgtype.Timestamptz
 }
 
 type RepostCount struct {

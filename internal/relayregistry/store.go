@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/xdzczk/nostrmash/internal/relaylookup"
+	"github.com/xdzczk/nostrmash/internal/relayurl"
 )
 
 // Store provides persistence for the relay registry, probe observations,
@@ -621,6 +625,140 @@ func (s *Store) ListRelaysForProbing(ctx context.Context, limit int) ([]RelayRec
 		out = append(out, rec)
 	}
 	return out, rows.Err()
+}
+
+// relayRecordSelectList is the column order scanRelayRecordFromRows expects.
+const relayRecordSelectList = `
+	url_key, normalized_url, discovered_at, last_seen_at,
+	source_seed, source_user_list, source_manual,
+	manual_policy, admission_state,
+	score, distinct_user_ref_count, weighted_user_ref_score,
+	last_probe_at, last_probe_status,
+	last_connect_ok, last_subscribe_ok, last_eose_ok,
+	avg_connect_latency_ms, avg_eose_latency_ms,
+	probe_fail_rate, yield_score, duplicate_ratio,
+	score_components_json, capability_summary_json, notes_json,
+	updated_at`
+
+// ListRelayCatalog returns public wss relays whose latest read probe succeeded
+// at or after freshSince. Ranking is distinct users, then score, then URL.
+// Admission state is ignored: a relay NostrMash is not ingesting can still be
+// a broadcast target. Directory, blocked, drained, and non-public URLs are
+// omitted. The query over-fetches so the Go filter can still fill limit.
+func (s *Store) ListRelayCatalog(ctx context.Context, freshSince time.Time, limit int) ([]RelayRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	records, err := s.queryRelayRecords(ctx, `
+		SELECT `+relayRecordSelectList+`
+		FROM relay_registry
+		WHERE normalized_url LIKE 'wss://%'
+		  AND manual_policy NOT IN ('blocked', 'drained')
+		  AND last_probe_status = 'ok'
+		  AND last_eose_ok IS TRUE
+		  AND last_probe_at >= $1
+		ORDER BY distinct_user_ref_count DESC, score DESC, normalized_url ASC
+		LIMIT $2
+	`, freshSince, limit+16)
+	if err != nil {
+		return nil, fmt.Errorf("list relay catalog: %w", err)
+	}
+	return takeCatalogEligible(records, limit), nil
+}
+
+// ListCatalogProbeTargets returns the stalest relays among the head most-listed
+// public wss relays. Directory, blocked, and drained relays are excluded.
+// Probe success is not required: the point of this slice is to keep the head
+// inside the catalog freshness window. limit is how many of that head to dial
+// this cycle, stalest first.
+func (s *Store) ListCatalogProbeTargets(ctx context.Context, head, limit int) ([]RelayRecord, error) {
+	if head <= 0 || limit <= 0 {
+		return nil, nil
+	}
+	records, err := s.queryRelayRecords(ctx, `
+		SELECT `+relayRecordSelectList+`
+		FROM relay_registry
+		WHERE normalized_url LIKE 'wss://%'
+		  AND manual_policy NOT IN ('blocked', 'drained')
+		ORDER BY distinct_user_ref_count DESC, score DESC, normalized_url ASC
+		LIMIT $1
+	`, head+16)
+	if err != nil {
+		return nil, fmt.Errorf("list catalog probe targets: %w", err)
+	}
+	headRecords := takeCatalogEligible(records, head)
+	sort.SliceStable(headRecords, func(i, j int) bool {
+		return catalogProbeStaler(headRecords[i], headRecords[j])
+	})
+	if len(headRecords) > limit {
+		headRecords = headRecords[:limit]
+	}
+	return headRecords, nil
+}
+
+func (s *Store) queryRelayRecords(ctx context.Context, sql string, args ...any) ([]RelayRecord, error) {
+	rows, err := s.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RelayRecord
+	for rows.Next() {
+		rec, err := scanRelayRecordFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CatalogRelayEligible reports whether a stored relay URL may appear in the
+// public read catalog or its reserved probe head.
+func CatalogRelayEligible(normalizedURL string) bool {
+	if !strings.HasPrefix(normalizedURL, "wss://") {
+		return false
+	}
+	if _, err := relayurl.NormalizePublic(normalizedURL); err != nil {
+		return false
+	}
+	return !relaylookup.IsDirectoryRelay(normalizedURL)
+}
+
+func takeCatalogEligible(records []RelayRecord, limit int) []RelayRecord {
+	if limit <= 0 {
+		return nil
+	}
+	out := make([]RelayRecord, 0, limit)
+	for _, rec := range records {
+		if !CatalogRelayEligible(rec.NormalizedURL) {
+			continue
+		}
+		out = append(out, rec)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
+// catalogProbeStaler orders nil probe times first, then older probes, then URL.
+func catalogProbeStaler(a, b RelayRecord) bool {
+	switch {
+	case a.LastProbeAt == nil && b.LastProbeAt == nil:
+		return a.NormalizedURL < b.NormalizedURL
+	case a.LastProbeAt == nil:
+		return true
+	case b.LastProbeAt == nil:
+		return false
+	case !a.LastProbeAt.Equal(*b.LastProbeAt):
+		return a.LastProbeAt.Before(*b.LastProbeAt)
+	default:
+		return a.NormalizedURL < b.NormalizedURL
+	}
 }
 
 func scanRelayRecord(row pgx.Row) (RelayRecord, error) {

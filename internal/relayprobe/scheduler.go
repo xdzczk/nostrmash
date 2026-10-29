@@ -36,15 +36,27 @@ func NewScheduler(
 }
 
 // RunOnce executes a single probe cycle over eligible relays.
+//
+// The live/discovery split from ListRelaysForProbing is unchanged. Catalog
+// targets are an extra slice so keeping popular relays fresh does not steal
+// the discovery budget.
 func (s *Scheduler) RunOnce(ctx context.Context) error {
 	if !s.cfg.Enabled {
 		return nil
 	}
 
-	relays, err := s.registryStore.ListRelaysForProbing(ctx, s.cfg.MaxParallel*2)
+	base, err := s.registryStore.ListRelaysForProbing(ctx, s.cfg.MaxParallel*2)
 	if err != nil {
 		return err
 	}
+	var catalog []relayregistry.RelayRecord
+	if budget := CatalogProbeBudget(s.cfg.CatalogHead, s.cfg.Interval, s.cfg.CatalogFreshness); budget > 0 {
+		catalog, err = s.registryStore.ListCatalogProbeTargets(ctx, s.cfg.CatalogHead, budget)
+		if err != nil {
+			return err
+		}
+	}
+	relays := mergeProbeTargets(base, catalog)
 	if len(relays) == 0 {
 		return nil
 	}
@@ -77,8 +89,50 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 	}
 
 	wg.Wait()
-	s.log.Info("relay_probe_cycle_completed", "probed", len(relays))
+	s.log.Info("relay_probe_cycle_completed",
+		"probed", len(relays),
+		"catalog_added", len(relays)-len(base),
+	)
 	return nil
+}
+
+// CatalogProbeBudget is how many extra catalog-head dials one cycle needs so
+// the head is refreshed inside freshness. It is not taken from the live or
+// discovery budgets. 80 relays, a 5m interval, and a 60m window is 7 dials.
+func CatalogProbeBudget(head int, interval, freshness time.Duration) int {
+	if head <= 0 || interval <= 0 || freshness <= 0 {
+		return 0
+	}
+	cycles := int(freshness / interval)
+	if cycles < 1 {
+		cycles = 1
+	}
+	n := (head + cycles - 1) / cycles
+	if n > head {
+		return head
+	}
+	return n
+}
+
+// mergeProbeTargets appends catalog targets whose URL key is not already in
+// the base probe list. Base order and length are preserved.
+func mergeProbeTargets(base, extra []relayregistry.RelayRecord) []relayregistry.RelayRecord {
+	if len(extra) == 0 {
+		return base
+	}
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	for _, rec := range base {
+		seen[rec.URLKey] = struct{}{}
+	}
+	out := base
+	for _, rec := range extra {
+		if _, ok := seen[rec.URLKey]; ok {
+			continue
+		}
+		seen[rec.URLKey] = struct{}{}
+		out = append(out, rec)
+	}
+	return out
 }
 
 // RunLoop runs probe cycles at the configured interval.

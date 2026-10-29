@@ -13,15 +13,17 @@ import (
 // carry no value once a newer version wins. Two families share this purge:
 //   - non-parameterized (addressable by pubkey+kind, d_tag always ”):
 //     profile metadata (0), contact/follow lists (3), relay lists (10002),
-//     mute lists (10000), bookmark lists (10003).
+//     mute lists (10000), pin lists (10001), bookmark lists (10003).
 //   - parameterized (addressable by pubkey+kind+d_tag): long-form articles
-//     (30023), where each distinct d_tag is its own latest-wins address.
+//     (30023), categorized people lists (30000), live activities (30311),
+//     and addressable video (34235, 34236). Each distinct d_tag is its own
+//     latest-wins address.
 //
 // Nostr semantics define all of these as latest-wins, so every superseded
 // version is dead weight. The purge query derives each candidate's d_tag and
 // joins replaceable_state on (pubkey, kind, d_tag), which reduces to d_tag=”
 // for the non-parameterized family.
-var supersededReplaceableKinds = []int{0, 3, 10000, 10002, 10003, 30023}
+var supersededReplaceableKinds = []int{0, 3, 10000, 10001, 10002, 10003, 30000, 30023, 30311, 34235, 34236}
 
 // PurgeSupersededReplaceableEvents deletes a bounded batch of raw replaceable
 // events that have been strictly superseded by a newer winner recorded in

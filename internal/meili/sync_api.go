@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 // syncEventTimeout bounds a single per-event Meilisearch sync call from the
@@ -51,7 +53,7 @@ func (c *Client) SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID stri
 		}
 		return fmt.Errorf("load event for meilisearch sync: %w", err)
 	}
-	if kind == 1 || kind == 30023 {
+	if nostr.IsIndexedNoteKind(kind) {
 		noteDocs, err := loadNoteDocumentsByIDs(ctx, pool, []string{eventID})
 		if err != nil {
 			return err

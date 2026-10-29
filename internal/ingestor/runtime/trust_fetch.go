@@ -202,4 +202,6 @@ func fetchTrustedPubkeySlice(
 var trustFetchKindGroups = [][]int{
 	{1, 30023},
 	{0, 3, 10002},
+	{20, 21, 22, 34235, 34236, 30311},
+	{10000, 10001, 10003, 30000},
 }

@@ -91,16 +91,16 @@ func (h *Handlers) ProjectRepostCounts(ctx context.Context, eventID string) erro
 }
 
 func (h *Handlers) projectRepostCountsWithVersion(ctx context.Context, eventID string, versionOverride *int) error {
-	return h.projectCounts(
+	if err := h.projectCounts(
 		ctx,
 		eventID,
 		DerivationRepostCounts,
 		RepostCountsVersion,
-		"Project eventually-consistent repost counts from kind=6 e references",
+		"Project eventually-consistent repost counts from kind=6 and kind=16 references",
 		"repost_count_contributions",
 		"repost_counts",
 		func(kind int, refs []derivedReference) []string {
-			if kind != 6 {
+			if kind != 6 && kind != 16 {
 				return nil
 			}
 			ids := make([]string, 0, len(refs))
@@ -111,7 +111,10 @@ func (h *Handlers) projectRepostCountsWithVersion(ctx context.Context, eventID s
 		},
 		versionOverride,
 		false,
-	)
+	); err != nil {
+		return err
+	}
+	return h.projectAddressRepostContributions(ctx, eventID, versionOverride)
 }
 
 func (h *Handlers) projectCounts(

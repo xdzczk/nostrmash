@@ -77,6 +77,9 @@ func (g WSGateway) routeMegaFeed(ctx context.Context, kwargs map[string]any, spe
 	case "advsearch":
 		return g.searchFeedPage(ctx, viewer, spec, kwargs, limit, offset, until)
 	}
+	if id == "video-reels" {
+		return g.videoReelsPage(ctx, kwargs, spec, limit)
+	}
 	if strings.HasPrefix(id, "explore") || isStubbedFeed(id) {
 		return g.emptyFeedPage(), nil
 	}
@@ -128,7 +131,7 @@ func (g WSGateway) routeMegaFeed(ctx context.Context, kwargs map[string]any, spe
 			if err := validatePubkeyHex(author); err != nil {
 				return nil, errors.New("error")
 			}
-			return g.authorFeedPage(ctx, viewer, []string{author}, []int{1}, since, until, limit, offset, false, false, true)
+			return g.authorFeedPage(ctx, viewer, []string{author}, []int{1, 20, 21, 22, 34235, 34236}, since, until, limit, offset, false, false, true)
 		case "bookmarks":
 			return g.bookmarkNotesPage(ctx, viewer, strings.TrimSpace(stringValue(spec["pubkey"])), limit)
 		default:
@@ -463,7 +466,7 @@ func containsKind(kinds []int, kind int) bool {
 
 func isStubbedFeed(id string) bool {
 	switch id {
-	case "video-reels", "wide-net-notes", "strange-but-popular", "engaging-discussions", "only-tweets", "bookmarked-by-follows":
+	case "wide-net-notes", "strange-but-popular", "engaging-discussions", "only-tweets", "bookmarked-by-follows":
 		return true
 	default:
 		return false

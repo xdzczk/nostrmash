@@ -50,7 +50,7 @@ Live canonical write enforcement is owned by the ingestor via `INGESTOR_TRUST_GA
 
 | Env | Default | Role |
 | --- | --- | --- |
-| `INGESTOR_TRUST_GATE_MODE` | `open` | `open` = shadow (metrics only); `trusted_only` = enforce author trust for kind-1 roots and kinds 4/5/9802/10000/10003/30023; kind-1 replies and kinds 6/7/9735 use target-exists |
+| `INGESTOR_TRUST_GATE_MODE` | `open` | `open` = shadow (metrics only); `trusted_only` = enforce author trust for kind-1 roots and kinds 4/5/20/21/22/1984/9802/10000/10001/10003/30000/30023/30311/34235/34236; kind-1 replies and kind 1111 use a stored root, otherwise author trust; kinds 6/7/16/9735 use target-exists |
 | `INGESTOR_TRUST_GATE_MAX_HOPS` | `2` | Authors within this hop distance of a seed are trusted for kind `1` |
 | `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` | `2m` | Reload in-memory trusted set from `trust_graph_snapshot` |
 

@@ -111,6 +111,7 @@ func wireEventGroup(g EventReads, caps *serviceCapabilities) {
 	caps.event.authorReactions = g
 	caps.event.authorRecentEventsByKind = g
 	caps.event.authorRecentEventsPage = g
+	caps.event.kindExpansion = g
 }
 
 func wireThreadGroup(g ThreadReads, caps *serviceCapabilities) {

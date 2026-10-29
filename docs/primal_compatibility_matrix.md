@@ -56,7 +56,9 @@ Statuses: `supported_now` answers in the Primal kind shape, `stubbed` returns an
 | `get_user_relays`, `get_user_relays_2` | supported_now | Kind `10000139` with `r` tags, including read/write markers. |
 | `replaceable_event`, `follow_list`, `parametrized_replaceable_event` | supported_now | Raw replaceable event. Follow lists add user infos. |
 | `mega_feed_directive`, `multi_kind_mega_feed_directive`, `feed` | supported_now | `latest` and `feed` notes modes `follows`, `authored`, `replies`, `bookmarks`, `user_media_thumbnails`. `global-trending` honors `hours` or a small `since` (1, 4, 12, 24, 48, 168) and pages by score. `most-zapped` ranks that window by sats. `all-notes` is chronological. `advsearch` uses note search. Reads specs use long-form. |
-| `explore*`, `video-reels`, `wide-net-notes`, `strange-but-popular` | stubbed | Empty page plus a kind `10000113` RANGE. |
+| `video-reels` | supported_now | Chronological kinds `22` and `34236`. Follows when `user_pubkey` is set; otherwise recent. Addressable shorts are the current replaceable. |
+| `find_live_events`, `live_events_from_follows` | supported_now | Current kind `30311` rows whose `status` tag is `live`. `live_events_from_follows` limits to follows when `user_pubkey` is valid; a missing viewer is the global page. |
+| `explore*`, `wide-net-notes`, `strange-but-popular` | stubbed | Empty page plus a kind `10000113` RANGE. |
 | `thread_view`, `multi_kind_thread_view` | supported_now | Replies, then root and ancestors. Each pass ends with its own RANGE whose `elements` are the ids to render, newest first. |
 | `events` | supported_now | `extended_response` runs the feed enrichment tail (kind `0`, `10000100`, `10000107`, `10000129`, `10000108`, `10000133`, `10000141`, RANGE). |
 | `get_notifications`, seen, `notification_counts`, `notification_counts_2` | supported_now | Kinds `10000110`, `10000111`, `10000112`, `10000132`. Likes, reposts, zaps, replies, and new follows are read from the engagement projections, so history is available without a backfill. Mentions come from the live projector. Counts are a 1s plaintext push. Types 101–204, 301, 302, 401, and 501 are deferred. |
@@ -67,7 +69,7 @@ Statuses: `supported_now` answers in the Primal kind shape, `stubbed` returns an
 | `broadcast_events`, `broadcast_reply` | supported_now | Validates, stores locally, publishes to the requested relays, returns kind `10000149`. |
 | `nip19_decode`, `trending_hashtags*` | supported_now | Kinds `10000173` and `10000160`. |
 | `membership_status` | stubbed | Kind `100001603` with `{"premium":false,"tier":"free"}`. |
-| `membership_*`, push tokens, NIP-46 queue, DVM feeds, live feeds, `poll_votes`, explore lists, `import_events`, reports | stubbed | Empty EOSE. No wallet socket, premium purchase, or APNs delivery. |
+| `membership_*`, push tokens, NIP-46 queue, DVM feeds, `live_feed`, `poll_votes`, explore lists, `import_events`, `report_user`, `report_note` | stubbed | Empty EOSE. No wallet socket, premium purchase, or APNs delivery. Kind `1984` reports are ingested and readable on the native reports routes; these two cache calls do not publish them. |
 | TrustRank humaness scoring | deferred | Trust-tier filtering stays where the native API already has it. |
 
 Feed and thread answers end with kind `10000113` `{"since","until","order_by","elements"}`. Clients render only the ids in `elements`, in that order.

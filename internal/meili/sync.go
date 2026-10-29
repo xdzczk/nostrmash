@@ -43,7 +43,22 @@ type SyncStats struct {
 var noteDocumentSelect = `
 	SELECT
 		e.id,
-		left(coalesce(e.content, ''), 2000),
+		left(
+			CASE
+				WHEN e.kind = 1 THEN coalesce(e.content, '')
+				ELSE concat_ws(
+					E'\n',
+					coalesce(e.content, ''),
+					(
+						SELECT string_agg(et.value, ' ' ORDER BY et.tag_index, et.value_index)
+						FROM event_tags et
+						WHERE et.event_id = e.id
+						  AND et.tag_name IN ('title', 'summary')
+					)
+				)
+			END,
+			2000
+		),
 		e.pubkey,
 		e.created_at,
 		` + languagelabel.ChartSQL("nds.primary_language", "nds.language_source") + `

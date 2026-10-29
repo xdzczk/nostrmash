@@ -8,11 +8,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 func loadNoteDocumentsByIDs(ctx context.Context, pool *pgxpool.Pool, ids []string) ([]NoteDocument, error) {
 	rows, err := pool.Query(ctx, noteDocumentSelect+`
-		WHERE e.kind IN (1, 30023)
+		WHERE e.kind IN (`+nostr.IndexedNoteKindsSQL+`)
 		  AND e.id = ANY($1::text[])
 	`, ids)
 	if err != nil {

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 func (h *Handlers) ProjectNoteDiscoveryStats(ctx context.Context, eventID string) error {
@@ -20,7 +22,7 @@ func (h *Handlers) rebuildNoteDiscoveryStatsWithVersion(ctx context.Context, ver
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
 	}
-	eventIDs, err := h.queryEventIDsByKinds(ctx, 1, 30023)
+	eventIDs, err := h.queryEventIDsByKinds(ctx, 1, 20, 21, 22, 30023, 30311, 34235, 34236)
 	if err != nil {
 		return err
 	}
@@ -151,12 +153,12 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 			(SELECT reply_count FROM thread_summaries WHERE root_event_id = $1),
 			(SELECT count FROM reply_counts WHERE event_id = $1),
 			0
-		)
+		) + `+nostr.CommentCountSQL("$1")+`
 	`, noteID)
 	if err != nil {
 		return fmt.Errorf("load total reply_count: %w", err)
 	}
-	repostCount, err := queryInt64Tx(ctx, tx, `SELECT COALESCE((SELECT count FROM repost_counts WHERE event_id = $1), 0)`, noteID)
+	repostCount, err := queryInt64Tx(ctx, tx, `SELECT COALESCE((SELECT count FROM repost_counts WHERE event_id = $1), 0) + `+nostr.AddressRepostCountSQL("$1"), noteID)
 	if err != nil {
 		return fmt.Errorf("load total repost_count: %w", err)
 	}
@@ -312,6 +314,10 @@ func loadNoteMediaFlagsTx(ctx context.Context, tx pgx.Tx, noteID string) (bool, 
 				) OR EXISTS (
 					SELECT 1 FROM content_links l
 					WHERE l.url ~ '\.(png|jpe?g|gif|webp)([?#].*)?$'
+				) OR EXISTS (
+					SELECT 1 FROM note n WHERE n.kind = 20
+				) OR EXISTS (
+					SELECT 1 FROM tag_rows t WHERE t.tag_name = 'imeta'
 				) AS has_image,
 				EXISTS (
 					SELECT 1 FROM tag_rows t
@@ -319,6 +325,8 @@ func loadNoteMediaFlagsTx(ctx context.Context, tx pgx.Tx, noteID string) (bool, 
 				) OR EXISTS (
 					SELECT 1 FROM content_links l
 					WHERE l.url ~ '\.(mp4|mov|webm|m4v)([?#].*)?$'
+				) OR EXISTS (
+					SELECT 1 FROM note n WHERE n.kind IN (21, 22, 34235, 34236)
 				) AS has_video,
 				EXISTS (
 					SELECT 1 FROM tag_rows t
@@ -352,5 +360,5 @@ func loadNoteMediaFlagsTx(ctx context.Context, tx pgx.Tx, noteID string) (bool, 
 }
 
 func isNoteDiscoveryProjectableKind(kind int) bool {
-	return kind == 1 || kind == 30023
+	return nostr.IsIndexedNoteKind(kind)
 }

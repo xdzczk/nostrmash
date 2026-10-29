@@ -182,7 +182,7 @@ SELECT
 		FROM events e
 		WHERE e.pubkey = $1
 		  AND (
-		      e.kind = 20
+		      e.kind IN (20, 21, 22)
 		      OR (
 		          e.kind = 1
 		          AND (
@@ -200,6 +200,10 @@ SELECT
 		          )
 		      )
 		  )
+	), 0) + COALESCE((
+		SELECT COUNT(*)
+		FROM replaceable_state
+		WHERE pubkey = $1 AND kind IN (34235, 34236)
 	), 0),
 	COALESCE((
 		SELECT COUNT(*)

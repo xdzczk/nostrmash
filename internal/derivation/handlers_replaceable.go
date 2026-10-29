@@ -88,6 +88,32 @@ func (h *Handlers) UpdateReplaceableState(ctx context.Context, eventID string) e
 	}
 	// A new kind-30023 address is one article. Replacing the same d tag
 	// keeps the count. Deleting the current copy decrements it.
+	if isNewAddress && (event.Kind == 34235 || event.Kind == 34236) && h.incrementalProfilePublicStats {
+		writeVersion, err := resolveDerivationWriteVersion(
+			ctx,
+			tx,
+			DerivationProfilePublicStats,
+			ProfilePublicStatsVersion,
+			"Project public profile counters and recent activity",
+			nil,
+		)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO profile_public_stats (
+				pubkey, follower_count, following_count, note_count, reply_count,
+				media_count, derivation_version
+			)
+			VALUES ($1, 0, 0, 0, 0, 1, $2)
+			ON CONFLICT (pubkey) DO UPDATE
+			SET media_count = profile_public_stats.media_count + 1,
+			    derivation_version = EXCLUDED.derivation_version,
+			    updated_at = now()
+		`, event.Pubkey, writeVersion); err != nil {
+			return fmt.Errorf("increment addressable media count: %w", err)
+		}
+	}
 	if isNewAddress && event.Kind == 30023 && h.incrementalProfilePublicStats {
 		writeVersion, err := resolveDerivationWriteVersion(
 			ctx,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
@@ -26,9 +27,9 @@ func (s *Read) GetEventCountsByIDs(ctx context.Context, ids []string) (map[strin
 				(SELECT reply_count FROM thread_summaries WHERE root_event_id = x.id),
 				(SELECT count FROM reply_counts WHERE event_id = x.id),
 				0
-			),
+			) + `+nostr.CommentCountSQL("x.id")+`,
 			COALESCE((SELECT count FROM reaction_counts WHERE event_id = x.id), 0),
-			COALESCE((SELECT count FROM repost_counts WHERE event_id = x.id), 0),
+			COALESCE((SELECT count FROM repost_counts WHERE event_id = x.id), 0) + `+nostr.AddressRepostCountSQL("x.id")+`,
 			COALESCE((SELECT zap_count FROM note_discovery_stats WHERE event_id = x.id), 0),
 			COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = x.id), 0)
 		FROM unnest($1::text[]) AS x(id)

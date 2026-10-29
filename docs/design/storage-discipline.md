@@ -161,7 +161,7 @@ These changes bound storage growth at the source rather than pruning canonical n
 
 ### Trust-bounded canonical ingest (ingest gate)
 
-- **Author gate** (kinds `1`/`4`/`9802`/`10000`/`10003`/`30023`): persist authored content (notes, DMs, highlights, mute/bookmark lists, long-form articles) only when the author is in `trust_graph_snapshot` within `INGESTOR_TRUST_GATE_MAX_HOPS` of a seed. Kind `4` DMs gate on the sender.
+- **Author gate** (kinds `1`/`4`/`5`/`20`/`21`/`22`/`1984`/`9802`/`10000`/`10001`/`10003`/`30000`/`30023`/`30311`/`34235`/`34236`): persist authored content only when the author is in `trust_graph_snapshot` within `INGESTOR_TRUST_GATE_MAX_HOPS` of a seed. Kind `4` DMs gate on the sender. Kind `1111` is kept for any author when its NIP-22 root is already stored.
 - **Kinds `6`/`7`/`9735` target gate**: persist engagement only when the target event already exists locally (self-consistent; lossy if engagement arrives before its target).
 - **Open kinds** (`0`, `3`, `10002`): still ingested so the trust graph and profiles can bootstrap. Kind `5` deletions were moved out of the open set once production showed tombstone spam at ~79% of the events table: they now require a trusted author or a locally-stored `e`-tag target, mirroring the engagement rule.
 - **Shadow rollout**: default `INGESTOR_TRUST_GATE_MODE=open` records `nostrmash_ingest_gate_decisions_total` without rejecting; flip to `trusted_only` after trusted-set metrics look sane.
@@ -178,7 +178,7 @@ See [architecture/trust-bounded-ingest.md](../architecture/trust-bounded-ingest.
 
 ### Superseded replaceable retention
 
-- **Target**: raw `events WHERE kind IN (0,3,10000,10002,10003)` (non-parameterized, `d_tag=''`) plus parameterized `30023` (matched per `(pubkey,kind,d_tag)`) that are strictly superseded by a newer winner in `replaceable_state` and whose `first_seen_at` is older than `WORKER_RETENTION_REPLACEABLE_MIN_AGE` (default 24h).
+- **Target**: raw `events WHERE kind IN (0,3,10000,10001,10002,10003)` (non-parameterized, `d_tag=''`) plus parameterized `30000`, `30023`, `30311`, `34235`, and `34236` (matched per `(pubkey,kind,d_tag)`) that are strictly superseded by a newer winner in `replaceable_state` and whose `first_seen_at` is older than `WORKER_RETENTION_REPLACEABLE_MIN_AGE` (default 24h).
 - **Survivors**: the current winner plus `contact_lists_latest`, `relay_lists_latest`, `profiles_latest`, `replaceable_state` (all reference the winner). A newer-but-unprojected version is protected because it ranks above the recorded winner.
 - **Derivation-safe guard**: do not purge while `derive_event_bundle` is pending/running, or dead within `WORKER_RETENTION_REPLACEABLE_DEAD_GRACE` (default 7d).
 - **Payoff**: kind `3` dominates — superseded contact lists carry the largest tag fan-out, so this is the primary lever against `event_tags` / `pubkey_references` growth; superseded `30023` article revisions are next because long-form content is the largest per-event payload.

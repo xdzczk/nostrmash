@@ -36,6 +36,8 @@ const (
 	DerivationReplyCounts                 = "reply_counts"
 	DerivationReactionCounts              = "reaction_counts"
 	DerivationRepostCounts                = "repost_counts"
+	DerivationCommentEdges                = "comment_edges"
+	DerivationReportTargets               = "report_targets"
 	DerivationReactionEvents              = "reaction_events"
 	DerivationRepostEvents                = "repost_events"
 	DerivationDeletionEvents              = "deletion_events"
@@ -74,6 +76,8 @@ const (
 	ReplyCountsVersion        = 2
 	ReactionCountsVersion     = 1
 	RepostCountsVersion       = 1
+	CommentEdgesVersion       = 1
+	ReportTargetsVersion      = 1
 	ReactionEventsVersion     = 1
 	RepostEventsVersion       = 1
 	DeletionEventsVersion     = 1

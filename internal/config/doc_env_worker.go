@@ -413,14 +413,14 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "2000",
-			Description:  "Maximum superseded replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023) deleted per retention purge batch.",
+			Description:  "Maximum superseded replaceable events (kinds 0/3/10000/10001/10002/10003 and parameterized 30000/30023/30311/34235/34236) deleted per retention purge batch.",
 		},
 		{
 			Name:         "WORKER_RETENTION_REPLACEABLE_ENABLED",
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "true",
-			Description:  "Enable periodic retention purge of superseded raw replaceable events (kinds 0/3/10000/10002/10003 and parameterized 30023). Only versions strictly older than the current winner are removed; latest-version projections (contact_lists_latest, relay_lists_latest, profiles_latest, replaceable_state) survive.",
+			Description:  "Enable periodic retention purge of superseded raw replaceable events (kinds 0/3/10000/10001/10002/10003 and parameterized 30000/30023/30311/34235/34236). Only versions strictly older than the current winner are removed; latest-version projections (contact_lists_latest, relay_lists_latest, profiles_latest, replaceable_state) survive.",
 		},
 		{
 			Name:         "WORKER_RETENTION_REPLACEABLE_MIN_AGE",
@@ -567,7 +567,7 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "true",
-			Description:  "Enable retention purge of author-gated raw events (kinds 1/4/5/9802/10000/10003/30023; kind-1 replies already in thread_edges are kept) plus their derived event_urls/event_hashtags rows, all whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty.",
+			Description:  "Enable retention purge of author-gated raw events (kinds 1/4/5/20/21/22/1984/9802/10000/10001/10003/30000/30023/30311/34235/34236; kind-1 replies already in thread_edges are kept; kinds 16 and 1111 stay bounded by their target rule) plus their derived event_urls/event_hashtags rows, all whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty.",
 		},
 		{
 			Name:         "WORKER_RETENTION_UNTRUSTED_AUTHOR_MAX_AGE",

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
@@ -39,9 +40,9 @@ func (s *Read) GetNoteStats(ctx context.Context, eventID string) (NoteStats, err
 				(SELECT reply_count FROM thread_summaries WHERE root_event_id = $1),
 				(SELECT count FROM reply_counts WHERE event_id = $1),
 				0
-			),
+			) + `+nostr.CommentCountSQL("$1")+`,
 			COALESCE((SELECT count FROM reaction_counts WHERE event_id = $1), 0),
-			COALESCE((SELECT count FROM repost_counts WHERE event_id = $1), 0),
+			COALESCE((SELECT count FROM repost_counts WHERE event_id = $1), 0) + `+nostr.AddressRepostCountSQL("$1")+`,
 			COALESCE((SELECT zap_count FROM note_discovery_stats WHERE event_id = $1), 0),
 			COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = $1), 0),
 			COALESCE((SELECT has_image FROM note_discovery_stats WHERE event_id = $1), FALSE),

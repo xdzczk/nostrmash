@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/xdzczk/nostrmash/internal/nostr"
@@ -21,9 +22,11 @@ func (f *fakeTrustedAuthors) Contains(pubkey string) bool {
 func (f *fakeTrustedAuthors) Loaded() bool { return f.loaded }
 
 type fakeTargetChecker struct {
-	exists map[string]struct{}
-	err    error
-	calls  int
+	exists       map[string]struct{}
+	addresses    map[string]struct{}
+	err          error
+	calls        int
+	addressCalls int
 }
 
 func (f *fakeTargetChecker) EventsExist(ctx context.Context, ids []string) (bool, error) {
@@ -33,6 +36,19 @@ func (f *fakeTargetChecker) EventsExist(ctx context.Context, ids []string) (bool
 	}
 	for _, id := range ids {
 		if _, ok := f.exists[id]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (f *fakeTargetChecker) ReplaceableAddressesExist(ctx context.Context, addresses []nostr.AddressCoordinate) (bool, error) {
+	f.addressCalls++
+	if f.err != nil {
+		return false, f.err
+	}
+	for _, addr := range addresses {
+		if _, ok := f.addresses[addr.String()]; ok {
 			return true, nil
 		}
 	}
@@ -206,7 +222,7 @@ func TestEvaluateGate_AuthorGatedProductKinds(t *testing.T) {
 	trusted := &fakeTrustedAuthors{loaded: true, members: map[string]struct{}{"alice": {}}}
 	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, &fakeTargetChecker{})
 
-	for _, kind := range []int{4, 5, 9802, 10000, 10003, 30023} {
+	for _, kind := range []int{4, 5, 20, 21, 22, 1984, 9802, 10000, 10001, 10003, 30000, 30023, 30311, 34235, 34236} {
 		if d := enforce.evaluateGate(context.Background(), kind, "alice", nil); !d.accept || d.decision != gateDecisionAccept {
 			t.Fatalf("kind %d trusted author: expected accept, got %+v", kind, d)
 		}
@@ -284,6 +300,45 @@ func TestEvaluateGate_EngagementTargetCheckErrorFailsOpen(t *testing.T) {
 	tags := [][]string{{"e", "note1"}}
 	if d := enforce.evaluateGate(context.Background(), 7, "anyone", tags); !d.accept || d.decision != gateDecisionAccept {
 		t.Fatalf("target check error: expected fail-open accept, got %+v", d)
+	}
+}
+
+func TestEvaluateGate_Kind16AddressOrEventTarget(t *testing.T) {
+	t.Parallel()
+	pubkey := strings.Repeat("ab", 32)
+	addr := nostr.AddressCoordinate{Kind: 30023, Pubkey: pubkey, DTag: "post"}
+	trusted := &fakeTrustedAuthors{loaded: true}
+	checker := &fakeTargetChecker{addresses: map[string]struct{}{addr.String(): {}}}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, checker)
+
+	if d := enforce.evaluateGate(context.Background(), 16, "mallory", [][]string{{"a", addr.String()}}); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("address target: expected accept, got %+v", d)
+	}
+	missing := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, &fakeTargetChecker{})
+	if d := missing.evaluateGate(context.Background(), 16, "mallory", [][]string{{"e", "gone"}, {"a", addr.String()}}); d.accept || d.decision != gateDecisionRejectMissingTarget {
+		t.Fatalf("neither target: expected reject_missing_target, got %+v", d)
+	}
+	if d := missing.evaluateGate(context.Background(), 16, "mallory", nil); d.accept || d.decision != gateDecisionRejectMissingTarget {
+		t.Fatalf("no tags: expected reject_missing_target, got %+v", d)
+	}
+}
+
+func TestEvaluateGate_Kind1111RootOrAuthor(t *testing.T) {
+	t.Parallel()
+	trusted := &fakeTrustedAuthors{loaded: true, members: map[string]struct{}{"alice": {}}}
+	checker := &fakeTargetChecker{exists: map[string]struct{}{"root1": {}}}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, checker)
+	tags := [][]string{{"E", "root1"}, {"e", "parent1"}, {"K", "1"}}
+	if d := enforce.evaluateGate(context.Background(), 1111, "mallory", tags); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("untrusted comment on stored root: expected accept, got %+v", d)
+	}
+
+	unrooted := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, &fakeTargetChecker{})
+	if d := unrooted.evaluateGate(context.Background(), 1111, "mallory", [][]string{{"e", "parent1"}}); d.accept || d.decision != gateDecisionRejectUntrustedAuthor {
+		t.Fatalf("untrusted comment without root: expected reject_untrusted_author, got %+v", d)
+	}
+	if d := unrooted.evaluateGate(context.Background(), 1111, "alice", nil); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("trusted comment without root: expected accept, got %+v", d)
 	}
 }
 

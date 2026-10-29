@@ -115,6 +115,7 @@ type EventReads interface {
 	authorReactionsCapability
 	authorRecentEventsByKindCapability
 	authorRecentEventsPageCapability
+	kindExpansionCapability
 }
 
 // ThreadReads bundles the thread-summary capability surface.

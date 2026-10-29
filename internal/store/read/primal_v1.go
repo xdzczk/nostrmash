@@ -76,6 +76,7 @@ func (s *Read) GetFeedEvents(
 			  )
 			  AND (
 			    NOT $6::bool
+			    OR e.kind IN (20, 21, 22, 34235, 34236)
 			    OR EXISTS (
 			      SELECT 1 FROM note_discovery_stats n
 			      WHERE n.event_id = e.id AND n.has_image
@@ -965,9 +966,12 @@ func feedVisibilitySQL(includeReplies, onlyReplies, hasImage bool) string {
 	}
 	if hasImage {
 		clause += `
-					  AND EXISTS (
-					    SELECT 1 FROM note_discovery_stats n
-					    WHERE n.event_id = e.id AND n.has_image
+					  AND (
+					    e.kind IN (20, 21, 22, 34235, 34236)
+					    OR EXISTS (
+					      SELECT 1 FROM note_discovery_stats n
+					      WHERE n.event_id = e.id AND n.has_image
+					    )
 					  )`
 	}
 	return clause

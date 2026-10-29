@@ -399,6 +399,11 @@ func (h *Handlers) reverseIncrementalProfilePublicStatsTx(
 			return err
 		}
 	}
+	if kind == 34235 || kind == 34236 {
+		if err := reverseAddressableMediaIfCurrentTx(ctx, tx, eventID, pubkey); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -408,7 +413,7 @@ func (h *Handlers) reverseIncrementalProfilePublicStatsTx(
 // the same rule.
 func profileMediaDeltaTx(ctx context.Context, tx pgx.Tx, eventID string, kind int) (int64, error) {
 	switch kind {
-	case 20:
+	case 20, 21, 22:
 		return 1, nil
 	case 1:
 		hasImage, hasVideo, _, _, _, err := loadNoteMediaFlagsTx(ctx, tx, eventID)
@@ -519,6 +524,40 @@ func reverseLongFormIfCurrentTx(ctx context.Context, tx pgx.Tx, eventID, pubkey 
 		WHERE pubkey = $1
 	`, pubkey, writeVersion); err != nil {
 		return fmt.Errorf("reverse long-form note count: %w", err)
+	}
+	return nil
+}
+
+func reverseAddressableMediaIfCurrentTx(ctx context.Context, tx pgx.Tx, eventID, pubkey string) error {
+	tag, err := tx.Exec(ctx, `
+		DELETE FROM replaceable_state
+		WHERE event_id = $1 AND kind IN (34235, 34236)
+	`, eventID)
+	if err != nil {
+		return fmt.Errorf("check current addressable media: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	writeVersion, err := resolveDerivationWriteVersion(
+		ctx,
+		tx,
+		DerivationProfilePublicStats,
+		ProfilePublicStatsVersion,
+		"Project public profile counters and recent activity",
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE profile_public_stats
+		SET media_count = GREATEST(media_count - 1, 0),
+		    derivation_version = $2,
+		    updated_at = now()
+		WHERE pubkey = $1
+	`, pubkey, writeVersion); err != nil {
+		return fmt.Errorf("reverse addressable media count: %w", err)
 	}
 	return nil
 }

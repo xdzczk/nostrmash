@@ -171,8 +171,11 @@ func primalNotificationDrafts(kind int, author string, eventID string, content s
 				"your_post_were_mentioned_in": eventID,
 			}})
 		}
-	case 6:
+	case 6, 16:
 		target := firstTag(tags, "e")
+		if target == "" {
+			target = firstTag(tags, "a")
+		}
 		recipient := firstTag(tags, "p")
 		if recipient != "" && recipient != author {
 			out = append(out, primalNotice{Recipient: recipient, Type: 5, Args: map[string]any{
