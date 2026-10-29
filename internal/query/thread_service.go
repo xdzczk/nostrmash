@@ -52,7 +52,7 @@ func (s threadService) GetThread(ctx context.Context, req ThreadRequest) (out Th
 		return out, err
 	}
 	if req.Cursor == nil {
-		replies, err = appendCommentEvents(s.reader, ctx, eventID, replies)
+		replies, err = appendCommentEvents(ctx, s.reader, eventID, replies)
 		if err != nil {
 			return out, err
 		}
@@ -118,7 +118,7 @@ func (s threadService) GetThreadWindow(ctx context.Context, req ThreadWindowRequ
 		replies, next, err := descendingReader.GetEventRepliesDescending(ctx, eventID, req.Limit, req.Cursor, req.Offset)
 		if err == nil {
 			if req.Cursor == nil && req.Offset == 0 {
-				replies, err = appendCommentEvents(s.reader, ctx, eventID, replies)
+				replies, err = appendCommentEvents(ctx, s.reader, eventID, replies)
 				if err != nil {
 					return ThreadView{}, err
 				}
@@ -137,7 +137,7 @@ func (s threadService) GetThreadWindow(ctx context.Context, req ThreadWindowRequ
 		return ThreadView{}, err
 	}
 	if req.Cursor == nil && req.Offset == 0 {
-		window, err = appendCommentEvents(s.reader, ctx, eventID, window)
+		window, err = appendCommentEvents(ctx, s.reader, eventID, window)
 		if err != nil {
 			return ThreadView{}, err
 		}
@@ -288,7 +288,7 @@ func (s Service) GetThreadView(
 		return out, err
 	}
 	if cursor == nil {
-		replies, err = appendCommentEvents(s.reader, ctx, eventID, replies)
+		replies, err = appendCommentEvents(ctx, s.reader, eventID, replies)
 		if err != nil {
 			return out, err
 		}
@@ -301,7 +301,7 @@ func (s Service) GetThreadView(
 	return out, nil
 }
 
-func appendCommentEvents(reader any, ctx context.Context, eventID string, replies []json.RawMessage) ([]json.RawMessage, error) {
+func appendCommentEvents(ctx context.Context, reader any, eventID string, replies []json.RawMessage) ([]json.RawMessage, error) {
 	commenter, ok := reader.(interface {
 		GetEventComments(context.Context, string, int) ([]json.RawMessage, error)
 	})
