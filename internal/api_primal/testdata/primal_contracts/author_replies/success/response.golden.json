@@ -5,7 +5,15 @@
         "created_at": 1700000010,
         "id": "reply_evt_1",
         "kind": 1,
-        "pubkey": "pubkey_abc"
+        "pubkey": "pubkey_abc",
+        "tags": [
+          [
+            "e",
+            "parent_evt",
+            "",
+            "reply"
+          ]
+        ]
       }
     ],
     "pubkey": "pubkey_abc"

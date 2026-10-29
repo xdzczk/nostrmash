@@ -54,7 +54,7 @@ func TestGetAuthorReplies_ReturnsItems(t *testing.T) {
 			if pubkey != "pubkey_x" || limit != 20 {
 				t.Fatalf("unexpected args: pubkey=%s limit=%d", pubkey, limit)
 			}
-			return []json.RawMessage{json.RawMessage(`{"id":"reply_1"}`)}, nil
+			return []json.RawMessage{json.RawMessage(`{"id":"reply_1","tags":[["e","parent_evt","","reply"]]}`)}, nil
 		},
 	}, 10)
 	mux := http.NewServeMux()

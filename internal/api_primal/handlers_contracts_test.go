@@ -194,7 +194,7 @@ func runPrimalContractCase(t *testing.T, casePath string) {
 			}
 			if pubkey == "pubkey_abc" {
 				return []json.RawMessage{
-					json.RawMessage(`{"id":"reply_evt_1","kind":1,"pubkey":"pubkey_abc","created_at":1700000010}`),
+					json.RawMessage(`{"id":"reply_evt_1","kind":1,"pubkey":"pubkey_abc","created_at":1700000010,"tags":[["e","parent_evt","","reply"]]}`),
 				}, nil
 			}
 			return []json.RawMessage{}, nil
