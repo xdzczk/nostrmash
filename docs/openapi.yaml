@@ -1467,7 +1467,7 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         '200':
-          description: Current live activities ordered by starts, then created_at.
+          description: Current live activities. status=live keeps streams whose start and end still cover the present, ordered by current viewers, then replies, reposts, reactions, and zaps. planned and ended stay in start-time order. Counts are attached beside the event.
   /api/v1/events/{id}/comments:
     get:
       tags: [public]

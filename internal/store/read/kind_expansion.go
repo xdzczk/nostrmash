@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
@@ -121,6 +122,10 @@ func (s *Read) GetAuthorPins(ctx context.Context, pubkey string) ([]readmodel.Pi
 // GetLiveActivities returns current kind 30311 rows whose status tag matches.
 // followedBy empty is the global page. A pubkey limits the page to people that
 // pubkey follows; an empty follow list returns no rows.
+//
+// status=live keeps activities whose published start/end still covers now, and
+// orders them by current_participants, then reply/repost/reaction/zap totals.
+// planned and ended stay in start-time order.
 func (s *Read) GetLiveActivities(ctx context.Context, status, followedBy string, limit int) ([]json.RawMessage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
@@ -131,9 +136,16 @@ func (s *Read) GetLiveActivities(ctx context.Context, status, followedBy string,
 	}
 	followedBy = strings.TrimSpace(followedBy)
 	rows, err := s.pool.Query(ctx, `
-		SELECT e.raw_json::text
+		SELECT (e.raw_json || jsonb_build_object(
+			'reply_count', COALESCE(s.reply_count, 0),
+			'repost_count', COALESCE(s.repost_count, 0),
+			'reaction_count', COALESCE(s.reaction_count, 0),
+			'zap_count', COALESCE(s.zap_count, 0),
+			'zap_msats', COALESCE(s.zap_msats, 0)
+		))::text
 		FROM replaceable_state rs
 		JOIN events e ON e.id = rs.event_id
+		LEFT JOIN note_discovery_stats s ON s.event_id = e.id
 		WHERE rs.kind = 30311
 		  AND EXISTS (
 		      SELECT 1
@@ -141,6 +153,25 @@ func (s *Read) GetLiveActivities(ctx context.Context, status, followedBy string,
 		      WHERE st.event_id = e.id
 		        AND st.tag_name = 'status'
 		        AND lower(st.value) = $1
+		  )
+		  AND (
+		      $1 <> 'live'
+		      OR (
+		          COALESCE((
+		              SELECT CASE WHEN st.value ~ '^[0-9]+$' THEN st.value::bigint END
+		              FROM event_tags st
+		              WHERE st.event_id = e.id AND st.tag_name = 'starts'
+		              ORDER BY st.tag_index
+		              LIMIT 1
+		          ), 0) <= $4
+		          AND COALESCE(NULLIF((
+		              SELECT CASE WHEN st.value ~ '^[0-9]+$' THEN st.value::bigint END
+		              FROM event_tags st
+		              WHERE st.event_id = e.id AND st.tag_name = 'ends'
+		              ORDER BY st.tag_index
+		              LIMIT 1
+		          ), 0), $4) >= $4
+		      )
 		  )
 		  AND (
 		      $2 = ''
@@ -151,15 +182,28 @@ func (s *Read) GetLiveActivities(ctx context.Context, status, followedBy string,
 		          LIMIT 2000
 		      )
 		  )
-		ORDER BY COALESCE((
-			SELECT CASE WHEN st.value ~ '^[0-9]+$' THEN st.value::bigint END
-			FROM event_tags st
-			WHERE st.event_id = e.id AND st.tag_name = 'starts'
-			ORDER BY st.tag_index
-			LIMIT 1
-		), e.created_at) DESC, e.id DESC
+		ORDER BY
+		  CASE WHEN $1 = 'live' THEN COALESCE((
+		      SELECT CASE WHEN st.value ~ '^[0-9]+$' THEN st.value::bigint END
+		      FROM event_tags st
+		      WHERE st.event_id = e.id AND st.tag_name = 'current_participants'
+		      ORDER BY st.tag_index
+		      LIMIT 1
+		  ), 0) ELSE 0 END DESC,
+		  CASE WHEN $1 = 'live' THEN
+		      COALESCE(s.reply_count, 0) + COALESCE(s.reaction_count, 0)
+		      + COALESCE(s.repost_count, 0) + COALESCE(s.zap_count, 0)
+		  ELSE 0 END DESC,
+		  COALESCE((
+		      SELECT CASE WHEN st.value ~ '^[0-9]+$' THEN st.value::bigint END
+		      FROM event_tags st
+		      WHERE st.event_id = e.id AND st.tag_name = 'starts'
+		      ORDER BY st.tag_index
+		      LIMIT 1
+		  ), e.created_at) DESC,
+		  e.id DESC
 		LIMIT $3
-	`, status, followedBy, clampPageLimit(limit))
+	`, status, followedBy, clampPageLimit(limit), time.Now().Unix())
 	if err != nil {
 		return nil, fmt.Errorf("get live activities: %w", err)
 	}
