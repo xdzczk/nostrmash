@@ -641,7 +641,7 @@ paths:
           schema: { type: integer, default: 50, maximum: 200 }
       responses:
         '200':
-          description: Popular relays ranked by distinct user count. total is the full ranked population; relays is capped by limit.
+          description: Popular relays ranked by distinct user count. Localhost, loopback, link-local, and private-network URLs are omitted. total is the full ranked population after that filter; relays is capped by limit.
   /api/v1/relays/probe-health:
     get:
       tags: [public]
@@ -1246,8 +1246,9 @@ paths:
         '200':
           description: >
             Relay activity snapshot. total is distinct relay URLs that have delivered
-            events. unique_authors counts every pubkey seen on a relay. relays.top
-            follows window and is ranked by event count.
+            events, excluding localhost, 127.0.0.0/8, and [::1]. unique_authors counts
+            every pubkey seen on a counted relay. relays.top follows window and is
+            ranked by event count.
         '400':
           $ref: '#/components/responses/Error'
   /api/v1/discovery/stats/series:

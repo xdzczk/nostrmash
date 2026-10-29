@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/relayurl"
 )
 
 type TrustRelaySuggestionRefreshResult struct {
@@ -153,9 +155,10 @@ func (s *Trust) ListTrustRelaySuggestions(
 		       last_promoted_at, is_recommended, updated_at
 		FROM trust_relay_suggestions
 		WHERE (NOT $1::boolean OR is_recommended = true)
+		  AND `+relayurl.LoopbackRelayURLExcludedSQL+`
 		ORDER BY is_recommended DESC, weighted_score DESC, relay_url ASC
 		LIMIT $2
-	`, recommendedOnly, limit)
+	`, recommendedOnly, listedRelayFetchLimit(limit))
 	if err != nil {
 		return nil, fmt.Errorf("list trust relay suggestions: %w", err)
 	}
@@ -185,6 +188,9 @@ func (s *Trust) ListTrustRelaySuggestions(
 			}
 		}
 		item.RelayURL = strings.TrimSpace(strings.ToLower(item.RelayURL))
+		if !isPublicListedRelay(item.RelayURL) {
+			continue
+		}
 		item.FirstSeenAt = item.FirstSeenAt.UTC()
 		item.LastSeenAt = item.LastSeenAt.UTC()
 		item.UpdatedAt = item.UpdatedAt.UTC()
@@ -197,6 +203,9 @@ func (s *Trust) ListTrustRelaySuggestions(
 			item.LastPromotedAt = &ts
 		}
 		out = append(out, item)
+		if len(out) == limit {
+			break
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read trust relay suggestions: %w", err)

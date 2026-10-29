@@ -1,6 +1,7 @@
 package relayurl
 
 import (
+	"regexp"
 	"testing"
 )
 
@@ -97,6 +98,73 @@ func TestValidate(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNormalizePublic(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "public wss", raw: "wss://relay.example.com/", want: "wss://relay.example.com"},
+		{name: "public ws kept", raw: "ws://relay.example.com", want: "ws://relay.example.com"},
+		{name: "localhost", raw: "ws://localhost:8080", wantErr: true},
+		{name: "localhost tls", raw: "wss://localhost", wantErr: true},
+		{name: "loopback", raw: "ws://127.0.0.1:7777", wantErr: true},
+		{name: "loopback tls", raw: "wss://127.0.0.1", wantErr: true},
+		{name: "loopback other octet", raw: "ws://127.0.0.2:7777", wantErr: true},
+		{name: "ipv6 loopback", raw: "ws://[::1]:7777", wantErr: true},
+		{name: "private ip", raw: "wss://192.168.1.1", wantErr: true},
+		{name: "link local", raw: "ws://169.254.1.1", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NormalizePublic(tt.raw)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoopbackRelayHostPattern(t *testing.T) {
+	re := regexp.MustCompile("(?i)" + loopbackRelayHostPattern)
+	tests := []struct {
+		host    string
+		exclude bool
+	}{
+		{host: "localhost", exclude: true},
+		{host: "localhost:8080", exclude: true},
+		{host: "localhost:8080/path", exclude: true},
+		{host: "LocalHost:7777", exclude: true},
+		{host: "127.0.0.1", exclude: true},
+		{host: "127.0.0.1:7777", exclude: true},
+		{host: "127.0.0.1:7777/", exclude: true},
+		{host: "[::1]", exclude: true},
+		{host: "[::1]:7777", exclude: true},
+		{host: "relay.example.com", exclude: false},
+		{host: "relay.example.com:443", exclude: false},
+		{host: "relay.example.com/path", exclude: false},
+		{host: "127.0.0.1.nip.io", exclude: false},
+		{host: "notlocalhost", exclude: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := re.MatchString(tt.host); got != tt.exclude {
+				t.Fatalf("exclude=%v, matched=%v", tt.exclude, got)
 			}
 		})
 	}

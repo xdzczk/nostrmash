@@ -76,6 +76,32 @@ func Validate(normalized string, opts ValidateOptions) error {
 	return nil
 }
 
+// loopbackRelayHostPattern matches the host[:port][/path] of a relay URL
+// after the scheme. It covers localhost, 127.0.0.0/8, and [::1].
+const loopbackRelayHostPattern = `^(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|\[::1\])([:/]|$)`
+
+// LoopbackRelayURLExcludedSQL is a SQL boolean expression over a column
+// named relay_url. It is true when that URL is not localhost, an address in
+// 127.0.0.0/8, or [::1]. NormalizePublic is the full check and also rejects
+// other private and link-local hosts.
+const LoopbackRelayURLExcludedSQL = `split_part(relay_url, '://', 2) !~* '` + loopbackRelayHostPattern + `'`
+
+// NormalizePublic normalizes a relay URL and rejects hosts that are not
+// publicly reachable. Localhost, loopback, link-local, and private-network
+// addresses are rejected so client-local URLs such as ws://localhost and
+// ws://127.0.0.1 do not rank as network relays. Cleartext ws:// to a public
+// host is kept; callers that require TLS should keep using Normalize.
+func NormalizePublic(raw string) (string, error) {
+	normalized, err := Normalize(raw, NormalizeOptions{})
+	if err != nil {
+		return "", err
+	}
+	if err := Validate(normalized, ValidateOptions{}); err != nil {
+		return "", err
+	}
+	return normalized, nil
+}
+
 // CanonicalKey returns a stable, compact key for a normalized relay URL suitable
 // for database primary keys and deduplication.
 func CanonicalKey(normalized string) string {

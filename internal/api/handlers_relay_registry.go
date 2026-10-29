@@ -85,7 +85,9 @@ func (h Handlers) GetPopularRelays(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for _, raw := range relays {
-			normalized, err := relayurl.Normalize(raw, relayurl.NormalizeOptions{})
+			// User relay lists routinely include client-local URLs. Rank only
+			// publicly reachable relays, matching registry discovery.
+			normalized, err := relayurl.NormalizePublic(raw)
 			if err != nil {
 				continue
 			}

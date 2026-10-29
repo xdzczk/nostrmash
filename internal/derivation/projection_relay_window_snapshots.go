@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/xdzczk/nostrmash/internal/languagelabel"
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/relayurl"
 )
 
 // relayWindowSnapshotStatementTimeout is the per-statement Postgres budget for
@@ -696,6 +697,7 @@ func computeRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySn
 		FROM distinct_relays
 		WHERE relay_url IS NOT NULL
 		  AND relay_url <> $1
+		  AND `+relayurl.LoopbackRelayURLExcludedSQL+`
 	`, model.FallbackRelayURL).Scan(&out.Total); err != nil {
 		return out, fmt.Errorf("query relay total: %w", err)
 	}
@@ -733,6 +735,7 @@ func computeRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySn
 			GROUP BY relay_url
 		) merged
 		WHERE relay_url <> $3
+		  AND ` + relayurl.LoopbackRelayURLExcludedSQL + `
 	`
 	if err := tx.QueryRow(ctx, windowFromRollupQuery, cutoff24h, watermark, model.FallbackRelayURL).
 		Scan(&out.Active24h, &out.Events24h); err != nil {
@@ -766,6 +769,7 @@ func computeRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySn
 		FROM event_relays
 		WHERE seen_at >= $1
 		  AND relay_url <> $2
+		  AND `+relayurl.LoopbackRelayURLExcludedSQL+`
 	`, cutoff24h, model.FallbackRelayURL).Scan(&out.Authors24h); err != nil {
 		return out, fmt.Errorf("query 24h window authors: %w", err)
 	}
@@ -774,6 +778,7 @@ func computeRelaySummarySnapshot(ctx context.Context, tx pgx.Tx) (relaySummarySn
 		FROM event_relays
 		WHERE seen_at >= $1
 		  AND relay_url <> $2
+		  AND `+relayurl.LoopbackRelayURLExcludedSQL+`
 	`, cutoff7d, model.FallbackRelayURL).Scan(&out.Authors7d); err != nil {
 		return out, fmt.Errorf("query 7d window authors: %w", err)
 	}
@@ -1145,6 +1150,7 @@ func computeTopRelaysSnapshot(ctx context.Context, tx pgx.Tx, cutoff time.Time, 
 				SELECT relay_url, event_count FROM tail
 			) merged
 			WHERE relay_url <> $3
+			  AND `+relayurl.LoopbackRelayURLExcludedSQL+`
 			GROUP BY relay_url
 			ORDER BY event_count DESC, relay_url ASC
 			LIMIT $4

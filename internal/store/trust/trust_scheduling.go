@@ -7,7 +7,26 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/xdzczk/nostrmash/internal/relayurl"
 )
+
+func listedRelayFetchLimit(want int) int {
+	if want < 1 {
+		want = 1
+	}
+	// Headroom for private and link-local hosts the SQL predicate does not cover.
+	n := want * 2
+	if n < want+32 {
+		n = want + 32
+	}
+	return n
+}
+
+func isPublicListedRelay(raw string) bool {
+	_, err := relayurl.NormalizePublic(raw)
+	return err == nil
+}
 
 type TrustRelayCandidate struct {
 	RelayURL                string
@@ -100,6 +119,7 @@ func (s *Trust) ListTrustRelayCandidates(
 			SELECT relay_url, pubkey, score, run_id, computed_at
 			FROM relay_votes
 			WHERE relay_url <> ''
+			  AND `+relayurl.LoopbackRelayURLExcludedSQL+`
 			  AND (NOT $2::boolean OR relay_url = ANY($3))
 		),
 		aggregated AS (
@@ -132,7 +152,7 @@ func (s *Trust) ListTrustRelayCandidates(
 		FROM aggregated a
 		ORDER BY a.weighted_score DESC, a.relay_url ASC
 		LIMIT $4
-	`, query.TopPubkeys, query.ConfiguredOnly, configuredRelays, query.Limit)
+	`, query.TopPubkeys, query.ConfiguredOnly, configuredRelays, listedRelayFetchLimit(query.Limit))
 	if err != nil {
 		return nil, fmt.Errorf("list trust relay candidates: %w", err)
 	}
@@ -152,11 +172,17 @@ func (s *Trust) ListTrustRelayCandidates(
 			return nil, fmt.Errorf("scan trust relay candidate: %w", err)
 		}
 		item.RelayURL = strings.TrimSpace(strings.ToLower(item.RelayURL))
+		if !isPublicListedRelay(item.RelayURL) {
+			continue
+		}
 		if item.SourceComputedAt != nil {
 			ts := item.SourceComputedAt.UTC()
 			item.SourceComputedAt = &ts
 		}
 		out = append(out, item)
+		if len(out) == query.Limit {
+			break
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read trust relay candidate rows: %w", err)

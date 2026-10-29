@@ -317,6 +317,46 @@ func TestRefreshRelayWindowSnapshots_ExcludesFallbackRelay(t *testing.T) {
 	}
 }
 
+// TestRefreshRelayWindowSnapshots_ExcludesLocalRelays ensures client-local
+// ingest URLs never rank on the public relay leaderboard.
+func TestRefreshRelayWindowSnapshots_ExcludesLocalRelays(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+
+	real := newEventForTest("local_filter_real", "author_real", now.Unix(), 1, nil, "hello from a real relay", now)
+	if err := pgStore.InsertCanonicalEvent(ctx, real, nil, "wss://relay.one", now); err != nil {
+		t.Fatalf("insert real event: %v", err)
+	}
+	for i, relayURL := range []string{"ws://127.0.0.1:7777", "ws://localhost:8080"} {
+		for n := 0; n < 4; n++ {
+			id := fmt.Sprintf("local_filter_%d_%d", i, n)
+			evt := newEventForTest(id, fmt.Sprintf("author_local_%d_%d", i, n), now.Unix()-int64(n), 1, nil, "local only", now)
+			if err := pgStore.InsertCanonicalEvent(ctx, evt, nil, relayURL, now); err != nil {
+				t.Fatalf("insert local event %s: %v", id, err)
+			}
+		}
+	}
+
+	if err := handlers.RefreshRelayWindowSnapshots(ctx); err != nil {
+		t.Fatalf("refresh relay window snapshots: %v", err)
+	}
+
+	top := readTopRelaysSnapshot(t, ctx, pool)
+	if len(top) != 1 || top[0].RelayURL != "wss://relay.one" {
+		t.Fatalf("expected only wss://relay.one in top relays, got %#v", top)
+	}
+	summary := readSummarySnapshot(t, ctx, pool)
+	if summary.Total != 1 || summary.Active24h != 1 || summary.Events24h != 1 || summary.Authors24h != 1 {
+		t.Fatalf("expected local relays to be omitted from summary, got %+v", summary)
+	}
+}
+
 // TestRefreshRelayWindowSnapshots_RollupAccumulatesWithoutDoubleCounting
 // exercises the incremental relay-activity rollup that backs top_relays_7d:
 // rows older than the watermark lag must land in relay_activity_hourly
