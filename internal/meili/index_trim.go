@@ -127,16 +127,6 @@ func assignLiveActivityDocumentID(row *NoteDocument, kind int, dTag string) (eve
 	return eventID
 }
 
-// filterMeiliDocumentsIndexRows drops entity types that are already covered by
-// the dedicated notes/profiles indexes, and drops one-off hashtags.
-// Keeping notes and profiles in `documents` roughly doubled Meili disk on
-// the single-server host without changing API results (splitSearchDocuments
-// only returns hashtag/identity/relay).
-func filterMeiliDocumentsIndexRows(docs []SearchDocument) []SearchDocument {
-	keep, _ := splitMeiliDocuments(docs)
-	return keep
-}
-
 // splitMeiliDocuments returns the documents to upsert and the Meilisearch
 // ids of hashtags below minIndexedHashtagPopularity. Those ids are not
 // written. Documents already stored under the cutoff are removed by
