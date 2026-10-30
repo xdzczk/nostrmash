@@ -2,20 +2,17 @@ package meili
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 func loadNoteDocumentsByIDs(ctx context.Context, pool *pgxpool.Pool, ids []string) ([]NoteDocument, error) {
 	rows, err := pool.Query(ctx, noteDocumentSelect+`
-		WHERE e.kind IN (`+nostr.IndexedNoteKindsSQL+`)
-		  AND e.id = ANY($1::text[])
+		WHERE e.id = ANY($1::text[])
+		  AND `+indexedNotesWhere+`
 	`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("query note meilisearch docs: %w", err)
@@ -23,8 +20,8 @@ func loadNoteDocumentsByIDs(ctx context.Context, pool *pgxpool.Pool, ids []strin
 	defer rows.Close()
 	out := make([]NoteDocument, 0, len(ids))
 	for rows.Next() {
-		var row NoteDocument
-		if err := rows.Scan(&row.ID, &row.Content, &row.Pubkey, &row.CreatedAt, &row.Language); err != nil {
+		row, _, err := scanNoteDocument(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan note meilisearch doc: %w", err)
 		}
 		out = append(out, row)
@@ -45,11 +42,11 @@ func loadProfileDocumentsByPubkeys(ctx context.Context, pool *pgxpool.Pool, pubk
 			coalesce(p.display_name, ''),
 			coalesce(p.about, ''),
 			coalesce(p.nip05, ''),
-			p.profile_json::text,
 			coalesce(stats.follower_count, 0) + coalesce(stats.note_count, 0)
 		FROM profiles_latest p
 		LEFT JOIN profile_public_stats stats ON stats.pubkey = p.pubkey
 		WHERE p.pubkey = ANY($1::text[])
+		  AND `+namedProfileSQL+`
 	`, pubkeys)
 	if err != nil {
 		return nil, fmt.Errorf("query profile meilisearch docs: %w", err)
@@ -57,26 +54,10 @@ func loadProfileDocumentsByPubkeys(ctx context.Context, pool *pgxpool.Pool, pubk
 	defer rows.Close()
 	out := make([]ProfileDocument, 0, len(pubkeys))
 	for rows.Next() {
-		var (
-			row         ProfileDocument
-			profileText string
-			popularity  int64
-		)
-		if err := rows.Scan(
-			&row.Pubkey,
-			&row.MetadataEventID,
-			&row.MetadataCreatedAt,
-			&row.Name,
-			&row.DisplayName,
-			&row.About,
-			&row.NIP05,
-			&profileText,
-			&popularity,
-		); err != nil {
+		row, err := scanProfileDocument(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan profile meilisearch doc: %w", err)
 		}
-		row.ProfileJSON = json.RawMessage(profileText)
-		row.Popularity = float64(popularity)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {

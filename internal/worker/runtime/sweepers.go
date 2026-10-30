@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/derivation"
 	"github.com/xdzczk/nostrmash/internal/meili"
@@ -169,10 +171,11 @@ const meilisearchIndexRetentionInterval = 6 * time.Hour
 // they aged, so the live index grew without bound between full rebuilds and
 // Meilisearch's per-commit CPU cost (proportional to index size) grew with
 // it. Runs an immediate purge on startup, then ticks.
-func RunMeilisearchIndexRetentionLoop(ctx context.Context, log Logger, client *meili.Client) {
+func RunMeilisearchIndexRetentionLoop(ctx context.Context, log Logger, client *meili.Client, pool *pgxpool.Pool) {
 	if client == nil || !client.Enabled() {
 		return
 	}
+	profilesSwept := false
 	purge := func() {
 		started := time.Now()
 		deleted, err := client.PurgeAgedNotes(ctx)
@@ -181,11 +184,46 @@ func RunMeilisearchIndexRetentionLoop(ctx context.Context, log Logger, client *m
 				return
 			}
 			log.Error("meilisearch_index_retention_failed", "error", err, "duration_s", time.Since(started).Seconds())
+		} else {
+			log.Info(
+				"meilisearch_index_retention_purged",
+				"deleted_documents", deleted,
+				"duration_s", time.Since(started).Seconds(),
+			)
+		}
+		if ctx.Err() != nil {
 			return
 		}
+		started = time.Now()
+		rare, err := client.PurgeRareHashtags(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Error("meilisearch_hashtag_retention_failed", "error", err, "duration_s", time.Since(started).Seconds())
+		} else if rare > 0 {
+			log.Info(
+				"meilisearch_hashtag_retention_purged",
+				"deleted_documents", rare,
+				"duration_s", time.Since(started).Seconds(),
+			)
+		}
+		if profilesSwept || pool == nil || ctx.Err() != nil {
+			return
+		}
+		started = time.Now()
+		unnamed, err := client.PurgeNamelessProfiles(ctx, pool)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Error("meilisearch_profile_retention_failed", "error", err, "duration_s", time.Since(started).Seconds())
+			return
+		}
+		profilesSwept = true
 		log.Info(
-			"meilisearch_index_retention_purged",
-			"deleted_documents", deleted,
+			"meilisearch_profile_retention_purged",
+			"deleted_documents", unnamed,
 			"duration_s", time.Since(started).Seconds(),
 		)
 	}

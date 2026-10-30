@@ -249,7 +249,7 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		// steady-state Meilisearch load bounded, and a deployment that syncs
 		// documents also needs the aged ones removed.
 		spawn(func(c context.Context) {
-			RunMeilisearchIndexRetentionLoop(c, log, bootstrap.MeiliClient)
+			RunMeilisearchIndexRetentionLoop(c, log, bootstrap.MeiliClient, bootstrap.Pool)
 		})
 	} else {
 		log.Info("meilisearch_sweeper_disabled")

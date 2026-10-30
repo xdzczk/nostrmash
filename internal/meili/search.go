@@ -127,7 +127,7 @@ func (s *Searcher) SearchNotes(
 	req := &ms.SearchRequest{
 		Limit:                 int64(limit),
 		Offset:                int64(offset),
-		AttributesToRetrieve:  []string{"id"},
+		AttributesToRetrieve:  []string{"id", "event_id"},
 		AttributesToHighlight: []string{"content"},
 		ShowRankingScore:      true,
 	}
@@ -167,7 +167,11 @@ func (s *Searcher) SearchNotes(
 	ids := make([]string, 0, len(resp.Hits))
 	localHighlights := make(map[string]any)
 	for _, hit := range resp.Hits {
-		if id := hitString(hit, "id"); id != "" {
+		id := hitString(hit, "event_id")
+		if id == "" {
+			id = hitString(hit, "id")
+		}
+		if id != "" {
 			ids = append(ids, id)
 			if score := hitFloat64(hit, "_rankingScore"); score > 0 {
 				readmodel.SearchDiagnosticsFrom(ctx).ObserveNoteScore(id, score)

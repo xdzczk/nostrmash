@@ -39,7 +39,6 @@ func TestStreamNotes_KeysetCoversAllRowsAcrossBatches(t *testing.T) {
 	`, now); err != nil {
 		t.Fatalf("insert kind0 noise: %v", err)
 	}
-
 	var seen []string
 	batchCount := 0
 	if err := streamNotes(ctx, pool, 3, func(batch []NoteDocument) error {
@@ -72,6 +71,50 @@ func TestStreamNotes_KeysetCoversAllRowsAcrossBatches(t *testing.T) {
 			t.Fatalf("duplicate id %q", id)
 		}
 		uniq[id] = struct{}{}
+	}
+}
+
+func TestStreamNotes_LiveActivityKeepsCurrentWinner(t *testing.T) {
+	ctx := context.Background()
+	dbURL := dbtest.DatabaseURL(t, "meili_stream_live")
+	pool := dbtest.SetupSchemaPool(t, ctx, dbURL, "meili_stream_live")
+	if err := store.Migrate(ctx, pool, "meili-stream-live"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	now := time.Now().UTC().Unix()
+	for _, id := range []string{"live_old", "live_new"} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json)
+			VALUES ($1, 'pub', $2, 30311, 'sig', $1, '{}'::jsonb)
+		`, id, now); err != nil {
+			t.Fatalf("insert %s: %v", id, err)
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO event_tags (event_id, tag_name, tag_index, value_index, value)
+			VALUES ($1, 'd', 0, 0, 'room')
+		`, id); err != nil {
+			t.Fatalf("insert d tag %s: %v", id, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO replaceable_state (pubkey, kind, d_tag, event_id, created_at, derivation_version)
+		VALUES ('pub', 30311, 'room', 'live_new', $1, 1)
+	`, now); err != nil {
+		t.Fatalf("insert live winner: %v", err)
+	}
+
+	var got []NoteDocument
+	if err := streamNotes(ctx, pool, 10, func(batch []NoteDocument) error {
+		got = append(got, batch...)
+		return nil
+	}); err != nil {
+		t.Fatalf("streamNotes: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d documents, want the current live activity only: %+v", len(got), got)
+	}
+	if got[0].EventID != "live_new" || got[0].ID == "live_new" || !meiliDocIDValid.MatchString(got[0].ID) {
+		t.Fatalf("document = %+v", got[0])
 	}
 }
 
@@ -109,6 +152,19 @@ func TestStreamProfiles_KeysetCoversAllRowsAcrossBatches(t *testing.T) {
 		`, s.pubkey, eventID, s.at, s.pubkey); err != nil {
 			t.Fatalf("insert profile %s: %v", s.pubkey, err)
 		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json)
+		VALUES ('evt_blank', 'pk_blank', 400, 0, 'sig', '', '{}'::jsonb)
+	`); err != nil {
+		t.Fatalf("insert blank event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO profiles_latest (
+			pubkey, metadata_event_id, metadata_created_at, name, display_name, profile_json, derivation_version
+		) VALUES ('pk_blank', 'evt_blank', 400, '', '', '{}'::jsonb, 1)
+	`); err != nil {
+		t.Fatalf("insert blank profile: %v", err)
 	}
 
 	var seen []string
@@ -158,12 +214,22 @@ func TestStreamSearchDocuments_KeysetCoversAllRowsAcrossBatches(t *testing.T) {
 		{"relay", "wss://x"},
 	}
 	for _, s := range seeds {
+		popularity := 0.0
+		if s[0] == "hashtag" {
+			popularity = float64(minIndexedHashtagPopularity)
+		}
 		if _, err := pool.Exec(ctx, `
-			INSERT INTO search_documents (entity_type, entity_id, title, body)
-			VALUES ($1, $2, $3, '')
-		`, s[0], s[1], s[0]+":"+s[1]); err != nil {
+			INSERT INTO search_documents (entity_type, entity_id, title, body, popularity)
+			VALUES ($1, $2, $3, '', $4)
+		`, s[0], s[1], s[0]+":"+s[1], popularity); err != nil {
 			t.Fatalf("insert %s/%s: %v", s[0], s[1], err)
 		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO search_documents (entity_type, entity_id, title, body, popularity)
+		VALUES ('hashtag', 'once', 'hashtag:once', '', 1)
+	`); err != nil {
+		t.Fatalf("insert rare hashtag: %v", err)
 	}
 
 	var seen []string

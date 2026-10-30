@@ -72,6 +72,9 @@ func (c *Client) SyncEvent(ctx context.Context, pool *pgxpool.Pool, eventID stri
 		if err != nil {
 			return err
 		}
+		if len(profileDocs) == 0 {
+			return c.deleteDocuments(ctx, IndexProfiles, []string{pubkey})
+		}
 		if err := c.UpsertProfiles(ctx, profileDocs); err != nil {
 			return err
 		}
@@ -157,7 +160,7 @@ func (c *Client) SyncEventsBatch(ctx context.Context, pool *pgxpool.Pool, eventI
 		SELECT id, kind, pubkey
 		FROM events
 		WHERE id = ANY($1::text[])
-		  AND kind IN (0, 1, 30023)
+		  AND (kind = 0 OR kind IN (`+nostr.IndexedNoteKindsSQL+`))
 	`, eventIDs)
 	if err != nil {
 		return fmt.Errorf("load batch event metadata for meilisearch sync: %w", err)
@@ -175,14 +178,14 @@ func (c *Client) SyncEventsBatch(ctx context.Context, pool *pgxpool.Pool, eventI
 			rows.Close()
 			return fmt.Errorf("scan batch event row: %w", err)
 		}
-		switch kind {
-		case 1, 30023:
-			noteIDs = append(noteIDs, id)
-		case 0:
+		switch {
+		case kind == 0:
 			if _, ok := seenPubkey[pubkey]; !ok {
 				seenPubkey[pubkey] = struct{}{}
 				profilePubkeys = append(profilePubkeys, pubkey)
 			}
+		case nostr.IsIndexedNoteKind(kind):
+			noteIDs = append(noteIDs, id)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -205,8 +208,15 @@ func (c *Client) SyncEventsBatch(ctx context.Context, pool *pgxpool.Pool, eventI
 		if err != nil {
 			return err
 		}
-		if err := c.UpsertProfiles(ctx, profileDocs); err != nil {
-			return err
+		if missing := missingPubkeys(profilePubkeys, profileDocs); len(missing) > 0 {
+			if err := c.deleteDocuments(ctx, IndexProfiles, missing); err != nil {
+				return err
+			}
+		}
+		if len(profileDocs) > 0 {
+			if err := c.UpsertProfiles(ctx, profileDocs); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -220,6 +230,23 @@ func (c *Client) SyncEventsBatch(ctx context.Context, pool *pgxpool.Pool, eventI
 		}
 	}
 	return nil
+}
+
+func missingPubkeys(want []string, docs []ProfileDocument) []string {
+	if len(want) == 0 {
+		return nil
+	}
+	have := make(map[string]struct{}, len(docs))
+	for _, doc := range docs {
+		have[doc.Pubkey] = struct{}{}
+	}
+	missing := make([]string, 0)
+	for _, pubkey := range want {
+		if _, ok := have[pubkey]; !ok {
+			missing = append(missing, pubkey)
+		}
+	}
+	return missing
 }
 
 // fullSyncAdvisoryLockKey is an arbitrary, globally unique advisory lock

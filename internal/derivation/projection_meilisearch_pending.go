@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 // reinsertClaimedMeilisearchSyncsTimeout bounds the best-effort
@@ -27,14 +29,14 @@ const reinsertClaimedMeilisearchSyncsTimeout = 5 * time.Second
 // slow, single-handedly capping live-pool throughput at
 // live_concurrency * 2/min) runs out-of-band in
 // DrainPendingMeilisearchSyncBatch, scheduled by the worker's
-// meilisearch sweeper loop. Marking is bounded (kind=0 profiles plus
-// kind=1 / kind=30023 notes), duplicates collapse via the PRIMARY KEY,
-// and the sweeper can drain batches with parallel sync calls so search
-// index lag stays small even during heavy ingest.
+// meilisearch sweeper loop. Marking covers kind-0 profiles and every
+// kind in the notes index. Duplicates collapse via the PRIMARY KEY,
+// and the sweeper drains them in batches so search index lag stays
+// small even during heavy ingest.
 //
 // Skips events whose source row no longer exists (e.g., deleted between
-// enqueue and dispatch) and events that aren't kind=0/kind=1/kind=30023;
-// the bundle should not dead-letter on this.
+// enqueue and dispatch) and events that are not indexed; the bundle
+// should not dead-letter on this.
 func (h *Handlers) MarkMeilisearchDirty(ctx context.Context, eventID string) error {
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
@@ -58,7 +60,7 @@ func (h *Handlers) MarkMeilisearchDirty(ctx context.Context, eventID string) err
 		}
 		return fmt.Errorf("load event for meilisearch dirty marking: %w", err)
 	}
-	if kind != 0 && kind != 1 && kind != 30023 {
+	if kind != 0 && !nostr.IsIndexedNoteKind(kind) {
 		return nil
 	}
 

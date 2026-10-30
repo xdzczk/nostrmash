@@ -81,19 +81,46 @@ func TestFilterMeiliDocumentsIndexRows(t *testing.T) {
 	in := []SearchDocument{
 		{EntityType: "note", EntityID: "n1"},
 		{EntityType: "profile", EntityID: "p1"},
-		{EntityType: "hashtag", EntityID: "bitcoin"},
+		{EntityType: "hashtag", EntityID: "bitcoin", Popularity: 2, ID: "hashtag_bitcoin"},
+		{EntityType: "hashtag", EntityID: "once", Popularity: 1, ID: "hashtag_once"},
 		{EntityType: "identity", EntityID: "alice"},
 		{EntityType: "relay", EntityID: "wss://x"},
 	}
-	got := filterMeiliDocumentsIndexRows(in)
-	if len(got) != 3 {
-		t.Fatalf("len=%d want 3: %#v", len(got), got)
+	keep, drop := splitMeiliDocuments(in)
+	if len(keep) != 3 {
+		t.Fatalf("len=%d want 3: %#v", len(keep), keep)
 	}
-	for _, row := range got {
+	for _, row := range keep {
 		switch row.EntityType {
 		case "hashtag", "identity", "relay":
+			if row.EntityID == "once" {
+				t.Fatalf("one-off hashtag was kept")
+			}
 		default:
 			t.Fatalf("unexpected entity_type %q", row.EntityType)
 		}
+	}
+	if len(drop) != 1 || drop[0] != "hashtag_once" {
+		t.Fatalf("drop=%v", drop)
+	}
+}
+
+func TestAssignLiveActivityDocumentID(t *testing.T) {
+	t.Parallel()
+	note := NoteDocument{ID: "evt1", Pubkey: "Ab"}
+	if eventID := assignLiveActivityDocumentID(&note, 1, "room"); eventID != "evt1" || note.ID != "evt1" || note.EventID != "" {
+		t.Fatalf("kind 1 changed identity: %+v eventID=%s", note, eventID)
+	}
+	live := NoteDocument{ID: "evt_new", Pubkey: "Ab"}
+	if eventID := assignLiveActivityDocumentID(&live, liveActivityKind, "room"); eventID != "evt_new" || live.EventID != "evt_new" {
+		t.Fatalf("live event id = %+v", live)
+	}
+	if !meiliDocIDValid.MatchString(live.ID) || live.ID == "evt_new" {
+		t.Fatalf("live document id %q is not a stable meili key", live.ID)
+	}
+	again := NoteDocument{ID: "evt_old", Pubkey: "ab"}
+	assignLiveActivityDocumentID(&again, liveActivityKind, "room")
+	if again.ID != live.ID {
+		t.Fatalf("address key changed: %q vs %q", again.ID, live.ID)
 	}
 }

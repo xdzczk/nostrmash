@@ -21,6 +21,15 @@ const (
 	// 14d keeps the Meili notes index small enough for the single-server
 	// RAM/disk budget (<10 GB total after dropping redundant documents).
 	indexedNotesMaxAge = 14 * 24 * time.Hour
+
+	// liveActivityKind is indexed once per NIP-33 address (the current
+	// replaceable_state winner), not once per revision.
+	liveActivityKind = 30311
+
+	// minIndexedHashtagPopularity skips hashtags that appear on a single
+	// event. Those one-off tags dominated the documents index (~723k docs)
+	// and each distinct tag is a word-dictionary entry.
+	minIndexedHashtagPopularity = 2
 )
 
 // Opaque tokens that must not enter the Meilisearch word dictionary.
@@ -101,20 +110,55 @@ func indexedNotesMinCreatedAt(now time.Time) int64 {
 	return now.UTC().Add(-indexedNotesMaxAge).Unix()
 }
 
-// filterMeiliDocumentsIndexRows drops entity types that are already covered by
-// the dedicated notes/profiles indexes. Keeping them in `documents` roughly
-// doubled Meili disk on the single-server host without changing API results
-// (splitSearchDocuments only returns hashtag/identity/relay).
-func filterMeiliDocumentsIndexRows(docs []SearchDocument) []SearchDocument {
-	if len(docs) == 0 {
-		return docs
+// assignLiveActivityDocumentID keys a kind-30311 note by its address so a
+// later revision replaces the indexed document. Other kinds keep the event
+// id as the Meilisearch primary key. The returned eventID is the original
+// row id, for keyset cursors that must follow events.id.
+func assignLiveActivityDocumentID(row *NoteDocument, kind int, dTag string) (eventID string) {
+	if row == nil {
+		return ""
 	}
-	out := make([]SearchDocument, 0, len(docs))
+	eventID = row.ID
+	if kind != liveActivityKind {
+		return eventID
+	}
+	row.EventID = eventID
+	row.ID = safeMeiliDocID("live", strings.ToLower(strings.TrimSpace(row.Pubkey))+":"+dTag)
+	return eventID
+}
+
+// filterMeiliDocumentsIndexRows drops entity types that are already covered by
+// the dedicated notes/profiles indexes, and drops one-off hashtags.
+// Keeping notes and profiles in `documents` roughly doubled Meili disk on
+// the single-server host without changing API results (splitSearchDocuments
+// only returns hashtag/identity/relay).
+func filterMeiliDocumentsIndexRows(docs []SearchDocument) []SearchDocument {
+	keep, _ := splitMeiliDocuments(docs)
+	return keep
+}
+
+// splitMeiliDocuments returns the documents to upsert and the Meilisearch
+// ids of hashtags below minIndexedHashtagPopularity. Those ids are not
+// written. Documents already stored under the cutoff are removed by
+// PurgeRareHashtags, not one delete task per sweeper batch.
+func splitMeiliDocuments(docs []SearchDocument) (keep []SearchDocument, dropHashtagIDs []string) {
+	if len(docs) == 0 {
+		return nil, nil
+	}
+	keep = make([]SearchDocument, 0, len(docs))
 	for _, doc := range docs {
 		switch strings.TrimSpace(doc.EntityType) {
-		case "hashtag", "identity", "relay":
-			out = append(out, doc)
+		case "hashtag":
+			if doc.Popularity < minIndexedHashtagPopularity {
+				if doc.ID != "" {
+					dropHashtagIDs = append(dropHashtagIDs, doc.ID)
+				}
+				continue
+			}
+			keep = append(keep, doc)
+		case "identity", "relay":
+			keep = append(keep, doc)
 		}
 	}
-	return out
+	return keep, dropHashtagIDs
 }

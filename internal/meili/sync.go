@@ -4,8 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
+	"strconv"
 
 	"github.com/xdzczk/nostrmash/internal/languagelabel"
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 var meiliDocIDValid = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -37,9 +39,11 @@ type SyncStats struct {
 }
 
 // noteDocumentSelect is the shared projection feeding the Meilisearch `notes`
-// index. Content is truncated in SQL (Go trim further to rune limits) and
-// per-row event_tags laterals are avoided so FullSync pages stay inside
-// production statement_timeout guardrails. Search hydrates full events by id.
+// index. Content is truncated in SQL (Go trim further to rune limits). The
+// title/summary and d-tag lookups run only for non-kind-1 and kind-30311
+// rows, so kind-1 FullSync pages stay inside production statement_timeout
+// guardrails. Search hydrates full events by id (or event_id for live
+// activities).
 var noteDocumentSelect = `
 	SELECT
 		e.id,
@@ -61,7 +65,81 @@ var noteDocumentSelect = `
 		),
 		e.pubkey,
 		e.created_at,
-		` + languagelabel.ChartSQL("nds.primary_language", "nds.language_source") + `
+		` + languagelabel.ChartSQL("nds.primary_language", "nds.language_source") + `,
+		e.kind,
+		CASE
+			WHEN e.kind = 30311 THEN coalesce((
+				SELECT et.value
+				FROM event_tags et
+				WHERE et.event_id = e.id
+				  AND et.tag_name = 'd'
+				  AND et.value_index = 0
+				ORDER BY et.tag_index
+				LIMIT 1
+			), '')
+			ELSE ''
+		END
 	FROM events e
 	LEFT JOIN note_discovery_stats nds ON nds.event_id = e.id
 `
+
+// indexedNotesWhere is the notes-index corpus. Kind 30311 is only the
+// current replaceable winner, so each live activity is one document.
+const indexedNotesWhere = `
+	e.kind IN (` + nostr.IndexedNoteKindsSQL + `)
+	AND (
+		e.kind <> 30311
+		OR EXISTS (
+			SELECT 1 FROM replaceable_state rs
+			WHERE rs.event_id = e.id AND rs.kind = 30311
+		)
+	)`
+
+// namedProfileSQL keeps the profiles index to rows that have a name or
+// display name. Empty profiles are not searchable and were the bulk of
+// the 1.37M-document profiles index.
+const namedProfileSQL = `(btrim(coalesce(p.name, '')) <> '' OR btrim(coalesce(p.display_name, '')) <> '')`
+
+// indexedHashtagSQL drops one-off hashtags. popularity is the event count
+// maintained by refresh_search_document_hashtag.
+func indexedHashtagSQL() string {
+	return "entity_type <> 'hashtag' OR popularity >= " + strconv.Itoa(minIndexedHashtagPopularity)
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanNoteDocument(sc rowScanner) (NoteDocument, string, error) {
+	var (
+		row  NoteDocument
+		kind int
+		dTag string
+	)
+	if err := sc.Scan(&row.ID, &row.Content, &row.Pubkey, &row.CreatedAt, &row.Language, &kind, &dTag); err != nil {
+		return NoteDocument{}, "", err
+	}
+	eventID := assignLiveActivityDocumentID(&row, kind, dTag)
+	return row, eventID, nil
+}
+
+func scanProfileDocument(sc rowScanner) (ProfileDocument, error) {
+	var (
+		row        ProfileDocument
+		popularity int64
+	)
+	if err := sc.Scan(
+		&row.Pubkey,
+		&row.MetadataEventID,
+		&row.MetadataCreatedAt,
+		&row.Name,
+		&row.DisplayName,
+		&row.About,
+		&row.NIP05,
+		&popularity,
+	); err != nil {
+		return ProfileDocument{}, err
+	}
+	row.Popularity = float64(popularity)
+	return row, nil
+}

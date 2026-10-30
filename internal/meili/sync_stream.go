@@ -2,14 +2,11 @@ package meili
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 // FullSync streams can legitimately exceed the production 15s statement_timeout
@@ -62,14 +59,14 @@ func streamNotesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, con
 		)
 		if !haveCursor {
 			rows, err = conn.Query(ctx, noteDocumentSelect+`
-				WHERE e.kind IN (`+nostr.IndexedNoteKindsSQL+`)
+				WHERE `+indexedNotesWhere+`
 				  AND e.created_at >= $2::bigint
 				ORDER BY e.created_at DESC, e.id DESC
 				LIMIT $1
 			`, batchSize, minCreatedAt)
 		} else {
 			rows, err = conn.Query(ctx, noteDocumentSelect+`
-				WHERE e.kind IN (`+nostr.IndexedNoteKindsSQL+`)
+				WHERE `+indexedNotesWhere+`
 				  AND e.created_at >= $4::bigint
 				  AND (e.created_at, e.id) < ($2::bigint, $3::text)
 				ORDER BY e.created_at DESC, e.id DESC
@@ -80,13 +77,15 @@ func streamNotesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, con
 			return fmt.Errorf("query notes for meilisearch sync: %w", err)
 		}
 		batch := make([]NoteDocument, 0, batchSize)
+		var lastEventID string
 		for rows.Next() {
-			var row NoteDocument
-			if err := rows.Scan(&row.ID, &row.Content, &row.Pubkey, &row.CreatedAt, &row.Language); err != nil {
+			row, eventID, err := scanNoteDocument(rows)
+			if err != nil {
 				rows.Close()
 				return fmt.Errorf("scan note sync row: %w", err)
 			}
 			batch = append(batch, row)
+			lastEventID = eventID
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
@@ -102,7 +101,7 @@ func streamNotesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, con
 		last := batch[len(batch)-1]
 		haveCursor = true
 		cursorAt = last.CreatedAt
-		cursorID = last.ID
+		cursorID = lastEventID
 	}
 }
 
@@ -129,7 +128,6 @@ func streamProfilesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, 
 				coalesce(p.display_name, ''),
 				coalesce(p.about, ''),
 				coalesce(p.nip05, ''),
-				p.profile_json::text,
 				coalesce(stats.follower_count, 0) + coalesce(stats.note_count, 0)
 			FROM profiles_latest p
 			LEFT JOIN profile_public_stats stats ON stats.pubkey = p.pubkey
@@ -141,13 +139,17 @@ func streamProfilesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, 
 		)
 		if !haveCursor {
 			rows, err = conn.Query(ctx, profileSelect+`
+				WHERE `+namedProfileSQL+`
 				ORDER BY p.metadata_created_at DESC, p.pubkey ASC
 				LIMIT $1
 			`, batchSize)
 		} else {
 			rows, err = conn.Query(ctx, profileSelect+`
-				WHERE p.metadata_created_at < $2::bigint
-				   OR (p.metadata_created_at = $2::bigint AND p.pubkey > $3::text)
+				WHERE `+namedProfileSQL+`
+				  AND (
+				    p.metadata_created_at < $2::bigint
+				    OR (p.metadata_created_at = $2::bigint AND p.pubkey > $3::text)
+				  )
 				ORDER BY p.metadata_created_at DESC, p.pubkey ASC
 				LIMIT $1
 			`, batchSize, cursorAt, cursorPK)
@@ -157,27 +159,11 @@ func streamProfilesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, 
 		}
 		batch := make([]ProfileDocument, 0, batchSize)
 		for rows.Next() {
-			var (
-				row         ProfileDocument
-				profileText string
-				popularity  int64
-			)
-			if err := rows.Scan(
-				&row.Pubkey,
-				&row.MetadataEventID,
-				&row.MetadataCreatedAt,
-				&row.Name,
-				&row.DisplayName,
-				&row.About,
-				&row.NIP05,
-				&profileText,
-				&popularity,
-			); err != nil {
+			row, err := scanProfileDocument(rows)
+			if err != nil {
 				rows.Close()
 				return fmt.Errorf("scan profile sync row: %w", err)
 			}
-			row.ProfileJSON = json.RawMessage(profileText)
-			row.Popularity = float64(popularity)
 			batch = append(batch, row)
 		}
 		if err := rows.Err(); err != nil {
@@ -230,6 +216,7 @@ func streamSearchDocumentsConn(ctx context.Context, conn *pgxpool.Conn, batchSiz
 					trust_score
 				FROM search_documents
 				WHERE entity_type IN ('hashtag', 'identity', 'relay')
+				  AND (`+indexedHashtagSQL()+`)
 				ORDER BY entity_type ASC, entity_id ASC
 				LIMIT $1
 			`, batchSize)
@@ -247,6 +234,7 @@ func streamSearchDocumentsConn(ctx context.Context, conn *pgxpool.Conn, batchSiz
 					trust_score
 				FROM search_documents
 				WHERE entity_type IN ('hashtag', 'identity', 'relay')
+				  AND (`+indexedHashtagSQL()+`)
 				  AND (entity_type, entity_id) > ($2::text, $3::text)
 				ORDER BY entity_type ASC, entity_id ASC
 				LIMIT $1

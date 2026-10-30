@@ -10,8 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	ms "github.com/meilisearch/meilisearch-go"
-
-	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 // DefaultHTTPTimeout bounds every Meilisearch HTTP call (search + sync).
@@ -196,8 +194,8 @@ func (c *Client) NeedsSync(ctx context.Context, pool *pgxpool.Pool) (bool, error
 		sql   string
 	}
 	checks := []countQuery{
-		{IndexProfiles, `SELECT count(*) FROM profiles_latest`},
-		{IndexNotes, `SELECT count(*) FROM events WHERE kind IN (` + nostr.IndexedNoteKindsSQL + `) AND created_at >= $1::bigint`},
+		{IndexProfiles, `SELECT count(*) FROM profiles_latest p WHERE ` + namedProfileSQL},
+		{IndexNotes, `SELECT count(*) FROM events e WHERE ` + indexedNotesWhere + ` AND e.created_at >= $1::bigint`},
 	}
 	const syncThreshold = 0.80
 	minNotesCreatedAt := indexedNotesMinCreatedAt(time.Now())
@@ -291,7 +289,9 @@ func (c *Client) enqueueProfiles(ctx context.Context, docs []ProfileDocument) (i
 	for i := range docs {
 		trimProfileDocument(&docs[i])
 	}
-	task, err := c.service.Index(IndexProfiles).UpdateDocumentsWithContext(ctx, docs, nil)
+	// Add replaces the document. Update would merge and leave a stale
+	// profile_json key on profiles indexed before that field was dropped.
+	task, err := c.service.Index(IndexProfiles).AddDocumentsWithContext(ctx, docs, nil)
 	if err != nil {
 		return 0, fmt.Errorf("upsert profiles in meilisearch: %w", err)
 	}
@@ -304,7 +304,10 @@ func (c *Client) enqueueDocuments(ctx context.Context, docs []SearchDocument) (i
 	}
 	// Notes and profiles already live in dedicated Meili indexes; the global
 	// search path only consumes hashtag/identity/relay hits from documents.
-	docs = filterMeiliDocumentsIndexRows(docs)
+	// Rare hashtags are omitted here. Deleting each one as it is seen would
+	// add a task to every sweeper cycle; PurgeRareHashtags removes the
+	// documents already stored under the cutoff in one filter task.
+	docs, _ = splitMeiliDocuments(docs)
 	if len(docs) == 0 {
 		return 0, nil
 	}
@@ -329,24 +332,115 @@ func (c *Client) enqueueDocuments(ctx context.Context, docs []SearchDocument) (i
 //
 // Returns the number of documents the delete task reports removing.
 func (c *Client) PurgeAgedNotes(ctx context.Context) (int64, error) {
+	cutoff := indexedNotesMinCreatedAt(time.Now())
+	return c.deleteByFilter(ctx, IndexNotes, fmt.Sprintf("created_at < %d", cutoff), "aged notes")
+}
+
+// PurgeRareHashtags removes one-off hashtag documents already in the index.
+// Incremental sync stops writing them; this deletes the ones written before
+// that cutoff. popularity is the event count stored on the document.
+func (c *Client) PurgeRareHashtags(ctx context.Context) (int64, error) {
+	filter := fmt.Sprintf(`entity_type = "hashtag" AND popularity < %d`, minIndexedHashtagPopularity)
+	return c.deleteByFilter(ctx, IndexDocuments, filter, "rare hashtags")
+}
+
+// PurgeNamelessProfiles deletes profiles index documents whose Postgres row
+// has neither a name nor a display name. Incremental sync deletes a profile
+// when its name is cleared; this walks the rows already in the index.
+func (c *Client) PurgeNamelessProfiles(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	if !c.Enabled() || pool == nil {
+		return 0, nil
+	}
+	const page = 500
+	var (
+		deleted int64
+		cursor  string
+	)
+	for {
+		rows, err := pool.Query(ctx, `
+			SELECT pubkey
+			FROM profiles_latest
+			WHERE pubkey > $1
+			  AND btrim(coalesce(name, '')) = ''
+			  AND btrim(coalesce(display_name, '')) = ''
+			ORDER BY pubkey
+			LIMIT $2
+		`, cursor, page)
+		if err != nil {
+			return deleted, fmt.Errorf("list nameless profiles: %w", err)
+		}
+		ids := make([]string, 0, page)
+		for rows.Next() {
+			var pubkey string
+			if err := rows.Scan(&pubkey); err != nil {
+				rows.Close()
+				return deleted, fmt.Errorf("scan nameless profile: %w", err)
+			}
+			ids = append(ids, pubkey)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return deleted, fmt.Errorf("read nameless profiles: %w", err)
+		}
+		rows.Close()
+		if len(ids) == 0 {
+			return deleted, nil
+		}
+		n, err := c.deleteDocumentsCounted(ctx, IndexProfiles, ids)
+		if err != nil {
+			return deleted, err
+		}
+		deleted += n
+		cursor = ids[len(ids)-1]
+		if len(ids) < page {
+			return deleted, nil
+		}
+	}
+}
+
+func (c *Client) deleteByFilter(ctx context.Context, indexUID, filter, what string) (int64, error) {
 	if !c.Enabled() {
 		return 0, nil
 	}
-	cutoff := indexedNotesMinCreatedAt(time.Now())
-	filter := fmt.Sprintf("created_at < %d", cutoff)
-	taskInfo, err := c.service.Index(IndexNotes).DeleteDocumentsByFilterWithContext(ctx, filter, nil)
+	taskInfo, err := c.service.Index(indexUID).DeleteDocumentsByFilterWithContext(ctx, filter, nil)
 	if err != nil {
-		return 0, fmt.Errorf("delete aged notes from meilisearch: %w", err)
+		return 0, fmt.Errorf("delete %s from meilisearch: %w", what, err)
 	}
 	task, err := c.service.WaitForTaskWithContext(ctx, taskInfo.TaskUID, 250*time.Millisecond)
 	if err != nil {
-		return 0, fmt.Errorf("wait for aged-notes delete task: %w", err)
+		return 0, fmt.Errorf("wait for %s delete task: %w", what, err)
 	}
 	if task.Status != ms.TaskStatusSucceeded {
 		if task.Error.Code != "" {
-			return 0, fmt.Errorf("aged-notes delete task %d ended with status=%s: [%s] %s", taskInfo.TaskUID, task.Status, task.Error.Code, task.Error.Message)
+			return 0, fmt.Errorf("%s delete task %d ended with status=%s: [%s] %s", what, taskInfo.TaskUID, task.Status, task.Error.Code, task.Error.Message)
 		}
-		return 0, fmt.Errorf("aged-notes delete task %d ended with status=%s", taskInfo.TaskUID, task.Status)
+		return 0, fmt.Errorf("%s delete task %d ended with status=%s", what, taskInfo.TaskUID, task.Status)
+	}
+	return task.Details.DeletedDocuments, nil
+}
+
+func (c *Client) deleteDocuments(ctx context.Context, indexUID string, ids []string) error {
+	_, err := c.deleteDocumentsCounted(ctx, indexUID, ids)
+	return err
+}
+
+func (c *Client) deleteDocumentsCounted(ctx context.Context, indexUID string, ids []string) (int64, error) {
+	if !c.Enabled() || len(ids) == 0 {
+		return 0, nil
+	}
+	taskInfo, err := c.service.Index(indexUID).DeleteDocumentsWithContext(ctx, ids, nil)
+	if err != nil {
+		return 0, fmt.Errorf("delete %s documents from meilisearch: %w", indexUID, err)
+	}
+	task, err := c.service.WaitForTaskWithContext(ctx, taskInfo.TaskUID, 250*time.Millisecond)
+	if err != nil {
+		return 0, fmt.Errorf("wait for %s document delete task: %w", indexUID, err)
+	}
+	if task.Status != ms.TaskStatusSucceeded {
+		if task.Error.Code != "" {
+			return 0, fmt.Errorf("%s document delete task %d ended with status=%s: [%s] %s", indexUID, taskInfo.TaskUID, task.Status, task.Error.Code, task.Error.Message)
+		}
+		return 0, fmt.Errorf("%s document delete task %d ended with status=%s", indexUID, taskInfo.TaskUID, task.Status)
 	}
 	return task.Details.DeletedDocuments, nil
 }

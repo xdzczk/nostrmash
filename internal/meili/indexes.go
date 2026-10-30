@@ -26,17 +26,24 @@ func meiliIndexSpecs() []indexSpec {
 			PrimaryKey: "id",
 			Settings: ms.Settings{
 				RankingRules: []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+				// byAttribute stores proximity per field instead of per word
+				// pair. Production's notes/profiles/documents indexes were
+				// ~16GB on disk with ~1GB of raw documents; the gap is this
+				// proximity database. Search still ranks within a field.
+				ProximityPrecision: ms.ByAttribute,
 				// Hash-shaped fields (64-hex id/pubkey) must not be searchable:
 				// every new note adds brand-new unique "words" to the index, and
 				// Meilisearch rebuilds its word/prefix databases on each task, so
 				// production saw a one-document update to `notes` take ~27s at
 				// ~300% CPU. Hex identifiers are resolved via the `pubkey`
 				// filter (SearchNotes) and the query layer's direct event lookup.
+				// `id` is the primary key and is returned on every hit; it is
+				// not filterable, because a filterable 64-hex id is a second
+				// high-cardinality index search never queries.
 				SearchableAttributes: []string{
 					"content",
 				},
 				FilterableAttributes: []string{
-					"id",
 					"pubkey",
 					"created_at",
 					"language",
@@ -44,8 +51,11 @@ func meiliIndexSpecs() []indexSpec {
 				SortableAttributes: []string{
 					"created_at",
 				},
+				// event_id is the Nostr id when id is the live-activity address
+				// key. attributesToRetrieve can only return displayed fields.
 				DisplayedAttributes: []string{
 					"id",
+					"event_id",
 					"pubkey",
 					"created_at",
 					"language",
@@ -56,7 +66,8 @@ func meiliIndexSpecs() []indexSpec {
 			UID:        IndexProfiles,
 			PrimaryKey: "pubkey",
 			Settings: ms.Settings{
-				RankingRules: []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+				RankingRules:       []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+				ProximityPrecision: ms.ByAttribute,
 				// `pubkey` stays filterable only; see the notes index comment.
 				SearchableAttributes: []string{
 					"name",
@@ -89,9 +100,12 @@ func meiliIndexSpecs() []indexSpec {
 			UID:        IndexDocuments,
 			PrimaryKey: "id",
 			Settings: ms.Settings{
-				RankingRules: []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+				RankingRules:       []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+				ProximityPrecision: ms.ByAttribute,
+				// `entity_id` stays filterable and displayed, not searchable.
+				// Hashtag and relay ids repeat `title`, and a searchable id
+				// puts every distinct tag or URL into the word dictionary.
 				SearchableAttributes: []string{
-					"entity_id",
 					"title",
 					"body",
 					"aliases",

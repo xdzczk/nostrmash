@@ -59,10 +59,31 @@ func TestIndexSpecsKeepIdentifiersOutOfSearchableAttributes(t *testing.T) {
 		IndexProfiles: {"pubkey": true},
 	}
 	for _, spec := range meiliIndexSpecs() {
+		if spec.Settings.ProximityPrecision != ms.ByAttribute {
+			t.Fatalf("index %s proximityPrecision = %q, want byAttribute", spec.UID, spec.Settings.ProximityPrecision)
+		}
 		for _, attr := range spec.Settings.SearchableAttributes {
 			if banned[spec.UID][attr] {
 				t.Fatalf("index %s must not have %q in searchableAttributes", spec.UID, attr)
 			}
+			if spec.UID == IndexDocuments && attr == "entity_id" {
+				t.Fatalf("documents index must not search entity_id")
+			}
+		}
+		if spec.UID != IndexNotes {
+			continue
+		}
+		for _, attr := range spec.Settings.FilterableAttributes {
+			if attr == "id" {
+				t.Fatalf("notes index must not filter on id")
+			}
+		}
+		displayed := map[string]bool{}
+		for _, attr := range spec.Settings.DisplayedAttributes {
+			displayed[attr] = true
+		}
+		if !displayed["event_id"] {
+			t.Fatalf("notes index must display event_id so live activities hydrate the Nostr event")
 		}
 	}
 }
