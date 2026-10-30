@@ -742,6 +742,7 @@ type RelayRegistry struct {
 	CapabilitySummaryJson []byte
 	NotesJson             []byte
 	UpdatedAt             pgtype.Timestamptz
+	LastEoseSuccessAt     pgtype.Timestamptz
 }
 
 // Generic homepage-window snapshot store keyed by snapshot_label. Despite the historical name, hosts snapshots for relay summary, note volume / active authors, top languages, and top hashtags. Refreshed every few minutes by derivation.RefreshRelayWindowSnapshots — see internal/derivation/projection_relay_window_snapshots.go.
