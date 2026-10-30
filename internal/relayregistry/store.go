@@ -246,6 +246,9 @@ func (s *Store) SetAdmissionState(
 }
 
 // UpdateProbeRollup updates the relay's current probe summary fields from an observation.
+// A failed attempt does not clear last_eose_success_at. Catalog membership uses
+// that timestamp so one later failure does not drop a relay that succeeded
+// inside the freshness window.
 func (s *Store) UpdateProbeRollup(ctx context.Context, urlKey string, status ProbeStatus,
 	connectOK, subscribeOK, eoseOK bool,
 	avgConnectLatency, avgEOSELatency *float64,
@@ -258,6 +261,10 @@ func (s *Store) UpdateProbeRollup(ctx context.Context, urlKey string, status Pro
 		    last_connect_ok = $3,
 		    last_subscribe_ok = $4,
 		    last_eose_ok = $5,
+		    last_eose_success_at = CASE
+		        WHEN $5 THEN now()
+		        ELSE last_eose_success_at
+		    END,
 		    avg_connect_latency_ms = $6,
 		    avg_eose_latency_ms = $7,
 		    probe_fail_rate = $8,
@@ -640,8 +647,9 @@ const relayRecordSelectList = `
 	score_components_json, capability_summary_json, notes_json,
 	updated_at`
 
-// ListRelayCatalog returns public wss relays whose latest read probe succeeded
-// at or after freshSince. Ranking is distinct users, then score, then URL.
+// ListRelayCatalog returns public wss relays with a successful read at or
+// after freshSince. A later failed attempt does not remove the relay until
+// that success ages out. Ranking is distinct users, then score, then URL.
 // Admission state is ignored: a relay NostrMash is not ingesting can still be
 // a broadcast target. Directory, blocked, drained, and non-public URLs are
 // omitted. The query over-fetches so the Go filter can still fill limit.
@@ -654,9 +662,14 @@ func (s *Store) ListRelayCatalog(ctx context.Context, freshSince time.Time, limi
 		FROM relay_registry
 		WHERE normalized_url LIKE 'wss://%'
 		  AND manual_policy NOT IN ('blocked', 'drained')
-		  AND last_probe_status = 'ok'
-		  AND last_eose_ok IS TRUE
-		  AND last_probe_at >= $1
+		  AND (
+		    last_eose_success_at >= $1
+		    OR (
+		      last_probe_status = 'ok'
+		      AND last_eose_ok IS TRUE
+		      AND last_probe_at >= $1
+		    )
+		  )
 		ORDER BY distinct_user_ref_count DESC, score DESC, normalized_url ASC
 		LIMIT $2
 	`, freshSince, limit+16)

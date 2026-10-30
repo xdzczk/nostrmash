@@ -660,14 +660,17 @@ paths:
       responses:
         '200':
           description: >
-            Relays from relay_registry whose latest read probe succeeded inside
+            Relays from relay_registry with a successful read probe inside
             the freshness window, ordered by distinct_users, score, then
-            relay_url. Localhost, private-network, and directory relays are
-            omitted, as are blocked and drained relays. Admission state is
-            ignored. generated_at is the query time. freshness_seconds is the
-            window. Each relay has relay_url, distinct_users, score (number),
-            last_probe_at, last_probe_status, avg_connect_latency_ms, and
-            avg_eose_latency_ms. name, icon, auth_required, and payment_required
+            relay_url. A later failed attempt does not remove the relay until
+            that success ages out. Localhost, private-network, and directory
+            relays are omitted, as are blocked and drained relays. Admission
+            state is ignored. generated_at is the query time. freshness_seconds
+            is the window. Each relay has relay_url, distinct_users, score
+            (number), last_probe_at, last_probe_status, avg_connect_latency_ms,
+            and avg_eose_latency_ms. last_probe_at and last_probe_status are the
+            latest attempt, which can be a failure while the relay is still
+            listed. name, icon, auth_required, and payment_required
             are added when a stored NIP-11 document includes them. auth_required
             and payment_required are omitted when the relay did not say. An
             empty relays array is a successful response.

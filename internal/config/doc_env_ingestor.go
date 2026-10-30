@@ -443,7 +443,7 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Runtimes:     []string{"api", "worker"},
 			Required:     false,
 			DefaultValue: "1h",
-			Description:  "How recently a read probe must have succeeded for a relay to appear in GET /api/v1/relays/catalog. The worker reserves extra probe slots so the most-listed public relays stay inside this window. Go duration.",
+			Description:  "How recently a read probe must have succeeded for a relay to appear in GET /api/v1/relays/catalog. A later failed attempt leaves the relay listed until that success is older than this window. The worker reserves extra probe slots so the most-listed public relays stay inside this window. Go duration.",
 		},
 		{
 			Name:         "RELAY_REGISTRY_NIP11_ENABLED",

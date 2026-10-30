@@ -126,6 +126,100 @@ func TestListRelayCatalog_FiltersAndRanks(t *testing.T) {
 	}
 }
 
+func TestListRelayCatalog_KeepsRecentSuccessAfterFailure(t *testing.T) {
+	pool, ctx := setupRelayRegistryPool(t)
+	s := relayregistry.NewStore(pool)
+	now := time.Now().UTC()
+	recent := now.Add(-20 * time.Minute)
+	expired := now.Add(-2 * time.Hour)
+	failedAt := now.Add(-time.Minute)
+
+	insert := func(url string, users int, probed time.Time, success *time.Time) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO relay_registry (
+				url_key, normalized_url, manual_policy, admission_state,
+				distinct_user_ref_count, last_probe_at, last_probe_status,
+				last_eose_ok, last_eose_success_at
+			) VALUES ($1, $2, 'none', 'active', $3, $4, 'connect_failed', false, $5)
+		`, url, url, users, probed, success); err != nil {
+			t.Fatalf("insert %s: %v", url, err)
+		}
+	}
+	insert("wss://remembered.example", 500, failedAt, &recent)
+	insert("wss://expired.example", 9000, failedAt, &expired)
+	insert("wss://failed.example", 8000, failedAt, nil)
+
+	got, err := s.ListRelayCatalog(ctx, now.Add(-time.Hour), 10)
+	if err != nil {
+		t.Fatalf("list catalog: %v", err)
+	}
+	if len(got) != 1 || got[0].NormalizedURL != "wss://remembered.example" {
+		t.Fatalf("catalog = %v, want remembered.example", urlsOf(got))
+	}
+	if got[0].LastProbeStatus == nil || *got[0].LastProbeStatus != relayregistry.ProbeStatusConnectFailed {
+		t.Fatalf("latest status = %v, want connect_failed", got[0].LastProbeStatus)
+	}
+}
+
+func TestUpdateProbeRollup_RemembersEOSESuccess(t *testing.T) {
+	pool, ctx := setupRelayRegistryPool(t)
+	s := relayregistry.NewStore(pool)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO relay_registry (url_key, normalized_url, distinct_user_ref_count)
+		VALUES ('wss://flaky.example', 'wss://flaky.example', 200)
+	`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	connect := 10.0
+	eose := 20.0
+	if err := s.UpdateProbeRollup(ctx, "wss://flaky.example", relayregistry.ProbeStatusOK, true, true, true, &connect, &eose, 0, 0, 0); err != nil {
+		t.Fatalf("record success: %v", err)
+	}
+	var successAt time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT last_eose_success_at FROM relay_registry WHERE url_key = $1
+	`, "wss://flaky.example").Scan(&successAt); err != nil {
+		t.Fatalf("read success time: %v", err)
+	}
+	if successAt.IsZero() {
+		t.Fatal("success time was not recorded")
+	}
+	if err := s.UpdateProbeRollup(ctx, "wss://flaky.example", relayregistry.ProbeStatusConnectFailed, false, false, false, nil, nil, 0.1, 0, 0); err != nil {
+		t.Fatalf("record failure: %v", err)
+	}
+	var status string
+	var eoseOK bool
+	var kept time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT last_probe_status, last_eose_ok, last_eose_success_at
+		FROM relay_registry WHERE url_key = $1
+	`, "wss://flaky.example").Scan(&status, &eoseOK, &kept); err != nil {
+		t.Fatalf("read rollup: %v", err)
+	}
+	if status != string(relayregistry.ProbeStatusConnectFailed) || eoseOK {
+		t.Fatalf("latest probe = %s eose=%v, want connect_failed", status, eoseOK)
+	}
+	if !kept.Equal(successAt) {
+		t.Fatalf("success time changed from %s to %s", successAt, kept)
+	}
+
+	listed, err := s.ListRelayCatalog(ctx, successAt.Add(-time.Second), 10)
+	if err != nil {
+		t.Fatalf("list catalog: %v", err)
+	}
+	if len(listed) != 1 || listed[0].NormalizedURL != "wss://flaky.example" {
+		t.Fatalf("catalog = %v, want flaky.example", urlsOf(listed))
+	}
+	agedOut, err := s.ListRelayCatalog(ctx, successAt.Add(time.Second), 10)
+	if err != nil {
+		t.Fatalf("list aged catalog: %v", err)
+	}
+	if len(agedOut) != 0 {
+		t.Fatalf("aged catalog = %v, want empty", urlsOf(agedOut))
+	}
+}
+
 func TestListCatalogProbeTargets_StalestOfHead(t *testing.T) {
 	pool, ctx := setupRelayRegistryPool(t)
 	s := relayregistry.NewStore(pool)

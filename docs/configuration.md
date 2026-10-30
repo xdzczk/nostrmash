@@ -127,7 +127,7 @@ Do not hand-edit this file.
 | `RELAY_REGISTRY_ADMISSION_MIN_SCORE_ACTIVE` | `worker` | optional | `30` | Minimum score for a probation relay to become active. |
 | `RELAY_REGISTRY_ADMISSION_MIN_SCORE_PROBATION` | `worker` | optional | `10` | Minimum score for a candidate to enter probation. |
 | `RELAY_REGISTRY_ALLOW_PRIVATE_NETWORK` | `ingestor, worker` | optional | `false` | Allow private/local network addresses in relay URLs. |
-| `RELAY_REGISTRY_CATALOG_FRESHNESS` | `api, worker` | optional | `1h` | How recently a read probe must have succeeded for a relay to appear in GET /api/v1/relays/catalog. The worker reserves extra probe slots so the most-listed public relays stay inside this window. Go duration. |
+| `RELAY_REGISTRY_CATALOG_FRESHNESS` | `api, worker` | optional | `1h` | How recently a read probe must have succeeded for a relay to appear in GET /api/v1/relays/catalog. A later failed attempt leaves the relay listed until that success is older than this window. The worker reserves extra probe slots so the most-listed public relays stay inside this window. Go duration. |
 | `RELAY_REGISTRY_CATALOG_HEAD` | `worker` | optional | `80` | How many of the most-listed public wss relays the probe loop keeps inside RELAY_REGISTRY_CATALOG_FRESHNESS. These dials are in addition to the live and discovery probe budgets. |
 | `RELAY_REGISTRY_DISCOVERY_ENABLED` | `worker` | optional | `false` | Enable relay discovery from user relay lists. |
 | `RELAY_REGISTRY_DISCOVERY_MAX_NEW_CANDIDATES` | `worker` | optional | `25` | Maximum brand-new candidate relays to insert per discovery run. Existing registry relays always have their user-ref counts refreshed. |
