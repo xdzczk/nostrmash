@@ -6,9 +6,10 @@ import (
 )
 
 // cheapEngagementUnlockPerSubstantive is how many reaction-points of cheap
-// engagement (one reaction = 1, one repost = 2) one replier or zapper fully
-// unlocks. Replies are already greeting-discounted before they get here, so
-// a pile of identical "GM"s does not unlock a reaction farm.
+// engagement (one reaction = 1, one repost = 2) one substantive replier or
+// zapper fully unlocks. A greeting pile is omitted from that replier budget
+// before it gets here, so "GM" variants do not unlock a reaction farm. A
+// single greeting still counts as a replier.
 const cheapEngagementUnlockPerSubstantive = 4.0
 
 // cheapEngagementFloor is the fraction of reactions and reposts that still
@@ -77,9 +78,11 @@ func RankRecencyMatters(windowLabel string) bool {
 // single account emitting many events cannot inflate the score.
 //
 // Reactions and reposts are cheap to buy. They count in full only up to a
-// budget set by the people who replied or zapped; the surplus counts at
-// cheapEngagementFloor. The discount is linear in every weight, so halving
-// every engager's trust weight still halves the score.
+// budget set by substantive replies and zaps. replyWeight still includes a
+// discounted greeting pile, and substantiveReplyWeight leaves that pile out,
+// so the pile adds a little score and does not unlock the likes. The surplus
+// counts at cheapEngagementFloor. The discount is linear in every weight, so
+// halving every engager's trust weight still halves the score.
 //
 // Recency depends on the window. A 24-hour score keeps half at the edge of
 // the day, a 7-day score keeps 85% at the end of the week, and a 30-day
@@ -90,6 +93,7 @@ func computeTrendingScore(
 	nowUnix int64,
 	noteCreatedAt int64,
 	replyWeight float64,
+	substantiveReplyWeight float64,
 	repostWeight float64,
 	reactionWeight float64,
 	zapWeight float64,
@@ -107,12 +111,16 @@ func computeTrendingScore(
 		return 0
 	}
 	replyWeight = math.Max(0, replyWeight)
+	substantiveReplyWeight = math.Max(0, substantiveReplyWeight)
+	if substantiveReplyWeight > replyWeight {
+		substantiveReplyWeight = replyWeight
+	}
 	repostWeight = math.Max(0, repostWeight)
 	reactionWeight = math.Max(0, reactionWeight)
 	zapWeight = math.Max(0, zapWeight)
 	zapMSats = math.Max(0, zapMSats)
 
-	substantive := replyWeight + zapWeight
+	substantive := substantiveReplyWeight + zapWeight
 	base := replyWeight*3.0 +
 		zapWeight*2.0 +
 		(zapMSats / 100000.0) +

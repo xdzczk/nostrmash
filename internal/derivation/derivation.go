@@ -104,7 +104,11 @@ const (
 	// v10: 7d recency keeps 85% at the end of the week, and 30d drops the
 	// recency penalty. 24h is unchanged. score_7d and score_30d stay on
 	// the previous curve until the next derive or a time-range rebuild.
-	NoteDiscoveryStatsVersion = 10
+	// v11: greeting variants and one-line wishes share one reply bucket.
+	// That bucket still adds its discounted weight to the score, and it does
+	// not unlock reactions or reposts. A single greeting still counts in full.
+	// Rows keep the previous scores until the next derive or a time-range rebuild.
+	NoteDiscoveryStatsVersion = 11
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -156,7 +160,10 @@ const (
 	// v5: replies_30d, reply_weight_30d, and authors_30d cover the 30-day
 	// window. Readers use authors_30d only at this version; older rows fall
 	// back to participant_count.
-	ThreadSummaryVersion               = 5
+	// v6: greeting variants and one-line wishes share the reply-weight bucket
+	// with identical "GM"s. Rows keep the previous weights until the thread
+	// summary sweeper rewrites them.
+	ThreadSummaryVersion               = 6
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1

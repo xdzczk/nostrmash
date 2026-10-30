@@ -57,7 +57,8 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, la
 	}
 	activityCutoff := time.Now().UTC().Add(-windowDuration).Unix()
 	// Broad threads score reply_weight_* (unique repliers excluding the root
-	// author, optionally trust-weighted, with repeated greetings discounted).
+	// author, optionally trust-weighted, with greeting variants discounted
+	// as one pile).
 	// Rows projected before thread summary derivation v2 have no weights yet
 	// and fall back to the raw counters until the rebuild sweep reaches them.
 	//

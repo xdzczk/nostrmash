@@ -234,18 +234,21 @@ func (h *Handlers) refreshThreadSummaryTx(
 	// counters; hot-conversation ranking reads these weights instead, so
 	// self-replies and repeat replies from one account buy zero velocity.
 	nowUnix := time.Now().UTC().Unix()
-	replyWeight24h, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 24*time.Hour, h.engagementWeighting)
+	reply24h, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 24*time.Hour, h.engagementWeighting)
 	if err != nil {
 		return err
 	}
-	replyWeight7d, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 7*24*time.Hour, h.engagementWeighting)
+	reply7d, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 7*24*time.Hour, h.engagementWeighting)
 	if err != nil {
 		return err
 	}
-	replyWeight30d, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 30*24*time.Hour, h.engagementWeighting)
+	reply30d, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 30*24*time.Hour, h.engagementWeighting)
 	if err != nil {
 		return err
 	}
+	replyWeight24h := reply24h.Total
+	replyWeight7d := reply7d.Total
+	replyWeight30d := reply30d.Total
 
 	var maxDepth int
 	if err := tx.QueryRow(ctx, `

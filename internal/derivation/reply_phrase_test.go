@@ -14,8 +14,8 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 		got := sumDiscountedReplyWeights([]weightedReply{
 			{Pubkey: "a", Content: "GM", Weight: 1},
 		})
-		if got != 1 {
-			t.Fatalf("got %v", got)
+		if got.Total != 1 || got.Substantive != 1 {
+			t.Fatalf("got %+v", got)
 		}
 	})
 
@@ -25,8 +25,8 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			rows = append(rows, weightedReply{Pubkey: string(rune('a' + i)), Content: "  gm! ", Weight: 1})
 		}
 		got := sumDiscountedReplyWeights(rows)
-		if !near(got, 18*repeatedReplyPhraseDiscount) {
-			t.Fatalf("got %v", got)
+		if !near(got.Total, 18*repeatedReplyPhraseDiscount) || got.Substantive != 0 {
+			t.Fatalf("got %+v", got)
 		}
 	})
 
@@ -35,8 +35,64 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "a", Content: "GM https://example.com/coffee.jpg", Weight: 1},
 			{Pubkey: "b", Content: "gm nostr:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqx", Weight: 1},
 		})
-		if !near(got, 2*repeatedReplyPhraseDiscount) {
-			t.Fatalf("got %v", got)
+		if !near(got.Total, 2*repeatedReplyPhraseDiscount) || got.Substantive != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("greeting variants share one bucket", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "GM", Weight: 1},
+			{Pubkey: "b", Content: "good morning", Weight: 1},
+			{Pubkey: "c", Content: "GM Gigi", Weight: 1},
+			{Pubkey: "d", Content: "PV", Weight: 1},
+			{Pubkey: "e", Content: "gm & now is coffeetime!", Weight: 1},
+			{Pubkey: "f", Content: "❤️", Weight: 1},
+			{Pubkey: "g", Content: "hello", Weight: 1},
+		})
+		if !near(got.Total, 7*repeatedReplyPhraseDiscount) || got.Substantive != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("one-line wishes join the greeting bucket", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "GM", Weight: 1},
+			{Pubkey: "b", Content: "GM dear soul, enjoy your wonderful day...peace", Weight: 1},
+			{Pubkey: "c", Content: "GM. No coffee no workee", Weight: 1},
+			{Pubkey: "d", Content: "have a great day", Weight: 1},
+			{Pubkey: "e", Content: "enjoy your wonderful day", Weight: 1},
+			{Pubkey: "f", Content: "Mornin Boyo! Enjoy the unfolding...", Weight: 1},
+		})
+		if !near(got.Total, 6*repeatedReplyPhraseDiscount) || got.Substantive != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("a second short wish does not clear a greeting", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "Gm", Weight: 1},
+			{Pubkey: "a", Content: "Enjoy coffee have great day", Weight: 1},
+			{Pubkey: "b", Content: "good morning", Weight: 1},
+		})
+		if !near(got.Total, 2*repeatedReplyPhraseDiscount) || got.Substantive != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("a remark stays at full weight beside the pile", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "GM", Weight: 1},
+			{Pubkey: "b", Content: "good morning", Weight: 1},
+			{Pubkey: "c", Content: "Two espressos on that cracked stone ledge is how I would start a Friday too.", Weight: 1},
+			{Pubkey: "d", Content: "GM Gigi. Sending you good vibes from this spot in space-time. Things have been very busy here too", Weight: 1},
+			{Pubkey: "e", Content: "GM the binance hacker froze the funds", Weight: 1},
+			{Pubkey: "f", Content: "Good morning Do a set of push ups, it will only take 1-2 mins, you'll feel better, don't trust verify", Weight: 1},
+		})
+		// Four remarks, two greetings at 0.2.
+		want := 4 + 2*repeatedReplyPhraseDiscount
+		if !near(got.Total, want) || got.Substantive != 4 {
+			t.Fatalf("got %+v want total %v substantive 4", got, want)
 		}
 	})
 
@@ -46,8 +102,18 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "a", Content: "dup 2", Weight: 1},
 			{Pubkey: "b", Content: "other", Weight: 1},
 		})
-		if got != 2 {
-			t.Fatalf("got %v", got)
+		if got.Total != 2 || got.Substantive != 2 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("good point is not a greeting variant", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "good point", Weight: 1},
+			{Pubkey: "b", Content: "GM", Weight: 1},
+		})
+		if got.Total != 2 || got.Substantive != 2 {
+			t.Fatalf("got %+v", got)
 		}
 	})
 
@@ -58,10 +124,10 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "b", Content: "GM", Weight: 1},
 			{Pubkey: "c", Content: "GM", Weight: 1},
 		})
-		// a is substantive; b and c share "gm" and are discounted.
+		// a is substantive; b and c share the greeting bucket and are discounted.
 		want := 1 + 2*repeatedReplyPhraseDiscount
-		if !near(got, want) {
-			t.Fatalf("got %v want %v", got, want)
+		if !near(got.Total, want) || got.Substantive != 1 {
+			t.Fatalf("got %+v want total %v substantive 1", got, want)
 		}
 	})
 
@@ -72,8 +138,8 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "c", Content: "something else entirely about the protocol", Weight: 1},
 		})
 		want := 2*repeatedReplyPhraseDiscount + 1
-		if !near(got, want) {
-			t.Fatalf("got %v want %v", got, want)
+		if !near(got.Total, want) || !near(got.Substantive, want) {
+			t.Fatalf("got %+v want %v", got, want)
 		}
 	})
 
@@ -83,8 +149,8 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "a", Content: text, Weight: 1},
 			{Pubkey: "b", Content: text, Weight: 1},
 		})
-		if got != 2 {
-			t.Fatalf("got %v", got)
+		if got.Total != 2 || got.Substantive != 2 {
+			t.Fatalf("got %+v", got)
 		}
 	})
 
@@ -93,8 +159,8 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "a", Content: "🔥🔥", Weight: 1},
 			{Pubkey: "b", Content: "👋", Weight: 1},
 		})
-		if !near(got, 2*repeatedReplyPhraseDiscount) {
-			t.Fatalf("got %v", got)
+		if !near(got.Total, 2*repeatedReplyPhraseDiscount) || got.Substantive != 0 {
+			t.Fatalf("got %+v", got)
 		}
 	})
 
@@ -104,8 +170,8 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "b", Content: "GN!", Weight: 0.25},
 		})
 		want := (0.5 + 0.25) * repeatedReplyPhraseDiscount
-		if !near(got, want) {
-			t.Fatalf("got %v want %v", got, want)
+		if !near(got.Total, want) || got.Substantive != 0 {
+			t.Fatalf("got %+v want %v", got, want)
 		}
 	})
 }

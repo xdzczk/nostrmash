@@ -57,11 +57,12 @@ const engagerWeightCaseSQL = `
 	END`
 
 type windowedEngagementWeights struct {
-	ReplyWeight    float64
-	RepostWeight   float64
-	ReactionWeight float64
-	ZapWeight      float64
-	ZapMSats       float64
+	ReplyWeight            float64
+	SubstantiveReplyWeight float64
+	RepostWeight           float64
+	ReactionWeight         float64
+	ZapWeight              float64
+	ZapMSats               float64
 }
 
 // loadWindowedEngagementWeights aggregates deduplicated, author-excluded,
@@ -92,7 +93,9 @@ func loadWindowedEngagementWeights(
 	if err != nil {
 		return out, fmt.Errorf("load windowed reply weight: %w", err)
 	}
-	out.ReplyWeight = sumDiscountedReplyWeights(replyRows)
+	replyWeights := sumDiscountedReplyWeights(replyRows)
+	out.ReplyWeight = replyWeights.Total
+	out.SubstantiveReplyWeight = replyWeights.Substantive
 	out.RepostWeight, err = queryFloat64Tx(ctx, tx, `
 		SELECT COALESCE(SUM(`+engagerWeightCaseSQL+`), 0)
 		FROM (
@@ -163,7 +166,7 @@ func loadWindowedThreadReplyWeight(
 	nowUnix int64,
 	window time.Duration,
 	weighting EngagementWeightingOptions,
-) (float64, error) {
+) (replyWeightSum, error) {
 	weighting = weighting.normalized()
 	cutoff := nowUnix - int64(window/time.Second)
 	rows, err := queryWeightedReplies(ctx, tx, `
@@ -176,7 +179,7 @@ func loadWindowedThreadReplyWeight(
 		  AND child.pubkey <> $3
 	`, rootEventID, cutoff, authorPubkey, weighting.TrustWeighted, weighting.MaxHops, weighting.UntrustedWeight)
 	if err != nil {
-		return 0, fmt.Errorf("load windowed thread reply weight: %w", err)
+		return replyWeightSum{}, fmt.Errorf("load windowed thread reply weight: %w", err)
 	}
 	return sumDiscountedReplyWeights(rows), nil
 }
