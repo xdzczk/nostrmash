@@ -89,7 +89,48 @@ func (h Handlers) GetHighlights(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetLongForm(w http.ResponseWriter, r *http.Request) {
-	h.getKindScopedEvents(w, r, 30023, "long_form")
+	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
+	if pubkey == "" {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
+		return
+	}
+	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	cursor, err := decodeEventCursor(strings.TrimSpace(r.URL.Query().Get("cursor")))
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_cursor", "cursor is malformed")
+		return
+	}
+	result, err := h.service.GetLongFormPage(r.Context(), pubkey, limit, cursor)
+	if err != nil {
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "long-form pagination is not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	items := result.Events
+	if items == nil {
+		items = []json.RawMessage{}
+	}
+	nextCursor, err := encodeEventCursor(result.NextCursor)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	payload := map[string]any{
+		"pubkey":      pubkey,
+		"long_form":   items,
+		"consistency": "eventual",
+	}
+	if nextCursor != "" {
+		payload["next_cursor"] = nextCursor
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (h Handlers) GetZaps(w http.ResponseWriter, r *http.Request) {
@@ -151,27 +192,49 @@ func (h Handlers) GetFollowers(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	items, err := h.service.GetFollowers(r.Context(), pubkey, limit)
+	cursor, err := decodeFollowerCursor(strings.TrimSpace(r.URL.Query().Get("cursor")))
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_cursor", "cursor is malformed")
+		return
+	}
+	items, next, err := h.service.GetFollowersPage(r.Context(), pubkey, limit, cursor)
+	if err != nil {
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "follower pagination is not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if items == nil {
+		items = []json.RawMessage{}
+	}
+	nextCursor, err := encodeFollowerCursor(next)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"pubkey":      pubkey,
 		"items":       items,
 		"consistency": "eventual",
-	})
+	}
+	if nextCursor != "" {
+		payload["next_cursor"] = nextCursor
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
-// GetMuteList returns the muted identifiers (pubkeys, events, hashtags, words)
-// from the pubkey's latest kind:10000 mute list.
+// GetMuteList returns the pubkey's latest kind 10000 mute list with each tag's
+// name kept, plus the raw event when the index still has it. A missing list is
+// an empty page, not a 404.
 func (h Handlers) GetMuteList(w http.ResponseWriter, r *http.Request) {
 	pubkey := normalizePathPubkey(r.PathValue("pubkey"))
 	if pubkey == "" {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "pubkey is required")
 		return
 	}
-	muted, err := h.service.GetMuteList(r.Context(), pubkey)
+	detail, err := h.service.GetMuteListDetail(r.Context(), pubkey)
 	if err != nil {
 		if query.IsUnsupportedCapability(err) {
 			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "mute lists are not available on this deployment")
@@ -180,11 +243,24 @@ func (h Handlers) GetMuteList(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	tags := detail.Tags
+	if tags == nil {
+		tags = []query.MuteListTag{}
+	}
+	values := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		values = append(values, tag.Value)
+	}
+	payload := map[string]any{
 		"pubkey":      pubkey,
-		"mute_list":   muted,
+		"mute_list":   values,
+		"tags":        tags,
 		"consistency": "eventual",
-	})
+	}
+	if len(detail.Event) > 0 {
+		payload["event"] = detail.Event
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 // GetMutedBy returns authors who mute this pubkey (their latest kind:10000 mute

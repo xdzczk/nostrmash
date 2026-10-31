@@ -28,6 +28,7 @@ type moderationCapabilities struct {
 	listByIdentifier moderationListByIdentifierCapability
 	hiddenByContent  hiddenByContentModerationCapability
 	mutedBy          moderationMutedByCapability
+	listTags         moderationListTagsCapability
 }
 
 type curatedCapabilities struct {
@@ -83,8 +84,10 @@ type replaceableCapabilities struct {
 }
 
 type socialCapabilities struct {
-	userFollowing isUserFollowingCapability
-	mutualFollows mutualFollowsCapability
+	userFollowing     isUserFollowingCapability
+	mutualFollows     mutualFollowsCapability
+	mutualFollowsPage mutualFollowsPageCapability
+	followersPage     followersPageCapability
 }
 
 type eventCapabilities struct {
@@ -96,6 +99,10 @@ type eventCapabilities struct {
 	authorReactions          authorReactionsCapability
 	authorRecentEventsByKind authorRecentEventsByKindCapability
 	authorRecentEventsPage   authorRecentEventsPageCapability
+	authorRepliesPage        authorRepliesPageCapability
+	recentEventsByKindPage   recentEventsByKindPageCapability
+	actionsPage              eventActionsPageCapability
+	notificationsPage        notificationsPageCapability
 	kindExpansion            kindExpansionCapability
 }
 
@@ -162,5 +169,6 @@ func adaptServiceCapabilities(reader any, options ServiceOptions) serviceCapabil
 	} else {
 		adaptNotePageCapabilities(reader, &caps)
 	}
+	adaptNativePageCapabilities(reader, &caps)
 	return caps
 }

@@ -86,7 +86,9 @@ func (h *Handlers) projectPrimalNotification(ctx context.Context, eventID string
 	defer func() { _ = tx.Rollback(ctx) }()
 	for _, draft := range drafts {
 		if draft.Type == 8 {
-			mentioned, _ := draft.Args["event_id"].(string)
+			// Drafts store the quoted note on your_post. event_id is only a
+			// fallback so a row is not dropped before the recipient is known.
+			mentioned := notificationMentionedEventID(draft.Args)
 			var mentionedAuthor string
 			if err := tx.QueryRow(ctx, `SELECT pubkey FROM events WHERE id = $1`, mentioned).Scan(&mentionedAuthor); err != nil || mentionedAuthor == "" || mentionedAuthor == author {
 				continue
@@ -236,6 +238,16 @@ func tagValueList(tags [][]string, name string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func notificationMentionedEventID(args map[string]any) string {
+	for _, key := range []string{"your_post", "event_id"} {
+		id, _ := args[key].(string)
+		if id = strings.TrimSpace(id); id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 func mentionEventIDs(tags [][]string) []string {

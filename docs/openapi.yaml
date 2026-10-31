@@ -182,6 +182,55 @@ paths:
           description: >
             Ancestor chain with missing IDs. Present ancestor payloads include
             eventual engagement counters for note-card rendering.
+  /api/v1/events/{id}/actions:
+    get:
+      tags: [public]
+      summary: Repost, reaction, or zap-receipt events for one note
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: kind
+          required: true
+          schema: { type: integer, enum: [6, 7, 9735] }
+          description: 6 reposts, 7 reactions, or 9735 zap receipts. The page items are those events.
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: >
+            Action events (id, pubkey, kind, created_at, tags, content) for the
+            requested kind, newest first, with next_cursor when another page exists.
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/events/{id}/zaps:
+    get:
+      tags: [public]
+      summary: Kind 9735 zap receipts for one note
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: Zap receipt events, newest first, with next_cursor when another page exists.
+        '404':
+          $ref: '#/components/responses/Error'
   /api/v1/threads/{eventId}:
     get:
       tags: [public]
@@ -371,12 +420,17 @@ paths:
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: Opaque keyset continuation token from a prior response's next_cursor.
       responses:
         '200':
           description: >
             Reply list with eventual engagement counters attached
             (`reply_count`, `repost_count`, `reaction_count`, `zap_count`,
             `zap_msats`, and nested `counts`) for note-card rendering.
+            Includes next_cursor when another page exists.
   /api/v1/authors/{pubkey}/zaps:
     get:
       tags: [public]
@@ -744,6 +798,31 @@ paths:
       responses:
         '200':
           description: Relay list projection
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/replaceable:
+    get:
+      tags: [public]
+      summary: Current parameterized replaceable event
+      parameters:
+        - in: query
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: kind
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: identifier
+          required: true
+          schema: { type: string }
+          description: d-tag identifier. An empty string is a valid d-tag.
+      responses:
+        '200':
+          description: The current raw event.
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
   /api/v1/search:
@@ -1528,11 +1607,17 @@ paths:
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: Opaque keyset continuation token from a prior response's next_cursor.
       responses:
         '200':
           description: >
-            Long-form events with eventual engagement counters attached for
-            article-card rendering.
+            Kind 30023 events the index still has for the pubkey, newest first,
+            with eventual engagement counters. Includes next_cursor when another
+            page exists. The same kind can also be paged via
+            /api/v1/authors/{pubkey}/events?kind=30023.
   /api/v1/users/{pubkey}/zaps:
     get:
       tags: [public]
@@ -1575,9 +1660,59 @@ paths:
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: >
+            Opaque keyset token. Order is contact_list_created_at DESC,
+            source_event_id DESC, follower_pubkey ASC.
       responses:
         '200':
-          description: Follower edge rows
+          description: Follower edge rows, with next_cursor when another page exists.
+  /api/v1/users/{pubkey}/mutual-follows:
+    get:
+      tags: [public]
+      summary: Mutual follow pubkeys
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: user_pubkey
+          schema: { type: string }
+          description: Second account. Omit it, or pass the path pubkey, for that account's mutuals.
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: Pubkeys ordered ascending, with next_cursor when another page exists.
+  /api/v1/users/{pubkey}/notifications:
+    get:
+      tags: [public]
+      summary: Engagement notifications for one pubkey
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: >
+            Page of likes, reposts, quote reposts, zaps, replies, mentions, and
+            new follows. Each row has type, created_at, actor_pubkey, and event_id.
+        '501':
+          $ref: '#/components/responses/Error'
   /api/v1/users/{pubkey}/mute-list:
     get:
       tags: [public]
@@ -1589,7 +1724,9 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: Muted identifiers (pubkeys, events, hashtags, words)
+          description: >
+            Mute list with typed tags (p, e, t, word) and the raw kind 10000
+            event when the index has it. mute_list remains the tag values.
         '501':
           $ref: '#/components/responses/Error'
   /api/v1/users/{pubkey}/muted-by:

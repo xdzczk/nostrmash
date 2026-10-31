@@ -79,6 +79,7 @@ func wireModerationGroup(g ModerationReads, caps *serviceCapabilities) {
 	caps.moderation.listByIdentifier = g
 	caps.moderation.hiddenByContent = g
 	caps.moderation.mutedBy = g
+	caps.moderation.listTags = g
 }
 
 func wireReplaceableGroup(g ReplaceableReads, caps *serviceCapabilities) {
@@ -98,6 +99,8 @@ func wireSocialGroup(g SocialReads, caps *serviceCapabilities) {
 	}
 	caps.social.userFollowing = g
 	caps.social.mutualFollows = g
+	caps.social.mutualFollowsPage = g
+	caps.social.followersPage = g
 }
 
 func wireEventGroup(g EventReads, caps *serviceCapabilities) {
@@ -112,6 +115,10 @@ func wireEventGroup(g EventReads, caps *serviceCapabilities) {
 	caps.event.authorReactions = g
 	caps.event.authorRecentEventsByKind = g
 	caps.event.authorRecentEventsPage = g
+	caps.event.authorRepliesPage = g
+	caps.event.recentEventsByKindPage = g
+	caps.event.actionsPage = g
+	caps.event.notificationsPage = g
 	caps.event.kindExpansion = g
 }
 

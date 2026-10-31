@@ -21,6 +21,9 @@ func TestPrimalNotificationDraftsReplyMentionAndZap(t *testing.T) {
 	if reply[2].Type != 8 {
 		t.Fatalf("post mention draft: %+v", reply[2])
 	}
+	if notificationMentionedEventID(reply[2].Args) != "quoted" {
+		t.Fatalf("quote mention target = %q", notificationMentionedEventID(reply[2].Args))
+	}
 
 	nested := primalNotificationDrafts(1, "author", "reply-id", "", nil, "parent-id", "parent-author", true)
 	if len(nested) != 1 || nested[0].Type != 601 {

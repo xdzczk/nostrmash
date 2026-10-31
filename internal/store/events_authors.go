@@ -252,6 +252,108 @@ func (s *PostgresStore) GetAuthorReplies(ctx context.Context, pubkey string, lim
 	return s.authorEventsWithTopZaps(ctx, rows)
 }
 
+// GetAuthorRepliesPage returns one keyset page of replies authored by pubkey,
+// ordered by created_at DESC, id DESC. A nil cursor is the first page. The
+// extra row is consumed here so the returned cursor is nil on the last page.
+func (s *PostgresStore) GetAuthorRepliesPage(
+	ctx context.Context,
+	pubkey string,
+	limit int,
+	cursor *EventOrderCursor,
+) ([]json.RawMessage, *EventOrderCursor, error) {
+	if s == nil || s.pool == nil {
+		return nil, nil, fmt.Errorf("store is not initialized")
+	}
+	pubkey = strings.TrimSpace(pubkey)
+	if pubkey == "" {
+		return nil, nil, fmt.Errorf("pubkey is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	query := `
+		SELECT
+			e.raw_json::text,
+			e.created_at,
+			e.id,
+			` + authorEventCountsSelect + `
+		FROM events e
+		WHERE e.pubkey = $1
+		  AND EXISTS (
+		      SELECT 1
+		      FROM thread_edges te
+		      WHERE te.child_event_id = e.id
+		  )`
+	args := []any{pubkey}
+	if cursor != nil {
+		cursorID := strings.TrimSpace(cursor.ID)
+		if cursorID == "" {
+			return []json.RawMessage{}, nil, nil
+		}
+		args = append(args, cursor.CreatedAt, cursorID)
+		query += fmt.Sprintf(" AND (e.created_at, e.id) < ($%d, $%d)", len(args)-1, len(args))
+	}
+	args = append(args, limit+1)
+	query += fmt.Sprintf(`
+		ORDER BY e.created_at DESC, e.id DESC
+		LIMIT $%d`, len(args))
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get author replies page: %w", err)
+	}
+	defer rows.Close()
+	type pageRow struct {
+		raw       json.RawMessage
+		createdAt int64
+		eventID   string
+	}
+	pageRows := make([]pageRow, 0, limit+1)
+	for rows.Next() {
+		var raw string
+		var createdAt int64
+		var eventID string
+		var counts EventCounts
+		counts.Consistency = "eventual"
+		if err := rows.Scan(
+			&raw,
+			&createdAt,
+			&eventID,
+			&counts.ReplyCount,
+			&counts.ReactionCount,
+			&counts.RepostCount,
+			&counts.ZapCount,
+			&counts.ZapMSats,
+		); err != nil {
+			return nil, nil, fmt.Errorf("scan author replies page: %w", err)
+		}
+		enriched, err := mergeEventCountsIntoRaw(json.RawMessage(raw), counts)
+		if err != nil {
+			return nil, nil, err
+		}
+		pageRows = append(pageRows, pageRow{raw: enriched, createdAt: createdAt, eventID: eventID})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("read author replies page: %w", err)
+	}
+	hasMore := len(pageRows) > limit
+	if hasMore {
+		pageRows = pageRows[:limit]
+	}
+	out := make([]json.RawMessage, 0, len(pageRows))
+	for _, row := range pageRows {
+		out = append(out, row.raw)
+	}
+	var next *EventOrderCursor
+	if hasMore && len(pageRows) > 0 {
+		last := pageRows[len(pageRows)-1]
+		next = &EventOrderCursor{CreatedAt: last.createdAt, ID: last.eventID}
+	}
+	return s.AttachTopZaps(ctx, out), next, nil
+}
+
 // GetAuthorRecentEventsByKind returns projected recent events for one author filtered by kind.
 func (s *PostgresStore) GetAuthorRecentEventsByKind(
 	ctx context.Context,

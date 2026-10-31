@@ -89,6 +89,7 @@ type ModerationReads interface {
 	moderationListByIdentifierCapability
 	hiddenByContentModerationCapability
 	moderationMutedByCapability
+	moderationListTagsCapability
 }
 
 // ReplaceableReads bundles the parameterized-replaceable capability surface.
@@ -104,6 +105,8 @@ type ReplaceableReads interface {
 type SocialReads interface {
 	isUserFollowingCapability
 	mutualFollowsCapability
+	mutualFollowsPageCapability
+	followersPageCapability
 }
 
 // EventReads bundles the event-centric zap/highlight/reaction capability surface.
@@ -116,6 +119,10 @@ type EventReads interface {
 	authorReactionsCapability
 	authorRecentEventsByKindCapability
 	authorRecentEventsPageCapability
+	authorRepliesPageCapability
+	recentEventsByKindPageCapability
+	eventActionsPageCapability
+	notificationsPageCapability
 	kindExpansionCapability
 }
 

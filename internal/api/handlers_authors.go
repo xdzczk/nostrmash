@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/query"
 )
 
 // GetAuthorEvents returns projected recent events sorted by created_at desc,
@@ -71,13 +73,35 @@ func (h Handlers) GetAuthorReplies(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	replies, err := h.service.GetAuthorReplies(r.Context(), pubkey, limit)
+	cursor, err := decodeEventCursor(strings.TrimSpace(r.URL.Query().Get("cursor")))
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_cursor", "cursor is malformed")
+		return
+	}
+	result, err := h.service.GetAuthorRepliesPage(r.Context(), pubkey, limit, cursor)
+	if err != nil {
+		if query.IsUnsupportedCapability(err) {
+			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "author reply pagination is not available on this deployment")
+			return
+		}
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	items := result.Events
+	if items == nil {
+		items = []json.RawMessage{}
+	}
+	nextCursor, err := encodeEventCursor(result.NextCursor)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"pubkey": pubkey,
-		"items":  replies,
-	})
+		"items":  items,
+	}
+	if nextCursor != "" {
+		payload["next_cursor"] = nextCursor
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
