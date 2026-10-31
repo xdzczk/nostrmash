@@ -44,6 +44,40 @@ func TestBuildTopZapAdDropsUnsafePictureAndHugeComment(t *testing.T) {
 	}
 }
 
+func TestBuildTopZapAdUsesZapRequestAuthor(t *testing.T) {
+	wallet := strings.Repeat("ab", 32)
+	zapper := strings.Repeat("cd", 32)
+	receipt := json.RawMessage(`{
+		"pubkey":"` + wallet + `",
+		"tags":[
+			["p","` + strings.Repeat("ef", 32) + `"],
+			["P","` + zapper + `"],
+			["description","{\"pubkey\":\"` + zapper + `\",\"content\":\"Good Vibes\"}"]
+		]
+	}`)
+	walletProfile := json.RawMessage(`{"name":"wallet","display_name":"Wallet","picture":"https://cdn.example/wallet.png"}`)
+	ad := buildTopZapAd("event", wallet, 21, receipt, walletProfile)
+	if ad.SenderPubkey != zapper {
+		t.Fatalf("sender = %s", ad.SenderPubkey)
+	}
+	if ad.Name != "" || ad.DisplayName != "" || ad.Picture != "" {
+		t.Fatalf("wallet profile leaked: %#v", ad)
+	}
+	if ad.Comment != "Good Vibes" {
+		t.Fatalf("comment = %q", ad.Comment)
+	}
+}
+
+func TestBuildTopZapAdFallsBackToPTag(t *testing.T) {
+	wallet := strings.Repeat("11", 32)
+	zapper := strings.Repeat("22", 32)
+	receipt := json.RawMessage(`{"pubkey":"` + wallet + `","tags":[["p","` + strings.Repeat("33", 32) + `"],["P","` + zapper + `"],["description","not-json"]]}`)
+	ad := buildTopZapAd("event", wallet, 5, receipt, nil)
+	if ad.SenderPubkey != zapper {
+		t.Fatalf("sender = %s", ad.SenderPubkey)
+	}
+}
+
 func TestLookupTopZapQueryIDsKeepCaseVariants(t *testing.T) {
 	got := topZapLookupIDs([]string{"AbC", "abc", " "})
 	if len(got) != 2 || got[0] != "AbC" || got[1] != "abc" {

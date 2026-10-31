@@ -40,8 +40,7 @@ func (s *Read) TopZapAdsByEventIDs(ctx context.Context, ids []string) (map[strin
 	}
 	defer rows.Close()
 
-	out := make(map[string]readmodel.TopZapAd)
-	byLower := make(map[string]readmodel.TopZapAd)
+	ads := make([]readmodel.TopZapAd, 0)
 	for rows.Next() {
 		var eventID, sender, receiptJSON, profileJSON string
 		var sats int64
@@ -52,11 +51,18 @@ func (s *Read) TopZapAdsByEventIDs(ctx context.Context, ids []string) (map[strin
 		if ad.EventID == "" || ad.Sats <= 0 || ad.SenderPubkey == "" {
 			continue
 		}
-		indexTopZapAd(out, ad.EventID, ad)
-		byLower[strings.ToLower(ad.EventID)] = ad
+		ads = append(ads, ad)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read top zap ads: %w", err)
+	}
+	ads = s.hydrateTopZapProfiles(ctx, ads)
+
+	out := make(map[string]readmodel.TopZapAd)
+	byLower := make(map[string]readmodel.TopZapAd)
+	for _, ad := range ads {
+		indexTopZapAd(out, ad.EventID, ad)
+		byLower[strings.ToLower(ad.EventID)] = ad
 	}
 	for _, id := range trimmed {
 		ad, ok := byLower[strings.ToLower(id)]
@@ -173,28 +179,164 @@ func (s *Read) finishRawEvents(ctx context.Context, rows interface {
 }
 
 func buildTopZapAd(eventID, sender string, sats int64, receipt, profileJSON json.RawMessage) readmodel.TopZapAd {
+	columnSender := strings.TrimSpace(sender)
 	ad := readmodel.TopZapAd{
 		EventID:      strings.TrimSpace(eventID),
 		Sats:         sats,
-		SenderPubkey: strings.TrimSpace(sender),
+		SenderPubkey: columnSender,
 	}
 	if ad.EventID == "" || sats <= 0 || ad.SenderPubkey == "" {
 		return readmodel.TopZapAd{}
 	}
+	// The receipt pubkey is the lightning service that published kind 9735.
+	// The person who zapped is the zap-request author, then the NIP-57 P tag.
+	if zapper := zapperPubkey(receipt, columnSender); zapper != "" {
+		ad.SenderPubkey = zapper
+	}
 	_, comment := extractZapRequestDetails(receipt)
 	ad.Comment = cleanZapText(comment, 160)
+	if strings.EqualFold(ad.SenderPubkey, columnSender) {
+		applyTopZapProfile(&ad, profileJSON)
+	}
+	return ad
+}
+
+// zapperPubkey returns the human who sent the zap. The kind-9735 event pubkey
+// is only a fallback, because that key often belongs to the wallet service.
+func zapperPubkey(receipt json.RawMessage, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	if len(receipt) == 0 {
+		return fallback
+	}
+	var event struct {
+		Tags [][]string `json:"tags"`
+	}
+	if err := json.Unmarshal(receipt, &event); err != nil {
+		return fallback
+	}
+	for _, tag := range event.Tags {
+		if len(tag) < 2 || tag[0] != "description" {
+			continue
+		}
+		var request struct {
+			Pubkey string `json:"pubkey"`
+		}
+		if err := json.Unmarshal([]byte(tag[1]), &request); err != nil {
+			continue
+		}
+		if pubkey := canonicalPubkey(request.Pubkey); pubkey != "" {
+			return pubkey
+		}
+	}
+	if pubkey := canonicalPubkey(firstTagValueFromTags(event.Tags, "P")); pubkey != "" {
+		return pubkey
+	}
+	if pubkey := canonicalPubkey(fallback); pubkey != "" {
+		return pubkey
+	}
+	return fallback
+}
+
+func canonicalPubkey(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) != 64 {
+		return ""
+	}
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		default:
+			return ""
+		}
+	}
+	return strings.ToLower(value)
+}
+
+func (s *Read) hydrateTopZapProfiles(ctx context.Context, ads []readmodel.TopZapAd) []readmodel.TopZapAd {
+	if s == nil || s.pool == nil || len(ads) == 0 {
+		return ads
+	}
+	ids := make([]string, 0, len(ads))
+	for _, ad := range ads {
+		if ad.Name != "" || ad.DisplayName != "" || ad.Picture != "" {
+			continue
+		}
+		if ad.SenderPubkey == "" {
+			continue
+		}
+		ids = append(ids, ad.SenderPubkey)
+	}
+	if len(ids) == 0 {
+		return ads
+	}
+	profiles, err := s.profileJSONByPubkeys(ctx, ids)
+	if err != nil || len(profiles) == 0 {
+		return ads
+	}
+	for i := range ads {
+		raw, ok := profiles[strings.ToLower(ads[i].SenderPubkey)]
+		if !ok {
+			raw, ok = profiles[ads[i].SenderPubkey]
+		}
+		if !ok {
+			continue
+		}
+		applyTopZapProfile(&ads[i], raw)
+	}
+	return ads
+}
+
+func (s *Read) profileJSONByPubkeys(ctx context.Context, pubkeys []string) (map[string]json.RawMessage, error) {
+	ids := topZapLookupIDs(pubkeys)
+	if len(ids) == 0 {
+		return map[string]json.RawMessage{}, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT pubkey, COALESCE(profile_json::text, '')
+		FROM profiles_latest
+		WHERE pubkey = ANY($1::text[])
+	`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("top zap profiles: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]json.RawMessage)
+	for rows.Next() {
+		var pubkey, profileJSON string
+		if err := rows.Scan(&pubkey, &profileJSON); err != nil {
+			return nil, fmt.Errorf("scan top zap profile: %w", err)
+		}
+		if strings.TrimSpace(profileJSON) == "" || profileJSON == "null" {
+			continue
+		}
+		raw := json.RawMessage(profileJSON)
+		out[pubkey] = raw
+		out[strings.ToLower(pubkey)] = raw
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read top zap profiles: %w", err)
+	}
+	return out, nil
+}
+
+func applyTopZapProfile(ad *readmodel.TopZapAd, profileJSON json.RawMessage) {
+	if ad == nil || len(profileJSON) == 0 || string(profileJSON) == "null" {
+		return
+	}
 	var profile struct {
 		Name        string `json:"name"`
 		DisplayName string `json:"display_name"`
 		Picture     string `json:"picture"`
 	}
-	if len(profileJSON) > 0 && string(profileJSON) != "null" {
-		_ = json.Unmarshal(profileJSON, &profile)
+	if err := json.Unmarshal(profileJSON, &profile); err != nil {
+		return
 	}
 	ad.Name = cleanZapText(profile.Name, 80)
 	ad.DisplayName = cleanZapText(profile.DisplayName, 80)
 	ad.Picture = cleanZapPicture(profile.Picture)
-	return ad
 }
 
 func cleanZapText(value string, maxRunes int) string {
