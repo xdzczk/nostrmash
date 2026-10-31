@@ -275,14 +275,18 @@ groups:
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashDatabaseGrowthSustained
-        expr: nostrmash:storage:database_growth_bytes_per_hour:6h > 52428800
+        # 100 MiB/h (104857600). Steady growth is ~75 MiB/h, so the old
+        # 50 MiB/h line fired on ordinary ingest. The daily multi-GB
+        # vacuum swings last under this 6h hold. Disk fill is
+        # NostrMashDiskUsageHigh.
+        expr: nostrmash:storage:database_growth_bytes_per_hour:6h > 104857600
         for: 6h
         labels:
           severity: warning
           slo: capacity-planning
         annotations:
           summary: "Database storage growth is sustained"
-          description: "Database size growth exceeds 50 MiB/hour over a 6h derivative window. Review high-growth tables and retention posture."
+          description: "Database size growth exceeds 100 MiB/hour over a 6h derivative window. Review high-growth tables and retention posture."
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashInvalidEventsGrowthHigh
