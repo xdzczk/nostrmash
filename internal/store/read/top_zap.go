@@ -319,7 +319,95 @@ func (s *Read) profileJSONByPubkeys(ctx context.Context, pubkeys []string) (map[
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read top zap profiles: %w", err)
 	}
+	if err := s.fillProfilesFromLatestMetadata(ctx, ids, out); err != nil {
+		return out, nil
+	}
 	return out, nil
+}
+
+// fillProfilesFromLatestMetadata supplies a name or picture when the
+// profiles_latest row is missing or older than the kind-0 event the profile
+// page shows.
+func (s *Read) fillProfilesFromLatestMetadata(ctx context.Context, ids []string, out map[string]json.RawMessage) error {
+	missing := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		key := strings.ToLower(strings.TrimSpace(id))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if profileHasIdentity(out[key]) || profileHasIdentity(out[id]) {
+			continue
+		}
+		missing = append(missing, id)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (pubkey) pubkey, content
+		FROM events
+		WHERE kind = 0
+		  AND pubkey = ANY($1::text[])
+		ORDER BY pubkey, created_at DESC, id DESC
+	`, topZapLookupIDs(missing))
+	if err != nil {
+		return fmt.Errorf("top zap profile events: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var pubkey, content string
+		if err := rows.Scan(&pubkey, &content); err != nil {
+			return fmt.Errorf("scan top zap profile event: %w", err)
+		}
+		raw := normalizeTopZapProfileContent(content)
+		if !profileHasIdentity(raw) {
+			continue
+		}
+		out[pubkey] = raw
+		out[strings.ToLower(pubkey)] = raw
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read top zap profile events: %w", err)
+	}
+	return nil
+}
+
+func profileHasIdentity(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false
+	}
+	var profile struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
+		Picture     string `json:"picture"`
+	}
+	if err := json.Unmarshal(raw, &profile); err != nil {
+		return false
+	}
+	return cleanZapText(profile.Name, 80) != "" ||
+		cleanZapText(profile.DisplayName, 80) != "" ||
+		cleanZapPicture(profile.Picture) != ""
+}
+
+func normalizeTopZapProfileContent(content string) json.RawMessage {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	var profile map[string]any
+	if err := json.Unmarshal([]byte(content), &profile); err != nil || profile == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(profile)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 func applyTopZapProfile(ad *readmodel.TopZapAd, profileJSON json.RawMessage) {

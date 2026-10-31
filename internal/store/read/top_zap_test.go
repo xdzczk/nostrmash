@@ -78,6 +78,20 @@ func TestBuildTopZapAdFallsBackToPTag(t *testing.T) {
 	}
 }
 
+func TestProfileHasIdentityReadsDisplayNameWithoutPicture(t *testing.T) {
+	raw := json.RawMessage(`{"name":"","display_name":"Powerslavefr","picture":""}`)
+	if !profileHasIdentity(raw) {
+		t.Fatal("expected display name to count as an identity")
+	}
+	if profileHasIdentity(json.RawMessage(`{"name":"","display_name":"","picture":""}`)) {
+		t.Fatal("empty profile counted as an identity")
+	}
+	got := normalizeTopZapProfileContent(`{"display_name":"Powerslavefr","picture":""}`)
+	if !profileHasIdentity(got) {
+		t.Fatalf("normalized = %s", got)
+	}
+}
+
 func TestLookupTopZapQueryIDsKeepCaseVariants(t *testing.T) {
 	got := topZapLookupIDs([]string{"AbC", "abc", " "})
 	if len(got) != 2 || got[0] != "AbC" || got[1] != "abc" {
