@@ -68,6 +68,7 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 			degraded = true
 		}
 		payload := buildDiscoveryNoteItems(notes, noteAuthorIdentities, windowLabel)
+		h.attachTopZaps(ctx, payload)
 		payloadResponse := map[string]any{
 			"surface":     "trending",
 			"window":      windowLabel,
@@ -140,6 +141,7 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 			degraded = true
 		}
 		payload := buildDiscoveryNoteItems(articles, authorIdentities, windowLabel)
+		h.attachTopZaps(ctx, payload)
 		payloadResponse := map[string]any{
 			"surface":     "trending_long_form",
 			"window":      windowLabel,
@@ -218,6 +220,7 @@ func (h Handlers) GetTrendingMedia(w http.ResponseWriter, r *http.Request) {
 			degraded = true
 		}
 		payload := buildDiscoveryNoteItems(events, authorIdentities, windowLabel)
+		h.attachTopZaps(ctx, payload)
 		payloadResponse := map[string]any{
 			"surface":     "trending_media",
 			"format":      format,
@@ -305,6 +308,7 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 			item["preview"] = buildNotePreviewPayload(conversation.RootEventID, conversation.Content)
 			items = append(items, item)
 		}
+		h.attachTopZaps(ctx, items)
 		payloadResponse := map[string]any{
 			"surface":       "hot_conversations",
 			"window":        windowLabel,
@@ -606,6 +610,7 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 	}
 
 	noteItems := buildDiscoveryNoteItems(notes, profileIdentities, req.windowLabel)
+	h.attachTopZaps(ctx, noteItems)
 	domainItems := buildDiscoveryDomainItems(domains, req.windowLabel)
 	trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities, discoverySurfaceTrending, req.windowLabel)
 	risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities, discoverySurfaceRising, req.windowLabel)

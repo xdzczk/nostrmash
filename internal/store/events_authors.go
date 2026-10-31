@@ -59,7 +59,7 @@ func (s *PostgresStore) GetAuthorRecentEvents(ctx context.Context, pubkey string
 	}
 	defer rows.Close()
 
-	return scanAuthorEventsWithCounts(rows)
+	return s.authorEventsWithTopZaps(ctx, rows)
 }
 
 // GetAuthorRecentEventsPage returns one keyset page of projected recent events
@@ -203,7 +203,15 @@ func (s *PostgresStore) getAuthorRecentEventsPage(
 			ID:        last.eventID,
 		}
 	}
-	return out, nextCursor, nil
+	return s.AttachTopZaps(ctx, out), nextCursor, nil
+}
+
+func (s *PostgresStore) authorEventsWithTopZaps(ctx context.Context, rows authorEventRows) ([]json.RawMessage, error) {
+	events, err := scanAuthorEventsWithCounts(rows)
+	if err != nil {
+		return nil, err
+	}
+	return s.AttachTopZaps(ctx, events), nil
 }
 
 // GetAuthorReplies returns replies authored by one pubkey sorted by created_at desc, id desc.
@@ -241,7 +249,7 @@ func (s *PostgresStore) GetAuthorReplies(ctx context.Context, pubkey string, lim
 	}
 	defer rows.Close()
 
-	return scanAuthorEventsWithCounts(rows)
+	return s.authorEventsWithTopZaps(ctx, rows)
 }
 
 // GetAuthorRecentEventsByKind returns projected recent events for one author filtered by kind.
@@ -289,7 +297,7 @@ func (s *PostgresStore) GetAuthorRecentEventsByKind(
 	}
 	defer rows.Close()
 
-	return scanAuthorEventsWithCounts(rows)
+	return s.authorEventsWithTopZaps(ctx, rows)
 }
 
 type authorEventRows interface {

@@ -109,6 +109,13 @@ func (s Service) enrichEventRawWithCounts(ctx context.Context, eventID string, r
 	if err != nil {
 		return raw
 	}
+	if ads, adsErr := s.TopZapAdsByEventIDs(ctx, []string{eventID}); adsErr == nil {
+		if ad, ok := readmodel.LookupTopZap(ads, eventID); ok {
+			if merged, mergeErr := readmodel.MergeTopZapIntoRaw(enriched, ad); mergeErr == nil && len(merged) > 0 {
+				return merged
+			}
+		}
+	}
 	return enriched
 }
 

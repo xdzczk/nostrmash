@@ -169,6 +169,7 @@ func (h Handlers) GetHashtagNotes(w http.ResponseWriter, r *http.Request) {
 		for _, note := range notes {
 			payloadNotes = append(payloadNotes, buildTrendingNoteItem(note))
 		}
+		h.attachTopZaps(ctx, payloadNotes)
 		payload := map[string]any{
 			"hashtag":     rawHashtag,
 			"sort":        sort,

@@ -48,7 +48,7 @@ func (s *Read) GetAuthorMedia(ctx context.Context, pubkey string, limit int) ([]
 		return nil, fmt.Errorf("get author media: %w", err)
 	}
 	defer rows.Close()
-	return scanRawText(rows)
+	return s.finishRawEvents(ctx, rows)
 }
 
 // GetAuthorLive returns the current kind 30311 activities for one pubkey.
@@ -72,7 +72,7 @@ func (s *Read) GetAuthorLive(ctx context.Context, pubkey string, limit int) ([]j
 		return nil, fmt.Errorf("get author live: %w", err)
 	}
 	defer rows.Close()
-	return scanRawText(rows)
+	return s.finishRawEvents(ctx, rows)
 }
 
 // GetAuthorPins returns e and a values from the latest kind 10001 list.
@@ -208,7 +208,7 @@ func (s *Read) GetLiveActivities(ctx context.Context, status, followedBy string,
 		return nil, fmt.Errorf("get live activities: %w", err)
 	}
 	defer rows.Close()
-	return scanRawText(rows)
+	return s.finishRawEvents(ctx, rows)
 }
 
 // GetShortVideos returns kinds 22 and 34236, newest first. followedBy empty is
@@ -242,7 +242,7 @@ func (s *Read) GetShortVideos(ctx context.Context, followedBy string, limit int)
 		return nil, fmt.Errorf("get short videos: %w", err)
 	}
 	defer rows.Close()
-	return scanRawText(rows)
+	return s.finishRawEvents(ctx, rows)
 }
 
 // GetEventComments returns kind 1111 comments on an event id or its address.

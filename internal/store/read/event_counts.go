@@ -87,7 +87,7 @@ func (s *Read) EnrichEventRawMap(ctx context.Context, byID map[string]json.RawMe
 		}
 		out[id] = enriched
 	}
-	return out, nil
+	return applyTopZapsToMap(ctx, s, out), nil
 }
 
 // EnrichEventsWithCounts attaches engagement counters to a list of raw events.
@@ -120,7 +120,7 @@ func (s *Read) EnrichEventsWithCounts(ctx context.Context, events []json.RawMess
 		}
 		out = append(out, enriched)
 	}
-	return out, nil
+	return s.AttachTopZaps(ctx, out), nil
 }
 
 func eventIDFromRaw(raw json.RawMessage) string {

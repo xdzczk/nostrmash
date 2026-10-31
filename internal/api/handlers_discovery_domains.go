@@ -81,6 +81,8 @@ func (h Handlers) GetDomainSummary(w http.ResponseWriter, r *http.Request) {
 		for _, note := range summary.TopNotes {
 			topNotes = append(topNotes, buildTrendingNoteItem(note))
 		}
+		h.attachTopZaps(ctx, recentNotes)
+		h.attachTopZaps(ctx, topNotes)
 		payload := map[string]any{
 			"domain":          summary.Domain,
 			"latest_event_at": summary.LatestEventAt,
@@ -170,6 +172,7 @@ func (h Handlers) GetDomainNotes(w http.ResponseWriter, r *http.Request) {
 		for _, note := range notes {
 			payloadNotes = append(payloadNotes, buildTrendingNoteItem(note))
 		}
+		h.attachTopZaps(ctx, payloadNotes)
 		payload := map[string]any{
 			"domain":      rawDomain,
 			"sort":        sort,

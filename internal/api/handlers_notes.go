@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/query"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
 func (h Handlers) GetNoteSummary(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +74,14 @@ func (h Handlers) GetNoteSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	if summary.Partial {
 		payload["partial"] = true
+	}
+	if ads, adsErr := h.service.TopZapAdsByEventIDs(r.Context(), []string{eventID}); adsErr == nil {
+		if ad, ok := readmodel.LookupTopZap(ads, eventID); ok {
+			payload["top_zap"] = readmodel.TopZapPayload(ad)
+			if merged, mergeErr := readmodel.MergeTopZapIntoRaw(summary.Event, ad); mergeErr == nil && len(merged) > 0 {
+				payload["event"] = merged
+			}
+		}
 	}
 	if summary.QuoteRepostLinkage != nil {
 		recent := make([]map[string]any, 0, len(summary.QuoteRepostLinkage.RecentActivity))
@@ -156,6 +165,7 @@ func (h Handlers) GetNoteRelated(w http.ResponseWriter, r *http.Request) {
 			"score":   note.Score,
 		})
 	}
+	h.attachTopZaps(r.Context(), items)
 	payload := map[string]any{
 		"event_id":    eventID,
 		"related":     items,
