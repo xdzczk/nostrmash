@@ -138,15 +138,15 @@ func (s *Read) GetPublicDiscoveryNetworkStats(ctx context.Context, hashtagLimit 
 	out.SectionTimes.Home7d = homeWindow7d.ComputedAt
 	out.SectionTimes.Home30d = homeWindow30d.ComputedAt
 
-	topLanguages24h, languages24hAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages24h, 8)
+	topLanguages24h, languages24hAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages24h)
 	if err != nil {
 		return out, err
 	}
-	topLanguages7d, languages7dAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages7d, 8)
+	topLanguages7d, languages7dAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages7d)
 	if err != nil {
 		return out, err
 	}
-	topLanguages30d, languages30dAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages30d, 8)
+	topLanguages30d, languages30dAt, err := s.getTopLanguagesSnapshot(ctx, relaySnapshotLabelTopLanguages30d)
 	if err != nil {
 		return out, err
 	}
@@ -467,10 +467,11 @@ type languageSnapshotRow struct {
 	Count    int64  `json:"count"`
 }
 
-func (s *Read) getTopLanguagesSnapshot(ctx context.Context, label string, limit int) ([]LanguageSummary, time.Time, error) {
-	if limit <= 0 {
-		limit = 8
-	}
+// getTopLanguagesSnapshot reads the precomputed language chart. The
+// projection already keeps the highest real language codes plus unmarked
+// buckets. Return that row whole: discovery requests have no language-count
+// parameter, and slicing here would drop codes the chart is supposed to show.
+func (s *Read) getTopLanguagesSnapshot(ctx context.Context, label string) ([]LanguageSummary, time.Time, error) {
 	var payload []byte
 	var computedAt time.Time
 	err := s.pool.QueryRow(ctx, `
@@ -487,9 +488,6 @@ func (s *Read) getTopLanguagesSnapshot(ctx context.Context, label string, limit 
 	var rows []languageSnapshotRow
 	if err := json.Unmarshal(payload, &rows); err != nil {
 		return nil, time.Time{}, fmt.Errorf("decode top languages snapshot %q: %w", label, err)
-	}
-	if len(rows) > limit {
-		rows = rows[:limit]
 	}
 	out := make([]LanguageSummary, 0, len(rows))
 	for _, r := range rows {

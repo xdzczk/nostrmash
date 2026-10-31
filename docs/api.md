@@ -129,7 +129,7 @@ Representative implemented native routes include:
 - `GET /api/v1/trust/scores` and `GET /api/v1/trust/scores/{pubkey}`
 - `GET /api/v1/accounts/{pubkey}/status` and `POST /api/v1/accounts/{pubkey}/hydrate`
 
-Those discovery rankings take an optional `lang` query parameter. Omit it to rank every language. A value is a lowercase 2–8 letter code, `und`, or `und-uncertain`. Responses echo `language` and include a global `top_languages` chart (`24h` and `7d`) for the selector. Notes, long-form, media, conversations, profiles, hashtags, domains, and the home bundle all honor the filter. Media trending also requires `format`. Pictures (kind 20), videos (kinds 21 and 34235), and shorts (kinds 22 and 34236) are ranked and cached separately, using the same note discovery score. A missing or unknown format is 400.
+Those discovery rankings take an optional `lang` query parameter. Omit it to rank every language. A value is a lowercase 2–8 letter code, `und`, or `und-uncertain`. Responses echo `language` and include a global `top_languages` chart (`24h`, `7d`, and `30d`) for the selector. Each window lists the 15 highest real language codes, plus `und` and `und-uncertain` when those buckets have notes. Notes, long-form, media, conversations, profiles, hashtags, domains, and the home bundle all honor the filter. Media trending also requires `format`. Pictures (kind 20), videos (kinds 21 and 34235), and shorts (kinds 22 and 34236) are ranked and cached separately, using the same note discovery score. A missing or unknown format is 400.
 
 Compatibility aliases also exist for `GET /api/v1/discovery/network/stats` and `GET /api/v1/discovery/content/stats`.
 

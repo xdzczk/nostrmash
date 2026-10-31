@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -70,8 +72,8 @@ const trustedAuthorJoinClause = `INNER JOIN trust_graph_snapshot trusted ON trus
 //   - top_relays_7d       — top 10 relays by 7-day activity
 //   - home_window_24h     — note volume + active authors (24h)
 //   - home_window_7d      — note volume + active authors (7d)
-//   - top_languages_24h   — top 8 languages (24h)
-//   - top_languages_7d    — top 8 languages (7d)
+//   - top_languages_24h   — 15 real languages, plus unmarked buckets (24h)
+//   - top_languages_7d    — 15 real languages, plus unmarked buckets (7d)
 //   - top_hashtags_24h    — top 50 hashtags (24h)
 //   - top_hashtags_7d     — top 50 hashtags (7d)
 //   - top_domains_24h     — top 50 domains (24h)
@@ -320,14 +322,14 @@ func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 			return err
 		}
 
-		topLanguages24h, err := computeTopLanguagesSnapshot(ctx, tx, cutoff24h, 8)
+		topLanguages24h, err := computeTopLanguagesSnapshot(ctx, tx, cutoff24h)
 		if err != nil {
 			return fmt.Errorf("compute top languages 24h snapshot: %w", err)
 		}
 		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopLanguages24h, jsonArray(topLanguages24h)); err != nil {
 			return err
 		}
-		topLanguages7d, err := computeTopLanguagesSnapshot(ctx, tx, cutoff7d, 8)
+		topLanguages7d, err := computeTopLanguagesSnapshot(ctx, tx, cutoff7d)
 		if err != nil {
 			return fmt.Errorf("compute top languages 7d snapshot: %w", err)
 		}
@@ -474,7 +476,7 @@ func (h *Handlers) refreshDiscovery30dCoreSnapshots(ctx context.Context) error {
 		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow30d, homeWindow30d); err != nil {
 			return err
 		}
-		topLanguages30d, err := computeTopLanguagesSnapshot(ctx, tx, cutoff30d, 8)
+		topLanguages30d, err := computeTopLanguagesSnapshot(ctx, tx, cutoff30d)
 		if err != nil {
 			return fmt.Errorf("compute top languages 30d snapshot: %w", err)
 		}
@@ -849,10 +851,19 @@ func computeHomeWindowSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int6
 	return out, nil
 }
 
-func computeTopLanguagesSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int64, limit int) ([]languageRow, error) {
-	if limit <= 0 {
-		limit = 8
-	}
+// topLanguagesRealLimit is how many real language codes each window chart
+// keeps. Real codes match ^[a-z]{2,3}$. und and und-uncertain stay on the
+// chart for other views, and they do not consume these slots.
+const topLanguagesRealLimit = 15
+
+// realChartLanguageCode matches a selectable chart language. und matches
+// too, and is excluded separately because it is an unmarked bucket.
+var realChartLanguageCode = regexp.MustCompile(`^[a-z]{2,3}$`)
+
+// computeTopLanguagesSnapshot ranks indexed notes in one window by chart
+// language. The payload is the topLanguagesRealLimit highest real codes,
+// plus und and und-uncertain when those buckets have notes in the window.
+func computeTopLanguagesSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt int64) ([]languageRow, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT language, COUNT(*)::bigint AS count_value
 		FROM (
@@ -862,13 +873,12 @@ func computeTopLanguagesSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt in
 		) labeled
 		GROUP BY language
 		ORDER BY count_value DESC, language ASC
-		LIMIT $2
-	`, minCreatedAt, limit)
+	`, minCreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("query top languages: %w", err)
 	}
 	defer rows.Close()
-	out := make([]languageRow, 0, limit)
+	out := make([]languageRow, 0, topLanguagesRealLimit+2)
 	for rows.Next() {
 		var row languageRow
 		if err := rows.Scan(&row.Language, &row.Count); err != nil {
@@ -879,7 +889,38 @@ func computeTopLanguagesSnapshot(ctx context.Context, tx pgx.Tx, minCreatedAt in
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read top language rows: %w", err)
 	}
-	return out, nil
+	return selectTopLanguages(out, topLanguagesRealLimit), nil
+}
+
+// selectTopLanguages keeps the highest real language codes and any unmarked
+// buckets. Rows are ordered by count descending, then language ascending,
+// matching the snapshot the API serves.
+func selectTopLanguages(rows []languageRow, realLimit int) []languageRow {
+	if realLimit <= 0 {
+		realLimit = topLanguagesRealLimit
+	}
+	ordered := append([]languageRow(nil), rows...)
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].Count != ordered[j].Count {
+			return ordered[i].Count > ordered[j].Count
+		}
+		return ordered[i].Language < ordered[j].Language
+	})
+	out := make([]languageRow, 0, realLimit+2)
+	real := 0
+	for _, row := range ordered {
+		switch row.Language {
+		case languagelabel.Und, languagelabel.Uncertain:
+			out = append(out, row)
+			continue
+		}
+		if real >= realLimit || !realChartLanguageCode.MatchString(row.Language) {
+			continue
+		}
+		out = append(out, row)
+		real++
+	}
+	return out
 }
 
 // computeTopHashtagsSnapshot mirrors the ranking used by

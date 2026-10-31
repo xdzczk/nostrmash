@@ -22,11 +22,12 @@ const (
 	relaySnapshotLabelTopDomains30dLang  = "top_domains_30d.lang"
 )
 
-// computeRankingLanguages is the set of real languages a language view can
-// rank. Und and und-uncertain stay out: they are chart buckets, not languages
-// a visitor selects. Eight matches the chart the selector is built from, and
-// because the chart may also contain those two buckets, the top eight real
-// languages cover every selectable code in it.
+// computeRankingLanguages is the set of real languages that get a precomputed
+// language-scoped ranking (home window, hashtags, domains). It is separate
+// from the public language chart, which keeps a wider set
+// (topLanguagesRealLimit). Und and und-uncertain stay out: they are chart
+// buckets, not languages a visitor selects. Note rankings filtered with lang
+// do not consult this list.
 func computeRankingLanguages(ctx context.Context, tx pgx.Tx, minCreatedAt int64) ([]string, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT language

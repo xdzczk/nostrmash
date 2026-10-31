@@ -2372,7 +2372,11 @@ components:
       description: >
         Restrict rankings to one language. Lowercase 2-8 letter code, "und",
         or "und-uncertain". Omit to rank every language. Responses echo
-        `language` and include global `top_languages`.
+        `language` and include global `top_languages` for 24h, 7d, and 30d.
+        Each window lists the 15 highest real language codes (`^[a-z]{2,3}$`)
+        when that many are indexed, plus `und` and `und-uncertain` when those
+        buckets have notes. The unmarked buckets do not count toward the 15.
+        No parameter changes how many languages are returned.
       schema: { type: string, minLength: 2, maxLength: 16 }
   securitySchemes:
     BearerToken:
