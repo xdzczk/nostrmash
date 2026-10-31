@@ -1,15 +1,16 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/relayregistry"
-	"github.com/xdzczk/nostrmash/internal/relayurl"
 )
+
+// popularRelayMinDistinctUsers matches the default discovery cutoff
+// (RELAY_REGISTRY_DISCOVERY_MIN_DISTINCT_USER_REFS). Relays below it are not
+// part of the maintained ranking.
+const popularRelayMinDistinctUsers = 3
 
 type popularRelayEntry struct {
 	NormalizedURL   string `json:"normalized_url"`
@@ -47,103 +48,40 @@ type relayProbeHealthResponse struct {
 	Limit  int                     `json:"limit"`
 }
 
+// GetPopularRelays returns the relays most often present on user relay lists.
+// Counts come from relay_registry, which discovery refreshes, so the request
+// does not scan relay_lists_latest.
 func (h Handlers) GetPopularRelays(w http.ResponseWriter, r *http.Request) {
-	if h.pool == nil {
-		writeError(r.Context(), w, http.StatusServiceUnavailable, "not_available", "relay registry data is not available")
-		return
-	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 50, 200)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if h.pool == nil {
+		writeError(r.Context(), w, http.StatusServiceUnavailable, "not_available", "relay registry data is not available")
+		return
+	}
 
 	ctx := r.Context()
-	rows, err := h.pool.Query(ctx, `
-		SELECT pubkey, relays_json::text
-		FROM relay_lists_latest
-	`)
+	records, total, err := relayregistry.NewStore(h.pool).ListPopularRelays(ctx, popularRelayMinDistinctUsers, limit)
 	if err != nil {
-		writeError(ctx, w, http.StatusInternalServerError, "internal_error", "internal server error")
+		writeInternalError(ctx, w, err)
 		return
 	}
-	defer rows.Close()
-
-	type relayAgg struct {
-		url   string
-		users map[string]struct{}
+	entries := make([]popularRelayEntry, 0, len(records))
+	for _, rec := range records {
+		name, icon, authRequired, paymentRequired := nip11ListFields(rec.CapabilitySummary)
+		entries = append(entries, popularRelayEntry{
+			NormalizedURL:   rec.NormalizedURL,
+			DistinctUsers:   rec.DistinctUserRefCount,
+			InRegistry:      true,
+			AdmissionState:  string(rec.AdmissionState),
+			Name:            name,
+			Icon:            icon,
+			AuthRequired:    authRequired,
+			PaymentRequired: paymentRequired,
+		})
 	}
-	byKey := make(map[string]*relayAgg)
-
-	for rows.Next() {
-		var pubkey, relaysText string
-		if err := rows.Scan(&pubkey, &relaysText); err != nil {
-			continue
-		}
-		pubkey = strings.TrimSpace(pubkey)
-		if pubkey == "" {
-			continue
-		}
-		var relays []string
-		if err := json.Unmarshal([]byte(relaysText), &relays); err != nil {
-			continue
-		}
-		for _, raw := range relays {
-			// User relay lists routinely include client-local URLs. Rank only
-			// publicly reachable relays, matching registry discovery.
-			normalized, err := relayurl.NormalizePublic(raw)
-			if err != nil {
-				continue
-			}
-			key := relayurl.CanonicalKey(normalized)
-			agg, ok := byKey[key]
-			if !ok {
-				agg = &relayAgg{url: normalized, users: make(map[string]struct{})}
-				byKey[key] = agg
-			}
-			agg.users[pubkey] = struct{}{}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		writeError(ctx, w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-
-	type ranked struct {
-		key   string
-		url   string
-		count int
-	}
-	all := make([]ranked, 0, len(byKey))
-	for k, agg := range byKey {
-		all = append(all, ranked{key: k, url: agg.url, count: len(agg.users)})
-	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].count != all[j].count {
-			return all[i].count > all[j].count
-		}
-		return all[i].url < all[j].url
-	})
-	total := len(all)
-	if len(all) > limit {
-		all = all[:limit]
-	}
-
-	registryStore := relayregistry.NewStore(h.pool)
-	entries := make([]popularRelayEntry, 0, len(all))
-	for _, r := range all {
-		entry := popularRelayEntry{
-			NormalizedURL: r.url,
-			DistinctUsers: r.count,
-		}
-		if rec, err := registryStore.GetRelay(ctx, r.key); err == nil {
-			entry.InRegistry = true
-			entry.AdmissionState = string(rec.AdmissionState)
-			entry.Name, entry.Icon, entry.AuthRequired, entry.PaymentRequired = nip11ListFields(rec.CapabilitySummary)
-		}
-		entries = append(entries, entry)
-	}
-
 	writeJSON(w, http.StatusOK, popularRelaysResponse{Relays: entries, Total: total, Limit: limit})
 }
 

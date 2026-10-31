@@ -647,6 +647,76 @@ const relayRecordSelectList = `
 	score_components_json, capability_summary_json, notes_json,
 	updated_at`
 
+// ListPopularRelays returns public relays ordered by how many users list them.
+// Discovery refreshes distinct_user_ref_count; this read is that ranking, not
+// a scan of relay_lists_latest. Blocked, directory, and non-public URLs are
+// omitted. Relays below minUsers are omitted. Probe freshness is not
+// required: a relay people list still ranks when NostrMash has not probed it.
+// total is the full eligible count, and records is the first limit of that
+// order (users descending, URL ascending).
+func (s *Store) ListPopularRelays(ctx context.Context, minUsers, limit int) ([]RelayRecord, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if minUsers < 0 {
+		minUsers = 0
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT normalized_url
+		FROM relay_registry
+		WHERE distinct_user_ref_count >= $1
+		  AND manual_policy <> 'blocked'
+		  AND normalized_url LIKE 'wss://%'
+		ORDER BY distinct_user_ref_count DESC, normalized_url ASC
+	`, minUsers)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list popular relay urls: %w", err)
+	}
+	defer rows.Close()
+	eligible := make([]string, 0, limit)
+	for rows.Next() {
+		var normalizedURL string
+		if err := rows.Scan(&normalizedURL); err != nil {
+			return nil, 0, fmt.Errorf("scan popular relay url: %w", err)
+		}
+		if !CatalogRelayEligible(normalizedURL) {
+			continue
+		}
+		eligible = append(eligible, normalizedURL)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("read popular relay urls: %w", err)
+	}
+	total := len(eligible)
+	if len(eligible) > limit {
+		eligible = eligible[:limit]
+	}
+	if len(eligible) == 0 {
+		return nil, total, nil
+	}
+	records, err := s.queryRelayRecords(ctx, `
+		SELECT `+relayRecordSelectList+`
+		FROM relay_registry
+		WHERE normalized_url = ANY($1::text[])
+	`, eligible)
+	if err != nil {
+		return nil, 0, fmt.Errorf("load popular relays: %w", err)
+	}
+	byURL := make(map[string]RelayRecord, len(records))
+	for _, rec := range records {
+		byURL[rec.NormalizedURL] = rec
+	}
+	out := make([]RelayRecord, 0, len(eligible))
+	for _, normalizedURL := range eligible {
+		rec, ok := byURL[normalizedURL]
+		if !ok {
+			continue
+		}
+		out = append(out, rec)
+	}
+	return out, total, nil
+}
+
 // ListRelayCatalog returns public wss relays with a successful read at or
 // after freshSince. A later failed attempt does not remove the relay until
 // that success ages out. Ranking is distinct users, then score, then URL.
