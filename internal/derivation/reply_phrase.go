@@ -7,13 +7,10 @@ import (
 	"unicode/utf8"
 )
 
-// repeatedReplyPhraseDiscount scales each replier in a pile. Eighteen
-// identical "GM" replies become about 3.6 weighted votes instead of 18,
-// and a single "GM" is left alone.
-const repeatedReplyPhraseDiscount = 0.2
-
-// A phrase is low-substance when it is empty after normalization (emoji-only),
-// a greeting, or a short phrase. Longer identical text is left at full weight.
+// lowSubstanceMaxWords is the longest tail that still counts as a greeting
+// ("gm gigi") and the base length for a short reply. A short reply may run
+// one word longer so a near-copy can add a single word. A repeated sentence
+// past that length is still one pile when the text matches exactly.
 const (
 	lowSubstanceMaxWords = 4
 	lowSubstanceMaxRunes = 24
@@ -67,15 +64,19 @@ type weightedReply struct {
 	Weight  float64
 }
 
-// replyWeightSum is one vote per pubkey after phrase discounts.
-// Total includes a discounted pile. Substantive is the part that unlocks
-// reactions and reposts: a greeting pile or a repeated short phrase is
-// omitted, and a single reply still counts. DiscountedPubkeys are the
-// people in those piles; a repost from one of them is the same vote.
+// replyWeightSum is one vote per pubkey after phrase piles.
+// Total includes one vote from each copied-phrase pile: the strongest trust
+// weight in that pile, once. Substantive is the part that unlocks reactions
+// and reposts. A greeting pile, a repeated short phrase, or a repeated
+// sentence is omitted, and a single reply still counts. DiscountedPubkeys
+// are the people in those piles; a repost from one of them is the same vote.
+// UnlockShare stays 1 while a pile is not most of the repliers. When it is,
+// the share is the fraction of repliers outside the pile.
 type replyWeightSum struct {
 	Total             float64
 	Substantive       float64
 	DiscountedPubkeys map[string]struct{}
+	UnlockShare       float64
 }
 
 // sumDiscountedReplyWeights totals one vote per pubkey. A replier's vote is
@@ -86,8 +87,13 @@ type replyWeightSum struct {
 // Greeting variants share one bucket: "gm", "good morning", "GM Gigi", "PV",
 // a heart, and a short wish. A repeated short phrase does too, and a
 // near-copy joins it: one extra or swapped word, or a one-character typo.
-// A longer remark stays out. The discount applies when at least two
-// positive-weight repliers are in that bucket. One person still counts in full.
+// A longer remark stays out of that near-copy pile. The same sentence
+// repeated by two people is its own pile, whatever its length.
+//
+// A pile of two or more counts once, as the strongest trust weight in it.
+// Extra people add nothing. One person still counts in full and still
+// unlocks reactions and reposts. A replier with zero trust weight still
+// counts as a person in the pile and in the share, and adds nothing to the vote.
 func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 	type replier struct {
 		weight   float64
@@ -119,18 +125,22 @@ func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 	}
 
 	greetingCount := 0
+	greetingVote := 0.0
 	shortCounts := make(map[string]int, len(byPubkey))
+	longCounts := make(map[string]int, len(byPubkey))
 	for _, replier := range byPubkey {
-		if replier.weight <= 0 {
-			continue
-		}
 		if replier.greeting {
 			greetingCount++
+			if replier.weight > greetingVote {
+				greetingVote = replier.weight
+			}
 			continue
 		}
 		if isShortReplyCandidate(replier.phrase) {
 			shortCounts[replier.phrase]++
+			continue
 		}
+		longCounts[replier.phrase]++
 	}
 	clusters := shortPhraseClusterKeys(shortCounts)
 	clusterSize := make(map[string]int, len(shortCounts))
@@ -139,29 +149,85 @@ func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 	}
 
 	var sum replyWeightSum
+	clusterVote := make(map[string]float64, len(shortCounts))
+	longVote := make(map[string]float64, len(longCounts))
+	repliers := 0
+	substantiveRepliers := 0
 	for pubkey, replier := range byPubkey {
+		repliers++
 		weight := replier.weight
-		discounted := false
-		if replier.greeting && greetingCount >= 2 {
-			weight *= repeatedReplyPhraseDiscount
-			discounted = true
-		} else if !replier.greeting {
-			if key, ok := clusters[replier.phrase]; ok && clusterSize[key] >= 2 {
-				weight *= repeatedReplyPhraseDiscount
-				discounted = true
-			}
-		}
-		sum.Total += weight
-		if discounted {
-			if sum.DiscountedPubkeys == nil {
-				sum.DiscountedPubkeys = make(map[string]struct{})
-			}
-			sum.DiscountedPubkeys[pubkey] = struct{}{}
+		pileKey, piled := replyPileKey(replier.greeting, replier.phrase, greetingCount, clusters, clusterSize, longCounts)
+		if !piled {
+			sum.Total += weight
+			sum.Substantive += weight
+			substantiveRepliers++
 			continue
 		}
-		sum.Substantive += weight
+		if sum.DiscountedPubkeys == nil {
+			sum.DiscountedPubkeys = make(map[string]struct{})
+		}
+		sum.DiscountedPubkeys[pubkey] = struct{}{}
+		// The greeting pile adds greetingVote once, after this loop.
+		if replier.greeting {
+			continue
+		}
+		if isShortReplyCandidate(replier.phrase) {
+			if weight > clusterVote[pileKey] {
+				clusterVote[pileKey] = weight
+			}
+			continue
+		}
+		if weight > longVote[pileKey] {
+			longVote[pileKey] = weight
+		}
 	}
+	if greetingCount >= 2 {
+		sum.Total += greetingVote
+	}
+	for _, vote := range clusterVote {
+		sum.Total += vote
+	}
+	for _, vote := range longVote {
+		sum.Total += vote
+	}
+	sum.UnlockShare = unlockShare(repliers, substantiveRepliers)
 	return sum
+}
+
+// replyPileKey reports the pile a replier belongs to once at least two
+// people said that phrase. A short phrase uses its near-copy cluster. A
+// longer phrase uses the exact text. One person has no pile.
+func replyPileKey(greeting bool, phrase string, greetingCount int, clusters map[string]string, clusterSize map[string]int, longCounts map[string]int) (string, bool) {
+	if greeting {
+		if greetingCount >= 2 {
+			return "greeting", true
+		}
+		return "", false
+	}
+	if isShortReplyCandidate(phrase) {
+		key, ok := clusters[phrase]
+		if ok && clusterSize[key] >= 2 {
+			return key, true
+		}
+		return "", false
+	}
+	if longCounts[phrase] >= 2 {
+		return phrase, true
+	}
+	return "", false
+}
+
+// unlockShare is 1 while the copied pile is not most of the repliers.
+// When it is, the share is the fraction of repliers outside the pile.
+func unlockShare(repliers, substantiveRepliers int) float64 {
+	if repliers <= 0 {
+		return 1
+	}
+	pile := repliers - substantiveRepliers
+	if pile <= substantiveRepliers {
+		return 1
+	}
+	return float64(substantiveRepliers) / float64(repliers)
 }
 
 // repostWeightOutsidePile sums repost votes whose author is not already in a

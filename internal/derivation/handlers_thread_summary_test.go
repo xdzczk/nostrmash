@@ -200,8 +200,8 @@ func TestThreadSummaryProjection_DiscountsRepeatedGreetings(t *testing.T) {
 	if replies24h != 7 {
 		t.Fatalf("expected raw replies_24h=7, got %d", replies24h)
 	}
-	// Four "GM"s and one "hello" share the greeting bucket at 0.2. The
-	// replier who also wrote a real sentence keeps full weight. 5*0.2 + 1 = 2.
+	// Five greetings count as one vote. The replier who also wrote a real
+	// sentence keeps full weight. 1 + 1 = 2.
 	const want = 2.0
 	if replyWeight24h < want-0.001 || replyWeight24h > want+0.001 {
 		t.Fatalf("expected discounted reply weight %v, got %v", want, replyWeight24h)

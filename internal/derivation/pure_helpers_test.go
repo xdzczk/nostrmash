@@ -10,27 +10,27 @@ func TestComputeTrendingScore(t *testing.T) {
 	const now = int64(1_000_000)
 
 	t.Run("zero engagement yields zero", func(t *testing.T) {
-		if got := computeTrendingScore(window, now, now, 0, 0, 0, 0, 0, 0); got != 0 {
+		if got := computeTrendingScore(window, now, now, 0, 0, 0, 0, 0, 0, 1); got != 0 {
 			t.Fatalf("want 0, got %v", got)
 		}
 	})
 
 	t.Run("note older than window is dropped", func(t *testing.T) {
 		created := now - int64((window+time.Hour)/time.Second)
-		if got := computeTrendingScore(window, now, created, 100, 100, 100, 100, 100, 100); got != 0 {
+		if got := computeTrendingScore(window, now, created, 100, 100, 100, 100, 100, 100, 1); got != 0 {
 			t.Fatalf("want 0 for out-of-window note, got %v", got)
 		}
 	})
 
 	t.Run("non-positive window yields zero", func(t *testing.T) {
-		if got := computeTrendingScore(0, now, now, 10, 10, 10, 10, 10, 10); got != 0 {
+		if got := computeTrendingScore(0, now, now, 10, 10, 10, 10, 10, 10, 1); got != 0 {
 			t.Fatalf("want 0 for zero window, got %v", got)
 		}
 	})
 
 	t.Run("fresh note scores higher than an older one with identical engagement", func(t *testing.T) {
-		fresh := computeTrendingScore(window, now, now, 5, 5, 2, 10, 1, 0)
-		older := computeTrendingScore(window, now, now-int64(window/time.Second)/2, 5, 5, 2, 10, 1, 0)
+		fresh := computeTrendingScore(window, now, now, 5, 5, 2, 10, 1, 0, 1)
+		older := computeTrendingScore(window, now, now-int64(window/time.Second)/2, 5, 5, 2, 10, 1, 0, 1)
 		if fresh <= older {
 			t.Fatalf("expected decay: fresh %v should exceed older %v", fresh, older)
 		}
@@ -39,22 +39,22 @@ func TestComputeTrendingScore(t *testing.T) {
 		}
 		// Half a day on the 24h curve keeps two-thirds. Ten replies are a
 		// base of 30, so the midpoint is 20.
-		mid := computeTrendingScore(window, now, now-int64((12*time.Hour)/time.Second), 10, 10, 0, 0, 0, 0)
+		mid := computeTrendingScore(window, now, now-int64((12*time.Hour)/time.Second), 10, 10, 0, 0, 0, 0, 1)
 		if mid != 20 {
 			t.Fatalf("12h on the 24h window = %v, want 20", mid)
 		}
 	})
 
 	t.Run("future note clamps age to zero (no decay boost)", func(t *testing.T) {
-		future := computeTrendingScore(window, now, now+5000, 1, 1, 0, 0, 0, 0)
-		atNow := computeTrendingScore(window, now, now, 1, 1, 0, 0, 0, 0)
+		future := computeTrendingScore(window, now, now+5000, 1, 1, 0, 0, 0, 0, 1)
+		atNow := computeTrendingScore(window, now, now, 1, 1, 0, 0, 0, 0, 1)
 		if future != atNow {
 			t.Fatalf("future note should clamp to now: future %v atNow %v", future, atNow)
 		}
 	})
 
 	t.Run("result is rounded to three decimals", func(t *testing.T) {
-		got := computeTrendingScore(window, now, now, 1, 1, 0, 0, 0, 0)
+		got := computeTrendingScore(window, now, now, 1, 1, 0, 0, 0, 0, 1)
 		scaled := got * 1000
 		if scaled != float64(int64(scaled)) {
 			t.Fatalf("expected 3-decimal rounding, got %v", got)
@@ -65,7 +65,7 @@ func TestComputeTrendingScore(t *testing.T) {
 		// 10 replies + 1 zap unlock 44 reaction-points. 8 reactions and
 		// 2 reposts are 12, so nothing is discounted.
 		// 3*10 + 2*2 + 8 + 2*1 = 44.
-		got := computeTrendingScore(window, now, now, 10, 10, 2, 8, 1, 0)
+		got := computeTrendingScore(window, now, now, 10, 10, 2, 8, 1, 0, 1)
 		if got != 44 {
 			t.Fatalf("expected full linear score 44, got %v", got)
 		}
@@ -75,9 +75,9 @@ func TestComputeTrendingScore(t *testing.T) {
 		// Boost shape: 0 replies, 51 reposts, 71 reactions, 1 zap.
 		// Conversation shape: 24 replies, 18 reposts, 49 reactions, 5 zaps.
 		// A smaller thread (14 replies) should also stay ahead.
-		boost := computeTrendingScore(window, now, now, 0, 0, 51, 71, 1, 0)
-		thread := computeTrendingScore(window, now, now, 24, 24, 18, 49, 5, 0)
-		smaller := computeTrendingScore(window, now, now, 14, 14, 13, 48, 9, 0)
+		boost := computeTrendingScore(window, now, now, 0, 0, 51, 71, 1, 0, 1)
+		thread := computeTrendingScore(window, now, now, 24, 24, 18, 49, 5, 0, 1)
+		smaller := computeTrendingScore(window, now, now, 14, 14, 13, 48, 9, 0, 1)
 		if boost <= 0 {
 			t.Fatalf("boost farm should still score above zero, got %v", boost)
 		}
@@ -86,7 +86,7 @@ func TestComputeTrendingScore(t *testing.T) {
 		}
 		// Nine replies and nothing else outrank the farm. The farm's huge
 		// cheap pile must not be worth more than a short conversation.
-		repliesOnly := computeTrendingScore(window, now, now, 9, 9, 0, 0, 0, 0)
+		repliesOnly := computeTrendingScore(window, now, now, 9, 9, 0, 0, 0, 0, 1)
 		if boost >= repliesOnly {
 			t.Fatalf("boost farm %v should score below 9 replies %v", boost, repliesOnly)
 		}
@@ -96,17 +96,17 @@ func TestComputeTrendingScore(t *testing.T) {
 		// 18 greetings discounted to 3.6, 48 reactions, no zaps. The pile
 		// still adds 3*3.6 = 10.8. Reactions sit past an empty unlock
 		// budget, so they count at 0.12: 5.76. Score = 16.56.
-		pile := computeTrendingScore(window, now, now, 3.6, 0, 0, 48, 0, 0)
+		pile := computeTrendingScore(window, now, now, 3.6, 0, 0, 48, 0, 0, 1)
 		if pile != 16.56 {
 			t.Fatalf("greeting pile score = %v, want 16.56", pile)
 		}
-		asReplies := computeTrendingScore(window, now, now, 3.6, 3.6, 0, 48, 0, 0)
+		asReplies := computeTrendingScore(window, now, now, 3.6, 3.6, 0, 48, 0, 0, 1)
 		if pile >= asReplies {
 			t.Fatalf("pile %v should score below the same weight counted as real replies %v", pile, asReplies)
 		}
 		// Two real replies beside that pile unlock 8 reaction-points.
 		// 48 reactions then score 8 + 0.12*40 = 12.8, plus 5.6*3 = 29.6.
-		withReplies := computeTrendingScore(window, now, now, 5.6, 2, 0, 48, 0, 0)
+		withReplies := computeTrendingScore(window, now, now, 5.6, 2, 0, 48, 0, 0, 1)
 		if withReplies != 29.6 {
 			t.Fatalf("real replies beside a greeting pile = %v, want 29.6", withReplies)
 		}
@@ -115,8 +115,8 @@ func TestComputeTrendingScore(t *testing.T) {
 	t.Run("a large zap does not unlock a reaction farm", func(t *testing.T) {
 		// 50_000 sats is real support and must count. It must not restore
 		// the 100 reactions that one zapper does not explain.
-		withFarm := computeTrendingScore(window, now, now, 0, 0, 0, 100, 1, 50_000_000)
-		zapOnly := computeTrendingScore(window, now, now, 0, 0, 0, 0, 1, 50_000_000)
+		withFarm := computeTrendingScore(window, now, now, 0, 0, 0, 100, 1, 50_000_000, 1)
+		zapOnly := computeTrendingScore(window, now, now, 0, 0, 0, 0, 1, 50_000_000, 1)
 		if withFarm <= zapOnly {
 			t.Fatalf("reactions should still add something: farm=%v zapOnly=%v", withFarm, zapOnly)
 		}
@@ -128,8 +128,8 @@ func TestComputeTrendingScore(t *testing.T) {
 	})
 
 	t.Run("halving every weight halves the score, including surplus cheap engagement", func(t *testing.T) {
-		full := computeTrendingScore(window, now, now, 2, 2, 10, 20, 1, 0)
-		half := computeTrendingScore(window, now, now, 1, 1, 5, 10, 0.5, 0)
+		full := computeTrendingScore(window, now, now, 2, 2, 10, 20, 1, 0, 1)
+		half := computeTrendingScore(window, now, now, 1, 1, 5, 10, 0.5, 0, 1)
 		if full <= 0 || half <= 0 {
 			t.Fatalf("expected positive scores, full=%v half=%v", full, half)
 		}
@@ -138,13 +138,35 @@ func TestComputeTrendingScore(t *testing.T) {
 			t.Fatalf("expected half/full ~0.5, got %v (full=%v half=%v)", ratio, full, half)
 		}
 	})
+
+	t.Run("a majority copy pile shrinks the like budget", func(t *testing.T) {
+		// 7 real replies and 5 zaps open 48 reaction-points, which covers
+		// 25 reactions. When 36 of 43 repliers are the pile, that budget
+		// scales by 7/43 and most of the reactions fall to the floor.
+		// The replies and the zaps still add their own score.
+		const share = 7.0 / 43.0
+		full := computeTrendingScore(window, now, now, 7, 7, 0, 25, 5, 0, 1)
+		got := computeTrendingScore(window, now, now, 7, 7, 0, 25, 5, 0, share)
+		if full != 56 {
+			t.Fatalf("full budget = %v, want 56", full)
+		}
+		if got != 40.876 {
+			t.Fatalf("shrunk budget = %v, want 40.876", got)
+		}
+		// A thread that is only the pile keeps the one reply vote and the
+		// zaps, and the reactions count at the floor.
+		onlyPile := computeTrendingScore(window, now, now, 1, 0, 0, 25, 5, 0, 0)
+		if onlyPile != 16 {
+			t.Fatalf("pile-only budget = %v, want 16", onlyPile)
+		}
+	})
 }
 
 func TestRecencyDecayByWindow(t *testing.T) {
 	const now = int64(10_000_000)
 	// Ten replies and nothing else: base score 30 when decay is 1.
 	score := func(window, age time.Duration) float64 {
-		return computeTrendingScore(window, now, now-int64(age/time.Second), 10, 10, 0, 0, 0, 0)
+		return computeTrendingScore(window, now, now-int64(age/time.Second), 10, 10, 0, 0, 0, 0, 1)
 	}
 	day := 24 * time.Hour
 	week := 7 * 24 * time.Hour
@@ -171,13 +193,13 @@ func TestRecencyDecayByWindow(t *testing.T) {
 	}
 
 	// A week-old thread with a little more engagement stays ahead of a new one.
-	olderWeek := computeTrendingScore(week, now, now-int64(week/time.Second), 12, 12, 0, 0, 0, 0)
+	olderWeek := computeTrendingScore(week, now, now-int64(week/time.Second), 12, 12, 0, 0, 0, 0, 1)
 	freshWeek := score(week, 0)
 	if olderWeek <= freshWeek {
 		t.Fatalf("12 replies at the end of the week (%v) should beat 10 fresh replies (%v)", olderWeek, freshWeek)
 	}
 	// The same pair on the 24h list goes the other way: the edge keeps half.
-	olderDay := computeTrendingScore(day, now, now-int64(day/time.Second), 12, 12, 0, 0, 0, 0)
+	olderDay := computeTrendingScore(day, now, now-int64(day/time.Second), 12, 12, 0, 0, 0, 0, 1)
 	if olderDay >= score(day, 0) {
 		t.Fatalf("12 replies at the end of the day (%v) should lose to 10 fresh replies", olderDay)
 	}

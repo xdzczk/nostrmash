@@ -63,6 +63,9 @@ type windowedEngagementWeights struct {
 	ReactionWeight         float64
 	ZapWeight              float64
 	ZapMSats               float64
+	// UnlockShare scales the reaction and repost budget. It is 1 while a
+	// copied-phrase pile is not most of the repliers.
+	UnlockShare float64
 }
 
 // loadWindowedEngagementWeights aggregates deduplicated, author-excluded,
@@ -96,6 +99,7 @@ func loadWindowedEngagementWeights(
 	replyWeights := sumDiscountedReplyWeights(replyRows)
 	out.ReplyWeight = replyWeights.Total
 	out.SubstantiveReplyWeight = replyWeights.Substantive
+	out.UnlockShare = replyWeights.UnlockShare
 	repostRows, err := queryWeightedReplies(ctx, tx, `
 		SELECT g.pubkey, ''::text, `+engagerWeightCaseSQL+`
 		FROM (

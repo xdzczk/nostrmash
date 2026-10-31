@@ -112,7 +112,11 @@ const (
 	// near-copy, shares that treatment. A repost from someone in the pile
 	// is the same vote. Rows keep the previous scores until the next derive
 	// or a time-range rebuild.
-	NoteDiscoveryStatsVersion = 12
+	// v13: a copied phrase of any length counts as one vote, and while that
+	// pile is most of the repliers the like and repost budget shrinks to
+	// the share of repliers outside it. Rows keep the previous scores until
+	// the next derive or a time-range rebuild.
+	NoteDiscoveryStatsVersion = 13
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -176,7 +180,10 @@ const (
 	// v7: near-copies of a short reply join that reply's discounted bucket.
 	// Rows keep the previous weights until the thread summary sweeper
 	// rewrites them.
-	ThreadSummaryVersion               = 7
+	// v8: a copied phrase of any length counts as one vote in the reply
+	// weight. Rows keep the previous weights until the thread summary
+	// sweeper rewrites them.
+	ThreadSummaryVersion               = 8
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1

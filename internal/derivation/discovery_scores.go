@@ -7,9 +7,10 @@ import (
 
 // cheapEngagementUnlockPerSubstantive is how many reaction-points of cheap
 // engagement (one reaction = 1, one repost = 2) one substantive replier or
-// zapper fully unlocks. A greeting pile or a copied short phrase is omitted
-// from that replier budget before it gets here, so it does not unlock a
-// reaction farm. A single reply still counts as a replier.
+// zapper fully unlocks. A copied-phrase pile is omitted from that replier
+// budget before it gets here. When that pile is most of the repliers, the
+// whole budget, including the part zaps open, is scaled by the share of
+// repliers outside the pile. A single reply still counts as a replier.
 const cheapEngagementUnlockPerSubstantive = 4.0
 
 // cheapEngagementFloor is the fraction of reactions and reposts that still
@@ -78,13 +79,15 @@ func RankRecencyMatters(windowLabel string) bool {
 // single account emitting many events cannot inflate the score.
 //
 // Reactions and reposts are cheap to buy. They count in full only up to a
-// budget set by substantive replies and zaps. replyWeight still includes a
-// discounted greeting or copied-phrase pile, and substantiveReplyWeight
-// leaves that pile out, so the pile adds a little score and does not unlock
-// the likes. A repost from someone in the pile is omitted before it gets
-// here. The surplus counts at cheapEngagementFloor. The discount is linear
-// in every weight, so halving every engager's trust weight still halves the
-// score.
+// budget set by substantive replies and zaps. replyWeight includes one vote
+// from a copied-phrase pile, and substantiveReplyWeight leaves that pile
+// out. cheapUnlockShare is 1 while the pile is not most of the repliers.
+// When it is, the share is the fraction of repliers outside the pile, and
+// it scales the whole like and repost budget, including the part zaps open.
+// The replies and the zaps still add their own score. A repost from someone
+// in the pile is omitted before it gets here. The surplus counts at
+// cheapEngagementFloor. The share is a headcount ratio, so halving every
+// engager's trust weight still halves the score.
 //
 // Recency depends on the window. A 24-hour score keeps half at the edge of
 // the day, a 7-day score keeps 85% at the end of the week, and a 30-day
@@ -100,6 +103,7 @@ func computeTrendingScore(
 	reactionWeight float64,
 	zapWeight float64,
 	zapMSats float64,
+	cheapUnlockShare float64,
 ) float64 {
 	windowSeconds := int64(window / time.Second)
 	if windowSeconds <= 0 {
@@ -122,7 +126,12 @@ func computeTrendingScore(
 	zapWeight = math.Max(0, zapWeight)
 	zapMSats = math.Max(0, zapMSats)
 
-	substantive := substantiveReplyWeight + zapWeight
+	if cheapUnlockShare < 0 {
+		cheapUnlockShare = 0
+	} else if cheapUnlockShare > 1 {
+		cheapUnlockShare = 1
+	}
+	substantive := (substantiveReplyWeight + zapWeight) * cheapUnlockShare
 	base := replyWeight*3.0 +
 		zapWeight*2.0 +
 		(zapMSats / 100000.0) +

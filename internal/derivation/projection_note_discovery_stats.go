@@ -197,9 +197,10 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		return err
 	}
 	// Thread roots score by conversation size: replace the direct-reply weight
-	// with unique thread-wide repliers (same dedup / self-exclusion / trust
-	// weighting) so Discover matches other clients' conversation sizes without
-	// inheriting the raw thread_summaries counters a single account can inflate.
+	// and the pile share with unique thread-wide repliers (same dedup /
+	// self-exclusion / trust weighting) so Discover matches other clients'
+	// conversation sizes without inheriting the raw thread_summaries counters
+	// a single account can inflate.
 	if isRoot, threadErr := hasThreadSummary(ctx, tx, noteID); threadErr != nil {
 		return threadErr
 	} else if isRoot {
@@ -209,29 +210,32 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 		}
 		engagement24h.ReplyWeight = thread24h.Total
 		engagement24h.SubstantiveReplyWeight = thread24h.Substantive
+		engagement24h.UnlockShare = thread24h.UnlockShare
 		thread7d, err := loadWindowedThreadReplyWeight(ctx, tx, noteID, authorPubkey, nowUnix, 7*24*time.Hour, weighting)
 		if err != nil {
 			return err
 		}
 		engagement7d.ReplyWeight = thread7d.Total
 		engagement7d.SubstantiveReplyWeight = thread7d.Substantive
+		engagement7d.UnlockShare = thread7d.UnlockShare
 		thread30d, err := loadWindowedThreadReplyWeight(ctx, tx, noteID, authorPubkey, nowUnix, 30*24*time.Hour, weighting)
 		if err != nil {
 			return err
 		}
 		engagement30d.ReplyWeight = thread30d.Total
 		engagement30d.SubstantiveReplyWeight = thread30d.Substantive
+		engagement30d.UnlockShare = thread30d.UnlockShare
 	}
 	hasImage, hasVideo, hasLink, hasArticle, attachmentCount, err := loadNoteMediaFlagsTx(ctx, tx, noteID)
 	if err != nil {
 		return err
 	}
 	score24h := computeTrendingScore(24*time.Hour, nowUnix, noteCreatedAt,
-		engagement24h.ReplyWeight, engagement24h.SubstantiveReplyWeight, engagement24h.RepostWeight, engagement24h.ReactionWeight, engagement24h.ZapWeight, engagement24h.ZapMSats)
+		engagement24h.ReplyWeight, engagement24h.SubstantiveReplyWeight, engagement24h.RepostWeight, engagement24h.ReactionWeight, engagement24h.ZapWeight, engagement24h.ZapMSats, engagement24h.UnlockShare)
 	score7d := computeTrendingScore(7*24*time.Hour, nowUnix, noteCreatedAt,
-		engagement7d.ReplyWeight, engagement7d.SubstantiveReplyWeight, engagement7d.RepostWeight, engagement7d.ReactionWeight, engagement7d.ZapWeight, engagement7d.ZapMSats)
+		engagement7d.ReplyWeight, engagement7d.SubstantiveReplyWeight, engagement7d.RepostWeight, engagement7d.ReactionWeight, engagement7d.ZapWeight, engagement7d.ZapMSats, engagement7d.UnlockShare)
 	score30d := computeTrendingScore(30*24*time.Hour, nowUnix, noteCreatedAt,
-		engagement30d.ReplyWeight, engagement30d.SubstantiveReplyWeight, engagement30d.RepostWeight, engagement30d.ReactionWeight, engagement30d.ZapWeight, engagement30d.ZapMSats)
+		engagement30d.ReplyWeight, engagement30d.SubstantiveReplyWeight, engagement30d.RepostWeight, engagement30d.ReactionWeight, engagement30d.ZapWeight, engagement30d.ZapMSats, engagement30d.UnlockShare)
 	primaryLanguage, languageConfidence, languageSource, err := resolveNoteLanguageTx(
 		ctx, tx, noteID, authorPubkey, noteContent, nowUnix,
 		existingVersion, existingLang, existingConf, existingSource,

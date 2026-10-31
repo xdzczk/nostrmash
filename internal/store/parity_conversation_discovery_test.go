@@ -213,12 +213,19 @@ func TestGetHotConversations_SmallGroupsCannotOutrankBreadth(t *testing.T) {
 			"Nested reply "+string(rune('a'+i))+" in a thread that is still only three people.",
 		))
 	}
-	for i := 0; i < 5; i++ {
+	broadReplies := []string{
+		"One person adds a distinct point about the wider conversation.",
+		"A second person answers with a different observation about the same note.",
+		"Someone else brings a new detail the first two did not mention.",
+		"A fourth voice explains why the thread is worth reading through.",
+		"The fifth person closes with a separate conclusion of their own.",
+	}
+	for i, content := range broadReplies {
 		events = append(events, reply(
 			"hot_room_"+string(rune('a'+i)),
 			"room_replier_"+string(rune('a'+i)),
 			broad,
-			"A separate person adding a real point to the wider conversation.",
+			content,
 		))
 	}
 	for _, event := range events {
