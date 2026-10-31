@@ -96,8 +96,8 @@ func loadWindowedEngagementWeights(
 	replyWeights := sumDiscountedReplyWeights(replyRows)
 	out.ReplyWeight = replyWeights.Total
 	out.SubstantiveReplyWeight = replyWeights.Substantive
-	out.RepostWeight, err = queryFloat64Tx(ctx, tx, `
-		SELECT COALESCE(SUM(`+engagerWeightCaseSQL+`), 0)
+	repostRows, err := queryWeightedReplies(ctx, tx, `
+		SELECT g.pubkey, ''::text, `+engagerWeightCaseSQL+`
 		FROM (
 			SELECT DISTINCT reposter_pubkey AS pubkey
 			FROM repost_events
@@ -110,6 +110,7 @@ func loadWindowedEngagementWeights(
 	if err != nil {
 		return out, fmt.Errorf("load windowed repost weight: %w", err)
 	}
+	out.RepostWeight = repostWeightOutsidePile(repostRows, replyWeights.DiscountedPubkeys)
 	out.ReactionWeight, err = queryFloat64Tx(ctx, tx, `
 		SELECT COALESCE(SUM(`+engagerWeightCaseSQL+`), 0)
 		FROM (

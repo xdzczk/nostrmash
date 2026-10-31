@@ -2,6 +2,7 @@ package derivation
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -67,12 +68,14 @@ type weightedReply struct {
 }
 
 // replyWeightSum is one vote per pubkey after phrase discounts.
-// Total includes a discounted greeting pile. Substantive is the part that
-// unlocks reactions and reposts: the greeting pile is omitted, and a single
-// greeting still counts.
+// Total includes a discounted pile. Substantive is the part that unlocks
+// reactions and reposts: a greeting pile or a repeated short phrase is
+// omitted, and a single reply still counts. DiscountedPubkeys are the
+// people in those piles; a repost from one of them is the same vote.
 type replyWeightSum struct {
-	Total       float64
-	Substantive float64
+	Total             float64
+	Substantive       float64
+	DiscountedPubkeys map[string]struct{}
 }
 
 // sumDiscountedReplyWeights totals one vote per pubkey. A replier's vote is
@@ -81,24 +84,23 @@ type replyWeightSum struct {
 // count as that remark.
 //
 // Greeting variants share one bucket: "gm", "good morning", "GM Gigi", "PV",
-// a heart, and a short wish. The discount applies when at least two
-// positive-weight repliers are in that bucket. Distinct short remarks still
-// discount only when the text matches.
+// a heart, and a short wish. A repeated short phrase does too, and a
+// near-copy joins it: one extra or swapped word, or a one-character typo.
+// A longer remark stays out. The discount applies when at least two
+// positive-weight repliers are in that bucket. One person still counts in full.
 func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 	type replier struct {
 		weight   float64
 		phrase   string
-		low      bool
 		greeting bool
 	}
 	byPubkey := make(map[string]*replier, len(rows))
 	for _, row := range rows {
 		phrase := normalizeReplyPhrase(row.Content)
 		greeting := isGreetingClass(phrase)
-		low := isLowSubstanceReplyPhrase(phrase)
 		current, ok := byPubkey[row.Pubkey]
 		if !ok {
-			byPubkey[row.Pubkey] = &replier{weight: row.Weight, phrase: phrase, low: low, greeting: greeting}
+			byPubkey[row.Pubkey] = &replier{weight: row.Weight, phrase: phrase, greeting: greeting}
 			continue
 		}
 		if row.Weight > current.weight {
@@ -108,18 +110,16 @@ func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 		// remarks, the longest phrase wins so a sentence beats a short duplicate.
 		if !greeting && (current.greeting || utf8.RuneCountInString(phrase) > utf8.RuneCountInString(current.phrase)) {
 			current.phrase = phrase
-			current.low = low
 			current.greeting = false
 			continue
 		}
 		if current.greeting && greeting && utf8.RuneCountInString(phrase) > utf8.RuneCountInString(current.phrase) {
 			current.phrase = phrase
-			current.low = low
 		}
 	}
 
 	greetingCount := 0
-	phraseCounts := make(map[string]int, len(byPubkey))
+	shortCounts := make(map[string]int, len(byPubkey))
 	for _, replier := range byPubkey {
 		if replier.weight <= 0 {
 			continue
@@ -128,27 +128,63 @@ func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 			greetingCount++
 			continue
 		}
-		if replier.low {
-			phraseCounts[replier.phrase]++
+		if isShortReplyCandidate(replier.phrase) {
+			shortCounts[replier.phrase]++
 		}
+	}
+	clusters := shortPhraseClusterKeys(shortCounts)
+	clusterSize := make(map[string]int, len(shortCounts))
+	for phrase, n := range shortCounts {
+		clusterSize[clusters[phrase]] += n
 	}
 
 	var sum replyWeightSum
-	for _, replier := range byPubkey {
+	for pubkey, replier := range byPubkey {
 		weight := replier.weight
-		discountedGreeting := false
+		discounted := false
 		if replier.greeting && greetingCount >= 2 {
 			weight *= repeatedReplyPhraseDiscount
-			discountedGreeting = true
-		} else if !replier.greeting && replier.low && phraseCounts[replier.phrase] >= 2 {
-			weight *= repeatedReplyPhraseDiscount
+			discounted = true
+		} else if !replier.greeting {
+			if key, ok := clusters[replier.phrase]; ok && clusterSize[key] >= 2 {
+				weight *= repeatedReplyPhraseDiscount
+				discounted = true
+			}
 		}
 		sum.Total += weight
-		if !discountedGreeting {
-			sum.Substantive += weight
+		if discounted {
+			if sum.DiscountedPubkeys == nil {
+				sum.DiscountedPubkeys = make(map[string]struct{})
+			}
+			sum.DiscountedPubkeys[pubkey] = struct{}{}
+			continue
 		}
+		sum.Substantive += weight
 	}
 	return sum
+}
+
+// repostWeightOutsidePile sums repost votes whose author is not already in a
+// discounted reply pile. The reply counted that person; the repost is not a
+// second vote.
+func repostWeightOutsidePile(rows []weightedReply, pile map[string]struct{}) float64 {
+	best := make(map[string]float64, len(rows))
+	for _, row := range rows {
+		if row.Pubkey == "" || row.Weight <= 0 {
+			continue
+		}
+		if row.Weight > best[row.Pubkey] {
+			best[row.Pubkey] = row.Weight
+		}
+	}
+	total := 0.0
+	for pubkey, weight := range best {
+		if _, ok := pile[pubkey]; ok {
+			continue
+		}
+		total += weight
+	}
+	return total
 }
 
 func normalizeReplyPhrase(content string) string {
@@ -250,16 +286,139 @@ func isGreetingClass(phrase string) bool {
 	return len(fields) <= oneLineWishMaxWords && utf8.RuneCountInString(phrase) <= oneLineWishMaxRunes && allWish(fields)
 }
 
-func isLowSubstanceReplyPhrase(phrase string) bool {
+// shortReplyMaxWords lets a low-substance phrase pick up one extra word
+// ("bitcoin is the money") without pulling in a longer remark.
+const shortReplyMaxWords = lowSubstanceMaxWords + 1
+
+// shortReplyMaxRunes matches that extra word. A five-word phrase still
+// fits; a sentence does not.
+const shortReplyMaxRunes = lowSubstanceMaxRunes + 16
+
+func isShortReplyCandidate(phrase string) bool {
 	if phrase == "" {
-		return true
+		return false
 	}
 	fields := strings.Fields(phrase)
-	if len(fields) == 0 {
+	if len(fields) == 0 || len(fields) > shortReplyMaxWords {
+		return false
+	}
+	return utf8.RuneCountInString(phrase) <= shortReplyMaxRunes
+}
+
+// shortPhraseClusterKeys maps each short phrase to the heaviest near-copy
+// it should share a pile with. A phrase is a near-copy when the strings
+// differ by one rune, or the words differ by one insertion or one swap.
+// A neighbor of that phrase does not pull it any further.
+func shortPhraseClusterKeys(counts map[string]int) map[string]string {
+	phrases := make([]string, 0, len(counts))
+	for phrase := range counts {
+		phrases = append(phrases, phrase)
+	}
+	sort.Strings(phrases)
+	assigned := make(map[string]string, len(phrases))
+	for _, phrase := range phrases {
+		best := phrase
+		bestCount := counts[phrase]
+		bestLen := utf8.RuneCountInString(phrase)
+		for _, other := range phrases {
+			if other == phrase || !nearShortPhrase(phrase, other) {
+				continue
+			}
+			count := counts[other]
+			length := utf8.RuneCountInString(other)
+			if count > bestCount || (count == bestCount && (length < bestLen || (length == bestLen && other < best))) {
+				best = other
+				bestCount = count
+				bestLen = length
+			}
+		}
+		assigned[phrase] = best
+	}
+	return assigned
+}
+
+func nearShortPhrase(a, b string) bool {
+	if a == b {
 		return true
 	}
-	if allGreeting(fields) {
+	if withinOneRune(a, b) {
 		return true
 	}
-	return len(fields) <= lowSubstanceMaxWords && utf8.RuneCountInString(phrase) <= lowSubstanceMaxRunes
+	return oneTokenEdit(strings.Fields(a), strings.Fields(b))
+}
+
+func withinOneRune(a, b string) bool {
+	ar := []rune(a)
+	br := []rune(b)
+	if len(ar) < len(br) {
+		ar, br = br, ar
+	}
+	if len(ar)-len(br) > 1 || len(br) < 3 {
+		return false
+	}
+	if len(ar) == len(br) {
+		diff := 0
+		for i := range ar {
+			if ar[i] != br[i] {
+				diff++
+				if diff > 1 {
+					return false
+				}
+			}
+		}
+		return diff == 1
+	}
+	i := 0
+	skipped := false
+	for _, r := range ar {
+		if i < len(br) && r == br[i] {
+			i++
+			continue
+		}
+		if skipped {
+			return false
+		}
+		skipped = true
+	}
+	return skipped && i == len(br)
+}
+
+func oneTokenEdit(a, b []string) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	if len(a) == len(b) {
+		if len(a) < 2 {
+			return false
+		}
+		diff := 0
+		for i := range a {
+			if a[i] != b[i] {
+				diff++
+				if diff > 1 {
+					return false
+				}
+			}
+		}
+		return diff == 1
+	}
+	if len(a) > len(b) {
+		a, b = b, a
+	}
+	if len(b) != len(a)+1 {
+		return false
+	}
+	i := 0
+	skipped := false
+	for _, tok := range b {
+		if i < len(a) && tok == a[i] {
+			i++
+			continue
+		}
+		if skipped {
+			return false
+		}
+		skipped = true
+	}
+	return i == len(a) && skipped
 }

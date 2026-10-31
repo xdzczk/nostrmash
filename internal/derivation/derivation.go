@@ -108,7 +108,11 @@ const (
 	// That bucket still adds its discounted weight to the score, and it does
 	// not unlock reactions or reposts. A single greeting still counts in full.
 	// Rows keep the previous scores until the next derive or a time-range rebuild.
-	NoteDiscoveryStatsVersion = 11
+	// v12: a repeated short phrase, including a one-word or one-character
+	// near-copy, shares that treatment. A repost from someone in the pile
+	// is the same vote. Rows keep the previous scores until the next derive
+	// or a time-range rebuild.
+	NoteDiscoveryStatsVersion = 12
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -169,7 +173,10 @@ const (
 	// v6: greeting variants and one-line wishes share the reply-weight bucket
 	// with identical "GM"s. Rows keep the previous weights until the thread
 	// summary sweeper rewrites them.
-	ThreadSummaryVersion               = 6
+	// v7: near-copies of a short reply join that reply's discounted bucket.
+	// Rows keep the previous weights until the thread summary sweeper
+	// rewrites them.
+	ThreadSummaryVersion               = 7
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1

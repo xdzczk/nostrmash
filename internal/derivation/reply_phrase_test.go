@@ -138,8 +138,123 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "c", Content: "something else entirely about the protocol", Weight: 1},
 		})
 		want := 2*repeatedReplyPhraseDiscount + 1
-		if !near(got.Total, want) || !near(got.Substantive, want) {
+		if !near(got.Total, want) || got.Substantive != 1 {
+			t.Fatalf("got %+v want total %v substantive 1", got, want)
+		}
+		if _, ok := got.DiscountedPubkeys["a"]; !ok {
+			t.Fatalf("copied reply missing from pile: %+v", got.DiscountedPubkeys)
+		}
+		if _, ok := got.DiscountedPubkeys["c"]; ok {
+			t.Fatalf("remark joined the pile: %+v", got.DiscountedPubkeys)
+		}
+	})
+
+	t.Run("near copies of a short reply share the pile", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "Bitcoin is money", Weight: 1},
+			{Pubkey: "b", Content: "Bitcoin is the money", Weight: 1},
+			{Pubkey: "c", Content: "biticoin is money", Weight: 1},
+			{Pubkey: "d", Content: "bitcoin sound money", Weight: 1},
+			{Pubkey: "e", Content: "bitcoin is real money", Weight: 1},
+			{Pubkey: "f", Content: "Bitcoin is money of course it is the point of this", Weight: 1},
+		})
+		want := 5*repeatedReplyPhraseDiscount + 1
+		if !near(got.Total, want) || got.Substantive != 1 {
+			t.Fatalf("got %+v want total %v substantive 1", got, want)
+		}
+		if len(got.DiscountedPubkeys) != 5 {
+			t.Fatalf("pile pubkeys = %+v", got.DiscountedPubkeys)
+		}
+	})
+
+	t.Run("a second extra word stays out of the pile", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "Bitcoin is money", Weight: 1},
+			{Pubkey: "b", Content: "Bitcoin is money", Weight: 1},
+			{Pubkey: "c", Content: "Bitcoin is the money", Weight: 1},
+			{Pubkey: "d", Content: "bitcoin is the real money", Weight: 1},
+		})
+		want := 3*repeatedReplyPhraseDiscount + 1
+		if !near(got.Total, want) || got.Substantive != 1 {
+			t.Fatalf("got %+v want total %v substantive 1", got, want)
+		}
+		if _, ok := got.DiscountedPubkeys["d"]; ok {
+			t.Fatalf("two-word drift joined the pile: %+v", got.DiscountedPubkeys)
+		}
+	})
+
+	t.Run("one short reply stays full weight", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "Bitcoin is the money", Weight: 1},
+		})
+		if got.Total != 1 || got.Substantive != 1 || len(got.DiscountedPubkeys) != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("unrelated short replies do not share a pile", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "yes", Weight: 1},
+			{Pubkey: "b", Content: "no", Weight: 1},
+		})
+		if got.Total != 2 || got.Substantive != 2 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("a translation of the slogan is its own pile", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "Bitcoin is money", Weight: 1},
+			{Pubkey: "b", Content: "Bitcoin is money", Weight: 1},
+			{Pubkey: "c", Content: "bitcoin é dinheiro", Weight: 1},
+			{Pubkey: "d", Content: "bitcoin é dinheiro", Weight: 1},
+		})
+		want := 4 * repeatedReplyPhraseDiscount
+		if !near(got.Total, want) || got.Substantive != 0 || len(got.DiscountedPubkeys) != 4 {
 			t.Fatalf("got %+v want %v", got, want)
+		}
+	})
+
+	t.Run("one person who also reposts still counts the repost", func(t *testing.T) {
+		replies := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "Bitcoin is money", Weight: 1},
+		})
+		got := repostWeightOutsidePile([]weightedReply{{Pubkey: "a", Weight: 1}}, replies.DiscountedPubkeys)
+		if got != 1 || replies.Substantive != 1 {
+			t.Fatalf("repost %v replies %+v", got, replies)
+		}
+	})
+
+	t.Run("a repost from a greeting pile is not a second vote", func(t *testing.T) {
+		replies := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "GM", Weight: 1},
+			{Pubkey: "b", Content: "good morning", Weight: 1},
+			{Pubkey: "c", Content: "Two espressos on that cracked stone ledge is how I would start a Friday too.", Weight: 1},
+		})
+		got := repostWeightOutsidePile([]weightedReply{
+			{Pubkey: "a", Weight: 1},
+			{Pubkey: "b", Weight: 1},
+			{Pubkey: "c", Weight: 1},
+		}, replies.DiscountedPubkeys)
+		if got != 1 || replies.Substantive != 1 {
+			t.Fatalf("repost %v replies %+v", got, replies)
+		}
+	})
+
+	t.Run("a repost from the pile is not a second vote", func(t *testing.T) {
+		replies := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "Bitcoin is money", Weight: 1},
+			{Pubkey: "b", Content: "Bitcoin is money", Weight: 1},
+			{Pubkey: "c", Content: "This is a real comment about the note and its argument.", Weight: 1},
+		})
+		got := repostWeightOutsidePile([]weightedReply{
+			{Pubkey: "a", Weight: 1},
+			{Pubkey: "b", Weight: 0.5},
+			{Pubkey: "c", Weight: 1},
+			{Pubkey: "d", Weight: 1},
+		}, replies.DiscountedPubkeys)
+		if got != 2 {
+			t.Fatalf("repost weight = %v, pile = %+v", got, replies.DiscountedPubkeys)
 		}
 	})
 

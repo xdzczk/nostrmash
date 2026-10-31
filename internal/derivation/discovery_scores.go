@@ -7,9 +7,9 @@ import (
 
 // cheapEngagementUnlockPerSubstantive is how many reaction-points of cheap
 // engagement (one reaction = 1, one repost = 2) one substantive replier or
-// zapper fully unlocks. A greeting pile is omitted from that replier budget
-// before it gets here, so "GM" variants do not unlock a reaction farm. A
-// single greeting still counts as a replier.
+// zapper fully unlocks. A greeting pile or a copied short phrase is omitted
+// from that replier budget before it gets here, so it does not unlock a
+// reaction farm. A single reply still counts as a replier.
 const cheapEngagementUnlockPerSubstantive = 4.0
 
 // cheapEngagementFloor is the fraction of reactions and reposts that still
@@ -79,10 +79,12 @@ func RankRecencyMatters(windowLabel string) bool {
 //
 // Reactions and reposts are cheap to buy. They count in full only up to a
 // budget set by substantive replies and zaps. replyWeight still includes a
-// discounted greeting pile, and substantiveReplyWeight leaves that pile out,
-// so the pile adds a little score and does not unlock the likes. The surplus
-// counts at cheapEngagementFloor. The discount is linear in every weight, so
-// halving every engager's trust weight still halves the score.
+// discounted greeting or copied-phrase pile, and substantiveReplyWeight
+// leaves that pile out, so the pile adds a little score and does not unlock
+// the likes. A repost from someone in the pile is omitted before it gets
+// here. The surplus counts at cheapEngagementFloor. The discount is linear
+// in every weight, so halving every engager's trust weight still halves the
+// score.
 //
 // Recency depends on the window. A 24-hour score keeps half at the edge of
 // the day, a 7-day score keeps 85% at the end of the week, and a 30-day
