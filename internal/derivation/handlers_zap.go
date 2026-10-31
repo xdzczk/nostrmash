@@ -39,8 +39,7 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 	}
 	receiver := firstTagValue(tags, "p")
 	targetEventID := firstTagValue(tags, "e")
-	amountRaw := firstTagValue(tags, "amount")
-	amountSats := parseZapAmountSats(amountRaw)
+	amountSats := zapReceiptAmountSats(tags)
 
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
@@ -79,4 +78,23 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 		return fmt.Errorf("commit zap projection tx: %w", err)
 	}
 	return nil
+}
+
+// rebuildZapReceiptsWithVersion reprojects kind-9735 receipts only so a full
+// rebuild rewrites amount_sats without scanning every event kind.
+func (h *Handlers) rebuildZapReceiptsWithVersion(ctx context.Context, versionOverride *int) error {
+	if h == nil || h.pool == nil {
+		return fmt.Errorf("handlers are not initialized")
+	}
+	eventIDs, err := h.queryEventIDsByKinds(ctx, 9735)
+	if err != nil {
+		return err
+	}
+	return h.rebuildProjectEventIDs(
+		ctx,
+		DerivationZapReceipts,
+		eventIDs,
+		h.projectZapReceiptsWithVersion,
+		versionOverride,
+	)
 }

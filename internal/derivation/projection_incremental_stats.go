@@ -788,7 +788,7 @@ func computeActivityDailyDeltas(
 		if receiver == "" || receiver == pubkey {
 			return nil, nil
 		}
-		zapMsats := parseZapAmountSats(firstTagValue(tags, "amount")) * 1000
+		zapMsats := zapReceiptAmountSats(tags) * 1000
 		deltas = append(deltas,
 			activityDailyDelta{pubkey: pubkey, activityDate: activityDate, engagementGiven: 1},
 			activityDailyDelta{
@@ -1247,7 +1247,7 @@ func computeHourlyActivityDeltas(
 			pubkey:             receiver,
 			engagementReceived: 1,
 			zapReceived:        1,
-			zapMsatsReceived:   parseZapAmountSats(firstTagValue(tags, "amount")) * 1000,
+			zapMsatsReceived:   zapReceiptAmountSats(tags) * 1000,
 		})
 	default:
 		deltas = append(deltas, authorTick)

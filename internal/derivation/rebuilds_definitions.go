@@ -177,6 +177,7 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       ZapReceiptsVersion,
 			description:    "Project zap receipts by sender, receiver, target event, and sats",
 			rebuildProject: h.projectZapReceiptsWithVersion,
+			rebuildFull:    h.rebuildZapReceiptsWithVersion,
 		}, nil
 	case DerivationProfilePublicStats:
 		return projectionDefinition{

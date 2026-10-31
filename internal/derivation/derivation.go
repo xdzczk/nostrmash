@@ -141,15 +141,21 @@ const (
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1
-	ZapReceiptsVersion             = 1
-	ProfilePublicStatsVersion      = 1
-	AuthorActivityDailyVersion     = 1
-	AuthorEngagementStatsVersion   = 1
-	AuthorTopicStatsVersion        = 1
-	AuthorMediaMixStatsVersion     = 2
-	AuthorActivityWindowsVersion   = 1
-	AuthorPostingPatternsVersion   = 1
-	ThreadProjectionVersion        = 1
+	// v2: amount_sats is the receipt amount tag, else the amount tag inside
+	// the description zap request, else the BOLT11 human-readable amount.
+	// Rows written from a missing amount tag stay at 0 until a full
+	// zap_receipts rebuild reprojects kind 9735. Note zap_msats is
+	// SUM(amount_sats * 1000) and stays stale until the note discovery
+	// stats rebuild runs after that.
+	ZapReceiptsVersion           = 2
+	ProfilePublicStatsVersion    = 1
+	AuthorActivityDailyVersion   = 1
+	AuthorEngagementStatsVersion = 1
+	AuthorTopicStatsVersion      = 1
+	AuthorMediaMixStatsVersion   = 2
+	AuthorActivityWindowsVersion = 1
+	AuthorPostingPatternsVersion = 1
+	ThreadProjectionVersion      = 1
 	// v2: adds reply_weight_24h/7d — unique repliers excluding the root
 	// author (optionally trust-weighted) — as the hot-conversation velocity
 	// inputs, replacing raw reply counters a single account could inflate.
