@@ -458,13 +458,10 @@ func TestTrendingVsRisingProfiles_EngagementVsFollowerGrowth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRisingProfiles: %v", err)
 	}
-	// 14 new followers clears the credit minimum (10 after the 2-follower
-	// noise floor) and ranks by that credited count, ahead of a single-day
-	// reaction burst.
-	if len(rising) < 2 {
-		t.Fatalf("expected at least 2 profiles, got %#v", rising)
-	}
-	if rising[0].Pubkey != "growth_author" {
-		t.Fatalf("expected growth_author to lead rising on credited follower growth, got %#v", rising[0])
+	// 14 new followers clears the credit minimum. The eight likes on
+	// engaged_author have no reply or zap, so they sit on the cheap floor
+	// and stay under the rising noise floor. Follower growth is the list.
+	if len(rising) != 1 || rising[0].Pubkey != "growth_author" {
+		t.Fatalf("expected only growth_author in rising, got %#v", rising)
 	}
 }
