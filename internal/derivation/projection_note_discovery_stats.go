@@ -166,19 +166,11 @@ func (h *Handlers) refreshNoteDiscoveryStatsTx(
 	if err != nil {
 		return fmt.Errorf("load total reaction_count: %w", err)
 	}
-	zapCount, err := queryInt64Tx(ctx, tx, `
-		SELECT COALESCE(COUNT(*), 0)
-		FROM zap_receipts
-		WHERE event_id = $1
-	`, noteID)
+	zapCount, err := queryInt64Tx(ctx, tx, `SELECT `+nostr.ZapCountSQL("$1"), noteID)
 	if err != nil {
 		return fmt.Errorf("load total zap_count: %w", err)
 	}
-	zapMSats, err := queryInt64Tx(ctx, tx, `
-		SELECT COALESCE(SUM(amount_sats * 1000), 0)
-		FROM zap_receipts
-		WHERE event_id = $1
-	`, noteID)
+	zapMSats, err := queryInt64Tx(ctx, tx, `SELECT `+nostr.ZapMSatsSQL("$1"), noteID)
 	if err != nil {
 		return fmt.Errorf("load total zap_msats: %w", err)
 	}

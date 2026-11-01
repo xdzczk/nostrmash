@@ -21,19 +21,54 @@ func (s *Read) TopZapAdsByEventIDs(ctx context.Context, ids []string) (map[strin
 		return map[string]readmodel.TopZapAd{}, nil
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT ON (zr.event_id)
-			zr.event_id,
-			zr.sender_pubkey,
-			zr.amount_sats,
-			COALESCE(e.raw_json::text, ''),
-			COALESCE(p.profile_json::text, '')
-		FROM zap_receipts zr
-		JOIN events e ON e.id = zr.zap_receipt_id
-		LEFT JOIN profiles_latest p ON p.pubkey = zr.sender_pubkey
-		WHERE zr.event_id = ANY($1::text[])
-		  AND zr.amount_sats > 0
-		  AND zr.sender_pubkey <> ''
-		ORDER BY zr.event_id, zr.amount_sats DESC, zr.created_at DESC, zr.zap_receipt_id DESC
+		WITH requested AS (
+			SELECT DISTINCT btrim(id) AS event_id
+			FROM unnest($1::text[]) AS id
+			WHERE btrim(id) <> ''
+		),
+		matched AS (
+			SELECT
+				req.event_id,
+				zr.sender_pubkey,
+				zr.amount_sats,
+				COALESCE(e.raw_json::text, '') AS receipt_json,
+				COALESCE(p.profile_json::text, '') AS profile_json,
+				zr.created_at,
+				zr.zap_receipt_id
+			FROM requested req
+			JOIN zap_receipts zr ON zr.event_id = req.event_id
+			JOIN events e ON e.id = zr.zap_receipt_id
+			LEFT JOIN profiles_latest p ON p.pubkey = zr.sender_pubkey
+			WHERE zr.amount_sats > 0
+			  AND zr.sender_pubkey <> ''
+			UNION ALL
+			SELECT
+				req.event_id,
+				zr.sender_pubkey,
+				zr.amount_sats,
+				COALESCE(e.raw_json::text, ''),
+				COALESCE(p.profile_json::text, ''),
+				zr.created_at,
+				zr.zap_receipt_id
+			FROM requested req
+			JOIN replaceable_state rs ON rs.event_id = req.event_id
+			JOIN zap_receipts zr
+			  ON zr.target_address <> ''
+			 AND zr.target_address = (rs.kind::text || ':' || lower(rs.pubkey) || ':' || rs.d_tag)
+			 AND zr.event_id IS DISTINCT FROM req.event_id
+			JOIN events e ON e.id = zr.zap_receipt_id
+			LEFT JOIN profiles_latest p ON p.pubkey = zr.sender_pubkey
+			WHERE zr.amount_sats > 0
+			  AND zr.sender_pubkey <> ''
+		)
+		SELECT DISTINCT ON (event_id)
+			event_id,
+			sender_pubkey,
+			amount_sats,
+			receipt_json,
+			profile_json
+		FROM matched
+		ORDER BY event_id, amount_sats DESC, created_at DESC, zap_receipt_id DESC
 	`, topZapLookupIDs(trimmed))
 	if err != nil {
 		return nil, fmt.Errorf("top zap ads: %w", err)
@@ -118,25 +153,26 @@ func (s *Read) AttachTopZaps(ctx context.Context, events []json.RawMessage) []js
 			ids = append(ids, id)
 		}
 	}
+	out := events
 	ads, err := s.TopZapAdsByEventIDs(ctx, ids)
-	if err != nil || len(ads) == 0 {
-		return events
-	}
-	out := make([]json.RawMessage, len(events))
-	for i, raw := range events {
-		ad, ok := readmodel.LookupTopZap(ads, eventIDFromRaw(raw))
-		if !ok {
-			out[i] = raw
-			continue
+	if err == nil && len(ads) > 0 {
+		merged := make([]json.RawMessage, len(events))
+		for i, raw := range events {
+			ad, ok := readmodel.LookupTopZap(ads, eventIDFromRaw(raw))
+			if !ok {
+				merged[i] = raw
+				continue
+			}
+			withZap, mergeErr := readmodel.MergeTopZapIntoRaw(raw, ad)
+			if mergeErr != nil || len(withZap) == 0 {
+				merged[i] = raw
+				continue
+			}
+			merged[i] = withZap
 		}
-		merged, mergeErr := readmodel.MergeTopZapIntoRaw(raw, ad)
-		if mergeErr != nil || len(merged) == 0 {
-			out[i] = raw
-			continue
-		}
-		out[i] = merged
+		out = merged
 	}
-	return out
+	return s.attachQuoteCounts(ctx, out)
 }
 
 func applyTopZapsToMap(ctx context.Context, s *Read, byID map[string]json.RawMessage) map[string]json.RawMessage {

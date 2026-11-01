@@ -112,7 +112,16 @@ func eventActionPageSQL(eventID string, kind int, limit int, cursor *EventOrderC
 			SELECT e.raw_json::text, z.created_at, z.zap_receipt_id
 			FROM zap_receipts z
 			INNER JOIN events e ON e.id = z.zap_receipt_id
-			WHERE z.event_id = $1`
+			WHERE z.event_id = $1
+			   OR (
+			        z.target_address <> ''
+			        AND z.event_id IS DISTINCT FROM $1
+			        AND z.target_address = (
+			            SELECT rs.kind::text || ':' || lower(rs.pubkey) || ':' || rs.d_tag
+			            FROM replaceable_state rs
+			            WHERE rs.event_id = $1
+			        )
+			   )`
 	}
 	args := []any{eventID}
 	if cursor != nil && strings.TrimSpace(cursor.ID) != "" {

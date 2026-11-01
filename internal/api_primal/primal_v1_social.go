@@ -237,13 +237,7 @@ func expandZapRow(raw json.RawMessage) (json.RawMessage, map[string]any, []strin
 			receipt = json.RawMessage(encoded)
 		}
 	}
-	sender := zapperPubkey(receipt)
-	if sender == "" {
-		sender = strings.TrimSpace(wrapper.Sender)
-	}
-	if sender == "" {
-		sender = pubkeyFromRaw(receipt)
-	}
+	sender := zapSenderPubkey(receipt, wrapper.Sender)
 	receiver := strings.TrimSpace(wrapper.Receiver)
 	if receiver == "" {
 		if values := tagValuesFromRawEvent(receipt, "p"); len(values) > 0 {
@@ -297,6 +291,33 @@ func zapperPubkey(receipt json.RawMessage) string {
 	return ""
 }
 
+// zapSenderPubkey is the person who zapped. Kind 9735 is often signed by the
+// lightning wallet, so the human is the zap-request author, then the NIP-57 P tag.
+func zapSenderPubkey(receipt json.RawMessage, fallback string) string {
+	if pubkey := canonicalPubkey(zapperPubkey(receipt)); pubkey != "" {
+		return pubkey
+	}
+	for _, tag := range tagPairs(receipt) {
+		if len(tag) < 2 || tag[0] != "P" {
+			continue
+		}
+		if pubkey := canonicalPubkey(tag[1]); pubkey != "" {
+			return pubkey
+		}
+	}
+	if pubkey := canonicalPubkey(fallback); pubkey != "" {
+		return pubkey
+	}
+	fallback = strings.TrimSpace(fallback)
+	if fallback == "" {
+		fallback = strings.TrimSpace(pubkeyFromRaw(receipt))
+	}
+	if pubkey := canonicalPubkey(fallback); pubkey != "" {
+		return pubkey
+	}
+	return fallback
+}
+
 func zapBody(raw json.RawMessage) map[string]any {
 	amount := int64(0)
 	for _, tag := range tagPairs(raw) {
@@ -316,7 +337,7 @@ func zapBody(raw json.RawMessage) map[string]any {
 	return map[string]any{
 		"event_id":       target,
 		"created_at":     created,
-		"sender":         pubkeyFromRaw(raw),
+		"sender":         zapSenderPubkey(raw, pubkeyFromRaw(raw)),
 		"receiver":       receiver,
 		"amount_sats":    amount,
 		"zap_receipt_id": eventIDFromRaw(raw),

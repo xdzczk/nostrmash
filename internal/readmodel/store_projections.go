@@ -194,6 +194,7 @@ type EventCounts struct {
 	RepostCount   int64
 	ZapCount      int64
 	ZapMSats      int64
+	QuoteCount    int64
 	Consistency   string
 }
 
@@ -342,6 +343,7 @@ type NoteStats struct {
 	RepostCount     int64
 	ZapCount        int64
 	ZapMSats        int64
+	QuoteCount      int64
 	HasImage        bool
 	HasVideo        bool
 	HasLink         bool

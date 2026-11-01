@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
@@ -140,8 +141,8 @@ func (s *Read) GetLiveActivities(ctx context.Context, status, followedBy string,
 			'reply_count', COALESCE(s.reply_count, 0),
 			'repost_count', COALESCE(s.repost_count, 0),
 			'reaction_count', COALESCE(s.reaction_count, 0),
-			'zap_count', COALESCE(s.zap_count, 0),
-			'zap_msats', COALESCE(s.zap_msats, 0)
+			'zap_count', `+nostr.ZapCountSQL("e.id")+`,
+			'zap_msats', `+nostr.ZapMSatsSQL("e.id")+`
 		))::text
 		FROM replaceable_state rs
 		JOIN events e ON e.id = rs.event_id

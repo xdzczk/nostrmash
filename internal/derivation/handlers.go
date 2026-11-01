@@ -109,6 +109,7 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.ProjectReplyCounts,
 		h.ProjectReactionCounts,
 		h.ProjectRepostCounts,
+		h.ProjectQuoteCounts,
 		h.ProjectReactionEvents,
 		h.ProjectRepostEvents,
 		h.ProjectDeletionEvents,

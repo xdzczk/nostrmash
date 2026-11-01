@@ -21,7 +21,7 @@ func (h Handlers) GetEventCounts(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"event_id":       counts.EventID,
 		"reply_count":    counts.ReplyCount,
 		"reaction_count": counts.ReactionCount,
@@ -29,7 +29,11 @@ func (h Handlers) GetEventCounts(w http.ResponseWriter, r *http.Request) {
 		"zap_count":      counts.ZapCount,
 		"zap_msats":      counts.ZapMSats,
 		"consistency":    counts.Consistency,
-	})
+	}
+	if counts.QuoteCount > 0 {
+		payload["quote_count"] = counts.QuoteCount
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 // GetEventReplies returns direct replies ordered by created_at asc, id asc with cursor pagination.

@@ -104,6 +104,7 @@ func (s Service) enrichEventRawWithCounts(ctx context.Context, eventID string, r
 		RepostCount:   counts.RepostCount,
 		ZapCount:      counts.ZapCount,
 		ZapMSats:      counts.ZapMSats,
+		QuoteCount:    counts.QuoteCount,
 		Consistency:   counts.Consistency,
 	})
 	if err != nil {

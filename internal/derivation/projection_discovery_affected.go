@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 func (h *Handlers) affectedProfileDiscoveryPubkeysTx(
@@ -246,17 +249,52 @@ func (h *Handlers) affectedNoteDiscoveryIDsTx(
 		}
 	case 9735:
 		ids = append(ids, firstTagValue(tags, "e"))
+		currentAddressID, err := replaceableEventIDByAddressTx(ctx, tx, firstAddress(tags, "a"))
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, currentAddressID)
 		var priorTargetEventID *string
+		var priorAddress string
 		if err := tx.QueryRow(ctx, `
-			SELECT event_id
+			SELECT event_id, COALESCE(target_address, '')
 			FROM zap_receipts
 			WHERE zap_receipt_id = $1
-		`, sourceEventID).Scan(&priorTargetEventID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		`, sourceEventID).Scan(&priorTargetEventID, &priorAddress); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("load prior zap target: %w", err)
 		}
 		if priorTargetEventID != nil {
 			ids = append(ids, *priorTargetEventID)
 		}
+		priorAddressID, err := replaceableEventIDByAddressTx(ctx, tx, priorAddress)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, priorAddressID)
 	}
 	return normalizeUniqueIDs(ids), nil
+}
+
+func replaceableEventIDByAddressTx(ctx context.Context, tx pgx.Tx, address string) (string, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return "", nil
+	}
+	addr, ok := nostr.ParseAddressCoordinate(address)
+	if !ok {
+		return "", nil
+	}
+	var eventID string
+	err := tx.QueryRow(ctx, `
+		SELECT event_id
+		FROM replaceable_state
+		WHERE kind = $1 AND lower(pubkey) = $2 AND d_tag = $3
+	`, addr.Kind, addr.Pubkey, addr.DTag).Scan(&eventID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve replaceable address %s: %w", addr.String(), err)
+	}
+	return eventID, nil
 }

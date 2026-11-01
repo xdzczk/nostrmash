@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil/bech32"
 
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/store"
 )
 
@@ -157,6 +159,160 @@ func TestEnrichFeedEventsSynthesizesQuotedAuthorProfile(t *testing.T) {
 	if !strings.Contains(stringValue(payload["content"]), `"name":"quoted"`) {
 		t.Fatalf("profile content %#v", payload["content"])
 	}
+}
+
+func TestEnrichFeedEventsIncludesTopZapperProfile(t *testing.T) {
+	author := strings.Repeat("11", 32)
+	zapper := strings.Repeat("ab", 32)
+	other := strings.Repeat("22", 32)
+	wallet := strings.Repeat("cd", 32)
+	noteID := strings.Repeat("e1", 32)
+	receiptID := strings.Repeat("f2", 32)
+	otherReceiptID := strings.Repeat("f3", 32)
+	picture := "https://cdn.example/zapper.png"
+	profileJSON := json.RawMessage(`{"name":"ada","display_name":"Ada Lovelace","picture":"` + picture + `"}`)
+
+	receiptWithDescription := func(id, sender string) json.RawMessage {
+		t.Helper()
+		return mustRawEvent(t, map[string]any{
+			"id": id, "pubkey": wallet, "kind": 9735, "created_at": 30, "sig": "sig", "content": "",
+			"tags": []any{
+				[]any{"description", `{"id":"req","pubkey":"` + sender + `","kind":9734,"content":"nice","tags":[]}`},
+				[]any{"p", author},
+				[]any{"e", noteID},
+				[]any{"amount", "21000000"},
+			},
+		})
+	}
+	events := enrichFeedWithZaps(t, []json.RawMessage{mustRawEvent(t, map[string]any{
+		"id": noteID, "pubkey": author, "created_at": 20, "kind": 1, "tags": []any{}, "content": "hello", "sig": "sig",
+	})}, map[string]json.RawMessage{
+		receiptID:      receiptWithDescription(receiptID, zapper),
+		otherReceiptID: receiptWithDescription(otherReceiptID, other),
+	}, profileJSON, zapper, []readmodel.EventZap{
+		{EventID: noteID, CreatedAt: 20, Sender: wallet, Receiver: author, AmountSats: 21, ZapReceiptID: otherReceiptID},
+		{EventID: noteID, CreatedAt: 30, Sender: wallet, Receiver: author, AmountSats: 21000, ZapReceiptID: receiptID},
+	})
+	if sender := postZapSender(t, events, noteID, 21000); sender != zapper {
+		t.Fatalf("top zap sender %s", sender)
+	}
+	if sender := postZapSender(t, events, noteID, 21); sender != other {
+		t.Fatalf("smaller zap sender %s", sender)
+	}
+	content := stringValue(findKind0(t, events, zapper)["content"])
+	if !strings.Contains(content, `"name":"ada"`) || !strings.Contains(content, `"display_name":"Ada Lovelace"`) || !strings.Contains(content, picture) {
+		t.Fatalf("zapper profile %s", content)
+	}
+	if kind0Present(events, wallet) {
+		t.Fatal("wallet profile was attached instead of the zapper")
+	}
+
+	t.Run("p tag", func(t *testing.T) {
+		receipt := mustRawEvent(t, map[string]any{
+			"id": receiptID, "pubkey": wallet, "kind": 9735, "created_at": 30, "sig": "sig", "content": "",
+			"tags": []any{
+				[]any{"description", `{"id":"req","kind":9734,"content":"nice","tags":[]}`},
+				[]any{"P", zapper},
+				[]any{"p", author},
+				[]any{"e", noteID},
+			},
+		})
+		got := enrichFeedWithZaps(t, []json.RawMessage{mustRawEvent(t, map[string]any{
+			"id": noteID, "pubkey": author, "created_at": 20, "kind": 1, "tags": []any{}, "content": "hello", "sig": "sig",
+		})}, map[string]json.RawMessage{receiptID: receipt}, profileJSON, zapper, []readmodel.EventZap{
+			{EventID: noteID, CreatedAt: 30, Sender: wallet, Receiver: author, AmountSats: 5, ZapReceiptID: receiptID},
+		})
+		if sender := postZapSender(t, got, noteID, 5); sender != zapper {
+			t.Fatalf("sender %s", sender)
+		}
+		findKind0(t, got, zapper)
+	})
+
+	t.Run("survives a full author page", func(t *testing.T) {
+		posts := make([]json.RawMessage, 0, maxFeedAuthors)
+		for i := 0; i < maxFeedAuthors; i++ {
+			id := noteID
+			pubkey := author
+			if i > 0 {
+				id = fmt.Sprintf("%064x", i+1)
+				pubkey = fmt.Sprintf("%064x", i+1000)
+			}
+			posts = append(posts, mustRawEvent(t, map[string]any{
+				"id": id, "pubkey": pubkey, "created_at": 20 + i, "kind": 1, "tags": []any{}, "content": "note", "sig": "sig",
+			}))
+		}
+		got := enrichFeedWithZaps(t, posts, map[string]json.RawMessage{
+			receiptID: receiptWithDescription(receiptID, zapper),
+		}, profileJSON, zapper, []readmodel.EventZap{
+			{EventID: noteID, CreatedAt: 30, Sender: wallet, Receiver: author, AmountSats: 21000, ZapReceiptID: receiptID},
+		})
+		findKind0(t, got, zapper)
+		if sender := postZapSender(t, got, noteID, 21000); sender != zapper {
+			t.Fatalf("sender %s", sender)
+		}
+	})
+}
+
+func enrichFeedWithZaps(t *testing.T, posts []json.RawMessage, receipts map[string]json.RawMessage, profileJSON json.RawMessage, zapper string, zaps []readmodel.EventZap) []any {
+	t.Helper()
+	gateway := mustNewWSGateway(t, fakeEventReader{
+		getTopZapsByEventsFn: func(context.Context, []string, int) ([]readmodel.EventZap, error) {
+			return zaps, nil
+		},
+		getEventRawsByIDs: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
+			out := map[string]json.RawMessage{}
+			for _, id := range ids {
+				if raw, ok := receipts[id]; ok {
+					out[id] = raw
+				}
+			}
+			return out, nil
+		},
+		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+			out := map[string]store.ProfileProjection{}
+			for _, pubkey := range pubkeys {
+				if pubkey == zapper {
+					out[pubkey] = store.ProfileProjection{Pubkey: pubkey, ProfileJSON: profileJSON}
+				}
+			}
+			return out, nil
+		},
+	}, WSGatewayOptions{Dialect: WSDialectPrimalV1})
+	return gateway.enrichFeedEvents(context.Background(), "", posts, "created_at", nil, nil)
+}
+
+func postZapSender(t *testing.T, events []any, eventID string, sats int64) string {
+	t.Helper()
+	for _, event := range events {
+		kind, content, _ := decodeFeedEvent(t, event)
+		if kind != primalKindPostZaps {
+			continue
+		}
+		var body map[string]any
+		if err := json.Unmarshal([]byte(content), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["event_id"] != eventID || toInt64(body["amount_sats"], 0) != sats {
+			continue
+		}
+		return stringValue(body["sender"])
+	}
+	t.Fatalf("missing zap for %s sats %d", eventID, sats)
+	return ""
+}
+
+func kind0Present(events []any, pubkey string) bool {
+	for _, event := range events {
+		payload, ok := event.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind, _ := kindOf(payload["kind"])
+		if kind == 0 && payload["pubkey"] == pubkey {
+			return true
+		}
+	}
+	return false
 }
 
 func enrichWithQuotedNote(t *testing.T, note json.RawMessage, quotedID, quotedAuthor, metaID string, quotedRaw, metaRaw json.RawMessage, extra ...json.RawMessage) []any {

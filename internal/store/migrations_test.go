@@ -83,6 +83,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"reply_counts",
 		"repost_events",
 		"repost_count_contributions",
+		"quote_contributions",
 		"repost_counts",
 		"replaceable_state",
 		"schema_migrations_audit",

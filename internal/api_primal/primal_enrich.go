@@ -60,10 +60,21 @@ func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []
 	for _, raw := range referenced {
 		g.rememberPubkey(&authors, seenAuthors, pubkeyFromRaw(raw), maxFeedAuthors)
 	}
+	// Primal iOS looks up the top-zap gallery avatar and name from kind 0
+	// events in this page, keyed by the kind 10000129 sender. That sender is
+	// the person who zapped, and their profile has to survive the author cap.
+	zapEvents, topZapSenders, otherZapSenders := g.zapEnrichment(ctx, elements)
+	zapperLimit := maxFeedAuthors + len(topZapSenders)
+	for _, pubkey := range topZapSenders {
+		g.rememberPubkey(&authors, seenAuthors, pubkey, zapperLimit)
+	}
 	for _, raw := range posts {
 		for _, pubkey := range tagValuesFromRawEvent(raw, "p") {
 			g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
 		}
+	}
+	for _, pubkey := range otherZapSenders {
+		g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
 	}
 	if since == nil && until == nil {
 		since, until = createdRange(posts)
@@ -75,7 +86,7 @@ func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []
 	}
 	out = append(out, g.buildMetadataEvents(ctx, authors)...)
 	out = append(out, mentionEvents(referenced)...)
-	out = append(out, g.zapEnrichment(ctx, elements)...)
+	out = append(out, zapEvents...)
 	for _, id := range elements {
 		out = append(out, noteStatsEvent(id, query.EventCounts{}))
 	}
@@ -358,13 +369,13 @@ func canonicalPubkey(raw string) string {
 	return ""
 }
 
-func (g WSGateway) zapEnrichment(ctx context.Context, ids []string) []any {
+func (g WSGateway) zapEnrichment(ctx context.Context, ids []string) (events []any, topSenders []string, otherSenders []string) {
 	if len(ids) == 0 {
-		return nil
+		return nil, nil, nil
 	}
 	zaps, err := g.query.GetTopEventZaps(ctx, ids, 5)
 	if err != nil || len(zaps) == 0 {
-		return nil
+		return nil, nil, nil
 	}
 	receiptIDs := make([]string, 0, len(zaps))
 	for _, zap := range zaps {
@@ -378,21 +389,69 @@ func (g WSGateway) zapEnrichment(ctx context.Context, ids []string) []any {
 			receipts = found
 		}
 	}
-	out := make([]any, 0, len(zaps)*2)
+	type enrichedZap struct {
+		sender  string
+		body    map[string]any
+		receipt json.RawMessage
+	}
+	enriched := make([]enrichedZap, 0, len(zaps))
+	bestSats := make(map[string]int64, len(ids))
+	bestSender := make(map[string]string, len(ids))
 	for _, zap := range zaps {
-		out = append(out, kindObject(primalKindPostZaps, map[string]any{
-			"event_id":       zap.EventID,
-			"created_at":     zap.CreatedAt,
-			"sender":         zap.Sender,
-			"receiver":       zap.Receiver,
-			"amount_sats":    zap.AmountSats,
-			"zap_receipt_id": zap.ZapReceiptID,
-		}))
-		if raw, ok := receipts[zap.ZapReceiptID]; ok {
-			out = append(out, raw)
+		sender := zapSenderPubkey(nil, zap.Sender)
+		var receipt json.RawMessage
+		if raw, ok := receipts[zap.ZapReceiptID]; ok && len(raw) > 0 {
+			receipt = raw
+			sender = zapSenderPubkey(raw, zap.Sender)
+		}
+		if sender == "" {
+			continue
+		}
+		eventID := strings.TrimSpace(zap.EventID)
+		if eventID != "" && (bestSender[eventID] == "" || zap.AmountSats > bestSats[eventID]) {
+			bestSats[eventID] = zap.AmountSats
+			bestSender[eventID] = sender
+		}
+		enriched = append(enriched, enrichedZap{
+			sender: sender,
+			body: map[string]any{
+				"event_id":       zap.EventID,
+				"created_at":     zap.CreatedAt,
+				"sender":         sender,
+				"receiver":       zap.Receiver,
+				"amount_sats":    zap.AmountSats,
+				"zap_receipt_id": zap.ZapReceiptID,
+			},
+			receipt: receipt,
+		})
+	}
+	events = make([]any, 0, len(enriched)*2)
+	for _, zap := range enriched {
+		events = append(events, kindObject(primalKindPostZaps, zap.body))
+		if len(zap.receipt) > 0 {
+			events = append(events, zap.receipt)
 		}
 	}
-	return out
+	seenTop := map[string]struct{}{}
+	for _, sender := range bestSender {
+		if _, ok := seenTop[sender]; ok {
+			continue
+		}
+		seenTop[sender] = struct{}{}
+		topSenders = append(topSenders, sender)
+	}
+	seenOther := map[string]struct{}{}
+	for _, zap := range enriched {
+		if _, ok := seenTop[zap.sender]; ok {
+			continue
+		}
+		if _, ok := seenOther[zap.sender]; ok {
+			continue
+		}
+		seenOther[zap.sender] = struct{}{}
+		otherSenders = append(otherSenders, zap.sender)
+	}
+	return events, topSenders, otherSenders
 }
 
 func noteStatsEvent(id string, counts query.EventCounts) map[string]any {

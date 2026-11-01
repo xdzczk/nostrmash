@@ -31,7 +31,8 @@ func (s *Read) GetEventCountsByIDs(ctx context.Context, ids []string) (map[strin
 			COALESCE((SELECT count FROM reaction_counts WHERE event_id = x.id), 0),
 			COALESCE((SELECT count FROM repost_counts WHERE event_id = x.id), 0) + `+nostr.AddressRepostCountSQL("x.id")+`,
 			COALESCE((SELECT zap_count FROM note_discovery_stats WHERE event_id = x.id), 0),
-			COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = x.id), 0)
+			COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = x.id), 0),
+			`+nostr.Kind1QuoteCountSQL("x.id")+`
 		FROM unnest($1::text[]) AS x(id)
 	`, trimmed)
 	if err != nil {
@@ -50,6 +51,7 @@ func (s *Read) GetEventCountsByIDs(ctx context.Context, ids []string) (map[strin
 			&counts.RepostCount,
 			&counts.ZapCount,
 			&counts.ZapMSats,
+			&counts.QuoteCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan event counts by ids row: %w", err)
 		}

@@ -31,6 +31,16 @@ func (h Handlers) GetNoteSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	counts := map[string]any{
+		"reply_count":    summary.Counts.ReplyCount,
+		"reaction_count": summary.Counts.ReactionCount,
+		"repost_count":   summary.Counts.RepostCount,
+		"zap_count":      summary.Counts.ZapCount,
+		"zap_msats":      summary.Counts.ZapMSats,
+	}
+	if summary.Counts.QuoteCount > 0 {
+		counts["quote_count"] = summary.Counts.QuoteCount
+	}
 	payload := map[string]any{
 		"event_id": summary.EventID,
 		"event":    summary.Event,
@@ -47,13 +57,7 @@ func (h Handlers) GetNoteSummary(w http.ResponseWriter, r *http.Request) {
 				"recent_activity_at": summary.Author.Stats.RecentActivityAt,
 			},
 		},
-		"counts": map[string]any{
-			"reply_count":    summary.Counts.ReplyCount,
-			"reaction_count": summary.Counts.ReactionCount,
-			"repost_count":   summary.Counts.RepostCount,
-			"zap_count":      summary.Counts.ZapCount,
-			"zap_msats":      summary.Counts.ZapMSats,
-		},
+		"counts": counts,
 		"media": map[string]any{
 			"has_image":        summary.Media.HasImage,
 			"has_video":        summary.Media.HasVideo,

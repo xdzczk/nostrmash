@@ -30,6 +30,7 @@ var RegisteredDerivations = []RegisteredDerivation{
 	{Name: DerivationReplyCounts, Version: ReplyCountsVersion, Description: "Project eventually-consistent reply counts from thread-parent references (reply, else root)"},
 	{Name: DerivationReactionCounts, Version: ReactionCountsVersion, Description: "Project eventually-consistent reaction counts from kind=7 e references"},
 	{Name: DerivationRepostCounts, Version: RepostCountsVersion, Description: "Project eventually-consistent repost counts from kind=6 and kind=16 references"},
+	{Name: DerivationQuoteCounts, Version: QuoteCountsVersion, Description: "Project kind-1 quote posts from q tags onto the quoted event or address"},
 	{Name: DerivationCommentEdges, Version: CommentEdgesVersion, Description: "Project NIP-22 comment edges from kind=1111 root and parent tags"},
 	{Name: DerivationReportTargets, Version: ReportTargetsVersion, Description: "Project NIP-56 report targets from kind=1984 e and p tags"},
 	{Name: DerivationReactionEvents, Version: ReactionEventsVersion, Description: "Project reaction_events records from kind=7 references"},

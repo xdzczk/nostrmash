@@ -175,8 +175,27 @@ func (s Service) GetViewerActions(ctx context.Context, viewer string, ids []stri
 	return reader.GetViewerEventActions(ctx, viewer, ids)
 }
 
+type topEventZapsReader interface {
+	GetTopZapsByEvents(context.Context, []string, int) ([]readmodel.EventZap, error)
+}
+
+func topEventZapsReaderFrom(reader any) (topEventZapsReader, bool) {
+	if typed, ok := reader.(topEventZapsReader); ok {
+		return typed, true
+	}
+	adapter, ok := reader.(readModelReaderAdapter)
+	if !ok {
+		return nil, false
+	}
+	typed, ok := adapter.readModel.(topEventZapsReader)
+	return typed, ok
+}
+
 // GetTopEventZaps returns the highest-sats zaps for the given events.
 func (s Service) GetTopEventZaps(ctx context.Context, ids []string, limitPerEvent int) ([]readmodel.EventZap, error) {
+	if reader, ok := topEventZapsReaderFrom(s.reader); ok {
+		return reader.GetTopZapsByEvents(ctx, ids, limitPerEvent)
+	}
 	reader, err := s.primalV1()
 	if err != nil {
 		return nil, err
