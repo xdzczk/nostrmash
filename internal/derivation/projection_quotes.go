@@ -11,13 +11,15 @@ import (
 
 const quoteProjectionDescription = "Project kind-1 quote posts from q tags onto the quoted event or address"
 
-// quoteBackfillSQL inserts one row per kind-1 q tag. $1 is the derivation version.
-// q tags are not stored in event_tags, so the source is events.raw_json.
+// quoteBackfillSQL inserts one row per distinct kind-1 quote target. $1 is
+// the derivation version. q tags are not stored in event_tags, so the source
+// is events.raw_json. Repeated q tags on one note collapse: ON CONFLICT
+// cannot update the same row twice in one insert.
 const quoteBackfillSQL = `
 INSERT INTO quote_contributions (
 	source_event_id, target_event_id, target_address, derivation_version
 )
-SELECT parsed.source_event_id, parsed.target_event_id, parsed.target_address, $1
+SELECT DISTINCT parsed.source_event_id, parsed.target_event_id, parsed.target_address, $1
 FROM (
 	SELECT
 		e.id AS source_event_id,

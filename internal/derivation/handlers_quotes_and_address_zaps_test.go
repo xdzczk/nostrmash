@@ -31,6 +31,7 @@ func TestProjectQuoteCounts_Kind1EventAndAddress(t *testing.T) {
 	article := newEventForTest(articleID, author, 3001, 30023, [][]string{{"d", "post"}}, "article", base)
 	quoteNote := newEventForTest(quoteNoteID, author, 3002, 1, [][]string{
 		{"q", noteID, "wss://relay.example", author},
+		{"q", strings.ToUpper(noteID), "wss://other.example", author},
 	}, "nostr:"+noteID, base.Add(time.Second))
 	quoteArticle := newEventForTest(quoteArticleID, author, 3003, 1, [][]string{
 		{"q", "30023:" + strings.ToUpper(author) + ":post"},
@@ -78,6 +79,27 @@ func TestProjectQuoteCounts_Kind1EventAndAddress(t *testing.T) {
 	}
 	if counts.RepostCount != 0 {
 		t.Fatalf("kind-6 repost was not projected, repost_count = %d", counts.RepostCount)
+	}
+
+	run, err := handlers.TriggerProjectionRebuild(ctx, derivation.TriggerProjectionRebuildParams{
+		DerivationName: derivation.DerivationQuoteCounts,
+		TargetVersion:  derivation.QuoteCountsVersion,
+		Scope: derivation.ProjectionRebuildScope{
+			Type: derivation.RebuildScopeFull,
+		},
+	})
+	if err != nil {
+		t.Fatalf("trigger quote rebuild: %v", err)
+	}
+	if err := handlers.ExecuteProjectionRebuildRun(ctx, run.ID); err != nil {
+		t.Fatalf("execute quote rebuild: %v", err)
+	}
+	rebuilt, err := pgStore.QuoteCountsByEventIDs(ctx, []string{note.ID, article.ID})
+	if err != nil {
+		t.Fatalf("rebuilt quote counts: %v", err)
+	}
+	if rebuilt[note.ID] != 1 || rebuilt[article.ID] != 1 {
+		t.Fatalf("rebuilt quote counts = %v, want one each", rebuilt)
 	}
 }
 

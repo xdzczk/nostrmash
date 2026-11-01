@@ -26,10 +26,12 @@ CREATE INDEX IF NOT EXISTS idx_quote_contributions_target_address
     ON quote_contributions (target_address)
     WHERE target_address <> '';
 
+-- DISTINCT: one note can repeat the same q tag. A single INSERT .. ON
+-- CONFLICT cannot update that row twice.
 INSERT INTO quote_contributions (
     source_event_id, target_event_id, target_address, derivation_version
 )
-SELECT parsed.source_event_id, parsed.target_event_id, parsed.target_address, 1
+SELECT DISTINCT parsed.source_event_id, parsed.target_event_id, parsed.target_address, 1
 FROM (
     SELECT
         e.id AS source_event_id,
