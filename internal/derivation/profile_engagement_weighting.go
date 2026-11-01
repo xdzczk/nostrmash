@@ -12,12 +12,13 @@ import (
 // score. Raw recent_* counters stay on the analytics path.
 //
 // Trending engagement is one trust-weighted vote per (signal, engager) on
-// root notes published in the window. One person liking ten of those notes
+// root notes published in the window, after the note farm discount: a copied
+// phrase collapses to one vote, and reactions and reposts past the reply and
+// zap budget count at the cheap floor. One person liking ten of those notes
 // counts once per signal, and a like on an older note does not count.
-// Rising engagement is one vote per engager whose event falls in the window,
-// at any note age: attention arriving now, without letting one account walk
-// an old timeline into a pile of votes. motionAt is the newest in-window
-// root note or the latest engagement on one, whichever is later.
+// Rising engagement is one person whose event falls in the window, at any
+// note age, classified by their strongest signal. motionAt is the newest
+// in-window root note or the latest engagement on one, whichever is later.
 type profileWeightedScoreInputs struct {
 	trendingEngagement24h float64
 	trendingEngagement7d  float64
@@ -39,14 +40,16 @@ type profileWeightedScoreInputs struct {
 // loadProfileWeightedScoreInputsTx scans windowed engagement toward one
 // profile and aggregates the trending and rising score inputs. Trust
 // weighting scales each vote; with it off, every non-author engager counts
-// 1.0. Either way the population rules are the same, so a like on an old
-// note cannot become "engagement per post".
+// 1.0 before the farm discount. Either way the population rules are the
+// same, so a like on an old note cannot become "engagement per post".
 //
 // Engagement branches start from the denormalized target_pubkey indexes
 // (migration 000082) and only then look up the target note by primary key.
 // The previous plan joined events first to discover the author and timed
 // out. Rows with NULL target_pubkey are skipped. The authored-note scan is
-// bounded to the 30d window on (pubkey, kind, created_at).
+// bounded to the 30d window on (pubkey, kind, created_at). Reply rows bring
+// their text so a copied phrase can collapse; reactions, reposts, and zaps
+// collapse to one row per engager in SQL.
 func loadProfileWeightedScoreInputsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -66,140 +69,28 @@ func loadProfileWeightedScoreInputsTx(
 
 	var out profileWeightedScoreInputs
 
-	// Trending votes require the target to be a root note published in the
-	// window, then collapse to one vote per (signal, engager). Rising votes
-	// collapse to one vote per engager across every signal and note age.
-	// Profile zaps have no note, so they can move rising and not trending.
-	if err := tx.QueryRow(ctx, `
-		WITH raw AS (
-			SELECT 'reply'::text AS src, c.source_pubkey AS engager, c.target_event_id AS target, c.source_created_at AS ts
-			FROM reply_count_contributions c
-			WHERE c.target_pubkey = $1
-			  AND c.source_pubkey <> $1
-			  AND c.source_created_at >= $2
-			  AND c.source_created_at <= $8
-			UNION ALL
-			SELECT 'repost', r.reposter_pubkey, r.target_event_id, r.created_at
-			FROM repost_events r
-			WHERE r.target_pubkey = $1
-			  AND r.reposter_pubkey <> $1
-			  AND r.created_at >= $2
-			  AND r.created_at <= $8
-			UNION ALL
-			SELECT 'reaction', r.reactor_pubkey, r.target_event_id, r.created_at
-			FROM reaction_events r
-			WHERE r.target_pubkey = $1
-			  AND r.reactor_pubkey <> $1
-			  AND r.created_at >= $2
-			  AND r.created_at <= $8
-			UNION ALL
-			SELECT 'zap', zr.sender_pubkey, NULLIF(zr.event_id, ''), zr.created_at
-			FROM zap_receipts zr
-			WHERE zr.receiver_pubkey = $1
-			  AND zr.sender_pubkey <> $1
-			  AND zr.created_at >= $2
-			  AND zr.created_at <= $8
-		),
-		root_notes AS (
-			SELECT r.src, r.engager, r.ts, e.created_at AS note_created
-			FROM raw r
-			JOIN events e ON e.id = r.target
-			WHERE e.kind = 1
-			  AND e.pubkey = $1
-			  AND e.created_at <= $8
-			  AND NOT EXISTS (
-				SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
-			  )
-		),
-		trending_votes AS (
-			SELECT src, engager,
-				bool_or(note_created >= $3) AS in_24h,
-				bool_or(note_created >= $7) AS in_7d
-			FROM root_notes
-			WHERE note_created >= $2
-			GROUP BY src, engager
-		),
-		rising_votes AS (
-			SELECT engager,
-				bool_or(ts >= $3) AS in_24h,
-				bool_or(ts >= $7) AS in_7d
-			FROM raw
-			GROUP BY engager
-		),
-		authored AS (
-			SELECT
-				MAX(e.created_at) FILTER (WHERE e.created_at >= $3) AS at_24h,
-				MAX(e.created_at) FILTER (WHERE e.created_at >= $7) AS at_7d,
-				MAX(e.created_at) AS at_30d
-			FROM events e
-			WHERE e.pubkey = $1
-			  AND e.kind = 1
-			  AND e.created_at >= $2
-			  AND e.created_at <= $8
-			  AND NOT EXISTS (
-				SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
-			  )
-		),
-		engaged AS (
-			SELECT
-				MAX(ts) FILTER (WHERE note_created >= $3) AS at_24h,
-				MAX(ts) FILTER (WHERE note_created >= $7) AS at_7d,
-				MAX(ts) FILTER (WHERE note_created >= $2) AS at_30d
-			FROM root_notes
-		),
-		motion AS (
-			SELECT
-				GREATEST(a.at_24h, g.at_24h) AS at_24h,
-				GREATEST(a.at_7d, g.at_7d) AS at_7d,
-				GREATEST(a.at_30d, g.at_30d) AS at_30d
-			FROM authored a
-			CROSS JOIN engaged g
-		)
-		SELECT
-			COALESCE((SELECT SUM(w) FROM (
-				SELECT `+engagerWeightCaseSQL+` AS w
-				FROM trending_votes v
-				LEFT JOIN trust_pubkeys_latest t ON t.pubkey = v.engager
-				WHERE v.in_24h
-			) s), 0),
-			COALESCE((SELECT SUM(w) FROM (
-				SELECT `+engagerWeightCaseSQL+` AS w
-				FROM trending_votes v
-				LEFT JOIN trust_pubkeys_latest t ON t.pubkey = v.engager
-				WHERE v.in_7d
-			) s), 0),
-			COALESCE((SELECT SUM(w) FROM (
-				SELECT `+engagerWeightCaseSQL+` AS w
-				FROM trending_votes v
-				LEFT JOIN trust_pubkeys_latest t ON t.pubkey = v.engager
-			) s), 0),
-			COALESCE((SELECT SUM(w) FROM (
-				SELECT `+engagerWeightCaseSQL+` AS w
-				FROM rising_votes v
-				LEFT JOIN trust_pubkeys_latest t ON t.pubkey = v.engager
-				WHERE v.in_24h
-			) s), 0),
-			COALESCE((SELECT SUM(w) FROM (
-				SELECT `+engagerWeightCaseSQL+` AS w
-				FROM rising_votes v
-				LEFT JOIN trust_pubkeys_latest t ON t.pubkey = v.engager
-				WHERE v.in_7d
-			) s), 0),
-			COALESCE((SELECT SUM(w) FROM (
-				SELECT `+engagerWeightCaseSQL+` AS w
-				FROM rising_votes v
-				LEFT JOIN trust_pubkeys_latest t ON t.pubkey = v.engager
-			) s), 0),
-			(SELECT at_24h FROM motion),
-			(SELECT at_7d FROM motion),
-			(SELECT at_30d FROM motion)
-	`, noteArgs...).Scan(
-		&out.trendingEngagement24h, &out.trendingEngagement7d, &out.trendingEngagement30d,
-		&out.risingEngagement24h, &out.risingEngagement7d, &out.risingEngagement30d,
-		&out.motionAt24h, &out.motionAt7d, &out.motionAt30d,
-	); err != nil {
-		return out, fmt.Errorf("load weighted profile engagement: %w", err)
+	replies, replyMotion24, replyMotion7, replyMotion30, err := loadProfileReplyVotesTx(ctx, tx, noteArgs)
+	if err != nil {
+		return out, err
 	}
+	reactions, reposts, zaps, signalMotion24, signalMotion7, signalMotion30, err := loadProfileSignalVotesTx(ctx, tx, noteArgs)
+	if err != nil {
+		return out, err
+	}
+	authoredMotion24, authoredMotion7, authoredMotion30, err := loadProfileAuthoredMotionTx(ctx, tx, pubkey, cutoff30d, cutoff24h, cutoff7d)
+	if err != nil {
+		return out, err
+	}
+	scores := discountProfileVotes(replies, reactions, reposts, zaps)
+	out.trendingEngagement24h = scores.trending24h
+	out.trendingEngagement7d = scores.trending7d
+	out.trendingEngagement30d = scores.trending30d
+	out.risingEngagement24h = scores.rising24h
+	out.risingEngagement7d = scores.rising7d
+	out.risingEngagement30d = scores.rising30d
+	out.motionAt24h = unixPtr(laterUnix(authoredMotion24, replyMotion24, signalMotion24))
+	out.motionAt7d = unixPtr(laterUnix(authoredMotion7, replyMotion7, signalMotion7))
+	out.motionAt30d = unixPtr(laterUnix(authoredMotion30, replyMotion30, signalMotion30))
 
 	// Zap volume counts only sats on root notes published in the window.
 	// A zap on an old note must not raise the per-post score, and a profile
@@ -252,4 +143,239 @@ func loadProfileWeightedScoreInputsTx(
 		return out, fmt.Errorf("load weighted profile new followers: %w", err)
 	}
 	return out, nil
+}
+
+// profileSignalSelectSQL aggregates one engager. $4/$5/$6 are the trust-weight
+// binds. Motion is the latest engagement on a root note published in the window.
+const profileSignalSelectSQL = `
+	g.pubkey,
+	MAX(` + engagerWeightCaseSQL + `) AS weight,
+	COALESCE(bool_or(g.created_at >= $3), false) AS rising_24h,
+	COALESCE(bool_or(g.created_at >= $7), false) AS rising_7d,
+	COALESCE(bool_or(n.created_at >= $3), false) AS trending_24h,
+	COALESCE(bool_or(n.created_at >= $7), false) AS trending_7d,
+	COALESCE(bool_or(n.id IS NOT NULL), false) AS trending_30d,
+	COALESCE(MAX(g.created_at) FILTER (WHERE n.created_at >= $3), 0) AS motion_24h,
+	COALESCE(MAX(g.created_at) FILTER (WHERE n.created_at >= $7), 0) AS motion_7d,
+	COALESCE(MAX(g.created_at) FILTER (WHERE n.id IS NOT NULL), 0) AS motion_30d`
+
+// profileRootNoteJoinSQL matches a target that is this author's root note
+// published inside the 30d window. Trust weight is joined on the engager.
+const profileRootNoteJoinSQL = `
+	LEFT JOIN events n ON n.id = g.target_event_id
+		AND n.kind = 1
+		AND n.pubkey = $1
+		AND n.created_at >= $2
+		AND n.created_at <= $8
+		AND NOT EXISTS (
+			SELECT 1 FROM thread_edges te WHERE te.child_event_id = n.id
+		)
+	LEFT JOIN trust_pubkeys_latest t ON t.pubkey = g.pubkey`
+
+func loadProfileReplyVotesTx(ctx context.Context, tx pgx.Tx, noteArgs []any) ([]profileVote, int64, int64, int64, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT
+			c.source_pubkey,
+			COALESCE(src.content, ''),
+			`+engagerWeightCaseSQL+`,
+			c.source_created_at,
+			COALESCE(n.created_at >= $3, false),
+			COALESCE(n.created_at >= $7, false),
+			(n.id IS NOT NULL),
+			COALESCE(c.source_created_at >= $3, false),
+			COALESCE(c.source_created_at >= $7, false)
+		FROM reply_count_contributions c
+		JOIN events src ON src.id = c.source_event_id
+		LEFT JOIN trust_pubkeys_latest t ON t.pubkey = c.source_pubkey
+		LEFT JOIN events n ON n.id = c.target_event_id
+			AND n.kind = 1
+			AND n.pubkey = $1
+			AND n.created_at >= $2
+			AND n.created_at <= $8
+			AND NOT EXISTS (
+				SELECT 1 FROM thread_edges te WHERE te.child_event_id = n.id
+			)
+		WHERE c.target_pubkey = $1
+		  AND c.source_pubkey <> $1
+		  AND c.source_created_at >= $2
+		  AND c.source_created_at <= $8
+	`, noteArgs...)
+	if err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("load profile reply votes: %w", err)
+	}
+	defer rows.Close()
+
+	var (
+		votes                       []profileVote
+		motion24, motion7, motion30 int64
+	)
+	for rows.Next() {
+		var vote profileVote
+		if err := rows.Scan(
+			&vote.Pubkey,
+			&vote.Content,
+			&vote.Weight,
+			&vote.EventAt,
+			&vote.Trending24h,
+			&vote.Trending7d,
+			&vote.Trending30d,
+			&vote.Rising24h,
+			&vote.Rising7d,
+		); err != nil {
+			return nil, 0, 0, 0, fmt.Errorf("scan profile reply vote: %w", err)
+		}
+		votes = append(votes, vote)
+		if vote.Trending24h && vote.EventAt > motion24 {
+			motion24 = vote.EventAt
+		}
+		if vote.Trending7d && vote.EventAt > motion7 {
+			motion7 = vote.EventAt
+		}
+		if vote.Trending30d && vote.EventAt > motion30 {
+			motion30 = vote.EventAt
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("read profile reply votes: %w", err)
+	}
+	return votes, motion24, motion7, motion30, nil
+}
+
+func loadProfileSignalVotesTx(ctx context.Context, tx pgx.Tx, noteArgs []any) ([]profileVote, []profileVote, []profileVote, int64, int64, int64, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT src, pubkey, weight, rising_24h, rising_7d, trending_24h, trending_7d, trending_30d, motion_24h, motion_7d, motion_30d
+		FROM (
+			SELECT 'reaction'::text AS src, `+profileSignalSelectSQL+`
+			FROM (
+				SELECT reactor_pubkey AS pubkey, target_event_id, created_at
+				FROM reaction_events
+				WHERE target_pubkey = $1
+				  AND reactor_pubkey <> $1
+				  AND created_at >= $2
+				  AND created_at <= $8
+			) g
+			`+profileRootNoteJoinSQL+`
+			GROUP BY g.pubkey
+			UNION ALL
+			SELECT 'repost'::text AS src, `+profileSignalSelectSQL+`
+			FROM (
+				SELECT reposter_pubkey AS pubkey, target_event_id, created_at
+				FROM repost_events
+				WHERE target_pubkey = $1
+				  AND reposter_pubkey <> $1
+				  AND created_at >= $2
+				  AND created_at <= $8
+			) g
+			`+profileRootNoteJoinSQL+`
+			GROUP BY g.pubkey
+			UNION ALL
+			SELECT 'zap'::text AS src, `+profileSignalSelectSQL+`
+			FROM (
+				SELECT sender_pubkey AS pubkey, event_id AS target_event_id, created_at
+				FROM zap_receipts
+				WHERE receiver_pubkey = $1
+				  AND sender_pubkey <> $1
+				  AND created_at >= $2
+				  AND created_at <= $8
+			) g
+			`+profileRootNoteJoinSQL+`
+			GROUP BY g.pubkey
+		) votes
+	`, noteArgs...)
+	if err != nil {
+		return nil, nil, nil, 0, 0, 0, fmt.Errorf("load profile signal votes: %w", err)
+	}
+	defer rows.Close()
+
+	var reactions, reposts, zaps []profileVote
+	var motion24, motion7, motion30 int64
+	for rows.Next() {
+		var src string
+		var vote profileVote
+		var voteMotion24, voteMotion7, voteMotion30 int64
+		if err := rows.Scan(
+			&src,
+			&vote.Pubkey,
+			&vote.Weight,
+			&vote.Rising24h,
+			&vote.Rising7d,
+			&vote.Trending24h,
+			&vote.Trending7d,
+			&vote.Trending30d,
+			&voteMotion24,
+			&voteMotion7,
+			&voteMotion30,
+		); err != nil {
+			return nil, nil, nil, 0, 0, 0, fmt.Errorf("scan profile signal vote: %w", err)
+		}
+		switch src {
+		case "reaction":
+			reactions = append(reactions, vote)
+		case "repost":
+			reposts = append(reposts, vote)
+		case "zap":
+			zaps = append(zaps, vote)
+		default:
+			return nil, nil, nil, 0, 0, 0, fmt.Errorf("unknown profile signal %q", src)
+		}
+		if voteMotion24 > motion24 {
+			motion24 = voteMotion24
+		}
+		if voteMotion7 > motion7 {
+			motion7 = voteMotion7
+		}
+		if voteMotion30 > motion30 {
+			motion30 = voteMotion30
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, 0, 0, 0, fmt.Errorf("read profile signal votes: %w", err)
+	}
+	return reactions, reposts, zaps, motion24, motion7, motion30, nil
+}
+
+func loadProfileAuthoredMotionTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	pubkey string,
+	cutoff30d int64,
+	cutoff24h int64,
+	cutoff7d int64,
+) (int64, int64, int64, error) {
+	var motion24, motion7, motion30 int64
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			COALESCE(MAX(e.created_at) FILTER (WHERE e.created_at >= $3), 0),
+			COALESCE(MAX(e.created_at) FILTER (WHERE e.created_at >= $4), 0),
+			COALESCE(MAX(e.created_at), 0)
+		FROM events e
+		WHERE e.pubkey = $1
+		  AND e.kind = 1
+		  AND e.created_at >= $2
+		  AND e.created_at <= $5
+		  AND NOT EXISTS (
+			SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
+		  )
+	`, pubkey, cutoff30d, cutoff24h, cutoff7d, maxSaneUnixCreatedAt).Scan(&motion24, &motion7, &motion30); err != nil {
+		return 0, 0, 0, fmt.Errorf("load profile authored motion: %w", err)
+	}
+	return motion24, motion7, motion30, nil
+}
+
+func laterUnix(values ...int64) int64 {
+	var best int64
+	for _, value := range values {
+		if value > best {
+			best = value
+		}
+	}
+	return best
+}
+
+func unixPtr(value int64) *int64 {
+	if value <= 0 {
+		return nil
+	}
+	out := value
+	return &out
 }

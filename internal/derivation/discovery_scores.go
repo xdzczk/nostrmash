@@ -87,7 +87,9 @@ func RankRecencyMatters(windowLabel string) bool {
 // The replies and the zaps still add their own score. A repost from someone
 // in the pile is omitted before it gets here. The surplus counts at
 // cheapEngagementFloor. The share is a headcount ratio, so halving every
-// engager's trust weight still halves the score.
+// engager's trust weight halves the reply, reaction, repost, and zap-count
+// terms. Zap amount is zapAmountSignal of the already-weighted millisats,
+// so that term shrinks by less than half.
 //
 // Recency depends on the window. A 24-hour score keeps half at the edge of
 // the day, a 7-day score keeps 85% at the end of the week, and a 30-day
@@ -134,7 +136,7 @@ func computeTrendingScore(
 	substantive := (substantiveReplyWeight + zapWeight) * cheapUnlockShare
 	base := replyWeight*3.0 +
 		zapWeight*2.0 +
-		(zapMSats / 100000.0) +
+		zapAmountSignal(zapMSats) +
 		cheapEngagementSignal(reactionWeight, repostWeight, substantive)
 	decay := recencyDecay(window, ageSeconds, windowSeconds)
 	score := base * decay
@@ -142,6 +144,18 @@ func computeTrendingScore(
 		return 0
 	}
 	return math.Round(score*1000.0) / 1000.0
+}
+
+// zapAmountSignal scores zap volume for a note and for a profile.
+// log(1 + msats/100000): 100 sats is 0.7, 10_000 is about 4.6, 50_000
+// about 6.2, and a million about 9. A single payer cannot outrank a short
+// thread. Callers pass millisatoshis already scaled by the sender's trust
+// weight.
+func zapAmountSignal(zapMSats float64) float64 {
+	if zapMSats <= 0 {
+		return 0
+	}
+	return math.Log1p(zapMSats / 100000.0)
 }
 
 // cheapEngagementSignal scores reactions and reposts. Within the budget
@@ -167,8 +181,10 @@ func cheapEngagementSignal(reactionWeight, repostWeight, substantive float64) fl
 // they published in the window. motionAt is the newest of those notes or the
 // latest engagement on them — an outbound like is not activity. replyCount is
 // accepted so callers can keep passing the authored reply counter, and it
-// does not enter the rate: replies are not posts. engagementReceived is
-// distinct (signal, engager) votes on those notes, not a count of events.
+// does not enter the rate: replies are not posts. engagementReceived is the
+// farm-discounted weight of distinct engagers on those notes: a copied phrase
+// is one vote, and reactions and reposts past the reply and zap budget count
+// at the cheap floor.
 func computeProfileTrendingScore(
 	window time.Duration,
 	nowUnix int64,
@@ -206,7 +222,7 @@ func computeProfileTrendingScore(
 	// mostly matters through engagementPerPost/qualityBoost below.
 	engagementSignal := 3.0 * math.Log1p(safeEngagement)
 	postingSignal := 0.35 * math.Log1p(float64(safePosts))
-	zapSignal := math.Log1p(safeZapVolume / 100000.0)
+	zapSignal := zapAmountSignal(safeZapVolume)
 	consistencySignal := 0.5 * math.Log1p(float64(safeActiveDays))
 
 	// qualityBoost rewards engagement-per-post with diminishing (sqrt)
@@ -229,6 +245,8 @@ func computeProfileTrendingScore(
 
 // computeProfileRisingScore takes float64 newFollowers/engagement inputs so
 // callers can pass either raw counters or deduplicated trust-weighted votes.
+// engagementReceived is one person per window after the same farm discount:
+// a reply or a zap beats a like, and a like-only ring sits on the cheap floor.
 func computeProfileRisingScore(
 	trendingScore float64,
 	followerCount int64,

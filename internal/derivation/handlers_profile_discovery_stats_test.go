@@ -182,8 +182,9 @@ func TestProjectProfileDiscoveryStats_TrustWeightedEngagement(t *testing.T) {
 	if baselineScoredEngagement != 0 {
 		t.Fatalf("expected baseline scored engagement=0, got %f", baselineScoredEngagement)
 	}
-	if engagedScoredEngagement != 1 {
-		t.Fatalf("expected engaged scored engagement=1 (deduped hop-1 vote), got %f", engagedScoredEngagement)
+	// One trusted reaction and no reply or zap sits on the cheap floor.
+	if !near(engagedScoredEngagement, 0.12) {
+		t.Fatalf("expected engaged scored engagement at the cheap floor, got %f", engagedScoredEngagement)
 	}
 	// Bot engagement buys zero trending score: farmed == baseline.
 	if diff := farmedScore - baselineScore; diff > 1e-9 || diff < -1e-9 {
@@ -248,8 +249,9 @@ func TestProjectProfileDiscoveryStats_LegacyFullScanExcludesSelfEngagement(t *te
 
 // Likes on notes from outside the window, and likes on replies, must not
 // become a per-post trending rate. One person liking several in-window root
-// notes counts once. Rising still counts each person who showed up, including
-// on older notes, but a single person stays under the noise floor.
+// notes counts once, and a like with no reply or zap counts at the cheap
+// floor. Rising still counts each person who showed up, including on older
+// notes. Like-only attention stays under the rising noise floor.
 func TestProjectProfileDiscoveryStats_EngagementFollowsInWindowRootNotes(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)
@@ -308,17 +310,19 @@ func TestProjectProfileDiscoveryStats_EngagementFollowsInWindowRootNotes(t *test
 	if raw != 6 {
 		t.Fatalf("display engagement = %d, want 6 raw events", raw)
 	}
-	if trending != 1 {
-		t.Fatalf("trending engagement = %v, want 1 (one person, in-window root notes only)", trending)
+	// Booster liked both fresh roots: one cheap vote, not two.
+	if !near(trending, 0.12) {
+		t.Fatalf("trending engagement = %v, want 0.12 (one person, cheap floor)", trending)
 	}
-	if rising != 3 {
-		t.Fatalf("rising engagement = %v, want 3 distinct people", rising)
+	// Booster, stranger, and reply fan. No replies and no zaps, so each person is cheap.
+	if !near(rising, 0.36) {
+		t.Fatalf("rising engagement = %v, want 0.36 (three people at the cheap floor)", rising)
 	}
 	if score <= 0 {
 		t.Fatalf("in-window root note with a real engager should trend, score=%v", score)
 	}
-	if risingScore <= 0 {
-		t.Fatalf("three distinct people should clear the rising noise floor, score=%v", risingScore)
+	if risingScore != 0 {
+		t.Fatalf("like-only attention must stay under the rising noise floor, score=%v", risingScore)
 	}
 
 	var quietTrending, quietRising, quietScore, quietRisingScore float64
@@ -334,12 +338,144 @@ func TestProjectProfileDiscoveryStats_EngagementFollowsInWindowRootNotes(t *test
 	if quietTrending != 0 || quietScore != 0 {
 		t.Fatalf("old-note like must not trend a profile with no in-window root note: engagement=%v score=%v", quietTrending, quietScore)
 	}
-	if quietRising != 1 {
-		t.Fatalf("rising engagement = %v, want the one person who liked the old note", quietRising)
+	if !near(quietRising, 0.12) {
+		t.Fatalf("rising engagement = %v, want the one like at the cheap floor", quietRising)
 	}
 	if quietRisingScore != 0 {
 		t.Fatalf("one person is noise for rising, score=%v", quietRisingScore)
 	}
+}
+
+// A reaction pile and a greeting pile must not buy the profile rank that a
+// short real conversation does. Display counters stay raw.
+func TestProjectProfileDiscoveryStats_DiscountsFarmedEngagement(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	now := time.Now().UTC()
+	at := now.Add(-2 * time.Hour)
+
+	events := []model.Event{
+		newEventForTest("farm_note", "farm_author", at.Unix(), 1, nil, "farmed", at),
+		newEventForTest("thread_note", "thread_author", at.Unix(), 1, nil, "thread", at),
+		newEventForTest("greet_note", "greet_author", at.Unix(), 1, nil, "greet", at),
+	}
+	for i := 0; i < 20; i++ {
+		events = append(events, newEventForTest(
+			fmt.Sprintf("farm_react_%d", i),
+			fmt.Sprintf("farm_reactor_%d", i),
+			at.Unix(),
+			7,
+			[][]string{{"e", "farm_note"}},
+			"+",
+			at,
+		))
+	}
+	replies := []string{
+		"Archival relays still matter for this conversation.",
+		"Paid filters changed who actually showed up here.",
+		"I would not route private messages through that box.",
+		"The media policy is the part I disagree with.",
+	}
+	for i, content := range replies {
+		events = append(events, newEventForTest(
+			fmt.Sprintf("thread_reply_%d", i),
+			fmt.Sprintf("thread_replier_%d", i),
+			at.Unix(),
+			1,
+			[][]string{{"e", "thread_note", "", "reply"}},
+			content,
+			at,
+		))
+	}
+	for i := 0; i < 2; i++ {
+		events = append(events, newEventForTest(
+			fmt.Sprintf("thread_react_%d", i),
+			fmt.Sprintf("thread_reactor_%d", i),
+			at.Unix(),
+			7,
+			[][]string{{"e", "thread_note"}},
+			"+",
+			at,
+		))
+	}
+	for i := 0; i < 6; i++ {
+		events = append(events, newEventForTest(
+			fmt.Sprintf("greet_reply_%d", i),
+			fmt.Sprintf("greet_replier_%d", i),
+			at.Unix(),
+			1,
+			[][]string{{"e", "greet_note", "", "reply"}},
+			"GM",
+			at,
+		))
+	}
+	for i := 0; i < 10; i++ {
+		events = append(events, newEventForTest(
+			fmt.Sprintf("greet_react_%d", i),
+			fmt.Sprintf("greet_reactor_%d", i),
+			at.Unix(),
+			7,
+			[][]string{{"e", "greet_note"}},
+			"+",
+			at,
+		))
+	}
+	for _, event := range events {
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+	drainPendingProfileStatsForTest(t, ctx, handlers)
+
+	type scored struct {
+		display    int64
+		engagement float64
+		score      float64
+	}
+	read := func(pubkey string) scored {
+		t.Helper()
+		var row scored
+		if err := pool.QueryRow(ctx, `
+			SELECT recent_engagement_received, COALESCE(scored_engagement_24h, -1), score_24h
+			FROM profile_discovery_stats
+			WHERE pubkey = $1
+		`, pubkey).Scan(&row.display, &row.engagement, &row.score); err != nil {
+			t.Fatalf("query %s: %v", pubkey, err)
+		}
+		return row
+	}
+	farm := read("farm_author")
+	thread := read("thread_author")
+	greet := read("greet_author")
+
+	if farm.display != 20 {
+		t.Fatalf("farm display engagement = %d, want 20 raw reactions", farm.display)
+	}
+	if !near(farm.engagement, 2.4) {
+		t.Fatalf("farm scored engagement = %v, want 20 reactions at the cheap floor", farm.engagement)
+	}
+	if !near(thread.engagement, 6) {
+		t.Fatalf("thread scored engagement = %v, want 4 replies + 2 likes", thread.engagement)
+	}
+	if !near(greet.engagement, 2.2) {
+		t.Fatalf("greeting scored engagement = %v, want one pile vote plus 10 likes at the floor", greet.engagement)
+	}
+	if thread.score <= farm.score || thread.score <= greet.score {
+		t.Fatalf("conversation should outrank both farms: thread=%v farm=%v greet=%v", thread.score, farm.score, greet.score)
+	}
+}
+
+func near(got, want float64) bool {
+	const eps = 0.001
+	return got <= want+eps && got >= want-eps
 }
 
 func TestProjectionRebuildScopes_ProfileDiscoveryStatsFull(t *testing.T) {

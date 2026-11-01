@@ -36,6 +36,7 @@ const (
 	DerivationReplyCounts                 = "reply_counts"
 	DerivationReactionCounts              = "reaction_counts"
 	DerivationRepostCounts                = "repost_counts"
+	DerivationQuoteCounts                 = "quote_counts"
 	DerivationCommentEdges                = "comment_edges"
 	DerivationReportTargets               = "report_targets"
 	DerivationReactionEvents              = "reaction_events"
@@ -76,6 +77,7 @@ const (
 	ReplyCountsVersion        = 2
 	ReactionCountsVersion     = 1
 	RepostCountsVersion       = 1
+	QuoteCountsVersion        = 1
 	CommentEdgesVersion       = 1
 	ReportTargetsVersion      = 1
 	ReactionEventsVersion     = 1
@@ -116,7 +118,10 @@ const (
 	// pile is most of the repliers the like and repost budget shrinks to
 	// the share of repliers outside it. Rows keep the previous scores until
 	// the next derive or a time-range rebuild.
-	NoteDiscoveryStatsVersion = 13
+	// v14: zap amount is log(1 + msats/100000), the same curve as profile
+	// trending. One payer's sats stay a small bump. Rows keep the previous
+	// scores until the next derive or a time-range rebuild.
+	NoteDiscoveryStatsVersion = 14
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -145,7 +150,13 @@ const (
 	// v9: 7d trending keeps 85% at the end of the week, and 30d trending
 	// drops the recency penalty. 24h is unchanged. The profile-stats
 	// sweeper rewrites rows still inside the serving window.
-	ProfileDiscoveryStatsVersion   = 9
+	// v10: trending and rising engagement use the note farm discount. A
+	// copied phrase collapses to one vote and does not open the like budget.
+	// Reactions and reposts past the reply and zap budget count at the cheap
+	// floor. Rising still keeps one person, classified by their strongest
+	// signal. Rows keep the previous scores until the profile-stats sweeper
+	// rewrites them.
+	ProfileDiscoveryStatsVersion   = 10
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1

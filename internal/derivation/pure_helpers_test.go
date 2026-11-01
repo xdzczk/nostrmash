@@ -113,7 +113,7 @@ func TestComputeTrendingScore(t *testing.T) {
 	})
 
 	t.Run("a large zap does not unlock a reaction farm", func(t *testing.T) {
-		// 50_000 sats is real support and must count. It must not restore
+		// 50_000 sats still counts, as a few points. It must not restore
 		// the 100 reactions that one zapper does not explain.
 		withFarm := computeTrendingScore(window, now, now, 0, 0, 0, 100, 1, 50_000_000, 1)
 		zapOnly := computeTrendingScore(window, now, now, 0, 0, 0, 0, 1, 50_000_000, 1)
@@ -124,6 +124,26 @@ func TestComputeTrendingScore(t *testing.T) {
 		// plus the 4 the zap unlocks, so the gap stays well under 30.
 		if withFarm-zapOnly > 30 {
 			t.Fatalf("zap amount unlocked too much of the reaction pile: farm=%v zapOnly=%v", withFarm, zapOnly)
+		}
+	})
+
+	t.Run("one payer cannot outrank a short thread", func(t *testing.T) {
+		// Amount is log(1 + sats/100). The zap-count term adds 2. 50_000
+		// sats stays under three replies, and a million stays under four.
+		// More sats still rank higher.
+		thousand := computeTrendingScore(window, now, now, 0, 0, 0, 0, 1, 1_000_000, 1)
+		fiftyK := computeTrendingScore(window, now, now, 0, 0, 0, 0, 1, 50_000_000, 1)
+		million := computeTrendingScore(window, now, now, 0, 0, 0, 0, 1, 1_000_000_000, 1)
+		threeReplies := computeTrendingScore(window, now, now, 3, 3, 0, 0, 0, 0, 1)
+		fourReplies := computeTrendingScore(window, now, now, 4, 4, 0, 0, 0, 0, 1)
+		if thousand >= fiftyK || fiftyK >= million {
+			t.Fatalf("more sats should rank higher: 1k=%v 50k=%v 1M=%v", thousand, fiftyK, million)
+		}
+		if fiftyK >= threeReplies {
+			t.Fatalf("50k sats %v should score below 3 replies %v", fiftyK, threeReplies)
+		}
+		if million >= fourReplies {
+			t.Fatalf("1M sats %v should score below 4 replies %v", million, fourReplies)
 		}
 	})
 
