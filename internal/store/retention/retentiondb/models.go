@@ -634,6 +634,14 @@ type ProjectionRebuildRun struct {
 	UpdatedAt           pgtype.Timestamptz
 }
 
+type QuoteContribution struct {
+	SourceEventID     string
+	TargetEventID     string
+	TargetAddress     string
+	DerivationVersion int32
+	ProjectedAt       pgtype.Timestamptz
+}
+
 type ReactionCount struct {
 	EventID           string
 	Count             int64
@@ -1076,4 +1084,5 @@ type ZapReceipt struct {
 	AmountSats        int64
 	DerivationVersion int32
 	ProjectedAt       pgtype.Timestamptz
+	TargetAddress     string
 }
