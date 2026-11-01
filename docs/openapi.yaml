@@ -1120,12 +1120,14 @@ paths:
       tags: [public]
       summary: Notes and articles ranked by sats received in the window
       description: >
-        Ranks root kind-1 notes and kind-30023 articles by sats received
-        inside the window. Replies are omitted. A zap the author sent to
-        their own note does not count. `zap_msats` and `zap_count` are the
-        window totals, and `score` is the window sats. The default window
-        is 7d. The worker refreshes this list every few minutes.
-        `reasons[0].code` is `zap_volume`.
+        Ranks root kind-1 notes and kind-30023 articles that were published
+        inside the window by sats other people zapped onto them during that
+        same window. An older note zapped today is not on the 24h list.
+        Replies are omitted. A zap the author sent to their own note does
+        not count. `zap_msats` and `zap_count` are the window totals, and
+        `score` is the window sats. The default window is 7d. The worker
+        refreshes this list every few minutes. `reasons[0].code` is
+        `zap_volume`.
       parameters:
         - in: query
           name: window

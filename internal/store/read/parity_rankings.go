@@ -80,9 +80,10 @@ func (s *Read) GetBookmarkedNotes(ctx context.Context, lang string, limit int, o
 	return scanRankedNotes(rows, true)
 }
 
-// GetMostZappedNotes ranks root notes and articles by sats received inside
-// the window. The worker refreshes note_zap_window_stats; this read does
-// not sum receipts.
+// GetMostZappedNotes ranks root notes and articles published in the window
+// by sats received in that same window. The worker refreshes
+// note_zap_window_stats; this read does not sum receipts. The created_at
+// check drops a note that has aged out of the window since the last refresh.
 func (s *Read) GetMostZappedNotes(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingNote, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
@@ -92,6 +93,7 @@ func (s *Read) GetMostZappedNotes(ctx context.Context, window time.Duration, lan
 		return nil, err
 	}
 	limit, offset = clampRankPage(limit, offset)
+	publishedAfter := time.Now().UTC().Add(-window).Unix()
 	query := fmt.Sprintf(`
 		SELECT
 			e.id,
@@ -111,6 +113,7 @@ func (s *Read) GetMostZappedNotes(ctx context.Context, window time.Duration, lan
 		JOIN events e ON e.id = z.event_id
 		LEFT JOIN note_discovery_stats s ON s.event_id = z.event_id
 		WHERE %s > 0
+		  AND e.created_at >= $3
 		  AND e.kind IN (1, 30023)
 		  AND NOT EXISTS (
 			SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
@@ -121,9 +124,9 @@ func (s *Read) GetMostZappedNotes(ctx context.Context, window time.Duration, lan
 		LIMIT $1 OFFSET $2
 	`, countColumn, satsColumn, satsColumn, satsColumn,
 		fmt.Sprintf(rankedProfileExistsSQL, "e.pubkey", "e.pubkey"),
-		noteLanguageClause("s", "$3::text", lang),
+		noteLanguageClause("s", "$4::text", lang),
 		satsColumn)
-	args := []any{limit, offset}
+	args := []any{limit, offset, publishedAfter}
 	if lang != "" {
 		args = append(args, lang)
 	}

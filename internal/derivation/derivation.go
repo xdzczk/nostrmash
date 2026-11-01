@@ -176,6 +176,10 @@ const (
 	// description tag, then the NIP-57 P tag, then the receipt pubkey.
 	// Migration 000109 rewrites rows that still name the service. A profile
 	// sent-zap page filters on this column.
+	// Migration 000108 filled empty amounts by splitting BOLT11 on the first
+	// '1'. That digit is often inside the amount (lnbc210n is 21 sats), so
+	// those rows were stored as whole BTC. Migration 000111 recomputes
+	// amount_sats with the same rules as zapReceiptAmountSats.
 	ZapReceiptsVersion           = 3
 	ProfilePublicStatsVersion    = 1
 	AuthorActivityDailyVersion   = 1

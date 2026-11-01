@@ -10,9 +10,11 @@ import (
 // most-supported profile windows from zap receipts. The worker runs this
 // every few minutes. Readers only scan the resulting tables.
 //
-// Note rank is sats received in the window, excluding a zap the author
-// sent to their own note and excluding replies. Profile rank sums each
-// sender only up to SupportSenderCapSats, and ignores a self-zap.
+// Note rank is sats received in the window on a note published in that
+// same window. A zap the author sent to their own note does not count,
+// and replies do not count. An older note zapped today stays off the
+// 24h list. Profile rank sums each sender only up to SupportSenderCapSats,
+// and ignores a self-zap.
 func (h *Handlers) RefreshPaidRankings(ctx context.Context) error {
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
@@ -45,16 +47,17 @@ func (h *Handlers) RefreshPaidRankings(ctx context.Context) error {
 		SELECT z.event_id,
 		       e.pubkey,
 		       e.kind,
-		       COALESCE(SUM(z.amount_sats) FILTER (WHERE z.created_at >= $1), 0)::bigint,
-		       COUNT(*) FILTER (WHERE z.created_at >= $1),
-		       COALESCE(SUM(z.amount_sats) FILTER (WHERE z.created_at >= $2), 0)::bigint,
-		       COUNT(*) FILTER (WHERE z.created_at >= $2),
+		       COALESCE(SUM(z.amount_sats) FILTER (WHERE z.created_at >= $1 AND e.created_at >= $1), 0)::bigint,
+		       COUNT(*) FILTER (WHERE z.created_at >= $1 AND e.created_at >= $1),
+		       COALESCE(SUM(z.amount_sats) FILTER (WHERE z.created_at >= $2 AND e.created_at >= $2), 0)::bigint,
+		       COUNT(*) FILTER (WHERE z.created_at >= $2 AND e.created_at >= $2),
 		       COALESCE(SUM(z.amount_sats), 0)::bigint,
 		       COUNT(*),
 		       now()
 		FROM zap_receipts z
 		JOIN events e ON e.id = z.event_id
 		WHERE z.created_at >= $3
+		  AND e.created_at >= $3
 		  AND z.amount_sats > 0
 		  AND z.event_id IS NOT NULL
 		  AND z.event_id <> ''

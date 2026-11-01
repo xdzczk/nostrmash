@@ -179,6 +179,7 @@ func TestPaidRankings_WindowedZapsAndSenderCap(t *testing.T) {
 	rich := strings.Repeat("1", 64)
 	quiet := strings.Repeat("2", 64)
 	reply := strings.Repeat("3", 64)
+	week := strings.Repeat("4", 64)
 
 	insert := func(eventID, pubkey string, at time.Time, kind int, content string) {
 		t.Helper()
@@ -194,9 +195,11 @@ func TestPaidRankings_WindowedZapsAndSenderCap(t *testing.T) {
 		insert("meta_"+pubkey[:8], pubkey, now, 0, `{"name":"Patron"}`)
 	}
 	insert(rich, author, now.Add(-40*24*time.Hour), 1, "old note, paid today")
+	insert(week, author, now.Add(-3*24*time.Hour), 1, "three day note")
 	insert(quiet, author, now.Add(-time.Hour), 1, "small zap")
 	insert(reply, author, now.Add(-time.Hour), 1, "a reply")
 	insert("zap_rich", whale, now, 9735, "")
+	insert("zap_week", patron1, now, 9735, "")
 	insert("zap_quiet", patron1, now, 9735, "")
 	insert("zap_reply", whale, now, 9735, "")
 	insert("zap_self", author, now, 9735, "")
@@ -222,6 +225,7 @@ func TestPaidRankings_WindowedZapsAndSenderCap(t *testing.T) {
 			zap_receipt_id, created_at, event_id, sender_pubkey, receiver_pubkey, amount_sats, derivation_version
 		) VALUES
 			('zap_rich', $1, $2, $3, $4, 80000, 1),
+			('zap_week', $1, $11, $6, $4, 5000, 1),
 			('zap_quiet', $1, $5, $6, $4, 10, 1),
 			('zap_reply', $1, $7, $3, $4, 90000, 1),
 			('zap_self', $1, $2, $4, $4, 1000000, 1),
@@ -229,7 +233,7 @@ func TestPaidRankings_WindowedZapsAndSenderCap(t *testing.T) {
 			('zap_p1', $1, NULL, $6, $3, 50000, 1),
 			('zap_p2', $1, NULL, $9, $3, 50000, 1),
 			('zap_p3', $1, NULL, $10, $3, 50000, 1)
-	`, now.Unix(), rich, whale, author, quiet, patron1, reply, big, patron2, patron3); err != nil {
+	`, now.Unix(), rich, whale, author, quiet, patron1, reply, big, patron2, patron3, week); err != nil {
 		t.Fatalf("insert zap receipts: %v", err)
 	}
 	if err := handlers.RefreshPaidRankings(ctx); err != nil {
@@ -240,14 +244,15 @@ func TestPaidRankings_WindowedZapsAndSenderCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMostZappedNotes: %v", err)
 	}
-	if len(zapped) != 2 {
-		t.Fatalf("expected the old note and the small note, got %#v", zapped)
+	if len(zapped) != 1 || zapped[0].EventID != quiet || zapped[0].Score != 10 {
+		t.Fatalf("24h zapped = %#v", zapped)
 	}
-	if zapped[0].EventID != rich || zapped[0].Score != 80000 || zapped[0].ZapMSats != 80_000_000 {
-		t.Fatalf("top zapped = %#v", zapped[0])
+	weekZapped, err := pgStore.GetMostZappedNotes(ctx, 7*24*time.Hour, "", 10, 0)
+	if err != nil {
+		t.Fatalf("GetMostZappedNotes 7d: %v", err)
 	}
-	if zapped[1].EventID != quiet || zapped[1].Score != 10 {
-		t.Fatalf("second zapped = %#v", zapped[1])
+	if len(weekZapped) != 2 || weekZapped[0].EventID != week || weekZapped[0].Score != 5000 || weekZapped[1].EventID != quiet {
+		t.Fatalf("7d zapped = %#v", weekZapped)
 	}
 
 	supported, err := pgStore.GetMostSupportedProfiles(ctx, 30*24*time.Hour, 10, 0)
