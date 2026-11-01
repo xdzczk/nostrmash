@@ -49,6 +49,10 @@ type CuratedReads interface {
 	trendingLongFormCapability
 	trendingMediaCapability
 	hotConversationsCapability
+	bookmarkedNotesCapability
+	mostZappedNotesCapability
+	mostFollowedProfilesCapability
+	mostSupportedProfilesCapability
 	trustQualifiedTrendingNotesCapability
 	trendingProfilesCapability
 	relatedProfilesCapability

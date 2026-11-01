@@ -128,6 +128,12 @@ func refreshRelayWindowSnapshotsOnce(ctx context.Context, log Logger, handlers *
 
 	_ = refreshRelayWindowSnapshotsWithRetry(ctx, log, handlers.RefreshRelayWindowSnapshots)
 
+	paidCtx, paidCancel := context.WithTimeout(ctx, time.Minute)
+	if err := handlers.RefreshPaidRankings(paidCtx); err != nil {
+		log.Error("paid_rankings_refresh_failed", "error", err)
+	}
+	paidCancel()
+
 	// Report the snapshot's actual staleness regardless of whether this
 	// tick's refresh succeeded — a failing tick is exactly the case the
 	// NostrMashRelayWindowSnapshotStale alert needs to catch, and reading

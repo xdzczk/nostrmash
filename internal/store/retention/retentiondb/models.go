@@ -179,6 +179,18 @@ type AuthorTopicStat struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type BookmarkEdge struct {
+	BookmarkerPubkey  string
+	TargetEventID     string
+	TargetAddress     string
+	SourceKind        int32
+	SourceDTag        string
+	ListEventID       string
+	ListCreatedAt     int64
+	DerivationVersion int32
+	UpdatedAt         pgtype.Timestamptz
+}
+
 type CommentEdge struct {
 	SourceEventID     string
 	RootEventID       string
@@ -451,6 +463,15 @@ type Job struct {
 	FinishedAt     pgtype.Timestamptz
 }
 
+type NoteBookmarkStat struct {
+	EventID           string
+	AuthorPubkey      string
+	Kind              int32
+	BookmarkCount     int64
+	DerivationVersion int32
+	ProjectedAt       pgtype.Timestamptz
+}
+
 type NoteDiscoveryStat struct {
 	EventID            string
 	AuthorPubkey       string
@@ -474,6 +495,19 @@ type NoteDiscoveryStat struct {
 	LanguageConfidence pgtype.Float8
 	LanguageSource     pgtype.Text
 	Score30d           float64
+}
+
+type NoteZapWindowStat struct {
+	EventID      string
+	AuthorPubkey string
+	Kind         int32
+	Sats24h      int64
+	ZapCount24h  int64
+	Sats7d       int64
+	ZapCount7d   int64
+	Sats30d      int64
+	ZapCount30d  int64
+	ProjectedAt  pgtype.Timestamptz
 }
 
 type PendingAuthorAnalyticsRecompute struct {
@@ -599,6 +633,20 @@ type ProfilePublicStat struct {
 	SatsZapped        int64
 	ContentZapCount   int64
 	TimeJoined        pgtype.Int8
+}
+
+type ProfileSupportStat struct {
+	Pubkey        string
+	CappedSats24h int64
+	RawSats24h    int64
+	Supporters24h int64
+	CappedSats7d  int64
+	RawSats7d     int64
+	Supporters7d  int64
+	CappedSats30d int64
+	RawSats30d    int64
+	Supporters30d int64
+	ProjectedAt   pgtype.Timestamptz
 }
 
 type ProfilesLatest struct {

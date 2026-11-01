@@ -33,6 +33,10 @@ func wireCuratedGroup(g CuratedReads, caps *serviceCapabilities) {
 	caps.curated.trendingLongForm = g
 	caps.curated.trendingMedia = g
 	caps.curated.hotConversations = g
+	caps.curated.bookmarkedNotes = g
+	caps.curated.mostZappedNotes = g
+	caps.curated.mostFollowedProfiles = g
+	caps.curated.mostSupportedProfiles = g
 	caps.curated.trustQualifiedNotes = g
 	caps.curated.trendingProfiles = g
 	caps.curated.relatedProfiles = g

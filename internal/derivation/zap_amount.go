@@ -6,6 +6,53 @@ import (
 	"strings"
 )
 
+// zapReceiptSender is the person who paid. Kind 9735 is signed by the
+// lightning service, so the sender is the zap-request pubkey inside the
+// description tag, then the NIP-57 P tag. The receipt pubkey is only a
+// fallback for receipts that name no payer. A 64-character hex pubkey is
+// stored lowercase so it matches profile lookups.
+func zapReceiptSender(receiptPubkey string, tags [][]string) string {
+	receiptPubkey = strings.TrimSpace(receiptPubkey)
+	for _, tag := range tags {
+		if len(tag) < 2 || tag[0] != "description" {
+			continue
+		}
+		var request struct {
+			Pubkey string `json:"pubkey"`
+		}
+		if err := json.Unmarshal([]byte(tag[1]), &request); err != nil {
+			continue
+		}
+		if pubkey := canonicalHexPubkey(request.Pubkey); pubkey != "" {
+			return pubkey
+		}
+	}
+	if pubkey := canonicalHexPubkey(firstTagValue(tags, "P")); pubkey != "" {
+		return pubkey
+	}
+	if pubkey := canonicalHexPubkey(receiptPubkey); pubkey != "" {
+		return pubkey
+	}
+	return receiptPubkey
+}
+
+func canonicalHexPubkey(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) != 64 {
+		return ""
+	}
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		default:
+			return ""
+		}
+	}
+	return strings.ToLower(value)
+}
+
 // zapReceiptAmountSats is the single sats value stored for a kind-9735 receipt.
 // A positive receipt amount tag wins, then a positive amount tag inside the
 // description zap request, then the BOLT11 human-readable amount. Zero and

@@ -539,6 +539,7 @@ type TrendingNote struct {
 	ReactionCount int64  `json:"reaction_count"`
 	ZapCount      int64  `json:"zap_count"`
 	ZapMSats      int64  `json:"zap_msats"`
+	BookmarkCount int64  `json:"bookmark_count,omitempty"`
 	Score         float64
 }
 
@@ -555,6 +556,10 @@ type TrendingProfile struct {
 	FollowerCount            int64    `json:"follower_count"`
 	ScoredEngagementReceived *float64 `json:"-"`
 	ScoredNewFollowers       *float64 `json:"-"`
+	// Support rank. Zero on every other profile list.
+	SupporterCount int64 `json:"-"`
+	RawSats        int64 `json:"-"`
+	CappedSats     int64 `json:"-"`
 }
 
 type TrustGlobalScore struct {

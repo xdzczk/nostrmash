@@ -117,6 +117,126 @@ func TestEnrichFeedEventsKeepsQuoteAheadOfReplyParents(t *testing.T) {
 	findMention(t, events, quotedID)
 }
 
+func TestEnrichFeedEventsQuotesNoteAlsoOnThePage(t *testing.T) {
+	quotedID := strings.Repeat("ab", 32)
+	quotedAuthor := strings.Repeat("cd", 32)
+	quoter := strings.Repeat("11", 32)
+	note1 := mustEncodeBech32(t, "note", mustHex(t, quotedID))
+	quoted := mustRawEvent(t, map[string]any{
+		"id": quotedID, "pubkey": quotedAuthor, "created_at": 9, "kind": 1,
+		"tags": []any{}, "content": "original note", "sig": "sig",
+	})
+	quoting := mustRawEvent(t, map[string]any{
+		"id": strings.Repeat("e1", 32), "pubkey": quoter, "created_at": 20, "kind": 1, "sig": "sig",
+		"tags":    []any{[]any{"q", quotedID, "", quotedAuthor}},
+		"content": "see nostr:" + note1,
+	})
+	events := enrichFeedPage(t, []json.RawMessage{quoted, quoting}, nil, map[string]string{quotedAuthor: "quoted"})
+	mention := findMention(t, events, quotedID)
+	if !strings.Contains(mention, "original note") {
+		t.Fatalf("mention content %s", mention)
+	}
+	if pubkey := findKind0Pubkey(t, events, quotedAuthor); pubkey != quotedAuthor {
+		t.Fatalf("quoted author profile %q", pubkey)
+	}
+}
+
+func TestEnrichFeedEventsQuotesNoteInsideRepost(t *testing.T) {
+	quotedID := strings.Repeat("ab", 32)
+	quotedAuthor := strings.Repeat("cd", 32)
+	reposter := strings.Repeat("11", 32)
+	innerAuthor := strings.Repeat("22", 32)
+	innerID := strings.Repeat("e1", 32)
+	quoted := mustRawEvent(t, map[string]any{
+		"id": quotedID, "pubkey": quotedAuthor, "created_at": 9, "kind": 1,
+		"tags": []any{}, "content": "original note", "sig": "sig",
+	})
+	inner := mustRawEvent(t, map[string]any{
+		"id": innerID, "pubkey": innerAuthor, "created_at": 15, "kind": 1, "sig": "sig",
+		"tags":    []any{[]any{"q", quotedID, "", quotedAuthor}},
+		"content": "quoting",
+	})
+	repost := mustRawEvent(t, map[string]any{
+		"id": strings.Repeat("f6", 32), "pubkey": reposter, "created_at": 20, "kind": 6, "sig": "sig",
+		"tags":    []any{[]any{"e", innerID}, []any{"p", innerAuthor}},
+		"content": string(inner),
+	})
+	events := enrichFeedPage(t, []json.RawMessage{repost}, map[string]json.RawMessage{quotedID: quoted}, map[string]string{quotedAuthor: "quoted"})
+	mention := findMention(t, events, quotedID)
+	if !strings.Contains(mention, "original note") {
+		t.Fatalf("mention content %s", mention)
+	}
+
+	t.Run("quoted note is also a post", func(t *testing.T) {
+		note1 := mustEncodeBech32(t, "note", mustHex(t, quotedID))
+		inner := mustRawEvent(t, map[string]any{
+			"id": innerID, "pubkey": innerAuthor, "created_at": 15, "kind": 1, "sig": "sig",
+			"tags": []any{}, "content": "see nostr:" + note1,
+		})
+		repost := mustRawEvent(t, map[string]any{
+			"id": strings.Repeat("f6", 32), "pubkey": reposter, "created_at": 20, "kind": 6, "sig": "sig",
+			"tags":    []any{[]any{"e", innerID}, []any{"p", innerAuthor}},
+			"content": string(inner),
+		})
+		got := enrichFeedPage(t, []json.RawMessage{quoted, repost}, nil, map[string]string{quotedAuthor: "quoted"})
+		mention := findMention(t, got, quotedID)
+		if !strings.Contains(mention, "original note") {
+			t.Fatalf("mention content %s", mention)
+		}
+	})
+}
+
+func TestEnrichFeedEventsRepostStatsUseOriginalNote(t *testing.T) {
+	originalID := strings.Repeat("ab", 32)
+	originalAuthor := strings.Repeat("cd", 32)
+	reposter := strings.Repeat("11", 32)
+	repostID := strings.Repeat("e6", 32)
+	original := mustRawEvent(t, map[string]any{
+		"id": originalID, "pubkey": originalAuthor, "created_at": 9, "kind": 1,
+		"tags": []any{}, "content": "hello from ada", "sig": "sig",
+	})
+	repost := mustRawEvent(t, map[string]any{
+		"id": repostID, "pubkey": reposter, "created_at": 20, "kind": 6, "sig": "sig",
+		"tags":    []any{[]any{"e", originalID}, []any{"p", originalAuthor}},
+		"content": string(original),
+	})
+	events := enrichFeedPage(t, []json.RawMessage{repost}, nil, map[string]string{originalAuthor: "ada"})
+	stats := noteStatIDs(t, events)
+	if _, ok := stats[originalID]; !ok {
+		t.Fatalf("stats ids %#v", stats)
+	}
+	if _, ok := stats[repostID]; !ok {
+		t.Fatalf("repost stats ids %#v", stats)
+	}
+	if pubkey := findKind0Pubkey(t, events, originalAuthor); pubkey != originalAuthor {
+		t.Fatalf("original author profile %q", pubkey)
+	}
+}
+
+func TestEnrichFeedEventsKeepsQuoteAuthorOnAFullPage(t *testing.T) {
+	quotedID := strings.Repeat("ab", 32)
+	quotedAuthor := strings.Repeat("cd", 32)
+	quoted := mustRawEvent(t, map[string]any{
+		"id": quotedID, "pubkey": quotedAuthor, "created_at": 9, "kind": 1,
+		"tags": []any{}, "content": "original note", "sig": "sig",
+	})
+	posts := make([]json.RawMessage, 0, maxFeedAuthors)
+	for i := 0; i < maxFeedAuthors; i++ {
+		note := map[string]any{
+			"id": fmt.Sprintf("%064x", i+1), "pubkey": fmt.Sprintf("%064x", i+1000),
+			"created_at": 20 + i, "kind": 1, "tags": []any{}, "content": "note", "sig": "sig",
+		}
+		if i == maxFeedAuthors-1 {
+			note["tags"] = []any{[]any{"q", quotedID, "", quotedAuthor}}
+			note["content"] = "quoting"
+		}
+		posts = append(posts, mustRawEvent(t, note))
+	}
+	events := enrichFeedPage(t, posts, map[string]json.RawMessage{quotedID: quoted}, map[string]string{quotedAuthor: "quoted"})
+	findMention(t, events, quotedID)
+	findKind0(t, events, quotedAuthor)
+}
+
 func TestEnrichFeedEventsSynthesizesQuotedAuthorProfile(t *testing.T) {
 	quotedID := strings.Repeat("ab", 32)
 	quotedAuthor := strings.Repeat("cd", 32)
@@ -313,6 +433,55 @@ func kind0Present(events []any, pubkey string) bool {
 		}
 	}
 	return false
+}
+
+func enrichFeedPage(t *testing.T, posts []json.RawMessage, events map[string]json.RawMessage, names map[string]string) []any {
+	t.Helper()
+	gateway := mustNewWSGateway(t, fakeEventReader{
+		getEventRawsByIDs: func(_ context.Context, ids []string) (map[string]json.RawMessage, error) {
+			out := map[string]json.RawMessage{}
+			for _, id := range ids {
+				if raw, ok := events[id]; ok {
+					out[id] = raw
+				}
+			}
+			return out, nil
+		},
+		getProfilesByBatch: func(_ context.Context, pubkeys []string) (map[string]store.ProfileProjection, error) {
+			out := map[string]store.ProfileProjection{}
+			for _, pubkey := range pubkeys {
+				name, ok := names[pubkey]
+				if !ok {
+					continue
+				}
+				out[pubkey] = store.ProfileProjection{
+					Pubkey:      pubkey,
+					ProfileJSON: json.RawMessage(`{"name":"` + name + `"}`),
+				}
+			}
+			return out, nil
+		},
+	}, WSGatewayOptions{Dialect: WSDialectPrimalV1})
+	return gateway.enrichFeedEvents(context.Background(), "", posts, "created_at", nil, nil)
+}
+
+func noteStatIDs(t *testing.T, events []any) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	for _, event := range events {
+		kind, content, _ := decodeFeedEvent(t, event)
+		if kind != primalKindNoteStats {
+			continue
+		}
+		var body struct {
+			EventID string `json:"event_id"`
+		}
+		if err := json.Unmarshal([]byte(content), &body); err != nil {
+			t.Fatal(err)
+		}
+		out[body.EventID] = true
+	}
+	return out
 }
 
 func enrichWithQuotedNote(t *testing.T, note json.RawMessage, quotedID, quotedAuthor, metaID string, quotedRaw, metaRaw json.RawMessage, extra ...json.RawMessage) []any {

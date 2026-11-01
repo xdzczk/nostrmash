@@ -42,6 +42,10 @@ type curatedCapabilities struct {
 	trendingLongForm       trendingLongFormCapability
 	trendingMedia          trendingMediaCapability
 	hotConversations       hotConversationsCapability
+	bookmarkedNotes        bookmarkedNotesCapability
+	mostZappedNotes        mostZappedNotesCapability
+	mostFollowedProfiles   mostFollowedProfilesCapability
+	mostSupportedProfiles  mostSupportedProfilesCapability
 	trustQualifiedNotes    trustQualifiedTrendingNotesCapability
 	trendingHashtags       trendingHashtagsCapability
 	homeTrendingHashtags   homeTrendingHashtagsCapability

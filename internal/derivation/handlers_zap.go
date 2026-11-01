@@ -22,13 +22,13 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 	}
 
 	var kind int
-	var senderPubkey string
+	var receiptPubkey string
 	var createdAt int64
 	if err := h.pool.QueryRow(ctx, `
 		SELECT kind, pubkey, created_at
 		FROM events
 		WHERE id = $1
-	`, eventID).Scan(&kind, &senderPubkey, &createdAt); err != nil {
+	`, eventID).Scan(&kind, &receiptPubkey, &createdAt); err != nil {
 		return fmt.Errorf("load event for zap projection: %w", err)
 	}
 	if kind != 9735 {
@@ -39,6 +39,9 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 	if err != nil {
 		return err
 	}
+	// The event pubkey is the lightning service. The sent-zap page filters
+	// on the person who paid.
+	senderPubkey := zapReceiptSender(receiptPubkey, tags)
 	receiver := firstTagValue(tags, "p")
 	targetEventID := firstTagValue(tags, "e")
 	targetAddress := ""

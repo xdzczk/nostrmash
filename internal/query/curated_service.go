@@ -228,6 +228,50 @@ func (s Service) GetTrendingLongForm(ctx context.Context, window time.Duration, 
 	return nil, unsupportedCapabilityError("trending long-form")
 }
 
+func (s Service) GetBookmarkedNotes(ctx context.Context, scope DiscoveryScope, limit int, offset int) ([]TrendingNote, error) {
+	if r := s.capabilities.curated.bookmarkedNotes; r != nil {
+		rows, err := r.GetBookmarkedNotes(ctx, scope.Lang(), limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, trendingNoteFromStore), nil
+	}
+	return nil, unsupportedCapabilityError("bookmarked notes")
+}
+
+func (s Service) GetMostZappedNotes(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingNote, error) {
+	if r := s.capabilities.curated.mostZappedNotes; r != nil {
+		rows, err := r.GetMostZappedNotes(ctx, window, scope.Lang(), limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, trendingNoteFromStore), nil
+	}
+	return nil, unsupportedCapabilityError("most zapped notes")
+}
+
+func (s Service) GetMostFollowedProfiles(ctx context.Context, limit int, offset int) ([]TrendingProfile, error) {
+	if r := s.capabilities.curated.mostFollowedProfiles; r != nil {
+		rows, err := r.GetMostFollowedProfiles(ctx, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, trendingProfileFromStore), nil
+	}
+	return nil, unsupportedCapabilityError("most followed profiles")
+}
+
+func (s Service) GetMostSupportedProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]TrendingProfile, error) {
+	if r := s.capabilities.curated.mostSupportedProfiles; r != nil {
+		rows, err := r.GetMostSupportedProfiles(ctx, window, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return mapSlice(rows, trendingProfileFromStore), nil
+	}
+	return nil, unsupportedCapabilityError("most supported profiles")
+}
+
 func (s Service) GetHotConversations(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]HotConversation, error) {
 	if r := s.capabilities.curated.hotConversations; r != nil {
 		rows, err := r.GetHotConversations(ctx, window, scope.Lang(), limit, offset)

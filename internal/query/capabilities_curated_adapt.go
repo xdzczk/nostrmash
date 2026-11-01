@@ -70,6 +70,18 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(hotConversationsCapability); ok {
 		caps.curated.hotConversations = r
 	}
+	if r, ok := reader.(bookmarkedNotesCapability); ok {
+		caps.curated.bookmarkedNotes = r
+	}
+	if r, ok := reader.(mostZappedNotesCapability); ok {
+		caps.curated.mostZappedNotes = r
+	}
+	if r, ok := reader.(mostFollowedProfilesCapability); ok {
+		caps.curated.mostFollowedProfiles = r
+	}
+	if r, ok := reader.(mostSupportedProfilesCapability); ok {
+		caps.curated.mostSupportedProfiles = r
+	}
 	if r, ok := reader.(trustQualifiedTrendingNotesCapability); ok {
 		caps.curated.trustQualifiedNotes = r
 	}

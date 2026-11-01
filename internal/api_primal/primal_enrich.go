@@ -12,8 +12,12 @@ import (
 )
 
 const (
-	// A feed page can quote once per note, and each quoted note can quote again.
+	// Reply parents and other plain e tags. Quotes have their own budget.
 	maxReferencedEvents = 64
+	// One quote per note on a full page, plus a nested quote on those notes.
+	// Primal renders an embed only from kind 10000107, so these cannot be
+	// dropped to make room for reply parents.
+	maxQuoteEvents = 128
 	// Quote authors are required to render an embed, so they must not lose to p-tags.
 	maxFeedAuthors = 100
 )
@@ -26,6 +30,22 @@ func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []
 	authors := make([]string, 0, len(posts))
 	seenAuthors := map[string]struct{}{}
 	pageIDs := map[string]struct{}{}
+	// Events already on the page, including the note embedded in a kind 6.
+	// A quotation has to be emitted again as kind 10000107 even when that
+	// note is one of the posts: Primal looks nostr:note1 up only in mentions.
+	known := map[string]json.RawMessage{}
+	inners := make([]json.RawMessage, 0)
+	innerAuthors := make([]string, 0)
+	rememberKnown := func(raw json.RawMessage) {
+		id := strings.TrimSpace(eventIDFromRaw(raw))
+		if id == "" {
+			return
+		}
+		known[id] = raw
+		if canonical := canonicalEventID(id); canonical != "" && canonical != id {
+			known[canonical] = raw
+		}
+	}
 	for _, raw := range posts {
 		if id := strings.TrimSpace(eventIDFromRaw(raw)); id != "" {
 			elements = append(elements, id)
@@ -34,40 +54,69 @@ func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []
 				pageIDs[canonical] = struct{}{}
 			}
 		}
+		rememberKnown(raw)
 		g.rememberPubkey(&authors, seenAuthors, pubkeyFromRaw(raw), maxFeedAuthors)
+		if inner := repostInnerEvent(raw); len(inner) > 0 {
+			inners = append(inners, inner)
+			rememberKnown(inner)
+			innerAuthors = append(innerAuthors, pubkeyFromRaw(inner))
+		}
 	}
+	// The repost card shows the original author, not the kind 6 pubkey.
+	g.rememberPubkeys(&authors, seenAuthors, innerAuthors)
 	// Primal renders "Mentioned note not found" unless the quoted event is
-	// returned as kind 10000107 AND the quoted author's kind 0 is in the same
-	// page. Quote targets (q tags, e-mention/quote, nostr:note1/nevent1) are
-	// collected before reply parents so a page of replies cannot crowd them out.
-	refIDs, refAuthors := collectReferencedEventIDs(posts, pageIDs, maxReferencedEvents)
-	referenced := g.loadReferencedEvents(ctx, refIDs)
-	if len(referenced) > 0 && len(refIDs) < maxReferencedEvents {
-		skip := make(map[string]struct{}, len(pageIDs)+len(refIDs))
-		for id := range pageIDs {
-			skip[id] = struct{}{}
+	// returned as kind 10000107 and the quoted author's kind 0 is in the same
+	// page. Quotes are collected from the note itself and from the note inside
+	// a repost, including when the quoted note is already a post on this page.
+	scan := make([]json.RawMessage, 0, len(posts)+len(inners))
+	scan = append(scan, posts...)
+	scan = append(scan, inners...)
+	quoteIDs, refAuthors := quoteReferences(scan, map[string]struct{}{}, maxQuoteEvents)
+	skip := make(map[string]struct{}, len(pageIDs)+len(quoteIDs))
+	for id := range pageIDs {
+		skip[id] = struct{}{}
+	}
+	for _, id := range quoteIDs {
+		skip[id] = struct{}{}
+	}
+	otherIDs, _ := collectReferencedEventIDs(posts, skip, maxReferencedEvents)
+	refIDs := make([]string, 0, len(quoteIDs)+len(otherIDs))
+	refIDs = append(refIDs, quoteIDs...)
+	refIDs = append(refIDs, otherIDs...)
+	referenced := g.resolveReferenced(ctx, refIDs, known)
+	if len(referenced) > 0 && len(quoteIDs) < maxQuoteEvents {
+		nestedSkip := make(map[string]struct{}, len(skip)+len(referenced))
+		for id := range skip {
+			nestedSkip[id] = struct{}{}
 		}
 		for _, id := range refIDs {
-			skip[id] = struct{}{}
+			nestedSkip[id] = struct{}{}
 		}
-		nestedIDs, nestedAuthors := quoteReferences(referenced, skip, maxReferencedEvents-len(refIDs))
+		for _, raw := range referenced {
+			if id := strings.TrimSpace(eventIDFromRaw(raw)); id != "" {
+				nestedSkip[id] = struct{}{}
+				if canonical := canonicalEventID(id); canonical != "" {
+					nestedSkip[canonical] = struct{}{}
+				}
+			}
+		}
+		nestedIDs, nestedAuthors := quoteReferences(referenced, nestedSkip, maxQuoteEvents-len(quoteIDs))
 		refAuthors = append(refAuthors, nestedAuthors...)
-		referenced = append(referenced, g.loadReferencedEvents(ctx, nestedIDs)...)
+		referenced = append(referenced, g.resolveReferenced(ctx, nestedIDs, known)...)
 	}
-	for _, pubkey := range refAuthors {
-		g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
-	}
+	g.rememberPubkeys(&authors, seenAuthors, refAuthors)
+	referencedAuthors := make([]string, 0, len(referenced))
 	for _, raw := range referenced {
-		g.rememberPubkey(&authors, seenAuthors, pubkeyFromRaw(raw), maxFeedAuthors)
+		referencedAuthors = append(referencedAuthors, pubkeyFromRaw(raw))
 	}
+	g.rememberPubkeys(&authors, seenAuthors, referencedAuthors)
+	// A repost card reads kind 10000100 and kind 10000129 by the inner note id.
+	statIDs := displayEventIDs(elements, inners)
 	// Primal iOS looks up the top-zap gallery avatar and name from kind 0
 	// events in this page, keyed by the kind 10000129 sender. That sender is
 	// the person who zapped, and their profile has to survive the author cap.
-	zapEvents, topZapSenders, otherZapSenders := g.zapEnrichment(ctx, elements)
-	zapperLimit := maxFeedAuthors + len(topZapSenders)
-	for _, pubkey := range topZapSenders {
-		g.rememberPubkey(&authors, seenAuthors, pubkey, zapperLimit)
-	}
+	zapEvents, topZapSenders, otherZapSenders := g.zapEnrichment(ctx, statIDs)
+	g.rememberPubkeys(&authors, seenAuthors, topZapSenders)
 	for _, raw := range posts {
 		for _, pubkey := range tagValuesFromRawEvent(raw, "p") {
 			g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
@@ -87,10 +136,10 @@ func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []
 	out = append(out, g.buildMetadataEvents(ctx, authors)...)
 	out = append(out, mentionEvents(referenced)...)
 	out = append(out, zapEvents...)
-	for _, id := range elements {
+	for _, id := range statIDs {
 		out = append(out, noteStatsEvent(id, query.EventCounts{}))
 	}
-	if counts, err := g.query.GetEventCountsBatch(ctx, elements); err == nil {
+	if counts, err := g.query.GetEventCountsBatch(ctx, statIDs); err == nil {
 		for i := range out {
 			event, ok := out[i].(map[string]any)
 			if !ok {
@@ -110,7 +159,7 @@ func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []
 		}
 	}
 	if strings.TrimSpace(viewer) != "" {
-		if actions, err := g.query.GetViewerActions(ctx, viewer, elements); err == nil {
+		if actions, err := g.query.GetViewerActions(ctx, viewer, statIDs); err == nil {
 			for _, action := range actions {
 				if !action.Liked && !action.Replied && !action.Reposted && !action.Zapped {
 					continue
@@ -142,6 +191,16 @@ func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []
 	return out
 }
 
+func (g WSGateway) rememberPubkeys(out *[]string, seen map[string]struct{}, pubkeys []string) {
+	limit := maxFeedAuthors
+	if extra := len(seen) + len(pubkeys); extra > limit {
+		limit = extra
+	}
+	for _, pubkey := range pubkeys {
+		g.rememberPubkey(out, seen, pubkey, limit)
+	}
+}
+
 func (g WSGateway) rememberPubkey(out *[]string, seen map[string]struct{}, pubkey string, limit int) {
 	pubkey = strings.ToLower(strings.TrimSpace(pubkey))
 	if pubkey == "" || len(seen) >= limit {
@@ -152,6 +211,34 @@ func (g WSGateway) rememberPubkey(out *[]string, seen map[string]struct{}, pubke
 	}
 	seen[pubkey] = struct{}{}
 	*out = append(*out, pubkey)
+}
+
+func (g WSGateway) resolveReferenced(ctx context.Context, ids []string, known map[string]json.RawMessage) []json.RawMessage {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]json.RawMessage, 0, len(ids))
+	missing := make([]string, 0)
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		if raw, ok := known[id]; ok && len(raw) > 0 {
+			out = append(out, raw)
+			continue
+		}
+		missing = append(missing, id)
+	}
+	if len(missing) == 0 {
+		return out
+	}
+	return append(out, g.loadReferencedEvents(ctx, missing)...)
 }
 
 func (g WSGateway) loadReferencedEvents(ctx context.Context, ids []string) []json.RawMessage {
@@ -186,6 +273,53 @@ func mentionEvents(raws []json.RawMessage) []any {
 		})
 	}
 	return out
+}
+
+func displayEventIDs(elements []string, inners []json.RawMessage) []string {
+	ids := make([]string, 0, len(elements)+len(inners))
+	seen := make(map[string]struct{}, len(elements)+len(inners))
+	for _, id := range elements {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	for _, inner := range inners {
+		id := strings.TrimSpace(eventIDFromRaw(inner))
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func repostInnerEvent(raw json.RawMessage) json.RawMessage {
+	var event struct {
+		Kind    int    `json:"kind"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &event); err != nil || event.Kind != 6 {
+		return nil
+	}
+	content := strings.TrimSpace(event.Content)
+	if content == "" || content == "null" {
+		return nil
+	}
+	inner := json.RawMessage(content)
+	if strings.TrimSpace(eventIDFromRaw(inner)) == "" {
+		return nil
+	}
+	return inner
 }
 
 func collectReferencedEventIDs(posts []json.RawMessage, skip map[string]struct{}, limit int) ([]string, []string) {

@@ -114,6 +114,7 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.ProjectRepostEvents,
 		h.ProjectDeletionEvents,
 		h.ProjectContactListsLatest,
+		h.ProjectBookmarkSignals,
 		h.ProjectRelayListsLatest,
 		h.ProjectDMUnreadCounts,
 		h.ProjectZapReceipts,
@@ -173,6 +174,8 @@ const (
 	pubkeyLockNamespaceAuthorAnalytics       = "author_analytics"
 	pubkeyLockNamespaceProfilePublicStats    = "profile_public_stats"
 	pubkeyLockNamespaceProfileDiscoveryStats = "profile_discovery_stats"
+	pubkeyLockNamespaceBookmarkLists         = "bookmark_lists"
+	pubkeyLockNamespaceBookmarkStats         = "bookmark_stats"
 )
 
 // lockPubkeyForWriteTx acquires a transaction-scoped PostgreSQL advisory

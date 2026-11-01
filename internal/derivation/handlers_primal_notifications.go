@@ -196,12 +196,13 @@ func primalNotificationDrafts(kind int, author string, eventID string, content s
 			}})
 		}
 	case 9735:
+		sender := zapReceiptSender(author, tags)
 		recipient := firstTag(tags, "p")
-		if recipient != "" && recipient != author {
+		if recipient != "" && recipient != sender {
 			sats := zapReceiptAmountSats(tags)
 			out = append(out, primalNotice{Recipient: recipient, Type: 3, Args: map[string]any{
 				"your_post":     firstTag(tags, "e"),
-				"who_zapped_it": author,
+				"who_zapped_it": sender,
 				"satszapped":    sats,
 			}})
 		}

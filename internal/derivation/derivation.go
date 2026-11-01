@@ -47,6 +47,7 @@ const (
 	DerivationRelayListsLatest            = "relay_lists_latest"
 	DerivationEventHashtags               = "event_hashtags"
 	DerivationEventURLs                   = "event_urls"
+	DerivationBookmarkLists               = "bookmark_lists"
 	DerivationNoteDiscoveryStats          = "note_discovery_stats"
 	DerivationProfileDiscoveryStats       = "profile_discovery_stats"
 	DerivationTrustedNoteDiscovery        = "trusted_note_discovery_candidates"
@@ -89,6 +90,10 @@ const (
 	// v2: all-numeric hashtags ("1" parsed from "#1 app") are not topics.
 	EventHashtagsVersion = 2
 	EventURLsVersion     = 2
+	// BookmarkListsVersion projects public kind-10003 lists and kind-30003
+	// bookmark sets into distinct saved-note counts. Private (encrypted)
+	// bookmarks are not in the tags and are not counted.
+	BookmarkListsVersion = 1
 	// v5: trending score inputs count each engager pubkey once per signal and
 	// exclude the note author's self-engagement (optionally trust-weighted).
 	// v6: repeated greetings and repeated short phrases are discounted in
@@ -166,7 +171,12 @@ const (
 	// zap_receipts rebuild reprojects kind 9735. Note zap_msats is
 	// SUM(amount_sats * 1000) and stays stale until the note discovery
 	// stats rebuild runs after that.
-	ZapReceiptsVersion           = 2
+	// v3: sender_pubkey is the person who paid. Kind 9735 is signed by the
+	// lightning service, so the sender is the zap-request pubkey in the
+	// description tag, then the NIP-57 P tag, then the receipt pubkey.
+	// Migration 000109 rewrites rows that still name the service. A profile
+	// sent-zap page filters on this column.
+	ZapReceiptsVersion           = 3
 	ProfilePublicStatsVersion    = 1
 	AuthorActivityDailyVersion   = 1
 	AuthorEngagementStatsVersion = 1
@@ -201,6 +211,11 @@ const (
 	TrustInteractionEdgeWeightsVersion = 1
 	PrimalNotificationsVersion         = 1
 )
+
+// SupportSenderCapSats is the most one sender can add to a receiver's
+// support rank inside a window. A larger zap still counts, but only up to
+// this ceiling, so one person cannot own the most-supported list.
+const SupportSenderCapSats int64 = 100_000
 
 const (
 	RebuildScopeFull      = "full"

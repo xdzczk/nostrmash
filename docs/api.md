@@ -115,10 +115,12 @@ Representative implemented native routes include:
 - `GET /api/v1/search/suggest`
 - `GET /api/v1/discovery/home`
 - `GET /api/v1/discovery/notes/trending`
+- `GET /api/v1/discovery/notes/bookmarked` (kind 1 and kind 30023, current public saves, no time window)
+- `GET /api/v1/discovery/notes/zapped` (sats received in the window; default `7d`)
 - `GET /api/v1/discovery/long-form/trending`
 - `GET /api/v1/discovery/media/trending` (`format` is `pictures`, `videos`, or `shorts`)
 - `GET /api/v1/discovery/conversations/hot`
-- `GET /api/v1/discovery/profiles/trending` (plus `rising` and `{pubkey}/related`)
+- `GET /api/v1/discovery/profiles/trending` (plus `rising`, `followed`, `supported`, and `{pubkey}/related`)
 - `GET /api/v1/discovery/hashtags/trending` (plus `{hashtag}`, `{hashtag}/notes`, `{hashtag}/related`)
 - `GET /api/v1/discovery/stats/network`
 - `GET /api/v1/discovery/stats/content`
@@ -129,7 +131,9 @@ Representative implemented native routes include:
 - `GET /api/v1/trust/scores` and `GET /api/v1/trust/scores/{pubkey}`
 - `GET /api/v1/accounts/{pubkey}/status` and `POST /api/v1/accounts/{pubkey}/hydrate`
 
-Those discovery rankings take an optional `lang` query parameter. Omit it to rank every language. A value is a lowercase 2–8 letter code, `und`, or `und-uncertain`. Responses echo `language` and include a global `top_languages` chart (`24h`, `7d`, and `30d`) for the selector. Each window lists the 15 highest real language codes, plus `und` and `und-uncertain` when those buckets have notes. Notes, long-form, media, conversations, profiles, hashtags, domains, and the home bundle all honor the filter. Media trending also requires `format`. Pictures (kind 20), videos (kinds 21 and 34235), and shorts (kinds 22 and 34236) are ranked and cached separately, using the same note discovery score. A missing or unknown format is 400.
+Most bookmarked notes (`/discovery/notes/bookmarked`) count distinct people who currently include the note on a public kind-10003 list or kind-30003 bookmark set. The author does not count. The response `window` is `all`. Most zapped notes (`/discovery/notes/zapped`) rank root notes and articles by sats received inside `24h`, `7d` (the default), or `30d`. The worker rewrites that table every few minutes. Most followed profiles (`/discovery/profiles/followed`) order accounts that have a profile by `follower_count`, including dormant ones, and ignore `lang`. Most supported profiles (`/discovery/profiles/supported`) order by sats received in the window after each sender is capped at 100000 sats (`sender_cap_sats`). The default window is `30d`. `sats_received` is the uncapped total and `supporter_count` is the number of senders. That list ignores `lang` and is refreshed with the zapped notes.
+
+Those discovery rankings take an optional `lang` query parameter. Omit it to rank every language. A value is a lowercase 2–8 letter code, `und`, or `und-uncertain`. Responses echo `language` and include a global `top_languages` chart (`24h`, `7d`, and `30d`) for the selector, except most-followed and most-supported profiles, which stay global. Each window lists the 15 highest real language codes, plus `und` and `und-uncertain` when those buckets have notes. Notes, long-form, media, conversations, trending and rising profiles, hashtags, domains, and the home bundle all honor the filter. Bookmarked and zapped notes honor it too. Media trending also requires `format`. Pictures (kind 20), videos (kinds 21 and 34235), and shorts (kinds 22 and 34236) are ranked and cached separately, using the same note discovery score. A missing or unknown format is 400.
 
 Compatibility aliases also exist for `GET /api/v1/discovery/network/stats` and `GET /api/v1/discovery/content/stats`.
 

@@ -1088,6 +1088,63 @@ paths:
               schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
         '400':
           $ref: '#/components/responses/Error'
+  /api/v1/discovery/notes/bookmarked:
+    get:
+      tags: [public]
+      summary: Notes and articles people currently have saved
+      description: >
+        Ranks kind-1 notes and kind-30023 articles by distinct public
+        bookmarkers (kind 10003 lists and kind 30003 bookmark sets). A person
+        counts once even if they save the same event in more than one list.
+        The author saving their own note does not count. There is no time
+        window: `window` is `all`. `lang` filters the saved notes. Each note
+        includes `bookmark_count`. `reasons[0].code` is `saved_by`.
+      parameters:
+        - $ref: '#/components/parameters/DiscoveryLanguage'
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Notes and articles ranked by current public bookmarks
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/notes/zapped:
+    get:
+      tags: [public]
+      summary: Notes and articles ranked by sats received in the window
+      description: >
+        Ranks root kind-1 notes and kind-30023 articles by sats received
+        inside the window. Replies are omitted. A zap the author sent to
+        their own note does not count. `zap_msats` and `zap_count` are the
+        window totals, and `score` is the window sats. The default window
+        is 7d. The worker refreshes this list every few minutes.
+        `reasons[0].code` is `zap_volume`.
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+        - $ref: '#/components/parameters/DiscoveryLanguage'
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Notes and articles ranked by sats received in the window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
+        '400':
+          $ref: '#/components/responses/Error'
   /api/v1/discovery/home:
     get:
       tags: [public]
@@ -1209,6 +1266,60 @@ paths:
       responses:
         '200':
           description: Ranked rising profiles with inline identity fields (`npub`, `name`, `display_name`, `picture`, `about`, `nip05`, `lud16`, `website`) and profile discovery metrics (`recent_post_count`, `recent_reply_count`, `recent_engagement_received`, `recent_new_followers`, `recent_zap_volume_msats`, `recent_active_days`, `recent_activity_at`, `follower_count`) plus trust metadata (`trust_mode`, `trust_applied`, `result_scope`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/profiles/followed:
+    get:
+      tags: [public]
+      summary: Accounts ranked by follower count
+      description: >
+        Directory of accounts that have a profile, largest follower count
+        first. Dormant accounts stay in the list. `window` is `all`. `lang`
+        is accepted and ignored. `score` and `follower_count` are the same
+        number. `reasons[0].code` is `audience_size`.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Profiles ranked by follower count
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/profiles/supported:
+    get:
+      tags: [public]
+      summary: Accounts ranked by capped sats received in the window
+      description: >
+        Ranks profiles by sats received in the window after each sender is
+        capped at `sender_cap_sats` (100000). A self-zap does not count.
+        The default window is 30d. `capped_sats` is the rank score,
+        `sats_received` is the uncapped total, and `supporter_count` is the
+        number of distinct senders. The worker refreshes this list every
+        few minutes. `lang` is accepted and ignored. `reasons[0].code` is
+        `supporter_sats`.
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 30d }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        '200':
+          description: Profiles ranked by capped sats received in the window
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DiscoveryListResponse' }
@@ -2415,7 +2526,7 @@ components:
     DiscoveryListMeta:
       type: object
       properties:
-        window: { type: string, enum: [24h, 7d, 30d] }
+        window: { type: string, enum: [24h, 7d, 30d, all] }
         computed_at: { type: string, format: date-time }
         ranking_version: { type: string }
         confidence: { type: string, enum: [low, medium, high] }
@@ -2430,7 +2541,7 @@ components:
       additionalProperties: true
       properties:
         surface: { type: string }
-        window: { type: string, enum: [24h, 7d, 30d] }
+        window: { type: string, enum: [24h, 7d, 30d, all] }
         computed_at: { type: string, format: date-time }
         ranking_version: { type: string }
         meta: { $ref: '#/components/schemas/DiscoveryListMeta' }

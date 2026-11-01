@@ -224,8 +224,9 @@ func buildTopZapAd(eventID, sender string, sats int64, receipt, profileJSON json
 	if ad.EventID == "" || sats <= 0 || ad.SenderPubkey == "" {
 		return readmodel.TopZapAd{}
 	}
-	// The receipt pubkey is the lightning service that published kind 9735.
-	// The person who zapped is the zap-request author, then the NIP-57 P tag.
+	// sender_pubkey is the person who paid. Rows written before that stored
+	// the lightning service that signed kind 9735, so the receipt is still
+	// checked: zap-request author, then the NIP-57 P tag.
 	if zapper := zapperPubkey(receipt, columnSender); zapper != "" {
 		ad.SenderPubkey = zapper
 	}
