@@ -3,6 +3,7 @@ package derivation_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -465,8 +466,8 @@ func TestProjectProfileDiscoveryStats_DiscountsFarmedEngagement(t *testing.T) {
 	if !near(thread.engagement, 6) {
 		t.Fatalf("thread scored engagement = %v, want 4 replies + 2 likes", thread.engagement)
 	}
-	if !near(greet.engagement, 2.2) {
-		t.Fatalf("greeting scored engagement = %v, want one pile vote plus 10 likes at the floor", greet.engagement)
+	if !near(greet.engagement, math.Sqrt(6)+1.2) {
+		t.Fatalf("greeting scored engagement = %v, want sqrt(6) plus 10 likes at the floor", greet.engagement)
 	}
 	if thread.score <= farm.score || thread.score <= greet.score {
 		t.Fatalf("conversation should outrank both farms: thread=%v farm=%v greet=%v", thread.score, farm.score, greet.score)

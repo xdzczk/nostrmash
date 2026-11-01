@@ -12,9 +12,10 @@ import (
 // score. Raw recent_* counters stay on the analytics path.
 //
 // Trending engagement is one trust-weighted vote per (signal, engager) on
-// root notes published in the window, after the note farm discount: a copied
+// root notes published in the window, after the note farm discount: a
+// greeting pile is sqrt(people) times its strongest weight, any other copied
 // phrase collapses to one vote, and reactions and reposts past the reply and
-// zap budget count at the cheap floor. One person liking ten of those notes
+// zap allowance count at a floor. One person liking ten of those notes
 // counts once per signal, and a like on an older note does not count.
 // Rising engagement is one person whose event falls in the window, at any
 // note age, classified by their strongest signal. motionAt is the newest

@@ -62,9 +62,9 @@ func TestComputeTrendingScore(t *testing.T) {
 	})
 
 	t.Run("replies and reactions inside the unlock budget keep the linear score", func(t *testing.T) {
-		// 10 replies + 1 zap unlock 44 reaction-points. 8 reactions and
-		// 2 reposts are 12, so nothing is discounted.
-		// 3*10 + 2*2 + 8 + 2*1 = 44.
+		// 10 replies and 1 zap open 44 reaction-points and 11 repost slots.
+		// 8 reactions and 2 reposts both fit.
+		// 3*10 + 2*1 + 8 + 2*2 = 44.
 		got := computeTrendingScore(window, now, now, 10, 10, 2, 8, 1, 0, 1)
 		if got != 44 {
 			t.Fatalf("expected full linear score 44, got %v", got)
@@ -159,25 +159,51 @@ func TestComputeTrendingScore(t *testing.T) {
 		}
 	})
 
-	t.Run("a majority copy pile shrinks the like budget", func(t *testing.T) {
-		// 7 real replies and 5 zaps open 48 reaction-points, which covers
-		// 25 reactions. When 36 of 43 repliers are the pile, that budget
-		// scales by 7/43 and most of the reactions fall to the floor.
-		// The replies and the zaps still add their own score.
+	t.Run("a majority copy pile shrinks the reply-derived like budget", func(t *testing.T) {
+		// 7 real replies and 5 zaps. The reply share scales only the reply
+		// part of the unlock. Five zappers still open 20 reaction-points,
+		// so 25 likes barely leave the budget. With no zaps the same share
+		// drops most of those likes to the floor.
 		const share = 7.0 / 43.0
 		full := computeTrendingScore(window, now, now, 7, 7, 0, 25, 5, 0, 1)
 		got := computeTrendingScore(window, now, now, 7, 7, 0, 25, 5, 0, share)
 		if full != 56 {
 			t.Fatalf("full budget = %v, want 56", full)
 		}
-		if got != 40.876 {
-			t.Fatalf("shrunk budget = %v, want 40.876", got)
+		if got != 55.611 {
+			t.Fatalf("shrunk budget = %v, want 55.611", got)
 		}
-		// A thread that is only the pile keeps the one reply vote and the
-		// zaps, and the reactions count at the floor.
+		noZaps := computeTrendingScore(window, now, now, 7, 7, 0, 25, 0, 0, 1)
+		noZapsShrunk := computeTrendingScore(window, now, now, 7, 7, 0, 25, 0, 0, share)
+		if noZaps != 46 {
+			t.Fatalf("full budget without zaps = %v, want 46", noZaps)
+		}
+		if noZapsShrunk != 28.011 {
+			t.Fatalf("shrunk budget without zaps = %v, want 28.011", noZapsShrunk)
+		}
+		// A thread that is only the pile keeps the one reply vote. The five
+		// zaps still open 20 of the 25 likes. The reply share does not scale
+		// that zap unlock.
 		onlyPile := computeTrendingScore(window, now, now, 1, 0, 0, 25, 5, 0, 0)
-		if onlyPile != 16 {
-			t.Fatalf("pile-only budget = %v, want 16", onlyPile)
+		if onlyPile != 33.6 {
+			t.Fatalf("pile-only budget = %v, want 33.6", onlyPile)
+		}
+	})
+
+	t.Run("zaps unlock likes and reposts when greetings are the majority", func(t *testing.T) {
+		// Share 0, one greeting vote, 2 reposts, 24 reactions, 4 zaps.
+		// The zappers open 16 reaction-points and 4 repost slots, so both
+		// reposts count at 2 and 16 likes count in full.
+		// 3*1 + 2*4 + (16 + 0.12*8) + 2*2 = 31.96.
+		withZaps := computeTrendingScore(window, now, now, 1, 0, 2, 24, 4, 0, 0)
+		if withZaps != 31.96 {
+			t.Fatalf("greeting thread with zaps = %v, want 31.96", withZaps)
+		}
+		// The same likes and reposts with nothing to unlock them.
+		// 3 + 24*0.12 + 2*2*0.10 = 6.28.
+		without := computeTrendingScore(window, now, now, 1, 0, 2, 24, 0, 0, 0)
+		if without != 6.28 {
+			t.Fatalf("greeting thread without zaps = %v, want 6.28", without)
 		}
 	})
 }

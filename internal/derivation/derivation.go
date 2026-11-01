@@ -126,7 +126,15 @@ const (
 	// v14: zap amount is log(1 + msats/100000), the same curve as profile
 	// trending. One payer's sats stay a small bump. Rows keep the previous
 	// scores until the next derive or a time-range rebuild.
-	NoteDiscoveryStatsVersion = 14
+	// v15: a greeting pile counts sqrt(people) times its strongest trust
+	// weight. Exact copied phrases still count once. Zap unlock is not
+	// scaled by the copy-pile share; only the reply-derived part is.
+	// Reposts are a separate reach term, two points inside an allowance of
+	// one per share-scaled substantive replier and per zapper, and they do
+	// not consume the reaction budget. Surplus reposts count at 0.10 of
+	// that. Rows keep the previous scores until the next derive or a
+	// time-range rebuild.
+	NoteDiscoveryStatsVersion = 15
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -161,7 +169,13 @@ const (
 	// floor. Rising still keeps one person, classified by their strongest
 	// signal. Rows keep the previous scores until the profile-stats sweeper
 	// rewrites them.
-	ProfileDiscoveryStatsVersion   = 10
+	// v11: profile trending and rising use the same greeting pile, zap
+	// unlock, and repost reach term as note discovery. A greeting pile is
+	// sqrt(people) times the strongest weight. Zaps open likes and reposts
+	// even when a copied phrase is most of the replies. Reposts do not
+	// spend the reaction budget, and surplus reposts count at 0.10. Rows
+	// keep the previous scores until the profile-stats sweeper rewrites them.
+	ProfileDiscoveryStatsVersion   = 11
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1
@@ -208,7 +222,11 @@ const (
 	// v8: a copied phrase of any length counts as one vote in the reply
 	// weight. Rows keep the previous weights until the thread summary
 	// sweeper rewrites them.
-	ThreadSummaryVersion               = 8
+	// v9: a greeting pile in the reply weight is sqrt(people) times the
+	// strongest trust weight. Exact copied phrases still count once. Rows
+	// keep the previous weights until the thread summary sweeper rewrites
+	// them.
+	ThreadSummaryVersion               = 9
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1

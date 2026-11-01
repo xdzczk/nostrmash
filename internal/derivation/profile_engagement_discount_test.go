@@ -5,7 +5,7 @@ import "testing"
 func TestProfileTrendingEngagement_ReactionFarmUsesCheapFloor(t *testing.T) {
 	reactions := weightedPeople(20)
 	got := profileTrendingEngagement(nil, reactions, nil, nil)
-	want := roundProfileEngagement(cheapEngagementSignal(20, 0, 0))
+	want := roundProfileEngagement(reactionSignal(20, 0))
 	if got != want {
 		t.Fatalf("reaction farm = %v, want the cheap floor %v", got, want)
 	}
@@ -33,12 +33,30 @@ func TestProfileTrendingEngagement_GreetingPileDoesNotUnlockLikes(t *testing.T) 
 	}
 	reactions := weightedPeople(10)
 	got := profileTrendingEngagement(replies, reactions, nil, nil)
-	want := roundProfileEngagement(1 + cheapEngagementSignal(10, 0, 0))
+	want := roundProfileEngagement(greetingPileVote(8, 1) + reactionSignal(10, 0))
 	if got != want {
-		t.Fatalf("greeting pile = %v, want one pile vote plus the cheap floor %v", got, want)
+		t.Fatalf("greeting pile = %v, want sqrt(people) plus the cheap floor %v", got, want)
 	}
 	if got >= 8 {
 		t.Fatalf("greeting pile counted per person: %v", got)
+	}
+}
+
+func TestProfileTrendingEngagement_ZapsUnlockLikesDespiteGreetingPile(t *testing.T) {
+	replies := make([]weightedReply, 8)
+	for i := range replies {
+		replies[i] = weightedReply{Pubkey: string(rune('a' + i)), Content: "GM", Weight: 1}
+	}
+	reactions := weightedPeople(10)
+	zaps := []weightedReply{{Pubkey: "z", Weight: 1}}
+	got := profileTrendingEngagement(replies, reactions, nil, zaps)
+	want := roundProfileEngagement(greetingPileVote(8, 1) + 1 + reactionSignal(10, 1))
+	if got != want {
+		t.Fatalf("greeting pile plus a zap = %v, want %v", got, want)
+	}
+	floored := profileTrendingEngagement(replies, reactions, nil, nil)
+	if got <= floored {
+		t.Fatalf("zap should open likes the greeting pile does not: with=%v without=%v", got, floored)
 	}
 }
 
@@ -46,7 +64,7 @@ func TestProfileTrendingEngagement_ZapDoesNotUnlockReactionFarm(t *testing.T) {
 	zaps := []weightedReply{{Pubkey: "z", Weight: 1}}
 	reactions := weightedPeople(100)
 	got := profileTrendingEngagement(nil, reactions, nil, zaps)
-	want := roundProfileEngagement(1 + cheapEngagementSignal(100, 0, 1))
+	want := roundProfileEngagement(1 + reactionSignal(100, 1))
 	if got != want {
 		t.Fatalf("zap plus reaction farm = %v, want %v", got, want)
 	}
@@ -65,9 +83,9 @@ func TestProfileTrendingEngagement_RepostFromPileIsNotASecondVote(t *testing.T) 
 		{Pubkey: "other", Weight: 1},
 	}
 	got := profileTrendingEngagement(replies, nil, reposts, nil)
-	// Pile vote 1. The pile member's repost is omitted. The other repost is
-	// 2 cheap points with nothing to unlock it, so it counts at 0.12.
-	want := roundProfileEngagement(1 + cheapEngagementSignal(0, 1, 0))
+	// The greeting pile is sqrt(2). The pile member's repost is omitted.
+	// The other repost has no allowance, so it counts at 0.20.
+	want := roundProfileEngagement(greetingPileVote(2, 1) + repostReachSignal(1, 0))
 	if got != want {
 		t.Fatalf("pile repost = %v, want %v", got, want)
 	}
@@ -77,7 +95,8 @@ func TestProfileTrendingEngagement_RepostsCostTwoBeforeTheFloor(t *testing.T) {
 	replies := []weightedReply{{Pubkey: "a", Content: "archival relays still matter for this conversation", Weight: 1}}
 	reposts := weightedPeople(3)
 	got := profileTrendingEngagement(replies, nil, reposts, nil)
-	want := roundProfileEngagement(1 + cheapEngagementSignal(0, 3, 1))
+	// One reply covers one repost at 2. The other two sit at the surplus floor.
+	want := roundProfileEngagement(1 + repostReachSignal(3, 1))
 	if got != want {
 		t.Fatalf("reposts = %v, want %v", got, want)
 	}
@@ -100,7 +119,7 @@ func TestProfileRisingEngagement_OnePersonNotTwoSignals(t *testing.T) {
 func TestProfileRisingEngagement_ReactionFarmUsesCheapFloor(t *testing.T) {
 	reactions := weightedPeople(12)
 	got := profileRisingEngagement(nil, reactions, nil, nil)
-	want := roundProfileEngagement(cheapEngagementSignal(12, 0, 0))
+	want := roundProfileEngagement(reactionSignal(12, 0))
 	if got != want {
 		t.Fatalf("rising reaction farm = %v, want %v", got, want)
 	}
@@ -114,10 +133,10 @@ func TestProfileRisingEngagement_ZapperLeavesTheGreetingPile(t *testing.T) {
 	zaps := []weightedReply{{Pubkey: "z", Weight: 1}}
 	reactions := weightedPeople(5)
 	got := profileRisingEngagement(replies, reactions, nil, zaps)
-	// The zapper is one substantive person. The other greeting stays the pile
-	// and does not open likes, so the five reactions stay on the floor.
-	// Original share is 0 because both replies were the pile.
-	want := roundProfileEngagement(1 + 1 + cheapEngagementSignal(5, 0, 0))
+	// The zapper is one person. The other greeting stays a pile vote and is
+	// not a substantive reply. The zap opens four reaction points, so four
+	// of the five likes count in full and the last stays at the floor.
+	want := roundProfileEngagement(1 + 1 + reactionSignal(5, 1))
 	if got != want {
 		t.Fatalf("zapper in a greeting pile = %v, want %v", got, want)
 	}
@@ -126,7 +145,7 @@ func TestProfileRisingEngagement_ZapperLeavesTheGreetingPile(t *testing.T) {
 func TestProfileRisingEngagement_RepostAndLikeAreOnePerson(t *testing.T) {
 	person := []weightedReply{{Pubkey: "a", Weight: 1}}
 	got := profileRisingEngagement(nil, person, person, nil)
-	want := roundProfileEngagement(cheapEngagementSignal(0, 1, 0))
+	want := roundProfileEngagement(repostReachSignal(1, 0))
 	if got != want {
 		t.Fatalf("repost plus like = %v, want one repost at the floor %v", got, want)
 	}
@@ -149,9 +168,10 @@ func TestProfileRisingEngagement_ZapDoesNotTurnTheRestOfThePileIntoReplies(t *te
 		{Pubkey: "r4", Weight: 1},
 	}
 	got := profileRisingEngagement(replies, reactions, nil, zaps)
-	// Two copied sentences are two pile votes. The zapper steps out of the
-	// first pile and counts once. Nothing in that crowd opens likes.
-	want := roundProfileEngagement(2 + 1 + cheapEngagementSignal(4, 0, 0))
+	// Two copied sentences stay two pile votes. The zapper steps out and
+	// counts once. The zap opens the four likes. The copied sentences do
+	// not become substantive replies.
+	want := roundProfileEngagement(2 + 1 + reactionSignal(4, 1))
 	if got != want {
 		t.Fatalf("two piles plus a zap = %v, want %v", got, want)
 	}

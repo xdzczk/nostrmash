@@ -30,8 +30,10 @@ type profileDiscountedEngagement struct {
 // discountProfileVotes applies the note farm discount to profile votes.
 // Trending keeps one vote per signal per person. Rising keeps one person,
 // classified by their strongest signal. A copied phrase collapses to one
-// vote and does not open the like budget. Reactions and reposts past the
-// reply and zap budget count at the cheap floor.
+// vote and does not open the like budget. A greeting pile counts
+// sqrt(people) times its strongest weight. Zaps open likes and repost
+// slots even when a pile is most of the replies. Surplus reactions count
+// at the cheap floor, and surplus reposts at the lower reach floor.
 func discountProfileVotes(replies, reactions, reposts, zaps []profileVote) profileDiscountedEngagement {
 	trending := func(keep func(profileVote) bool) float64 {
 		return profileTrendingEngagement(votesIn(replies, keep), votesIn(reactions, keep), votesIn(reposts, keep), votesIn(zaps, keep))
@@ -69,14 +71,15 @@ func votesIn(rows []profileVote, keep func(profileVote) bool) []weightedReply {
 
 // profileTrendingEngagement scores one vote per signal per person. Replies
 // pass through the phrase pile. A repost from someone in that pile is the
-// same vote. Reactions and reposts use the note cheap-engagement budget.
+// same vote. Reactions and reposts use the note unlock: the reply share
+// scales only the reply-derived part, and a zap still opens both.
 func profileTrendingEngagement(replies, reactions, reposts, zaps []weightedReply) float64 {
 	folded := sumDiscountedReplyWeights(replies)
 	zapWeight := sumDistinctWeights(zaps)
 	reactionWeight := sumDistinctWeights(reactions)
 	repostWeight := repostWeightOutsidePile(reposts, folded.DiscountedPubkeys)
-	substantive := (folded.Substantive + zapWeight) * folded.UnlockShare
-	total := folded.Total + zapWeight + cheapEngagementSignal(reactionWeight, repostWeight, substantive)
+	unlockUnits := folded.Substantive*folded.UnlockShare + zapWeight
+	total := folded.Total + zapWeight + reactionSignal(reactionWeight, unlockUnits) + repostReachSignal(repostWeight, unlockUnits)
 	return roundProfileEngagement(total)
 }
 
@@ -111,8 +114,9 @@ func profileRisingEngagement(replies, reactions, reposts, zaps []weightedReply) 
 	}
 
 	// A pile member left alone after a zapper is removed would otherwise
-	// become a substantive reply and open the like budget. They are still
-	// the copied phrase.
+	// become a substantive reply and open likes from the reply side. They
+	// stay a pile vote. A zap still opens its own reaction points and
+	// repost allowance.
 	var leftover float64
 	for pubkey, weight := range replyW {
 		if _, ok := original.DiscountedPubkeys[pubkey]; !ok {
@@ -168,8 +172,8 @@ func profileRisingEngagement(replies, reactions, reposts, zaps []weightedReply) 
 		reactionWeight += weight
 	}
 
-	unlock := (substantiveReplies + zapWeight) * original.UnlockShare
-	total := pileVote + substantiveReplies + zapHeadcount + cheapEngagementSignal(reactionWeight, repostWeight, unlock)
+	unlockUnits := substantiveReplies*original.UnlockShare + zapWeight
+	total := pileVote + substantiveReplies + zapHeadcount + reactionSignal(reactionWeight, unlockUnits) + repostReachSignal(repostWeight, unlockUnits)
 	return roundProfileEngagement(total)
 }
 
