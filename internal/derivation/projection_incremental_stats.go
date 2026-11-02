@@ -246,7 +246,8 @@ func unclaimStatDeltaTx(ctx context.Context, tx pgx.Tx, eventID, projection stri
 //   - media_count moves for kind 20 and for kind 1 that contains an image,
 //     a video, or an imeta tag
 //   - time_joined moves down to the oldest created_at seen for the author
-//   - kind 9735 moves zap counters for the sender and the receiver
+//   - kind 9735 moves zap counters for the payer stored on the receipt
+//     (the zap-request author, not the lightning service) and the receiver
 //   - long_form_note_count is maintained when the kind-30023 address is
 //     first stored, in UpdateReplaceableState, not here
 func (h *Handlers) applyIncrementalProfilePublicStatsTx(
@@ -441,19 +442,24 @@ func profileMediaDeltaTx(ctx context.Context, tx pgx.Tx, eventID string, kind in
 	}
 }
 
-func applyZapProfileCountersTx(ctx context.Context, tx pgx.Tx, eventID, sender string, sign int64, writeVersion int) error {
+func applyZapProfileCountersTx(ctx context.Context, tx pgx.Tx, eventID, eventPubkey string, sign int64, writeVersion int) error {
+	var storedSender string
 	var receiver *string
 	var amount int64
 	err := tx.QueryRow(ctx, `
-		SELECT NULLIF(receiver_pubkey, ''), amount_sats
+		SELECT sender_pubkey, NULLIF(receiver_pubkey, ''), amount_sats
 		FROM zap_receipts
 		WHERE zap_receipt_id = $1
-	`, eventID).Scan(&receiver, &amount)
+	`, eventID).Scan(&storedSender, &receiver, &amount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return fmt.Errorf("load zap receipt for profile stats: %w", err)
+	}
+	sender := strings.TrimSpace(storedSender)
+	if sender == "" {
+		sender = strings.TrimSpace(eventPubkey)
 	}
 	received := sign
 	sats := amount * sign
@@ -784,13 +790,14 @@ func computeActivityDailyDeltas(
 			activityDailyDelta{pubkey: targetPubkey, activityDate: activityDate, engagementReceived: 1},
 		)
 	case 9735:
+		sender := zapReceiptSender(pubkey, tags)
 		receiver := firstTagValue(tags, "p")
-		if receiver == "" || receiver == pubkey {
+		if receiver == "" || receiver == sender {
 			return nil, nil
 		}
 		zapMsats := zapReceiptAmountSats(tags) * 1000
 		deltas = append(deltas,
-			activityDailyDelta{pubkey: pubkey, activityDate: activityDate, engagementGiven: 1},
+			activityDailyDelta{pubkey: sender, activityDate: activityDate, engagementGiven: 1},
 			activityDailyDelta{
 				pubkey:             receiver,
 				activityDate:       activityDate,
@@ -1239,8 +1246,9 @@ func computeHourlyActivityDeltas(
 		deltas = append(deltas, d)
 	case 9735:
 		deltas = append(deltas, authorTick)
+		sender := zapReceiptSender(pubkey, tags)
 		receiver := firstTagValue(tags, "p")
-		if receiver == "" || receiver == pubkey {
+		if receiver == "" || receiver == sender {
 			return deltas, nil
 		}
 		deltas = append(deltas, hourlyActivityDelta{

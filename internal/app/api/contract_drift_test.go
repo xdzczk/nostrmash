@@ -73,10 +73,14 @@ components:
 func TestContractOwnedRoutes_DeclareDiscoveryNamespace(t *testing.T) {
 	required := []string{
 		"GET /api/v1/discovery/notes/trending",
+		"GET /api/v1/discovery/notes/bookmarked",
+		"GET /api/v1/discovery/notes/zapped",
 		"GET /api/v1/discovery/conversations/hot",
 		"GET /api/v1/discovery/home",
 		"GET /api/v1/discovery/profiles/trending",
 		"GET /api/v1/discovery/profiles/rising",
+		"GET /api/v1/discovery/profiles/followed",
+		"GET /api/v1/discovery/profiles/supported",
 		"GET /api/v1/discovery/profiles/{pubkey}/related",
 		"GET /api/v1/discovery/hashtags/trending",
 		"GET /api/v1/discovery/hashtags/{hashtag}",

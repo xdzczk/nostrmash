@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/store"
 	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 )
@@ -38,6 +39,7 @@ type fakeEventReader struct {
 	getFollowersFn                func(context.Context, string, int) ([]json.RawMessage, error)
 	getUserZapsFn                 func(context.Context, string, int, bool) ([]json.RawMessage, error)
 	getEventZapsFn                func(context.Context, string, int) ([]json.RawMessage, error)
+	getTopZapsByEventsFn          func(context.Context, []string, int) ([]readmodel.EventZap, error)
 	listEventActionPubkeysFn      func(context.Context, string, int, int) ([]string, error)
 	isFollowingFn                 func(context.Context, string, string) (bool, error)
 	getMutualFollowsFn            func(context.Context, string, string, int) ([]string, error)
@@ -218,6 +220,13 @@ func (f fakeEventReader) GetEventZapsBySats(ctx context.Context, eventID string,
 		return nil, errors.New("not implemented")
 	}
 	return f.getEventZapsFn(ctx, eventID, limit)
+}
+
+func (f fakeEventReader) GetTopZapsByEvents(ctx context.Context, ids []string, limitPerEvent int) ([]readmodel.EventZap, error) {
+	if f.getTopZapsByEventsFn == nil {
+		return nil, nil
+	}
+	return f.getTopZapsByEventsFn(ctx, ids, limitPerEvent)
 }
 
 func (f fakeEventReader) ListEventActionPubkeys(ctx context.Context, eventID string, kind int, limit int) ([]string, error) {

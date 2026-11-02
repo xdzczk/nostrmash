@@ -52,7 +52,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENVIRONMENT: ${ENVIRONMENT:-production}
   meilisearch:
-    image: getmeili/meilisearch:v1.42.1
+    image: getmeili/meilisearch:v1.56.0
     restart: unless-stopped
     init: true
     expose:
@@ -64,6 +64,9 @@ services:
       MEILI_ENV: production
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
       MEILI_MAX_INDEXING_MEMORY: ${MEILI_MAX_INDEXING_MEMORY:-2GiB}
+      # The v1.42 volume cannot open under 1.56 until this runs. It is a
+      # no-op once the database is already on this version.
+      MEILI_UPGRADE_DB: "true"
     volumes:
       - meili_data_v2:/meili_data
     # Official image ships wget. /health is unauthenticated and stays 200

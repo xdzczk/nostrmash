@@ -62,8 +62,9 @@ func (s *PostgresStore) GetEventCounts(ctx context.Context, eventID string) (Eve
 		       COALESCE((SELECT count FROM reaction_counts WHERE event_id = $1), 0),
 		       COALESCE((SELECT count FROM repost_counts WHERE event_id = $1), 0) + `+nostr.AddressRepostCountSQL("$1")+`,
 		       COALESCE((SELECT zap_count FROM note_discovery_stats WHERE event_id = $1), 0),
-		       COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = $1), 0)
-	`, eventID).Scan(&out.ReplyCount, &out.ReactionCount, &out.RepostCount, &out.ZapCount, &out.ZapMSats); err != nil {
+		       COALESCE((SELECT zap_msats FROM note_discovery_stats WHERE event_id = $1), 0),
+		       `+nostr.Kind1QuoteCountSQL("$1")+`
+	`, eventID).Scan(&out.ReplyCount, &out.ReactionCount, &out.RepostCount, &out.ZapCount, &out.ZapMSats, &out.QuoteCount); err != nil {
 		return out, fmt.Errorf("get event counts: %w", err)
 	}
 	return out, nil

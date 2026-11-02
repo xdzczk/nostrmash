@@ -62,6 +62,7 @@ type ActionCounts struct {
 	RepostCount   int64  `json:"repost_count"`
 	ZapCount      int64  `json:"zap_count"`
 	ZapMSats      int64  `json:"zap_msats"`
+	QuoteCount    int64  `json:"quote_count,omitempty"`
 	Consistency   string `json:"consistency"`
 }
 
@@ -176,6 +177,7 @@ type EventCounts struct {
 	RepostCount   int64
 	ZapCount      int64
 	ZapMSats      int64
+	QuoteCount    int64
 	Consistency   string
 }
 
@@ -190,6 +192,7 @@ type NoteEngagementCounts struct {
 	RepostCount   int64 `json:"repost_count"`
 	ZapCount      int64 `json:"zap_count"`
 	ZapMSats      int64 `json:"zap_msats"`
+	QuoteCount    int64 `json:"quote_count,omitempty"`
 }
 
 type NoteMediaFlags struct {

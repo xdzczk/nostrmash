@@ -342,10 +342,10 @@ func resolveHashtagNotesWindow(window string) (string, string, error) {
 		return "s.created_at >= extract(epoch from now())::bigint - (7 * 24 * 60 * 60)", "s.score_7d", nil
 	case "30d":
 		return "s.created_at >= extract(epoch from now())::bigint - (30 * 24 * 60 * 60)",
-			"((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + (s.zap_msats / 100000.0)) / (1.0 + ((extract(epoch from now())::bigint - s.created_at) / (30.0 * 24 * 60 * 60)))",
+			"((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + LN(1.0 + (s.zap_msats / 100000.0))) / (1.0 + ((extract(epoch from now())::bigint - s.created_at) / (30.0 * 24 * 60 * 60)))",
 			nil
 	case "all":
-		return "TRUE", "((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + (s.zap_msats / 100000.0))", nil
+		return "TRUE", "((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + LN(1.0 + (s.zap_msats / 100000.0)))", nil
 	default:
 		return "", "", fmt.Errorf("unsupported hashtag notes window: %s", window)
 	}

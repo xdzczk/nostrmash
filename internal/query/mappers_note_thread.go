@@ -28,6 +28,7 @@ func eventCountsFromStore(row readmodel.EventCounts) EventCounts {
 		RepostCount:   row.RepostCount,
 		ZapCount:      row.ZapCount,
 		ZapMSats:      row.ZapMSats,
+		QuoteCount:    row.QuoteCount,
 		Consistency:   row.Consistency,
 	}
 }
@@ -55,6 +56,7 @@ func noteStatsFromStore(row readmodel.NoteStats) (NoteEngagementCounts, NoteMedi
 			RepostCount:   row.RepostCount,
 			ZapCount:      row.ZapCount,
 			ZapMSats:      row.ZapMSats,
+			QuoteCount:    row.QuoteCount,
 		}, NoteMediaFlags{
 			HasImage:        row.HasImage,
 			HasVideo:        row.HasVideo,

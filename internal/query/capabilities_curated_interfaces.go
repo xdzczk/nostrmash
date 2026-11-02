@@ -108,6 +108,22 @@ type hotConversationsCapability interface {
 	GetHotConversations(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.HotConversation, error)
 }
 
+type bookmarkedNotesCapability interface {
+	GetBookmarkedNotes(ctx context.Context, lang string, limit int, offset int) ([]readmodel.TrendingNote, error)
+}
+
+type mostZappedNotesCapability interface {
+	GetMostZappedNotes(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]readmodel.TrendingNote, error)
+}
+
+type mostFollowedProfilesCapability interface {
+	GetMostFollowedProfiles(ctx context.Context, limit int, offset int) ([]readmodel.TrendingProfile, error)
+}
+
+type mostSupportedProfilesCapability interface {
+	GetMostSupportedProfiles(ctx context.Context, window time.Duration, limit int, offset int) ([]readmodel.TrendingProfile, error)
+}
+
 type trustQualifiedTrendingNotesCapability interface {
 	GetTrustQualifiedTrendingNotes(
 		ctx context.Context,

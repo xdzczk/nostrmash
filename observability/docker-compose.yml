@@ -4,8 +4,8 @@
 # attach it to the same Docker network as the nostrmash app stack so Prometheus
 # can resolve `api`, `worker`, `ingestor`, and `trust_worker`.
 #
-# Memory budget (~500 MB total): keep these limits; do not raise without
-# revisiting the single-server RAM plan.
+# Memory budget: Prometheus 384m, Alertmanager 64m, Grafana 512m.
+# Grafana 13 does not finish startup at the previous 128m cap.
 
 name: nostrmash-observability
 
@@ -18,7 +18,7 @@ networks:
 
 services:
   prometheus:
-    image: prom/prometheus:v2.55.1
+    image: prom/prometheus:v3.15.1
     restart: unless-stopped
     networks:
       - coolify
@@ -39,7 +39,7 @@ services:
     cpus: 0.5
 
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    image: prom/alertmanager:v0.34.2
     restart: unless-stopped
     networks:
       - coolify
@@ -69,7 +69,7 @@ services:
     cpus: 0.25
 
   grafana:
-    image: grafana/grafana:11.3.1
+    image: grafana/grafana:13.3.0
     restart: unless-stopped
     networks:
       - coolify
@@ -85,7 +85,8 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     expose:
       - "3000"
-    mem_limit: 128m
+    # Grafana 13 does not finish startup inside the old 128m cap.
+    mem_limit: 512m
     cpus: 0.25
     depends_on:
       - prometheus

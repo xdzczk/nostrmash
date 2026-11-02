@@ -239,6 +239,7 @@ func trendingNoteFromStore(row readmodel.TrendingNote) TrendingNote {
 		ReactionCount: row.ReactionCount,
 		ZapCount:      row.ZapCount,
 		ZapMSats:      row.ZapMSats,
+		BookmarkCount: row.BookmarkCount,
 		Score:         row.Score,
 	}
 }
@@ -278,6 +279,9 @@ func trendingProfileFromStore(row readmodel.TrendingProfile) TrendingProfile {
 		FollowerCount:            row.FollowerCount,
 		ScoredEngagementReceived: row.ScoredEngagementReceived,
 		ScoredNewFollowers:       row.ScoredNewFollowers,
+		SupporterCount:           row.SupporterCount,
+		RawSats:                  row.RawSats,
+		CappedSats:               row.CappedSats,
 	}
 }
 

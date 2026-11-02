@@ -17,6 +17,15 @@ func (s *PostgresStore) TopZapAdsByEventIDs(ctx context.Context, ids []string) (
 	return s.Read.TopZapAdsByEventIDs(ctx, ids)
 }
 
+// QuoteCountsByEventIDs delegates to the read store. Declaring it here keeps a
+// nil embedded *Read from panicking through method promotion.
+func (s *PostgresStore) QuoteCountsByEventIDs(ctx context.Context, ids []string) (map[string]int64, error) {
+	if s == nil || s.Read == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+	return s.Read.QuoteCountsByEventIDs(ctx, ids)
+}
+
 // AttachTopZaps delegates to the read store. A nil embedded *Read leaves the
 // events unchanged instead of panicking through method promotion.
 func (s *PostgresStore) AttachTopZaps(ctx context.Context, events []json.RawMessage) []json.RawMessage {

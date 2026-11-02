@@ -88,9 +88,18 @@ func parseOptionalDiscoveryLanguage(r *http.Request) (string, error) {
 }
 
 func parseTrendingWindow(r *http.Request) (time.Duration, string, error) {
-	raw := r.URL.Query().Get("window")
+	return parseRankingWindow(r, "24h")
+}
+
+// parseRankingWindow accepts 24h, 7d, and 30d. An empty value uses fallback,
+// which is 24h for trending, 7d for most-zapped notes, and 30d for most-supported profiles.
+func parseRankingWindow(r *http.Request, fallback string) (time.Duration, string, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("window"))
+	if raw == "" {
+		raw = fallback
+	}
 	switch raw {
-	case "", "24h":
+	case "24h":
 		return 24 * time.Hour, "24h", nil
 	case "7d":
 		return 7 * 24 * time.Hour, "7d", nil

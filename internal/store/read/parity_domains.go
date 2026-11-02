@@ -650,12 +650,12 @@ func resolveDomainNotesWindow(window string) (string, string, string, error) {
 		cutoff := "extract(epoch from now())::bigint - (30 * 24 * 60 * 60)"
 		return "s.created_at >= " + cutoff,
 			"created_at >= " + cutoff,
-			"((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + (s.zap_msats / 100000.0)) / (1.0 + ((extract(epoch from now())::bigint - s.created_at) / (30.0 * 24 * 60 * 60)))",
+			"((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + LN(1.0 + (s.zap_msats / 100000.0))) / (1.0 + ((extract(epoch from now())::bigint - s.created_at) / (30.0 * 24 * 60 * 60)))",
 			nil
 	case "all":
 		return "TRUE",
 			"TRUE",
-			"((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + (s.zap_msats / 100000.0))",
+			"((s.reply_count * 3.0) + (s.repost_count * 2.0) + s.reaction_count + (s.zap_count * 2.0) + LN(1.0 + (s.zap_msats / 100000.0)))",
 			nil
 	default:
 		return "", "", "", fmt.Errorf("unsupported domain notes window: %s", window)

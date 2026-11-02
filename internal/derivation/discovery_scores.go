@@ -5,19 +5,30 @@ import (
 	"time"
 )
 
-// cheapEngagementUnlockPerSubstantive is how many reaction-points of cheap
-// engagement (one reaction = 1, one repost = 2) one substantive replier or
-// zapper fully unlocks. A copied-phrase pile is omitted from that replier
-// budget before it gets here. When that pile is most of the repliers, the
-// whole budget, including the part zaps open, is scaled by the share of
-// repliers outside the pile. A single reply still counts as a replier.
+// cheapEngagementUnlockPerSubstantive is how many reaction-points one
+// substantive replier or zapper fully unlocks. One reaction is one point.
+// A copied-phrase pile is omitted from that replier budget before it gets
+// here. When that pile is most of the repliers, only the reply-derived
+// part of the budget is scaled by the share of repliers outside the pile.
+// Zaps are not. A single reply still counts as a replier.
 const cheapEngagementUnlockPerSubstantive = 4.0
 
-// cheapEngagementFloor is the fraction of reactions and reposts that still
-// count once they exceed what replies and zaps explain. Zero would hide a
-// note people liked and nobody answered; 1 lets a boost farm (dozens of
-// reactions and reposts, no comments, a single zap) buy the top slot.
+// cheapEngagementFloor is the fraction of surplus reactions that still count
+// once they exceed what replies and zaps explain. Zero would hide a note
+// people liked and nobody answered; 1 lets a reaction farm buy the top slot.
 const cheapEngagementFloor = 0.12
+
+// repostPointsPerPerson is the reach of one distinct reposter inside the
+// allowance. Reposts do not spend the reaction budget.
+const repostPointsPerPerson = 2.0
+
+// repostSurplusFloor is the fraction of a full repost that still counts past
+// the allowance of one reposter per share-scaled substantive replier and per
+// zapper. 0.10 keeps a 51-repost, 71-reaction, one-zap farm under nine real
+// replies, and a surplus repost (0.20) still beats a surplus reaction (0.12).
+// There is no constant free allowance: a fixed handful would not halve when
+// every trust weight is halved.
+const repostSurplusFloor = 0.10
 
 // weekRecencyGravity makes a note at the end of the 7-day window keep 85%
 // of a fresh note's score: 1/(1+3/17) = 0.85. The 24-hour window uses
@@ -78,16 +89,24 @@ func RankRecencyMatters(windowLabel string) bool {
 // author), and optionally scales each engager by trust-graph proximity, so a
 // single account emitting many events cannot inflate the score.
 //
-// Reactions and reposts are cheap to buy. They count in full only up to a
-// budget set by substantive replies and zaps. replyWeight includes one vote
-// from a copied-phrase pile, and substantiveReplyWeight leaves that pile
-// out. cheapUnlockShare is 1 while the pile is not most of the repliers.
-// When it is, the share is the fraction of repliers outside the pile, and
-// it scales the whole like and repost budget, including the part zaps open.
-// The replies and the zaps still add their own score. A repost from someone
-// in the pile is omitted before it gets here. The surplus counts at
-// cheapEngagementFloor. The share is a headcount ratio, so halving every
-// engager's trust weight still halves the score.
+// Reactions and reposts are cheap to buy, and they are scored apart.
+// Reactions count in full up to four points per unlock unit. Reposts count
+// at two points per person up to one person per unlock unit, and they do
+// not consume the reaction budget. An unlock unit is a share-scaled
+// substantive replier plus a zapper: cheapUnlockShare scales only the
+// reply part. Zaps open likes and reposts even when a greeting pile is
+// most of the thread. replyWeight includes the greeting pile at
+// sqrt(people) times its strongest weight, and one vote from any other
+// copied phrase. substantiveReplyWeight leaves those piles out.
+// cheapUnlockShare is 1 while a pile is not most of the repliers. When it
+// is, the share is the fraction of repliers outside the pile. The replies
+// and the zaps still add their own score. A repost from someone in the
+// pile is omitted before it gets here. Surplus reactions count at
+// cheapEngagementFloor, surplus reposts at repostSurplusFloor. The share
+// is a headcount ratio, so halving every engager's trust weight halves
+// the reply, reaction, repost, and zap-count terms. Zap amount is
+// zapAmountSignal of the already-weighted millisats, so that term shrinks
+// by less than half.
 //
 // Recency depends on the window. A 24-hour score keeps half at the edge of
 // the day, a 7-day score keeps 85% at the end of the week, and a 30-day
@@ -131,11 +150,12 @@ func computeTrendingScore(
 	} else if cheapUnlockShare > 1 {
 		cheapUnlockShare = 1
 	}
-	substantive := (substantiveReplyWeight + zapWeight) * cheapUnlockShare
+	unlockUnits := substantiveReplyWeight*cheapUnlockShare + zapWeight
 	base := replyWeight*3.0 +
 		zapWeight*2.0 +
-		(zapMSats / 100000.0) +
-		cheapEngagementSignal(reactionWeight, repostWeight, substantive)
+		zapAmountSignal(zapMSats) +
+		reactionSignal(reactionWeight, unlockUnits) +
+		repostReachSignal(repostWeight, unlockUnits)
 	decay := recencyDecay(window, ageSeconds, windowSeconds)
 	score := base * decay
 	if score <= 0 {
@@ -144,31 +164,62 @@ func computeTrendingScore(
 	return math.Round(score*1000.0) / 1000.0
 }
 
-// cheapEngagementSignal scores reactions and reposts. Within the budget
-// unlocked by substantive engagers the weight is unchanged. Past it, only
-// cheapEngagementFloor of the surplus counts. With no replies and no zaps
-// the whole pile is surplus.
-func cheapEngagementSignal(reactionWeight, repostWeight, substantive float64) float64 {
-	cheap := reactionWeight + 2.0*repostWeight
-	if cheap <= 0 {
+// zapAmountSignal scores zap volume for a note and for a profile.
+// log(1 + msats/100000): 100 sats is 0.7, 10_000 is about 4.6, 50_000
+// about 6.2, and a million about 9. A single payer cannot outrank a short
+// thread. Callers pass millisatoshis already scaled by the sender's trust
+// weight.
+func zapAmountSignal(zapMSats float64) float64 {
+	if zapMSats <= 0 {
 		return 0
 	}
-	if substantive < 0 {
-		substantive = 0
+	return math.Log1p(zapMSats / 100000.0)
+}
+
+// reactionSignal scores likes. Within the points replies and zaps unlock,
+// the weight is unchanged. Past it, only cheapEngagementFloor of the
+// surplus counts. With no unlock the whole pile is surplus.
+func reactionSignal(reactionWeight, unlockUnits float64) float64 {
+	if reactionWeight <= 0 {
+		return 0
 	}
-	unlocked := substantive * cheapEngagementUnlockPerSubstantive
-	if cheap <= unlocked {
-		return cheap
+	if unlockUnits < 0 {
+		unlockUnits = 0
 	}
-	return unlocked + cheapEngagementFloor*(cheap-unlocked)
+	unlocked := unlockUnits * cheapEngagementUnlockPerSubstantive
+	if reactionWeight <= unlocked {
+		return reactionWeight
+	}
+	return unlocked + cheapEngagementFloor*(reactionWeight-unlocked)
+}
+
+// repostReachSignal scores distinct reposters as reach. One full-weight
+// repost per unlock unit counts at repostPointsPerPerson. Further reposts
+// count at repostSurplusFloor of that, so a boost farm cannot buy the top
+// slot and a repost still outranks a leftover like.
+func repostReachSignal(repostWeight, unlockUnits float64) float64 {
+	if repostWeight <= 0 {
+		return 0
+	}
+	if unlockUnits < 0 {
+		unlockUnits = 0
+	}
+	if repostWeight <= unlockUnits {
+		return repostPointsPerPerson * repostWeight
+	}
+	surplus := repostWeight - unlockUnits
+	return repostPointsPerPerson*unlockUnits + repostPointsPerPerson*repostSurplusFloor*surplus
 }
 
 // computeProfileTrendingScore ranks profiles by engagement on the root notes
 // they published in the window. motionAt is the newest of those notes or the
 // latest engagement on them — an outbound like is not activity. replyCount is
 // accepted so callers can keep passing the authored reply counter, and it
-// does not enter the rate: replies are not posts. engagementReceived is
-// distinct (signal, engager) votes on those notes, not a count of events.
+// does not enter the rate: replies are not posts. engagementReceived is the
+// farm-discounted weight of distinct engagers on those notes: a greeting pile
+// is sqrt(people) times its strongest weight, any other copied phrase is one
+// vote, surplus reactions count at the cheap floor, and surplus reposts
+// count at the lower reach floor.
 func computeProfileTrendingScore(
 	window time.Duration,
 	nowUnix int64,
@@ -206,7 +257,7 @@ func computeProfileTrendingScore(
 	// mostly matters through engagementPerPost/qualityBoost below.
 	engagementSignal := 3.0 * math.Log1p(safeEngagement)
 	postingSignal := 0.35 * math.Log1p(float64(safePosts))
-	zapSignal := math.Log1p(safeZapVolume / 100000.0)
+	zapSignal := zapAmountSignal(safeZapVolume)
 	consistencySignal := 0.5 * math.Log1p(float64(safeActiveDays))
 
 	// qualityBoost rewards engagement-per-post with diminishing (sqrt)
@@ -229,6 +280,8 @@ func computeProfileTrendingScore(
 
 // computeProfileRisingScore takes float64 newFollowers/engagement inputs so
 // callers can pass either raw counters or deduplicated trust-weighted votes.
+// engagementReceived is one person per window after the same farm discount:
+// a reply or a zap beats a like, and a like-only ring sits on the cheap floor.
 func computeProfileRisingScore(
 	trendingScore float64,
 	followerCount int64,

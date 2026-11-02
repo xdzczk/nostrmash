@@ -1,6 +1,7 @@
 package derivation
 
 import (
+	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -65,13 +66,15 @@ type weightedReply struct {
 }
 
 // replyWeightSum is one vote per pubkey after phrase piles.
-// Total includes one vote from each copied-phrase pile: the strongest trust
-// weight in that pile, once. Substantive is the part that unlocks reactions
-// and reposts. A greeting pile, a repeated short phrase, or a repeated
-// sentence is omitted, and a single reply still counts. DiscountedPubkeys
-// are the people in those piles; a repost from one of them is the same vote.
-// UnlockShare stays 1 while a pile is not most of the repliers. When it is,
-// the share is the fraction of repliers outside the pile.
+// Total includes each copied-phrase pile as the strongest trust weight in
+// that pile, once. A greeting pile is the exception: it counts sqrt(people)
+// times that strongest weight. Substantive is the part that unlocks
+// reactions and reposts. A greeting pile, a repeated short phrase, or a
+// repeated sentence is omitted from it, and a single reply still counts.
+// DiscountedPubkeys are the people in those piles; a repost from one of
+// them is the same vote. UnlockShare stays 1 while a pile is not most of
+// the repliers. When it is, the share is the fraction of repliers outside
+// the pile.
 type replyWeightSum struct {
 	Total             float64
 	Substantive       float64
@@ -90,10 +93,13 @@ type replyWeightSum struct {
 // A longer remark stays out of that near-copy pile. The same sentence
 // repeated by two people is its own pile, whatever its length.
 //
-// A pile of two or more counts once, as the strongest trust weight in it.
-// Extra people add nothing. One person still counts in full and still
-// unlocks reactions and reposts. A replier with zero trust weight still
-// counts as a person in the pile and in the share, and adds nothing to the vote.
+// A copied phrase of two or more counts once, as the strongest trust weight
+// in it. A greeting pile of two or more counts sqrt(people) times that
+// strongest weight, so a wide good-morning audience outranks a pair and
+// still stays under one vote per person. One person still counts in full
+// and still unlocks reactions and reposts. A replier with zero trust weight
+// still counts as a person in the pile and in the share, and adds nothing
+// to the vote.
 func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 	type replier struct {
 		weight   float64
@@ -167,7 +173,7 @@ func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 			sum.DiscountedPubkeys = make(map[string]struct{})
 		}
 		sum.DiscountedPubkeys[pubkey] = struct{}{}
-		// The greeting pile adds greetingVote once, after this loop.
+		// The greeting pile adds sqrt(people) times greetingVote after this loop.
 		if replier.greeting {
 			continue
 		}
@@ -181,9 +187,7 @@ func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 			longVote[pileKey] = weight
 		}
 	}
-	if greetingCount >= 2 {
-		sum.Total += greetingVote
-	}
+	sum.Total += greetingPileVote(greetingCount, greetingVote)
 	for _, vote := range clusterVote {
 		sum.Total += vote
 	}
@@ -192,6 +196,18 @@ func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 	}
 	sum.UnlockShare = unlockShare(repliers, substantiveRepliers)
 	return sum
+}
+
+// greetingPileVote is the reply weight of a greeting bucket. Two or more
+// people count as sqrt(people) times the strongest trust weight, so a wide
+// good-morning audience outranks a pair without paying per person. Fewer
+// than two people, or a pile whose strongest weight is zero, adds nothing
+// here; a single greeting is scored as a normal reply.
+func greetingPileVote(count int, strongest float64) float64 {
+	if count < 2 || strongest <= 0 {
+		return 0
+	}
+	return math.Sqrt(float64(count)) * strongest
 }
 
 // replyPileKey reports the pile a replier belongs to once at least two

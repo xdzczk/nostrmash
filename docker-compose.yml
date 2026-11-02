@@ -24,12 +24,14 @@ services:
       - "6379:6379"
 
   meilisearch:
-    image: getmeili/meilisearch:v1.42.1
+    image: getmeili/meilisearch:v1.56.0
     ports:
       - "7700:7700"
     environment:
       MEILI_ENV: development
       MEILI_MASTER_KEY: nostrmash-dev-key
+      # Opens a database written by an older Meilisearch. No-op once current.
+      MEILI_UPGRADE_DB: "true"
     volumes:
       - meili_data:/meili_data
 

@@ -2,6 +2,7 @@ package derivation_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -118,6 +119,55 @@ func TestZapReceiptRebuildStoresInvoiceAmountAndOmitsZeroTopZap(t *testing.T) {
 	}
 	if _, ok := ads["note_zero"]; ok {
 		t.Fatalf("zero-amount receipt was attached as top zap: %+v", ads["note_zero"])
+	}
+}
+
+func TestZapAmountSQLSplitsOnBech32Separator(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	desc := func(amount string) string {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{"tags": [][]string{{"amount", amount}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	raw := func(tags [][]string) string {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{"tags": tags})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	cases := []struct {
+		name string
+		raw  string
+		want int64
+	}{
+		{"nano amount containing digit 1", raw([][]string{{"bolt11", "lnbc210n1pw"}}), 21},
+		{"later digit is not whole btc", raw([][]string{{"bolt11", "lnbc8210n1pw"}}), 821},
+		{"description beats invoice", raw([][]string{{"bolt11", "lnbc210n1pw"}, {"description", desc("25000")}}), 25},
+		{"receipt amount beats description", raw([][]string{{"amount", "21000"}, {"description", desc("999000")}, {"bolt11", "lnbc250n1pw"}}), 21},
+		{"whole btc when the multiplier is absent", raw([][]string{{"bolt11", "lnbc11pw"}}), 100_000_000},
+		{"missing amount", raw([][]string{{"bolt11", "lnbc1pw"}}), 0},
+		{"micro decimal", raw([][]string{{"bolt11", "lnbc2.5u1pw"}}), 250},
+		{"regtest prefix", raw([][]string{{"bolt11", "lnbcrt10u1pw"}}), 1000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got int64
+			if err := pool.QueryRow(ctx, `SELECT migration_000111_zap_amount_sats($1::jsonb)`, tc.raw).Scan(&got); err != nil {
+				t.Fatalf("query: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("amount = %d want %d", got, tc.want)
+			}
+		})
 	}
 }
 

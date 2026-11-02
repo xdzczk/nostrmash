@@ -36,6 +36,7 @@ const (
 	DerivationReplyCounts                 = "reply_counts"
 	DerivationReactionCounts              = "reaction_counts"
 	DerivationRepostCounts                = "repost_counts"
+	DerivationQuoteCounts                 = "quote_counts"
 	DerivationCommentEdges                = "comment_edges"
 	DerivationReportTargets               = "report_targets"
 	DerivationReactionEvents              = "reaction_events"
@@ -46,6 +47,7 @@ const (
 	DerivationRelayListsLatest            = "relay_lists_latest"
 	DerivationEventHashtags               = "event_hashtags"
 	DerivationEventURLs                   = "event_urls"
+	DerivationBookmarkLists               = "bookmark_lists"
 	DerivationNoteDiscoveryStats          = "note_discovery_stats"
 	DerivationProfileDiscoveryStats       = "profile_discovery_stats"
 	DerivationTrustedNoteDiscovery        = "trusted_note_discovery_candidates"
@@ -76,6 +78,7 @@ const (
 	ReplyCountsVersion        = 2
 	ReactionCountsVersion     = 1
 	RepostCountsVersion       = 1
+	QuoteCountsVersion        = 1
 	CommentEdgesVersion       = 1
 	ReportTargetsVersion      = 1
 	ReactionEventsVersion     = 1
@@ -87,6 +90,10 @@ const (
 	// v2: all-numeric hashtags ("1" parsed from "#1 app") are not topics.
 	EventHashtagsVersion = 2
 	EventURLsVersion     = 2
+	// BookmarkListsVersion projects public kind-10003 lists and kind-30003
+	// bookmark sets into distinct saved-note counts. Private (encrypted)
+	// bookmarks are not in the tags and are not counted.
+	BookmarkListsVersion = 1
 	// v5: trending score inputs count each engager pubkey once per signal and
 	// exclude the note author's self-engagement (optionally trust-weighted).
 	// v6: repeated greetings and repeated short phrases are discounted in
@@ -116,7 +123,18 @@ const (
 	// pile is most of the repliers the like and repost budget shrinks to
 	// the share of repliers outside it. Rows keep the previous scores until
 	// the next derive or a time-range rebuild.
-	NoteDiscoveryStatsVersion = 13
+	// v14: zap amount is log(1 + msats/100000), the same curve as profile
+	// trending. One payer's sats stay a small bump. Rows keep the previous
+	// scores until the next derive or a time-range rebuild.
+	// v15: a greeting pile counts sqrt(people) times its strongest trust
+	// weight. Exact copied phrases still count once. Zap unlock is not
+	// scaled by the copy-pile share; only the reply-derived part is.
+	// Reposts are a separate reach term, two points inside an allowance of
+	// one per share-scaled substantive replier and per zapper, and they do
+	// not consume the reaction budget. Surplus reposts count at 0.10 of
+	// that. Rows keep the previous scores until the next derive or a
+	// time-range rebuild.
+	NoteDiscoveryStatsVersion = 15
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -145,7 +163,19 @@ const (
 	// v9: 7d trending keeps 85% at the end of the week, and 30d trending
 	// drops the recency penalty. 24h is unchanged. The profile-stats
 	// sweeper rewrites rows still inside the serving window.
-	ProfileDiscoveryStatsVersion   = 9
+	// v10: trending and rising engagement use the note farm discount. A
+	// copied phrase collapses to one vote and does not open the like budget.
+	// Reactions and reposts past the reply and zap budget count at the cheap
+	// floor. Rising still keeps one person, classified by their strongest
+	// signal. Rows keep the previous scores until the profile-stats sweeper
+	// rewrites them.
+	// v11: profile trending and rising use the same greeting pile, zap
+	// unlock, and repost reach term as note discovery. A greeting pile is
+	// sqrt(people) times the strongest weight. Zaps open likes and reposts
+	// even when a copied phrase is most of the replies. Reposts do not
+	// spend the reaction budget, and surplus reposts count at 0.10. Rows
+	// keep the previous scores until the profile-stats sweeper rewrites them.
+	ProfileDiscoveryStatsVersion   = 11
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1
@@ -155,7 +185,16 @@ const (
 	// zap_receipts rebuild reprojects kind 9735. Note zap_msats is
 	// SUM(amount_sats * 1000) and stays stale until the note discovery
 	// stats rebuild runs after that.
-	ZapReceiptsVersion           = 2
+	// v3: sender_pubkey is the person who paid. Kind 9735 is signed by the
+	// lightning service, so the sender is the zap-request pubkey in the
+	// description tag, then the NIP-57 P tag, then the receipt pubkey.
+	// Migration 000109 rewrites rows that still name the service. A profile
+	// sent-zap page filters on this column.
+	// Migration 000108 filled empty amounts by splitting BOLT11 on the first
+	// '1'. That digit is often inside the amount (lnbc210n is 21 sats), so
+	// those rows were stored as whole BTC. Migration 000111 recomputes
+	// amount_sats with the same rules as zapReceiptAmountSats.
+	ZapReceiptsVersion           = 3
 	ProfilePublicStatsVersion    = 1
 	AuthorActivityDailyVersion   = 1
 	AuthorEngagementStatsVersion = 1
@@ -183,13 +222,22 @@ const (
 	// v8: a copied phrase of any length counts as one vote in the reply
 	// weight. Rows keep the previous weights until the thread summary
 	// sweeper rewrites them.
-	ThreadSummaryVersion               = 8
+	// v9: a greeting pile in the reply weight is sqrt(people) times the
+	// strongest trust weight. Exact copied phrases still count once. Rows
+	// keep the previous weights until the thread summary sweeper rewrites
+	// them.
+	ThreadSummaryVersion               = 9
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1
 	TrustInteractionEdgeWeightsVersion = 1
 	PrimalNotificationsVersion         = 1
 )
+
+// SupportSenderCapSats is the most one sender can add to a receiver's
+// support rank inside a window. A larger zap still counts, but only up to
+// this ceiling, so one person cannot own the most-supported list.
+const SupportSenderCapSats int64 = 100_000
 
 const (
 	RebuildScopeFull      = "full"

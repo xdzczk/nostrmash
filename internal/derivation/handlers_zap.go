@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/xdzczk/nostrmash/internal/nostr"
 )
 
 func (h *Handlers) ProjectZapReceipts(ctx context.Context, eventID string) error {
@@ -20,13 +22,13 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 	}
 
 	var kind int
-	var senderPubkey string
+	var receiptPubkey string
 	var createdAt int64
 	if err := h.pool.QueryRow(ctx, `
 		SELECT kind, pubkey, created_at
 		FROM events
 		WHERE id = $1
-	`, eventID).Scan(&kind, &senderPubkey, &createdAt); err != nil {
+	`, eventID).Scan(&kind, &receiptPubkey, &createdAt); err != nil {
 		return fmt.Errorf("load event for zap projection: %w", err)
 	}
 	if kind != 9735 {
@@ -37,8 +39,15 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 	if err != nil {
 		return err
 	}
+	// The event pubkey is the lightning service. The sent-zap page filters
+	// on the person who paid.
+	senderPubkey := zapReceiptSender(receiptPubkey, tags)
 	receiver := firstTagValue(tags, "p")
 	targetEventID := firstTagValue(tags, "e")
+	targetAddress := ""
+	if addr, ok := nostr.ParseAddressCoordinate(firstTagValue(tags, "a")); ok {
+		targetAddress = addr.String()
+	}
 	amountSats := zapReceiptAmountSats(tags)
 
 	tx, err := h.pool.Begin(ctx)
@@ -60,18 +69,19 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO zap_receipts (
-			zap_receipt_id, created_at, event_id, sender_pubkey, receiver_pubkey, amount_sats, derivation_version, projected_at
+			zap_receipt_id, created_at, event_id, sender_pubkey, receiver_pubkey, amount_sats, target_address, derivation_version, projected_at
 		)
-		VALUES ($1, $2, nullif($3, ''), $4, nullif($5, ''), $6, $7, now())
+		VALUES ($1, $2, nullif($3, ''), $4, nullif($5, ''), $6, $7, $8, now())
 		ON CONFLICT (zap_receipt_id) DO UPDATE
 		SET created_at = EXCLUDED.created_at,
 		    event_id = EXCLUDED.event_id,
 		    sender_pubkey = EXCLUDED.sender_pubkey,
 		    receiver_pubkey = EXCLUDED.receiver_pubkey,
 		    amount_sats = EXCLUDED.amount_sats,
+		    target_address = EXCLUDED.target_address,
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
-	`, eventID, createdAt, targetEventID, senderPubkey, receiver, amountSats, writeVersion); err != nil {
+	`, eventID, createdAt, targetEventID, senderPubkey, receiver, amountSats, targetAddress, writeVersion); err != nil {
 		return fmt.Errorf("upsert zap receipt: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

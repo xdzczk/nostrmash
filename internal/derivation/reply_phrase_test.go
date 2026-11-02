@@ -27,13 +27,13 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 		}
 	})
 
-	t.Run("repeated greetings count as one vote", func(t *testing.T) {
+	t.Run("repeated greetings grow with the square root of the audience", func(t *testing.T) {
 		rows := make([]weightedReply, 0, 18)
 		for i := 0; i < 18; i++ {
 			rows = append(rows, weightedReply{Pubkey: string(rune('a' + i)), Content: "  gm! ", Weight: 1})
 		}
 		got := sumDiscountedReplyWeights(rows)
-		if got.Total != 1 || got.Substantive != 0 || got.UnlockShare != 0 || len(got.DiscountedPubkeys) != 18 {
+		if !near(got.Total, greetingPileVote(18, 1)) || got.Substantive != 0 || got.UnlockShare != 0 || len(got.DiscountedPubkeys) != 18 {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -43,7 +43,7 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "a", Content: "GM https://example.com/coffee.jpg", Weight: 1},
 			{Pubkey: "b", Content: "gm nostr:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqx", Weight: 1},
 		})
-		if got.Total != 1 || got.Substantive != 0 || got.UnlockShare != 0 {
+		if !near(got.Total, greetingPileVote(2, 1)) || got.Substantive != 0 || got.UnlockShare != 0 {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -58,7 +58,7 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "f", Content: "❤️", Weight: 1},
 			{Pubkey: "g", Content: "hello", Weight: 1},
 		})
-		if got.Total != 1 || got.Substantive != 0 || len(got.DiscountedPubkeys) != 7 {
+		if !near(got.Total, greetingPileVote(7, 1)) || got.Substantive != 0 || len(got.DiscountedPubkeys) != 7 {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -72,7 +72,7 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "e", Content: "enjoy your wonderful day", Weight: 1},
 			{Pubkey: "f", Content: "Mornin Boyo! Enjoy the unfolding...", Weight: 1},
 		})
-		if got.Total != 1 || got.Substantive != 0 || len(got.DiscountedPubkeys) != 6 {
+		if !near(got.Total, greetingPileVote(6, 1)) || got.Substantive != 0 || len(got.DiscountedPubkeys) != 6 {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -83,7 +83,7 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "a", Content: "Enjoy coffee have great day", Weight: 1},
 			{Pubkey: "b", Content: "good morning", Weight: 1},
 		})
-		if got.Total != 1 || got.Substantive != 0 || len(got.DiscountedPubkeys) != 2 {
+		if !near(got.Total, greetingPileVote(2, 1)) || got.Substantive != 0 || len(got.DiscountedPubkeys) != 2 {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -97,9 +97,9 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "e", Content: "GM the binance hacker froze the funds", Weight: 1},
 			{Pubkey: "f", Content: "Good morning Do a set of push ups, it will only take 1-2 mins, you'll feel better, don't trust verify", Weight: 1},
 		})
-		// Four remarks, and the two greetings count once. The pile is not
+		// Four remarks, and the two greetings count sqrt(2). The pile is not
 		// most of the repliers, so the like budget stays open.
-		if got.Total != 5 || got.Substantive != 4 || got.UnlockShare != 1 {
+		if !near(got.Total, 4+greetingPileVote(2, 1)) || got.Substantive != 4 || got.UnlockShare != 1 {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -132,9 +132,9 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "b", Content: "GM", Weight: 1},
 			{Pubkey: "c", Content: "GM", Weight: 1},
 		})
-		// a is substantive. b and c share the greeting bucket and count once.
+		// a is substantive. b and c share the greeting bucket at sqrt(2).
 		// That pile is most of the repliers.
-		if got.Total != 2 || got.Substantive != 1 || !near(got.UnlockShare, 1.0/3.0) {
+		if !near(got.Total, 1+greetingPileVote(2, 1)) || got.Substantive != 1 || !near(got.UnlockShare, 1.0/3.0) {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -315,7 +315,7 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "c", Content: "Two espressos on that cracked stone ledge is how I would start a Friday too.", Weight: 1},
 			{Pubkey: "d", Content: "The binance hacker froze the funds and the thread is about that.", Weight: 1},
 		})
-		if got.Total != 3 || got.Substantive != 2 || got.UnlockShare != 1 {
+		if !near(got.Total, 2+greetingPileVote(2, 1)) || got.Substantive != 2 || got.UnlockShare != 1 {
 			t.Fatalf("got %+v", got)
 		}
 	})
@@ -350,17 +350,17 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 			{Pubkey: "a", Content: "🔥🔥", Weight: 1},
 			{Pubkey: "b", Content: "👋", Weight: 1},
 		})
-		if got.Total != 1 || got.Substantive != 0 || got.UnlockShare != 0 {
+		if !near(got.Total, greetingPileVote(2, 1)) || got.Substantive != 0 || got.UnlockShare != 0 {
 			t.Fatalf("got %+v", got)
 		}
 	})
 
-	t.Run("a pile counts the strongest vote once", func(t *testing.T) {
+	t.Run("a greeting pile scales the strongest weight by the square root", func(t *testing.T) {
 		got := sumDiscountedReplyWeights([]weightedReply{
 			{Pubkey: "a", Content: "gn", Weight: 0.5},
 			{Pubkey: "b", Content: "GN!", Weight: 0.25},
 		})
-		if !near(got.Total, 0.5) || got.Substantive != 0 || got.UnlockShare != 0 {
+		if !near(got.Total, greetingPileVote(2, 0.5)) || got.Substantive != 0 || got.UnlockShare != 0 {
 			t.Fatalf("got %+v", got)
 		}
 	})

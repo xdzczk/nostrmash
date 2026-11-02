@@ -45,6 +45,14 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			description:    "Project eventually-consistent repost counts from kind=6 and kind=16 references",
 			rebuildProject: h.projectRepostCountsWithVersion,
 		}, nil
+	case DerivationQuoteCounts:
+		return projectionDefinition{
+			name:           DerivationQuoteCounts,
+			compiled:       QuoteCountsVersion,
+			description:    "Project kind-1 quote posts from q tags onto the quoted event or address",
+			rebuildProject: h.projectQuoteCountsWithVersion,
+			rebuildFull:    h.rebuildQuoteCountsWithVersion,
+		}, nil
 	case DerivationCommentEdges:
 		return projectionDefinition{
 			name:           DerivationCommentEdges,
@@ -120,6 +128,14 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       EventURLsVersion,
 			description:    "Project normalized URLs with observed and canonical domains from note-like events",
 			rebuildProject: h.projectEventURLsWithVersion,
+		}, nil
+	case DerivationBookmarkLists:
+		return projectionDefinition{
+			name:           DerivationBookmarkLists,
+			compiled:       BookmarkListsVersion,
+			description:    "Project public bookmark lists into distinct saved-note counts",
+			rebuildProject: h.projectBookmarkListsWithVersion,
+			rebuildFull:    h.rebuildBookmarkListsWithVersion,
 		}, nil
 	case DerivationNoteDiscoveryStats:
 		return projectionDefinition{

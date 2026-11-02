@@ -1,6 +1,9 @@
 package derivation
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPrimalNotificationDraftsReplyMentionAndZap(t *testing.T) {
 	reply := primalNotificationDrafts(1, "author", "reply-id", "", [][]string{
@@ -40,6 +43,22 @@ func TestPrimalNotificationDraftsReplyMentionAndZap(t *testing.T) {
 	}
 	if zap[0].Args["your_post"] != "note-id" || zap[0].Args["who_zapped_it"] != "sender" {
 		t.Fatalf("zap args: %+v", zap[0].Args)
+	}
+	payer := strings.Repeat("ab", 32)
+	named := primalNotificationDrafts(9735, "wallet", "zap-id", "", [][]string{
+		{"p", "receiver"},
+		{"e", "note-id"},
+		{"description", `{"pubkey":"` + strings.ToUpper(payer) + `","kind":9734,"content":"nice"}`},
+	}, "", "", false)
+	if len(named) != 1 || named[0].Args["who_zapped_it"] != payer {
+		t.Fatalf("named zap: %+v", named)
+	}
+	self := primalNotificationDrafts(9735, "wallet", "zap-id", "", [][]string{
+		{"p", payer},
+		{"description", `{"pubkey":"` + payer + `"}`},
+	}, "", "", false)
+	if len(self) != 0 {
+		t.Fatalf("self zap notice: %+v", self)
 	}
 	if reply[0].Args["who_replied_to_it"] != "author" || reply[0].Args["your_post"] != "parent-id" {
 		t.Fatalf("reply args: %+v", reply[0].Args)

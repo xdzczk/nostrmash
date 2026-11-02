@@ -1,6 +1,9 @@
 package derivation
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseBolt11AmountSats(t *testing.T) {
 	cases := []struct {
@@ -27,6 +30,34 @@ func TestParseBolt11AmountSats(t *testing.T) {
 		if got := parseBolt11AmountSats(tc.in); got != tc.want {
 			t.Fatalf("parseBolt11AmountSats(%q)=%d want %d", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestZapReceiptSender(t *testing.T) {
+	payer := strings.Repeat("ab", 32)
+	other := strings.Repeat("cd", 32)
+	wallet := strings.Repeat("ef", 32)
+
+	fromRequest := [][]string{
+		{"p", other},
+		{"P", other},
+		{"description", `{"pubkey":"` + strings.ToUpper(payer) + `","kind":9734,"content":"nice"}`},
+	}
+	if got := zapReceiptSender(wallet, fromRequest); got != payer {
+		t.Fatalf("description sender = %s want %s", got, payer)
+	}
+
+	fromPTag := [][]string{
+		{"p", other},
+		{"description", `not json`},
+		{"P", strings.ToUpper(payer)},
+	}
+	if got := zapReceiptSender(wallet, fromPTag); got != payer {
+		t.Fatalf("P-tag sender = %s want %s", got, payer)
+	}
+
+	if got := zapReceiptSender("sender_good", [][]string{{"p", "author"}, {"amount", "21000"}}); got != "sender_good" {
+		t.Fatalf("fallback sender = %s", got)
 	}
 }
 
