@@ -648,13 +648,27 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 		next[p] = struct{}{}
 	}
 
+	authorPubkey = strings.TrimSpace(authorPubkey)
+	// One lookup per contact-list rewrite. The author is the follower on
+	// every edge this rewrite adds or removes. Self-follows stay in the raw
+	// counts and out of the trusted count, matching follower_gain_events.
+	inAudience, err := followerInTrustedAudience(ctx, tx, authorPubkey, h.engagementWeighting)
+	if err != nil {
+		return err
+	}
+	trustedStep := int64(0)
+	if inAudience {
+		trustedStep = 1
+	}
+
 	type delta struct {
-		pubkey         string
-		followerDelta  int64
-		followingDelta int64
+		pubkey               string
+		followerDelta        int64
+		followingDelta       int64
+		trustedFollowerDelta int64
 	}
 	deltas := map[string]*delta{}
-	bump := func(pubkey string, followerDelta, followingDelta int64) {
+	bump := func(pubkey string, followerDelta, followingDelta, trustedFollowerDelta int64) {
 		pubkey = strings.TrimSpace(pubkey)
 		if pubkey == "" {
 			return
@@ -666,25 +680,34 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 		}
 		d.followerDelta += followerDelta
 		d.followingDelta += followingDelta
+		d.trustedFollowerDelta += trustedFollowerDelta
 	}
 
 	for followed := range next {
 		if _, ok := prev[followed]; ok {
 			continue
 		}
-		bump(authorPubkey, 0, 1)
-		bump(followed, 1, 0)
+		trustedDelta := int64(0)
+		if followed != authorPubkey {
+			trustedDelta = trustedStep
+		}
+		bump(authorPubkey, 0, 1, 0)
+		bump(followed, 1, 0, trustedDelta)
 	}
 	for followed := range prev {
 		if _, ok := next[followed]; ok {
 			continue
 		}
-		bump(authorPubkey, 0, -1)
-		bump(followed, -1, 0)
+		trustedDelta := int64(0)
+		if followed != authorPubkey {
+			trustedDelta = trustedStep
+		}
+		bump(authorPubkey, 0, -1, 0)
+		bump(followed, -1, 0, -trustedDelta)
 	}
 
 	for _, d := range deltas {
-		if d.followerDelta == 0 && d.followingDelta == 0 {
+		if d.followerDelta == 0 && d.followingDelta == 0 && d.trustedFollowerDelta == 0 {
 			continue
 		}
 		if _, err := tx.Exec(ctx, `
@@ -692,22 +715,55 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 				pubkey,
 				follower_count,
 				following_count,
+				trusted_follower_count,
 				note_count,
 				reply_count,
 				recent_activity_at,
 				derivation_version
 			)
-			VALUES ($1, GREATEST($2, 0), GREATEST($3, 0), 0, 0, NULL, $4)
+			VALUES ($1, GREATEST($2, 0), GREATEST($3, 0), GREATEST($4, 0), 0, 0, NULL, $5)
 			ON CONFLICT (pubkey) DO UPDATE
 			SET follower_count = GREATEST(profile_public_stats.follower_count + $2, 0),
 			    following_count = GREATEST(profile_public_stats.following_count + $3, 0),
+			    trusted_follower_count = GREATEST(profile_public_stats.trusted_follower_count + $4, 0),
 			    derivation_version = EXCLUDED.derivation_version,
 			    updated_at = now()
-		`, d.pubkey, d.followerDelta, d.followingDelta, writeVersion); err != nil {
+		`, d.pubkey, d.followerDelta, d.followingDelta, d.trustedFollowerDelta, writeVersion); err != nil {
 			return fmt.Errorf("apply follower count delta for %s: %w", d.pubkey, err)
 		}
 	}
 	return nil
+}
+
+// followerInTrustedAudience reports whether follower's follows count toward
+// trusted_follower_count. A positive untrusted weight counts every follower.
+// Zero counts a published hop within the same limit discovery engagement uses.
+// Score-only rows (NULL min_hops) and hops past the limit do not count.
+func followerInTrustedAudience(ctx context.Context, tx pgx.Tx, follower string, weighting EngagementWeightingOptions) (bool, error) {
+	weighting = weighting.normalized()
+	follower = strings.TrimSpace(follower)
+	if follower == "" {
+		return false, nil
+	}
+	if weighting.UntrustedWeight > 0 {
+		return true, nil
+	}
+	var hops *int
+	err := tx.QueryRow(ctx, `
+		SELECT min_hops
+		FROM trust_pubkeys_latest
+		WHERE pubkey = $1
+	`, follower).Scan(&hops)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("load trust hops for follower %s: %w", follower, err)
+	}
+	if hops == nil || *hops > weighting.MaxHops {
+		return false, nil
+	}
+	return true, nil
 }
 
 type activityDailyDelta struct {

@@ -7,15 +7,16 @@ import (
 	"strings"
 )
 
-// LargeAccountFollowerFloor is the follower count at which an account is
-// treated as in-network for ingest even when it sits outside the seed hop
+// LargeAccountFollowerFloor is the trusted follower count at which an account
+// is treated as in-network for ingest even when it sits outside the seed hop
 // limit. The live firehose subscribes by kind and time only, so a relay that
-// truncates the stream drops notes and nothing retries them. Popular accounts
-// are who people open, and a 2-hop web of trust often misses them.
+// truncates the stream drops notes and nothing retries them. A 2-hop web of
+// trust often misses accounts people actually follow. Raw follower_count is
+// not that proof: a follow farm clears any raw floor.
 //
-// The partial index in migrations/000105_profile_large_follower_index.sql
-// uses this same floor. Queries must inline the number (not a bind parameter)
-// so Postgres can match that index predicate.
+// The partial index in migrations/000115_trusted_follower_count.sql uses this
+// same floor. Queries must inline the number (not a bind parameter) so
+// Postgres can match that index predicate.
 const LargeAccountFollowerFloor int64 = 1000
 
 // largeAccountFrontierRank sorts ahead of every non-negative trust rank.
@@ -33,7 +34,7 @@ func largeAccountFrontierRank(followers int64) int64 {
 const DemotedLargeAccountFrontierRank int64 = math.MaxInt64
 
 func largeAccountFollowerPredicate() string {
-	return fmt.Sprintf("follower_count >= %d", LargeAccountFollowerFloor)
+	return fmt.Sprintf("trusted_follower_count >= %d", LargeAccountFollowerFloor)
 }
 
 // mergeFrontierCandidates reserves half of the frontier for trust-ranked
@@ -73,9 +74,10 @@ func mergeFrontierCandidates(trustRows, popular []TrustPubkeyCandidate, limit in
 	return out
 }
 
-// ListLargeAccountFrontierCandidates returns accounts at or above
-// LargeAccountFollowerFloor, largest first, with a negative trust rank so
-// frontier claim order fetches them before ordinary trust ranks.
+// ListLargeAccountFrontierCandidates returns accounts whose trusted follower
+// count is at or above LargeAccountFollowerFloor, largest first, with a
+// negative trust rank so frontier claim order fetches them before ordinary
+// trust ranks.
 func (s *Trust) ListLargeAccountFrontierCandidates(ctx context.Context, limit int) ([]TrustPubkeyCandidate, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
@@ -84,10 +86,10 @@ func (s *Trust) ListLargeAccountFrontierCandidates(ctx context.Context, limit in
 		return nil, nil
 	}
 	query := fmt.Sprintf(`
-		SELECT pubkey, follower_count
+		SELECT pubkey, trusted_follower_count
 		FROM profile_public_stats
 		WHERE %s
-		ORDER BY follower_count DESC, pubkey ASC
+		ORDER BY trusted_follower_count DESC, pubkey ASC
 		LIMIT $1
 	`, largeAccountFollowerPredicate())
 	rows, err := s.pool.Query(ctx, query, limit)
@@ -98,17 +100,17 @@ func (s *Trust) ListLargeAccountFrontierCandidates(ctx context.Context, limit in
 	out := make([]TrustPubkeyCandidate, 0, limit)
 	for rows.Next() {
 		var pubkey string
-		var followers int64
-		if err := rows.Scan(&pubkey, &followers); err != nil {
+		var trustedFollowers int64
+		if err := rows.Scan(&pubkey, &trustedFollowers); err != nil {
 			return nil, fmt.Errorf("scan large account frontier candidate: %w", err)
 		}
 		pubkey = strings.TrimSpace(pubkey)
-		if pubkey == "" || followers < LargeAccountFollowerFloor {
+		if pubkey == "" || trustedFollowers < LargeAccountFollowerFloor {
 			continue
 		}
 		out = append(out, TrustPubkeyCandidate{
 			Pubkey: pubkey,
-			Rank:   largeAccountFrontierRank(followers),
+			Rank:   largeAccountFrontierRank(trustedFollowers),
 		})
 	}
 	if err := rows.Err(); err != nil {

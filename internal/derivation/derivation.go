@@ -194,7 +194,13 @@ const (
 	// '1'. That digit is often inside the amount (lnbc210n is 21 sats), so
 	// those rows were stored as whole BTC. Migration 000111 recomputes
 	// amount_sats with the same rules as zapReceiptAmountSats.
-	ZapReceiptsVersion           = 3
+	ZapReceiptsVersion = 3
+	// trusted_follower_count lives on this same row. It counts follower_edges
+	// whose follower is inside the published trust hop limit, or every
+	// non-self follower when the untrusted weight is positive. Self-follows
+	// stay in follower_count and out of the trusted count. Edge deltas and
+	// an off-request recount keep the column current, so the version stays
+	// put: existing counters did not change meaning.
 	ProfilePublicStatsVersion    = 1
 	AuthorActivityDailyVersion   = 1
 	AuthorEngagementStatsVersion = 1

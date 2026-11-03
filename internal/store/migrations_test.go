@@ -71,6 +71,7 @@ func TestMigrateFreshBootstrapAndRerunSafe(t *testing.T) {
 		"profile_public_stats",
 		"profile_support_stats",
 		"profiles_latest",
+		"replaceable_event_purge",
 		"projection_rebuild_runs",
 		"reaction_events",
 		"primal_app_settings",

@@ -23,6 +23,10 @@ type APIConfig struct {
 	// personalized trust ranker can cache viewer rankings. Empty URL (the
 	// default) disables the cache; rankings are then computed per request.
 	TrustRedis RedisConfig
+	// DiscoveryEngagement supplies the untrusted-follower weight an admin
+	// rebuild uses when it recomputes trusted_follower_count. The count does
+	// not consult TrustWeighted.
+	DiscoveryEngagement WorkerDiscoveryEngagementConfig
 }
 
 type APIHTTPConfig struct {
@@ -324,6 +328,11 @@ func LoadAPI() (APIConfig, error) {
 		return APIConfig{}, err
 	}
 	cfg.Hydration = hydrationCfg
+	discoveryEngagement, err := loadWorkerDiscoveryEngagementConfig()
+	if err != nil {
+		return APIConfig{}, err
+	}
+	cfg.DiscoveryEngagement = discoveryEngagement
 	if err := validateAPIConfig(cfg); err != nil {
 		return APIConfig{}, err
 	}

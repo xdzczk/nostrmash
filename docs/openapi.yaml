@@ -1276,12 +1276,17 @@ paths:
   /api/v1/discovery/profiles/followed:
     get:
       tags: [public]
-      summary: Accounts ranked by follower count
+      summary: Accounts ranked by trusted follower count
       description: >
-        Directory of accounts that have a profile, largest follower count
-        first. Dormant accounts stay in the list. `window` is `all`. `lang`
-        is accepted and ignored. `score` and `follower_count` are the same
-        number. `reasons[0].code` is `audience_size`.
+        Directory of accounts that have a profile, ordered by how many
+        followers are in the published trust graph (`trusted_follower_count`),
+        then pubkey. Dormant accounts and accounts under 1000 raw followers
+        stay in the list when that count is positive. A trusted count of
+        zero does not rank. `window` is `all`. `lang` is accepted and
+        ignored. `follower_count` is everyone on a latest contact list.
+        `score`, `trusted_follower_count`, and the `reasons[0]` evidence
+        value are the trust-graph count. `reasons[0].code` is `audience_size`
+        and the unit is `followers`.
       parameters:
         - in: query
           name: limit
@@ -1291,7 +1296,7 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
       responses:
         '200':
-          description: Profiles ranked by follower count
+          description: Profiles ranked by trusted follower count
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DiscoveryListResponse' }

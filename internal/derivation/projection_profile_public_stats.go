@@ -70,7 +70,8 @@ func (h *Handlers) projectProfilePublicStatsForPubkeysTx(
 		if err := lockPubkeyForWriteTx(ctx, tx, pubkey, pubkeyLockNamespaceProfilePublicStats); err != nil {
 			return err
 		}
-		counts, err := scanProfilePublicStats(tx.QueryRow(ctx, profilePublicStatsComputeSQL, pubkey))
+		weighting := h.engagementWeighting.normalized()
+		counts, err := scanProfilePublicStats(tx.QueryRow(ctx, profilePublicStatsComputeSQL, pubkey, weighting.MaxHops, weighting.UntrustedWeight))
 		if err != nil {
 			return fmt.Errorf("compute profile public stats for %s: %w", pubkey, err)
 		}
@@ -89,9 +90,10 @@ func (h *Handlers) projectProfilePublicStatsForPubkeysTx(
 				sats_zapped,
 				content_zap_count,
 				time_joined,
+				trusted_follower_count,
 				derivation_version
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 			ON CONFLICT (pubkey) DO UPDATE
 			SET follower_count = EXCLUDED.follower_count,
 			    following_count = EXCLUDED.following_count,
@@ -104,9 +106,10 @@ func (h *Handlers) projectProfilePublicStatsForPubkeysTx(
 			    sats_zapped = EXCLUDED.sats_zapped,
 			    content_zap_count = EXCLUDED.content_zap_count,
 			    time_joined = EXCLUDED.time_joined,
+			    trusted_follower_count = EXCLUDED.trusted_follower_count,
 			    derivation_version = EXCLUDED.derivation_version,
 			    updated_at = now()
-		`, pubkey, counts.FollowerCount, counts.FollowingCount, counts.NoteCount, counts.ReplyCount, counts.RecentActivityAt, counts.LongFormNoteCount, counts.MediaCount, counts.ZapReceivedCount, counts.SatsZapped, counts.ContentZapCount, counts.TimeJoined, writeVersion); err != nil {
+		`, pubkey, counts.FollowerCount, counts.FollowingCount, counts.NoteCount, counts.ReplyCount, counts.RecentActivityAt, counts.LongFormNoteCount, counts.MediaCount, counts.ZapReceivedCount, counts.SatsZapped, counts.ContentZapCount, counts.TimeJoined, counts.TrustedFollowerCount, writeVersion); err != nil {
 			return fmt.Errorf("upsert profile public stats for %s: %w", pubkey, err)
 		}
 	}
@@ -117,18 +120,37 @@ func (h *Handlers) projectProfilePublicStatsForPubkeysTx(
 // stored events. The incremental deltas and this query must agree;
 // reconciliation compares them field by field.
 type profilePublicStatsCounts struct {
-	FollowerCount     int64
-	FollowingCount    int64
-	NoteCount         int64
-	ReplyCount        int64
-	RecentActivityAt  *int64
-	LongFormNoteCount int64
-	MediaCount        int64
-	ZapReceivedCount  int64
-	SatsZapped        int64
-	ContentZapCount   int64
-	TimeJoined        *int64
+	FollowerCount        int64
+	FollowingCount       int64
+	NoteCount            int64
+	ReplyCount           int64
+	RecentActivityAt     *int64
+	LongFormNoteCount    int64
+	MediaCount           int64
+	ZapReceivedCount     int64
+	SatsZapped           int64
+	ContentZapCount      int64
+	TimeJoined           *int64
+	TrustedFollowerCount int64
 }
+
+// trustedFollowerCountSQL is the last column of profilePublicStatsComputeSQL.
+// $1 is the followed pubkey, $2 is max hops, $3 is the untrusted weight.
+// A follower counts when they are not the account itself and either the
+// untrusted weight is positive or their published hop is within the limit.
+// Keep the predicate aligned with RecountTrustedFollowerCounts.
+const trustedFollowerCountSQL = `
+COALESCE((
+	SELECT COUNT(*)
+	FROM follower_edges fe
+	LEFT JOIN trust_pubkeys_latest t ON t.pubkey = fe.follower_pubkey
+	WHERE fe.followed_pubkey = $1
+	  AND fe.follower_pubkey <> fe.followed_pubkey
+	  AND (
+	    $3::double precision > 0
+	    OR (t.min_hops IS NOT NULL AND t.min_hops <= $2::int)
+	  )
+), 0)`
 
 // profilePublicStatsComputeSQL is the full recompute of one pubkey.
 // media_count matches migration 000102: kind 20, or kind 1 with an image,
@@ -224,8 +246,8 @@ SELECT
 		SELECT MIN(created_at)
 		FROM events
 		WHERE pubkey = $1
-	)
-`
+	),
+` + trustedFollowerCountSQL
 
 func scanProfilePublicStats(row pgx.Row) (profilePublicStatsCounts, error) {
 	var out profilePublicStatsCounts
@@ -241,6 +263,7 @@ func scanProfilePublicStats(row pgx.Row) (profilePublicStatsCounts, error) {
 		&out.SatsZapped,
 		&out.ContentZapCount,
 		&out.TimeJoined,
+		&out.TrustedFollowerCount,
 	)
 	return out, err
 }

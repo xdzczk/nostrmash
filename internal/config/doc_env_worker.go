@@ -39,10 +39,10 @@ func configEnvDocsWorker() []EnvVarDoc {
 		},
 		{
 			Name:         "TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT",
-			Runtimes:     []string{"worker"},
+			Runtimes:     []string{"api", "trust_worker", "worker"},
 			Required:     false,
 			DefaultValue: "0",
-			Description:  "Score weight (0..1) of an engager outside the trust graph when TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING=true. 0 means engagement from outside the trust graph buys no discovery score.",
+			Description:  "Score weight (0 to 1) of an engager outside the trust graph when TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING=true. 0 means engagement from outside the trust graph buys no discovery score. The same value decides whether a follower outside the published trust graph counts toward trusted_follower_count, including when TRUST_DISCOVERY_ENGAGEMENT_WEIGHTING is false. 0 counts only followers whose published hop is within TRUST_MAX_HOPS. Any positive weight counts every follower except a self-follow.",
 		},
 		{
 			Name:         "WORKER_INCREMENTAL_PROFILE_PUBLIC_STATS",
@@ -174,8 +174,8 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Name:         "WORKER_MEILISEARCH_SWEEPER_INTERVAL",
 			Runtimes:     []string{"worker"},
 			Required:     false,
-			DefaultValue: "2s",
-			Description:  "Polling interval between Meilisearch sweeper batches when the dirty queue is empty. Sweepers loop without sleeping while batches are full.",
+			DefaultValue: "5m",
+			Description:  "How long the Meilisearch sweeper waits between batches that are not full. A full batch (WORKER_MEILISEARCH_SWEEPER_BATCH_SIZE) is drained immediately. Partial batches used to run every minute and each one paid Meilisearch's per-task cost, so the default waits 5m and indexes a larger batch.",
 		},
 		{
 			Name:         "WORKER_MEILISEARCH_SWEEPER_BATCH_SIZE",

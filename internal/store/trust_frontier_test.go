@@ -483,10 +483,11 @@ func TestTrustPubkeyFrontier_PrefersLargeAccounts(t *testing.T) {
 	)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO profile_public_stats (
-			pubkey, follower_count, following_count, note_count, reply_count, derivation_version
+			pubkey, follower_count, trusted_follower_count, following_count, note_count, reply_count, derivation_version
 		) VALUES
-			('large', 5000, 0, 0, 0, 1),
-			('small', 10, 0, 0, 0, 1)
+			('large', 5000, 5000, 0, 0, 0, 1),
+			('small', 10, 0, 0, 0, 0, 1),
+			('farm', 90000, 0, 0, 0, 0, 1)
 	`); err != nil {
 		t.Fatalf("insert profile stats: %v", err)
 	}
@@ -513,6 +514,13 @@ func TestTrustPubkeyFrontier_PrefersLargeAccounts(t *testing.T) {
 	}
 	if smallPresent {
 		t.Fatal("account below the follower floor should stay off the frontier")
+	}
+	var farmPresent bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ingest_pubkey_frontier WHERE pubkey = 'farm')`).Scan(&farmPresent); err != nil {
+		t.Fatalf("query farm: %v", err)
+	}
+	if farmPresent {
+		t.Fatal("raw follower count with no trusted audience should stay off the frontier")
 	}
 }
 

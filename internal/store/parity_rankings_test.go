@@ -128,7 +128,8 @@ func TestMostFollowedProfiles_RequiresProfileAndKeepsSmallAccounts(t *testing.T)
 	large := strings.Repeat("a", 64)
 	small := strings.Repeat("b", 64)
 	ghost := strings.Repeat("c", 64)
-	for _, pubkey := range []string{large, small} {
+	farm := strings.Repeat("d", 64)
+	for _, pubkey := range []string{large, small, farm} {
 		event := newDiscoveryEvent("meta_"+pubkey[:8], pubkey, now, 0, nil, `{"name":"Person"}`)
 		if err := pgStore.InsertCanonicalEvent(ctx, event, nil, "wss://relay.one", event.FirstSeenAt); err != nil {
 			t.Fatalf("insert profile %s: %v", pubkey, err)
@@ -138,10 +139,13 @@ func TestMostFollowedProfiles_RequiresProfileAndKeepsSmallAccounts(t *testing.T)
 		}
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO profile_public_stats (pubkey, follower_count, derivation_version)
-		VALUES ($1, 50, 1), ($2, 5000, 1), ($3, 9000, 1)
-		ON CONFLICT (pubkey) DO UPDATE SET follower_count = EXCLUDED.follower_count
-	`, small, large, ghost); err != nil {
+		INSERT INTO profile_public_stats (pubkey, follower_count, trusted_follower_count, derivation_version)
+		VALUES ($1, 50, 40, 1), ($2, 5000, 4000, 1), ($3, 9000, 9000, 1), ($4, 80000, 0, 1)
+		ON CONFLICT (pubkey) DO UPDATE
+		SET follower_count = EXCLUDED.follower_count,
+		    trusted_follower_count = EXCLUDED.trusted_follower_count,
+		    recent_activity_at = NULL
+	`, small, large, ghost, farm); err != nil {
 		t.Fatalf("set follower counts: %v", err)
 	}
 
@@ -150,13 +154,16 @@ func TestMostFollowedProfiles_RequiresProfileAndKeepsSmallAccounts(t *testing.T)
 		t.Fatalf("GetMostFollowedProfiles: %v", err)
 	}
 	if len(profiles) != 2 {
-		t.Fatalf("expected the two profiles with metadata, got %#v", profiles)
+		t.Fatalf("expected the two profiles with a trusted audience, got %#v", profiles)
 	}
-	if profiles[0].Pubkey != large || profiles[0].FollowerCount != 5000 {
-		t.Fatalf("largest = %#v", profiles[0])
+	if profiles[0].Pubkey != large || profiles[0].FollowerCount != 5000 || profiles[0].TrustedFollowerCount != 4000 || profiles[0].Score != 4000 {
+		t.Fatalf("largest trusted audience = %#v", profiles[0])
 	}
-	if profiles[1].Pubkey != small || profiles[1].FollowerCount != 50 {
+	if profiles[1].Pubkey != small || profiles[1].FollowerCount != 50 || profiles[1].TrustedFollowerCount != 40 || profiles[1].Score != 40 {
 		t.Fatalf("small account = %#v", profiles[1])
+	}
+	if profiles[1].RecentActivityAt != nil {
+		t.Fatalf("dormant account should stay ranked, got recent_activity_at=%v", *profiles[1].RecentActivityAt)
 	}
 }
 

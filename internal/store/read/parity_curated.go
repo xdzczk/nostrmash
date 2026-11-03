@@ -33,8 +33,11 @@ func (s *Read) GetNetworkStats(ctx context.Context) (NetworkStats, error) {
 			return out, fmt.Errorf("count events: %w", err)
 		}
 	}
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM profiles_latest`).Scan(&out.Profiles); err != nil {
-		return out, fmt.Errorf("count profiles: %w", err)
+	out.Profiles, _ = approxLiveTupleCount(ctx, s.pool, "profiles_latest")
+	if out.Profiles <= 0 {
+		if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM profiles_latest`).Scan(&out.Profiles); err != nil {
+			return out, fmt.Errorf("count profiles: %w", err)
+		}
 	}
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM ingest_checkpoints`).Scan(&out.Relays); err != nil {
 		return out, fmt.Errorf("count relays: %w", err)

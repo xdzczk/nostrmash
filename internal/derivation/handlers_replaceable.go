@@ -86,6 +86,11 @@ func (h *Handlers) UpdateReplaceableState(ctx context.Context, eventID string) e
 	if err != nil {
 		return fmt.Errorf("upsert replaceable state: %w", err)
 	}
+	// ON CONFLICT DO UPDATE WHERE false does not fire the enqueue trigger,
+	// so a losing version would never be queued. Call the stamper either way.
+	if _, err := tx.Exec(ctx, `SELECT enqueue_superseded_replaceable($1, $2, $3)`, event.Pubkey, event.Kind, event.DTag); err != nil {
+		return fmt.Errorf("enqueue superseded replaceable events: %w", err)
+	}
 	// A new kind-30023 address is one article. Replacing the same d tag
 	// keeps the count. Deleting the current copy decrements it.
 	if isNewAddress && (event.Kind == 34235 || event.Kind == 34236) && h.incrementalProfilePublicStats {

@@ -129,6 +129,8 @@ func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, 
 			UntrustedWeight: cfg.DiscoveryEngagement.UntrustedWeight,
 			MaxHops:         cfg.Shared.TrustPolicy.MaxHops,
 		},
+		// Hot authors otherwise get a full engagement scan on every reaction.
+		SweeperRefreshGap: 3 * time.Minute,
 	})
 	// Retention purges that hard-delete events (expired engagement,
 	// untrusted-author) must reverse whatever incremental author-stat

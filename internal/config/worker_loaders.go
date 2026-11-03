@@ -573,7 +573,7 @@ func loadProfileStatsSweeperConfig() (WorkerProfileStatsSweeperConfig, error) {
 }
 
 func loadMeilisearchSweeperConfig() (WorkerMeilisearchSweeperConfig, error) {
-	interval, err := getEnvPositiveDurationStrict("WORKER_MEILISEARCH_SWEEPER_INTERVAL", 2*time.Second)
+	interval, err := getEnvPositiveDurationStrict("WORKER_MEILISEARCH_SWEEPER_INTERVAL", 5*time.Minute)
 	if err != nil {
 		return WorkerMeilisearchSweeperConfig{}, err
 	}

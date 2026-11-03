@@ -143,7 +143,8 @@ func (h *Handlers) projectContactListsLatestWithVersion(ctx context.Context, eve
 			// recorded to follower_gain_events (every "new followers"
 			// reader uses them). When incremental profile stats are
 			// enabled we additionally apply ±1 follower/following deltas
-			// directly from the edge diff. Otherwise (and always for
+			// directly from the edge diff, and ±1 trusted_follower_count
+			// when the author is in the published trust graph. Otherwise (and always for
 			// discovery-stats) we enqueue dirty markers for out-of-band
 			// recompute.
 			//

@@ -3,6 +3,7 @@ package derivation
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,6 +36,10 @@ type Handlers struct {
 	// reconcileCooldown remembers pubkeys whose full recompute failed so the
 	// next hourly sample does not spend another statement_timeout on them.
 	reconcileCooldown *reconcileCooldown
+	// sweeperRefreshGap keeps the profile-stats and author-analytics sweepers
+	// from rescoring a pubkey that was rebuilt inside the gap. Zero claims
+	// every dirty pubkey immediately, which tests rely on.
+	sweeperRefreshGap time.Duration
 }
 
 type EventJobPayload = jobs.EventJobPayload
@@ -70,6 +75,10 @@ type HandlersOptions struct {
 	// trust weighting; per-engager dedup and author self-exclusion always
 	// apply.
 	EngagementWeighting EngagementWeightingOptions
+	// SweeperRefreshGap coalesces repeat profile-stats and author-analytics
+	// rebuilds of the same pubkey. The worker sets this to a few minutes so a
+	// hot author is scored once per gap instead of once per engagement.
+	SweeperRefreshGap time.Duration
 }
 
 func NewHandlers(pool *pgxpool.Pool) *Handlers {
@@ -94,6 +103,7 @@ func NewHandlersWithOptions(pool *pgxpool.Pool, options HandlersOptions) *Handle
 		incrementalProfileDiscoveryStats: boolOptionOrDefault(options.IncrementalProfileDiscoveryStats, true),
 		engagementWeighting:              options.EngagementWeighting,
 		reconcileCooldown:                newReconcileCooldown(),
+		sweeperRefreshGap:                options.SweeperRefreshGap,
 	}
 }
 

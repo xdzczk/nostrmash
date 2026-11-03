@@ -216,12 +216,17 @@ func (h *Handlers) claimPendingProfileStatsPubkey(ctx context.Context) (string, 
 	var markedAt time.Time
 	err = tx.QueryRow(ctx, `
 		WITH candidates AS (
-			SELECT pubkey, marked_at
-			FROM pending_profile_stats_recomputes
-			WHERE claimed_at IS NULL
-			   OR claimed_at < now() - $3::interval
-			ORDER BY marked_at ASC, pubkey ASC
-			FOR UPDATE SKIP LOCKED
+			SELECT p.pubkey, p.marked_at
+			FROM pending_profile_stats_recomputes p
+			LEFT JOIN profile_discovery_stats s ON s.pubkey = p.pubkey
+			WHERE (p.claimed_at IS NULL OR p.claimed_at < now() - $3::interval)
+			  AND (
+			    $4::float8 <= 0
+			    OR s.pubkey IS NULL
+			    OR s.projected_at < now() - make_interval(secs => $4::float8)
+			  )
+			ORDER BY p.marked_at ASC, p.pubkey ASC
+			FOR UPDATE OF p SKIP LOCKED
 			LIMIT $1
 		),
 		locked AS (
@@ -242,6 +247,7 @@ func (h *Handlers) claimPendingProfileStatsPubkey(ctx context.Context) (string, 
 		profileStatsClaimCandidateWindow,
 		pubkeyLockNamespaceProfilePublicStats,
 		profileStatsClaimLease,
+		h.sweeperRefreshGap.Seconds(),
 	).Scan(&pubkey, &claimToken, &markedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

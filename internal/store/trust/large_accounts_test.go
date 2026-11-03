@@ -56,11 +56,11 @@ func TestMergeFrontierCandidatesFillsFromTrustWhenNoPopular(t *testing.T) {
 
 func TestLargeAccountFollowerFloorMatchesIndex(t *testing.T) {
 	t.Parallel()
-	data, err := os.ReadFile("../../../migrations/000105_profile_large_follower_index.sql")
+	data, err := os.ReadFile("../../../migrations/000115_trusted_follower_count.sql")
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}
-	needle := "follower_count >= " + strconv.FormatInt(LargeAccountFollowerFloor, 10)
+	needle := "trusted_follower_count >= " + strconv.FormatInt(LargeAccountFollowerFloor, 10)
 	if !strings.Contains(string(data), needle) {
 		t.Fatalf("migration index predicate must match %s", needle)
 	}

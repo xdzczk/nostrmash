@@ -69,6 +69,16 @@ func (h *Handlers) upsertAuthorEngagementWindowTx(
 		    recent_activity_at = EXCLUDED.recent_activity_at,
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
+		WHERE author_engagement_stats.post_count IS DISTINCT FROM EXCLUDED.post_count
+		   OR author_engagement_stats.note_count IS DISTINCT FROM EXCLUDED.note_count
+		   OR author_engagement_stats.reply_count IS DISTINCT FROM EXCLUDED.reply_count
+		   OR author_engagement_stats.active_days IS DISTINCT FROM EXCLUDED.active_days
+		   OR author_engagement_stats.engagement_received IS DISTINCT FROM EXCLUDED.engagement_received
+		   OR author_engagement_stats.engagement_given IS DISTINCT FROM EXCLUDED.engagement_given
+		   OR author_engagement_stats.cadence_posts_per_day IS DISTINCT FROM EXCLUDED.cadence_posts_per_day
+		   OR author_engagement_stats.cadence_posts_per_active_day IS DISTINCT FROM EXCLUDED.cadence_posts_per_active_day
+		   OR author_engagement_stats.recent_activity_at IS DISTINCT FROM EXCLUDED.recent_activity_at
+		   OR author_engagement_stats.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
 	`, pubkey, windowDays, cutoff, version, windowDays)
 	if err != nil {
 		return fmt.Errorf("upsert author engagement stats for %s window=%dd: %w", pubkey, windowDays, err)

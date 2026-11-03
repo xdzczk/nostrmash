@@ -140,7 +140,7 @@ func configEnvDocsShared() []EnvVarDoc {
 			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
 			Required:     false,
 			DefaultValue: "3",
-			Description:  "Maximum trust-graph expansion depth used by trust-aware policy surfaces.",
+			Description:  "Maximum trust-graph expansion depth used by trust-aware policy surfaces. Also the hop limit for trusted_follower_count when TRUST_DISCOVERY_ENGAGEMENT_UNTRUSTED_WEIGHT is 0.",
 		},
 		{
 			Name:         "TRUST_MINIMUM_SCORE",

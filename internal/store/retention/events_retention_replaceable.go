@@ -48,11 +48,11 @@ var supersededReplaceableKinds = []int{0, 3, 10000, 10001, 10002, 10003, 30000, 
 //     deadGraceBefore. Past deadGraceBefore a permanently-dead derivation no
 //     longer pins disk.
 //
-// The (kind, created_at) scan is served by idx_events_kind_created; the
-// per-candidate d_tag derivation is a bounded lookup on event_tags by
-// (event_id, tag_name) (matching the replaceable derivation's own d_tag rule);
-// the replaceable_state lookup is a primary-key probe on (pubkey, kind, d_tag);
-// the jobs lookup is served by the unique index on jobs.idempotency_key.
+// Candidates come from replaceable_event_purge, filled when a newer
+// version wins (enqueue_superseded_replaceable). The queue is ordered by
+// created_at, the grace window is a primary-key lookup of events.first_seen_at,
+// and the jobs lookup is the unique index on jobs.idempotency_key. An empty
+// queue is one index probe.
 func (s *Retention) PurgeSupersededReplaceableEvents(
 	ctx context.Context,
 	supersededBefore time.Time,

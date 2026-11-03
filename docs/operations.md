@@ -99,7 +99,7 @@ TRUST_SEED_PUBKEYS=<hex_pubkey>,<hex_pubkey>
 **`trust_worker` service:**
 
 ```bash
-TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL=10m
+TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL=30m
 TRUST_RUN_INTERVAL=1h
 TRUST_ENABLE_SCORE_COMPUTE=true
 # Optional: seeded neighborhoods between compute and promote (default off)

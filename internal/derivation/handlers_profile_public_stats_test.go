@@ -227,6 +227,88 @@ func TestProjectProfilePublicStats_ContentCounters(t *testing.T) {
 	}
 }
 
+func TestTrustedFollowerCount_RecountsWhenGraphMembershipChanges(t *testing.T) {
+	ctx := context.Background()
+	pool := setupSchemaPool(t, ctx, testDatabaseURL(t))
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	at := time.Date(2026, 9, 2, 15, 0, 0, 0, time.UTC)
+
+	derive := func(event model.Event) {
+		t.Helper()
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+	readTrusted := func(pubkey string) int64 {
+		t.Helper()
+		var trusted int64
+		if err := pool.QueryRow(ctx, `
+			SELECT trusted_follower_count FROM profile_public_stats WHERE pubkey = $1
+		`, pubkey).Scan(&trusted); err != nil {
+			t.Fatalf("read trusted followers for %s: %v", pubkey, err)
+		}
+		return trusted
+	}
+
+	if _, err := pool.Exec(ctx, `INSERT INTO trust_seeds (pubkey, is_active) VALUES ('tf_seed', true)`); err != nil {
+		t.Fatalf("insert seed: %v", err)
+	}
+	derive(newEventForTest("tf_seed_contacts", "tf_seed", at.Unix(), 3, [][]string{{"p", "tf_alice"}}, "contacts", at))
+	derive(newEventForTest("tf_alice_contacts", "tf_alice", at.Unix(), 3, [][]string{{"p", "tf_bob"}, {"p", "tf_alice"}}, "contacts", at))
+	if readTrusted("tf_alice") != 0 || readTrusted("tf_bob") != 0 {
+		t.Fatal("follows from outside trust_pubkeys_latest must not count before the recount")
+	}
+
+	if _, err := pgStore.RefreshTrustGraphSnapshot(ctx, 3); err != nil {
+		t.Fatalf("refresh snapshot: %v", err)
+	}
+	if got := readTrusted("tf_alice"); got != 1 {
+		t.Fatalf("alice trusted followers = %d, want 1 (the seed, not the self-follow)", got)
+	}
+	if got := readTrusted("tf_bob"); got != 1 {
+		t.Fatalf("bob trusted followers = %d, want 1 after alice entered the graph", got)
+	}
+	var aliceFollowers int64
+	if err := pool.QueryRow(ctx, `
+		SELECT follower_count FROM profile_public_stats WHERE pubkey = 'tf_alice'
+	`).Scan(&aliceFollowers); err != nil {
+		t.Fatalf("read alice raw followers: %v", err)
+	}
+	if aliceFollowers != 2 {
+		t.Fatalf("alice raw follower_count = %d, want 2 (seed and self)", aliceFollowers)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE trust_seeds SET is_active = false WHERE pubkey = 'tf_seed'`); err != nil {
+		t.Fatalf("deactivate seed: %v", err)
+	}
+	if _, err := pgStore.RefreshTrustGraphSnapshot(ctx, 3); err != nil {
+		t.Fatalf("refresh after the seed left: %v", err)
+	}
+	if readTrusted("tf_alice") != 0 || readTrusted("tf_bob") != 0 {
+		t.Fatal("leaving the published graph must clear trusted follower counts")
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE trust_seeds SET is_active = true WHERE pubkey = 'tf_seed'`); err != nil {
+		t.Fatalf("reactivate seed: %v", err)
+	}
+	if _, err := pgStore.RefreshTrustGraphSnapshot(ctx, 3); err != nil {
+		t.Fatalf("refresh after the seed returned: %v", err)
+	}
+	derive(newEventForTest("tf_alice_contacts_2", "tf_alice", at.Add(time.Minute).Unix(), 3, [][]string{{"p", "tf_bob"}, {"p", "tf_alice"}, {"p", "tf_carol"}}, "contacts", at.Add(time.Minute)))
+	if got := readTrusted("tf_carol"); got != 1 {
+		t.Fatalf("carol trusted followers = %d, want 1 from the edge delta after alice was already in the graph", got)
+	}
+	if readTrusted("tf_bob") != 1 || readTrusted("tf_alice") != 1 {
+		t.Fatalf("bob=%d alice=%d, want both to stay 1", readTrusted("tf_bob"), readTrusted("tf_alice"))
+	}
+}
+
 func mustReadProfilePublicStats(
 	t *testing.T,
 	ctx context.Context,

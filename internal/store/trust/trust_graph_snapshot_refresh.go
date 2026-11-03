@@ -14,6 +14,12 @@ import (
 // tables and legitimately exceed the production 15s API guardrail.
 const trustHeavyStatementTimeout = 30 * time.Minute
 
+// PrepareHeavyTx raises the statement timeout and work_mem for one
+// transaction that scans the trust graph or rewrites a discovery projection.
+func PrepareHeavyTx(ctx context.Context, tx pgx.Tx) error {
+	return setTrustHeavyStatementTimeout(ctx, tx)
+}
+
 func setTrustHeavyStatementTimeout(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, fmt.Sprintf(
 		"SET LOCAL statement_timeout = %d",
@@ -21,6 +27,11 @@ func setTrustHeavyStatementTimeout(ctx context.Context, tx pgx.Tx) error {
 	))
 	if err != nil {
 		return fmt.Errorf("set trust statement_timeout: %w", err)
+	}
+	// The projection anti-join hashes ~5M event ids. The 64MB session
+	// work_mem spilled more than a terabyte of temp files doing that delete.
+	if _, err := tx.Exec(ctx, `SET LOCAL work_mem = '512MB'`); err != nil {
+		return fmt.Errorf("set trust work_mem: %w", err)
 	}
 	return nil
 }
@@ -99,10 +110,12 @@ func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (Tru
 	}
 	rowsUpserted := int(tag.RowsAffected())
 
-	// Popular accounts often sit outside the seed hop limit, and the ingest
-	// gate plus the untrusted-author purge both key off this table. Hop 1
-	// passes every legal gate max-hops setting. A worse existing hop is
-	// improved; a better one (a seed, or someone already closer) is kept.
+	// Accounts with a large trusted audience often sit outside the seed hop
+	// limit, and the ingest gate plus the untrusted-author purge both key off
+	// this table. Hop 1 passes every legal gate max-hops setting. The floor
+	// reads trusted_follower_count from the previous recount, so a pubkey
+	// that just crossed it is injected on the next refresh. A worse existing
+	// hop is improved; a better one (a seed, or someone already closer) is kept.
 	largeTag, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO trust_graph_snapshot (pubkey, min_hops, is_seed, source_run_id, refreshed_at)
 		SELECT btrim(p.pubkey), 1, false, $1, now()
@@ -130,6 +143,18 @@ func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (Tru
 		return TrustGraphSnapshotRefreshResult{}, fmt.Errorf("commit trust graph snapshot refresh: %w", err)
 	}
 
+	// Recount after commit. A pubkey that just entered the graph may follow
+	// many accounts, and folding that scan into the snapshot transaction
+	// would hold the trust_pubkeys_latest rebuild lock for the whole pass.
+	// The snapshot is already live if this fails; the next loop retries.
+	result := TrustGraphSnapshotRefreshResult{
+		RowsUpserted: rowsUpserted,
+		SourceRunID:  sourceRunID,
+	}
+	if err := RecountTrustedFollowerCounts(ctx, s.pool, s.trustedFollowerPolicy(maxHops)); err != nil {
+		return result, fmt.Errorf("recount trusted followers after snapshot commit: %w", err)
+	}
+
 	// The discovery projections refresh in their own transactions, after the
 	// snapshot has committed. They bulk-delete and upsert candidate tables
 	// that can take a long time on large datasets; folding them into the
@@ -144,10 +169,7 @@ func (s *Trust) RefreshTrustGraphSnapshot(ctx context.Context, maxHops int) (Tru
 		return TrustGraphSnapshotRefreshResult{}, err
 	}
 
-	return TrustGraphSnapshotRefreshResult{
-		RowsUpserted: rowsUpserted,
-		SourceRunID:  sourceRunID,
-	}, nil
+	return result, nil
 }
 
 // runProjectionRefresh wraps one trusted-discovery projection rebuild in its

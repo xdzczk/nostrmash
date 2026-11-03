@@ -288,6 +288,9 @@ type TrendingProfile struct {
 	RecentActiveDays         int     `json:"recent_active_days"`
 	RecentActivityAt         *int64  `json:"recent_activity_at,omitempty"`
 	FollowerCount            int64   `json:"follower_count"`
+	// TrustedFollowerCount is the Most followed rank: followers in the
+	// published trust graph. Zero on every other profile list.
+	TrustedFollowerCount int64 `json:"trusted_follower_count,omitempty"`
 	// Scored* are the (optionally trust-weighted) inputs the profile's
 	// score actually used. Nil means the row predates scored-input
 	// persistence and ranking reasons should fall back to the raw Recent*

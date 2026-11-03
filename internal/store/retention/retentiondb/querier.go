@@ -104,6 +104,9 @@ type Querier interface {
 	PurgeStaleEventRelays(ctx context.Context, arg PurgeStaleEventRelaysParams) (int64, error)
 	PurgeStaleTrustedNoteDiscoveryCandidates(ctx context.Context, arg PurgeStaleTrustedNoteDiscoveryCandidatesParams) (int64, error)
 	PurgeStaleTrustedProfileDiscoveryCandidates(ctx context.Context, arg PurgeStaleTrustedProfileDiscoveryCandidatesParams) (int64, error)
+	// Candidates are stamped into replaceable_event_purge when a winner is
+	// recorded (enqueue_superseded_replaceable). Cost follows the queued
+	// backlog, not the size of events. Deleting the event cascades the queue row.
 	PurgeSupersededReplaceableEvents(ctx context.Context, arg PurgeSupersededReplaceableEventsParams) (int64, error)
 	PurgeUntrustedAuthorEventHashtags(ctx context.Context, rowLimit int32) (int64, error)
 	PurgeUntrustedAuthorEventURLs(ctx context.Context, rowLimit int32) (int64, error)

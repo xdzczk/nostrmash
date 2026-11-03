@@ -74,6 +74,12 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 				    zap_received = EXCLUDED.zap_received,
 				    derivation_version = EXCLUDED.derivation_version,
 				    updated_at = now()
+				WHERE author_activity_windows.engagement_received IS DISTINCT FROM EXCLUDED.engagement_received
+				   OR author_activity_windows.reply_received IS DISTINCT FROM EXCLUDED.reply_received
+				   OR author_activity_windows.reaction_received IS DISTINCT FROM EXCLUDED.reaction_received
+				   OR author_activity_windows.repost_received IS DISTINCT FROM EXCLUDED.repost_received
+				   OR author_activity_windows.zap_received IS DISTINCT FROM EXCLUDED.zap_received
+				   OR author_activity_windows.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
 			`, pubkey, cutoff, windowDays, version)
 			if err != nil {
 				return fmt.Errorf("upsert author activity windows from daily for %s window=%dd: %w", pubkey, windowDays, err)
@@ -165,6 +171,12 @@ func (h *Handlers) upsertAuthorActivityWindowsTx(
 		    zap_received = EXCLUDED.zap_received,
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
+		WHERE author_activity_windows.engagement_received IS DISTINCT FROM EXCLUDED.engagement_received
+		   OR author_activity_windows.reply_received IS DISTINCT FROM EXCLUDED.reply_received
+		   OR author_activity_windows.reaction_received IS DISTINCT FROM EXCLUDED.reaction_received
+		   OR author_activity_windows.repost_received IS DISTINCT FROM EXCLUDED.repost_received
+		   OR author_activity_windows.zap_received IS DISTINCT FROM EXCLUDED.zap_received
+		   OR author_activity_windows.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
 	`, pubkey, cutoff, windowDays, version, maxSaneUnixCreatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert author activity windows for %s window=%dd: %w", pubkey, windowDays, err)
@@ -180,14 +192,6 @@ func (h *Handlers) upsertAuthorPostingPatternsTx(
 	cutoff int64,
 	version int,
 ) error {
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM author_posting_patterns
-		WHERE pubkey = $1
-		  AND window_days = $2
-	`, pubkey, windowDays); err != nil {
-		return fmt.Errorf("delete prior author posting patterns for %s window=%dd: %w", pubkey, windowDays, err)
-	}
-
 	if h.incrementalWindowedRollups {
 		var hasDaily bool
 		if err := tx.QueryRow(ctx, `
@@ -203,36 +207,45 @@ func (h *Handlers) upsertAuthorPostingPatternsTx(
 		}
 		if hasDaily {
 			_, err := tx.Exec(ctx, `
-				INSERT INTO author_posting_patterns (
-					pubkey,
-					window_days,
-					day_of_week,
-					hour_of_day,
-					post_count,
-					note_count,
-					reply_count,
-					derivation_version
+				WITH agg AS (
+					SELECT
+						d.day_of_week,
+						d.hour_of_day,
+						SUM(d.post_count)::bigint AS post_count,
+						SUM(d.note_count)::bigint AS note_count,
+						SUM(d.reply_count)::bigint AS reply_count
+					FROM author_hourly_activity d
+					WHERE d.pubkey = $1
+					  AND d.activity_date >= to_timestamp($2)::date
+					GROUP BY d.day_of_week, d.hour_of_day
+					HAVING SUM(d.post_count) > 0
+				),
+				upserted AS (
+					INSERT INTO author_posting_patterns (
+						pubkey, window_days, day_of_week, hour_of_day,
+						post_count, note_count, reply_count, derivation_version
+					)
+					SELECT $1, $3, day_of_week, hour_of_day, post_count, note_count, reply_count, $4
+					FROM agg
+					ON CONFLICT (pubkey, window_days, day_of_week, hour_of_day) DO UPDATE
+					SET post_count = EXCLUDED.post_count,
+					    note_count = EXCLUDED.note_count,
+					    reply_count = EXCLUDED.reply_count,
+					    derivation_version = EXCLUDED.derivation_version,
+					    updated_at = now()
+					WHERE author_posting_patterns.post_count IS DISTINCT FROM EXCLUDED.post_count
+					   OR author_posting_patterns.note_count IS DISTINCT FROM EXCLUDED.note_count
+					   OR author_posting_patterns.reply_count IS DISTINCT FROM EXCLUDED.reply_count
+					   OR author_posting_patterns.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
+					RETURNING day_of_week
 				)
-				SELECT
-					$1,
-					$3,
-					d.day_of_week,
-					d.hour_of_day,
-					SUM(d.post_count)::bigint,
-					SUM(d.note_count)::bigint,
-					SUM(d.reply_count)::bigint,
-					$4
-				FROM author_hourly_activity d
-				WHERE d.pubkey = $1
-				  AND d.activity_date >= to_timestamp($2)::date
-				GROUP BY d.day_of_week, d.hour_of_day
-				HAVING SUM(d.post_count) > 0
-				ON CONFLICT (pubkey, window_days, day_of_week, hour_of_day) DO UPDATE
-				SET post_count = EXCLUDED.post_count,
-				    note_count = EXCLUDED.note_count,
-				    reply_count = EXCLUDED.reply_count,
-				    derivation_version = EXCLUDED.derivation_version,
-				    updated_at = now()
+				DELETE FROM author_posting_patterns t
+				WHERE t.pubkey = $1
+				  AND t.window_days = $3
+				  AND NOT EXISTS (
+				      SELECT 1 FROM agg a
+				      WHERE a.day_of_week = t.day_of_week AND a.hour_of_day = t.hour_of_day
+				  )
 			`, pubkey, cutoff, windowDays, version)
 			if err != nil {
 				return fmt.Errorf("upsert author posting patterns from daily for %s window=%dd: %w", pubkey, windowDays, err)
@@ -255,36 +268,43 @@ func (h *Handlers) upsertAuthorPostingPatternsTx(
 			  AND e.kind = 1
 			  AND e.created_at >= $2
 			  AND e.created_at <= $5
+		),
+		agg AS (
+			SELECT
+				EXTRACT(DOW FROM a.posted_at)::smallint AS day_of_week,
+				EXTRACT(HOUR FROM a.posted_at)::smallint AS hour_of_day,
+				COUNT(*)::bigint AS post_count,
+				COUNT(*) FILTER (WHERE NOT a.is_reply)::bigint AS note_count,
+				COUNT(*) FILTER (WHERE a.is_reply)::bigint AS reply_count
+			FROM authored a
+			GROUP BY EXTRACT(DOW FROM a.posted_at), EXTRACT(HOUR FROM a.posted_at)
+		),
+		upserted AS (
+			INSERT INTO author_posting_patterns (
+				pubkey, window_days, day_of_week, hour_of_day,
+				post_count, note_count, reply_count, derivation_version
+			)
+			SELECT $1, $3, day_of_week, hour_of_day, post_count, note_count, reply_count, $4
+			FROM agg
+			ON CONFLICT (pubkey, window_days, day_of_week, hour_of_day) DO UPDATE
+			SET post_count = EXCLUDED.post_count,
+			    note_count = EXCLUDED.note_count,
+			    reply_count = EXCLUDED.reply_count,
+			    derivation_version = EXCLUDED.derivation_version,
+			    updated_at = now()
+			WHERE author_posting_patterns.post_count IS DISTINCT FROM EXCLUDED.post_count
+			   OR author_posting_patterns.note_count IS DISTINCT FROM EXCLUDED.note_count
+			   OR author_posting_patterns.reply_count IS DISTINCT FROM EXCLUDED.reply_count
+			   OR author_posting_patterns.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
+			RETURNING day_of_week
 		)
-		INSERT INTO author_posting_patterns (
-			pubkey,
-			window_days,
-			day_of_week,
-			hour_of_day,
-			post_count,
-			note_count,
-			reply_count,
-			derivation_version
-		)
-		SELECT
-			$1,
-			$3,
-			EXTRACT(DOW FROM a.posted_at)::smallint,
-			EXTRACT(HOUR FROM a.posted_at)::smallint,
-			COUNT(*)::bigint,
-			COUNT(*) FILTER (WHERE NOT a.is_reply)::bigint,
-			COUNT(*) FILTER (WHERE a.is_reply)::bigint,
-			$4
-		FROM authored a
-		GROUP BY
-			EXTRACT(DOW FROM a.posted_at),
-			EXTRACT(HOUR FROM a.posted_at)
-		ON CONFLICT (pubkey, window_days, day_of_week, hour_of_day) DO UPDATE
-		SET post_count = EXCLUDED.post_count,
-		    note_count = EXCLUDED.note_count,
-		    reply_count = EXCLUDED.reply_count,
-		    derivation_version = EXCLUDED.derivation_version,
-		    updated_at = now()
+		DELETE FROM author_posting_patterns t
+		WHERE t.pubkey = $1
+		  AND t.window_days = $3
+		  AND NOT EXISTS (
+		      SELECT 1 FROM agg a
+		      WHERE a.day_of_week = t.day_of_week AND a.hour_of_day = t.hour_of_day
+		  )
 	`, pubkey, cutoff, windowDays, version, maxSaneUnixCreatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert author posting patterns for %s window=%dd: %w", pubkey, windowDays, err)

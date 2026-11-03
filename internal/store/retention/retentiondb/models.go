@@ -619,20 +619,21 @@ type ProfileDiscoveryStat struct {
 }
 
 type ProfilePublicStat struct {
-	Pubkey            string
-	FollowerCount     int64
-	FollowingCount    int64
-	NoteCount         int64
-	ReplyCount        int64
-	RecentActivityAt  pgtype.Int8
-	DerivationVersion int32
-	UpdatedAt         pgtype.Timestamptz
-	LongFormNoteCount int64
-	MediaCount        int64
-	ZapReceivedCount  int64
-	SatsZapped        int64
-	ContentZapCount   int64
-	TimeJoined        pgtype.Int8
+	Pubkey               string
+	FollowerCount        int64
+	FollowingCount       int64
+	NoteCount            int64
+	ReplyCount           int64
+	RecentActivityAt     pgtype.Int8
+	DerivationVersion    int32
+	UpdatedAt            pgtype.Timestamptz
+	LongFormNoteCount    int64
+	MediaCount           int64
+	ZapReceivedCount     int64
+	SatsZapped           int64
+	ContentZapCount      int64
+	TimeJoined           pgtype.Int8
+	TrustedFollowerCount int64
 }
 
 type ProfileSupportStat struct {
@@ -806,6 +807,11 @@ type RelayWindowSnapshot struct {
 	SnapshotLabel string
 	Payload       []byte
 	ComputedAt    pgtype.Timestamptz
+}
+
+type ReplaceableEventPurge struct {
+	EventID   string
+	CreatedAt int64
 }
 
 type ReplaceableState struct {

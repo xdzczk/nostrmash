@@ -358,3 +358,32 @@ func TestBuildHashtagAndDomainRankings_LeadWithAuthorBreadth(t *testing.T) {
 		t.Fatalf("domain volume reason = %#v", domain.Reasons)
 	}
 }
+
+func TestBuildFollowedProfileItems_RanksByTrustedCount(t *testing.T) {
+	items := buildFollowedProfileItems([]query.TrendingProfile{{
+		Pubkey:               "farmed",
+		Score:                67860,
+		FollowerCount:        67860,
+		TrustedFollowerCount: 1,
+	}}, nil)
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", items)
+	}
+	if items[0]["follower_count"] != int64(67860) {
+		t.Fatalf("follower_count = %#v", items[0]["follower_count"])
+	}
+	if items[0]["trusted_follower_count"] != int64(1) || items[0]["score"] != float64(1) {
+		t.Fatalf("rank fields = score %#v trusted %#v", items[0]["score"], items[0]["trusted_follower_count"])
+	}
+	ranking, ok := items[0]["ranking"].(query.DiscoveryItemRanking)
+	if !ok {
+		t.Fatalf("ranking type = %T", items[0]["ranking"])
+	}
+	if ranking.Score != 1 || len(ranking.Reasons) != 1 || ranking.Reasons[0].Code != "audience_size" {
+		t.Fatalf("ranking = %#v", ranking)
+	}
+	evidence := ranking.Reasons[0].Evidence
+	if len(evidence) != 1 || evidence[0].Metric != "follower_count" || evidence[0].Value != 1 || evidence[0].Unit != "followers" {
+		t.Fatalf("evidence = %#v", evidence)
+	}
+}

@@ -479,10 +479,10 @@ func TestTrustGraphSnapshot_IncludesLargeAccounts(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO profile_public_stats (
-			pubkey, follower_count, following_count, note_count, reply_count, derivation_version
+			pubkey, follower_count, trusted_follower_count, following_count, note_count, reply_count, derivation_version
 		) VALUES
-			('large', 5000, 0, 0, 0, 1),
-			('quiet', 999, 0, 0, 0, 1)
+			('large', 5000, 5000, 0, 0, 0, 1),
+			('quiet', 999, 0, 0, 0, 0, 1)
 	`); err != nil {
 		t.Fatalf("insert profile stats: %v", err)
 	}
@@ -516,6 +516,15 @@ func TestTrustGraphSnapshot_IncludesLargeAccounts(t *testing.T) {
 	}
 	if _, ok := hops["quiet"]; ok {
 		t.Fatalf("account below the follower floor was snapshotted: %v", hops)
+	}
+	var trusted int64
+	if err := pool.QueryRow(ctx, `
+		SELECT trusted_follower_count FROM profile_public_stats WHERE pubkey = 'large'
+	`).Scan(&trusted); err != nil {
+		t.Fatalf("read recounted trusted followers: %v", err)
+	}
+	if trusted != 1 {
+		t.Fatalf("recount should store the in-graph audience, got %d", trusted)
 	}
 }
 

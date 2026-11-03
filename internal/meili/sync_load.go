@@ -66,23 +66,33 @@ func loadProfileDocumentsByPubkeys(ctx context.Context, pool *pgxpool.Pool, pubk
 	return out, nil
 }
 
+// searchDocumentColumns is selected by every branch below. An OR across
+// entity types made the planner sequentially scan search_documents (about
+// 6s and a multi-GB read per call). Each UNION ALL branch matches one index:
+// the primary key for note, profile, and hashtag, and the identity GIN for
+// identity_tokens.
+const searchDocumentColumns = `
+	entity_type,
+	entity_id,
+	coalesce(title, ''),
+	coalesce(body, ''),
+	aliases,
+	identity_tokens,
+	freshness,
+	popularity,
+	trust_score`
+
 func loadSearchDocumentsForNote(ctx context.Context, pool *pgxpool.Pool, eventID string) ([]SearchDocument, error) {
 	rows, err := pool.Query(ctx, `
-		SELECT
-			entity_type,
-			entity_id,
-			coalesce(title, ''),
-			coalesce(body, ''),
-			aliases,
-			identity_tokens,
-			freshness,
-			popularity,
-			trust_score
+		SELECT `+searchDocumentColumns+`
 		FROM search_documents
-		WHERE (entity_type = 'note' AND entity_id = $1)
-		   OR (entity_type = 'hashtag' AND entity_id IN (
-		        SELECT hashtag FROM event_hashtags WHERE event_id = $1
-		   ))
+		WHERE entity_type = 'note' AND entity_id = $1
+		UNION ALL
+		SELECT `+searchDocumentColumns+`
+		FROM search_documents
+		WHERE entity_type = 'hashtag' AND entity_id IN (
+			SELECT hashtag FROM event_hashtags WHERE event_id = $1
+		)
 	`, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("query search_documents for note sync: %w", err)
@@ -106,24 +116,24 @@ func loadSearchDocumentsForBatch(
 		return nil, nil
 	}
 	rows, err := pool.Query(ctx, `
-		SELECT
-			entity_type,
-			entity_id,
-			coalesce(title, ''),
-			coalesce(body, ''),
-			aliases,
-			identity_tokens,
-			freshness,
-			popularity,
-			trust_score
+		SELECT `+searchDocumentColumns+`
 		FROM search_documents
-		WHERE (entity_type = 'note'    AND entity_id = ANY($1::text[]))
-		   OR (entity_type = 'profile' AND entity_id = ANY($2::text[]))
-		   OR (entity_type = 'hashtag' AND entity_id IN (
-		         SELECT DISTINCT hashtag FROM event_hashtags
-		         WHERE event_id = ANY($1::text[])
-		   ))
-		   OR (entity_type = 'identity' AND identity_tokens && $2::text[])
+		WHERE entity_type = 'note' AND entity_id = ANY($1::text[])
+		UNION ALL
+		SELECT `+searchDocumentColumns+`
+		FROM search_documents
+		WHERE entity_type = 'profile' AND entity_id = ANY($2::text[])
+		UNION ALL
+		SELECT `+searchDocumentColumns+`
+		FROM search_documents
+		WHERE entity_type = 'hashtag' AND entity_id IN (
+			SELECT DISTINCT hashtag FROM event_hashtags
+			WHERE event_id = ANY($1::text[])
+		)
+		UNION ALL
+		SELECT `+searchDocumentColumns+`
+		FROM search_documents
+		WHERE entity_type = 'identity' AND identity_tokens && $2::text[]
 	`, noteIDs, profilePubkeys)
 	if err != nil {
 		return nil, fmt.Errorf("query search_documents for batch sync: %w", err)
@@ -134,19 +144,13 @@ func loadSearchDocumentsForBatch(
 
 func loadSearchDocumentsForProfile(ctx context.Context, pool *pgxpool.Pool, pubkey string) ([]SearchDocument, error) {
 	rows, err := pool.Query(ctx, `
-		SELECT
-			entity_type,
-			entity_id,
-			coalesce(title, ''),
-			coalesce(body, ''),
-			aliases,
-			identity_tokens,
-			freshness,
-			popularity,
-			trust_score
+		SELECT `+searchDocumentColumns+`
 		FROM search_documents
-		WHERE (entity_type = 'profile' AND entity_id = $1)
-		   OR (entity_type = 'identity' AND $1 = ANY(identity_tokens))
+		WHERE entity_type = 'profile' AND entity_id = $1
+		UNION ALL
+		SELECT `+searchDocumentColumns+`
+		FROM search_documents
+		WHERE entity_type = 'identity' AND identity_tokens && ARRAY[$1]::text[]
 	`, pubkey)
 	if err != nil {
 		return nil, fmt.Errorf("query search_documents for profile sync: %w", err)

@@ -602,30 +602,11 @@ func (q *Queries) PurgeStaleTrustedProfileDiscoveryCandidates(ctx context.Contex
 
 const purgeSupersededReplaceableEvents = `-- name: PurgeSupersededReplaceableEvents :execrows
 WITH candidates AS (
-    SELECT e.id
-    FROM events e
-    JOIN LATERAL (
-        SELECT COALESCE((
-            SELECT et.value
-            FROM event_tags et
-            WHERE et.event_id = e.id
-              AND et.tag_name = 'd'
-              AND et.tag_index >= 0
-              AND et.value_index = 0
-            ORDER BY et.tag_index ASC
-            LIMIT 1
-        ), '') AS d_tag
-    ) dd ON true
-    JOIN replaceable_state rs
-      ON rs.pubkey = e.pubkey
-     AND rs.kind = e.kind
-     AND rs.d_tag = dd.d_tag
+    SELECT p.event_id
+    FROM replaceable_event_purge p
+    JOIN events e ON e.id = p.event_id
     WHERE e.kind = ANY($1::int[])
       AND e.first_seen_at < $2
-      AND (
-        rs.created_at > e.created_at
-        OR (rs.created_at = e.created_at AND rs.event_id > e.id)
-      )
       AND NOT EXISTS (
         SELECT 1
         FROM jobs j
@@ -635,12 +616,12 @@ WITH candidates AS (
             OR (j.status = 'dead' AND j.updated_at > $3)
           )
       )
-    ORDER BY e.created_at ASC, e.id ASC
+    ORDER BY p.created_at ASC, p.event_id ASC
     LIMIT $4
 )
 DELETE FROM events e
 USING candidates c
-WHERE e.id = c.id
+WHERE e.id = c.event_id
 `
 
 type PurgeSupersededReplaceableEventsParams struct {
@@ -650,6 +631,9 @@ type PurgeSupersededReplaceableEventsParams struct {
 	RowLimit         int32
 }
 
+// Candidates are stamped into replaceable_event_purge when a winner is
+// recorded (enqueue_superseded_replaceable). Cost follows the queued
+// backlog, not the size of events. Deleting the event cascades the queue row.
 func (q *Queries) PurgeSupersededReplaceableEvents(ctx context.Context, arg PurgeSupersededReplaceableEventsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeSupersededReplaceableEvents,
 		arg.Kinds,

@@ -26,6 +26,7 @@ type TrustWorkerConfig struct {
 	NeighborhoodMaxMembers       int
 	EnableInteractionGraph       bool
 	EnableSeedTeleport           bool
+	DiscoveryEngagement          WorkerDiscoveryEngagementConfig
 	GraphSnapshotRefreshInterval time.Duration
 	RunSchedulerInterval         time.Duration
 }
@@ -59,7 +60,7 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 	if err != nil {
 		return TrustWorkerConfig{}, err
 	}
-	graphSnapshotRefreshInterval, err := getEnvPositiveDurationStrict("TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL", 10*time.Minute)
+	graphSnapshotRefreshInterval, err := getEnvPositiveDurationStrict("TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL", 30*time.Minute)
 	if err != nil {
 		return TrustWorkerConfig{}, err
 	}
@@ -68,6 +69,10 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 		return TrustWorkerConfig{}, err
 	}
 	neighborhoodMaxMembers, err := getEnvPositiveIntStrict("TRUST_NEIGHBORHOOD_MAX_MEMBERS", 5000)
+	if err != nil {
+		return TrustWorkerConfig{}, err
+	}
+	discoveryEngagement, err := loadWorkerDiscoveryEngagementConfig()
 	if err != nil {
 		return TrustWorkerConfig{}, err
 	}
@@ -90,6 +95,7 @@ func LoadTrustWorker() (TrustWorkerConfig, error) {
 		NeighborhoodMaxMembers:       neighborhoodMaxMembers,
 		EnableInteractionGraph:       getEnvBool("TRUST_ENABLE_INTERACTION_GRAPH", false),
 		EnableSeedTeleport:           getEnvBool("TRUST_ENABLE_SEED_TELEPORT", false),
+		DiscoveryEngagement:          discoveryEngagement,
 		GraphSnapshotRefreshInterval: graphSnapshotRefreshInterval,
 		RunSchedulerInterval:         runSchedulerInterval,
 	}

@@ -10,6 +10,10 @@ import "github.com/jackc/pgx/v5/pgxpool"
 // Trust is the trust-context data-access surface backed by a shared pool.
 type Trust struct {
 	pool *pgxpool.Pool
+	// trustedFollowerUntrustedWeight is the inclusion gate for the recount
+	// RefreshTrustGraphSnapshot runs after commit. Zero counts only followers
+	// inside the hop limit passed to that refresh.
+	trustedFollowerUntrustedWeight float64
 }
 
 // New builds a trust Store over the shared connection pool.

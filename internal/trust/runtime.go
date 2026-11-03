@@ -7,16 +7,17 @@ import (
 )
 
 type Runtime struct {
-	pool                   *pgxpool.Pool
-	redis                  redisClient
-	redisKeyPrefix         string
-	enableRedisSync        bool
-	enableScoreCompute     bool
-	enableNeighborhoods    bool
-	neighborhoodMaxMembers int
-	neighborhoodMaxHops    int
-	enableInteractionGraph bool
-	enableSeedTeleport     bool
+	pool                           *pgxpool.Pool
+	redis                          redisClient
+	redisKeyPrefix                 string
+	enableRedisSync                bool
+	enableScoreCompute             bool
+	enableNeighborhoods            bool
+	neighborhoodMaxMembers         int
+	neighborhoodMaxHops            int
+	enableInteractionGraph         bool
+	enableSeedTeleport             bool
+	trustedFollowerUntrustedWeight float64
 }
 
 func NewRuntime(pool *pgxpool.Pool, enableRedisSync, enableScoreCompute bool) *Runtime {
@@ -65,6 +66,20 @@ func (r *Runtime) WithInteractionGraph(enabled bool) *Runtime {
 		return nil
 	}
 	r.enableInteractionGraph = enabled
+	return r
+}
+
+// WithTrustedFollowerUntrustedWeight is the inclusion gate for the recount
+// that follows a promote. Zero counts only followers inside
+// neighborhoodMaxHops, which the trust worker sets from TRUST_MAX_HOPS.
+func (r *Runtime) WithTrustedFollowerUntrustedWeight(weight float64) *Runtime {
+	if r == nil {
+		return nil
+	}
+	if weight < 0 {
+		weight = 0
+	}
+	r.trustedFollowerUntrustedWeight = weight
 	return r
 }
 

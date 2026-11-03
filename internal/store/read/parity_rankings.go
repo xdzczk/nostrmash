@@ -187,8 +187,11 @@ func scanRankedNotes(rows interface {
 	return out, nil
 }
 
-// GetMostFollowedProfiles ranks accounts that have a profile by follower
-// count. Dormant accounts stay in the list. The order is the count itself.
+// GetMostFollowedProfiles ranks accounts that have a profile by how many
+// followers sit in the published trust graph. Dormant accounts and accounts
+// under the raw follower floor stay in the list when that count is positive.
+// A trusted count of zero does not rank. follower_count on the row stays the
+// raw directory count.
 func (s *Read) GetMostFollowedProfiles(ctx context.Context, limit int, offset int) ([]TrendingProfile, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
@@ -197,7 +200,7 @@ func (s *Read) GetMostFollowedProfiles(ctx context.Context, limit int, offset in
 	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
 		SELECT
 			pps.pubkey,
-			pps.follower_count::float8 AS score,
+			pps.trusted_follower_count::float8 AS score,
 			0::bigint,
 			0::bigint,
 			0::bigint,
@@ -210,11 +213,12 @@ func (s *Read) GetMostFollowedProfiles(ctx context.Context, limit int, offset in
 			NULL::float8,
 			0::bigint,
 			0::bigint,
-			0::bigint
+			0::bigint,
+			pps.trusted_follower_count
 		FROM profile_public_stats pps
-		WHERE pps.follower_count > 0
+		WHERE pps.trusted_follower_count > 0
 		  %s
-		ORDER BY pps.follower_count DESC, pps.pubkey ASC
+		ORDER BY pps.trusted_follower_count DESC, pps.pubkey ASC
 		LIMIT $1 OFFSET $2
 	`, fmt.Sprintf(rankedProfileExistsSQL, "pps.pubkey", "pps.pubkey")), limit, offset)
 	if err != nil {
@@ -251,7 +255,8 @@ func (s *Read) GetMostSupportedProfiles(ctx context.Context, window time.Duratio
 			NULL::float8,
 			p.%s,
 			p.%s,
-			p.%s
+			p.%s,
+			0::bigint
 		FROM profile_support_stats p
 		LEFT JOIN profile_public_stats pps ON pps.pubkey = p.pubkey
 		WHERE p.%s > 0
@@ -307,6 +312,7 @@ func scanRankedProfiles(rows interface {
 			&row.SupporterCount,
 			&row.RawSats,
 			&row.CappedSats,
+			&row.TrustedFollowerCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan ranked profile: %w", err)
 		}

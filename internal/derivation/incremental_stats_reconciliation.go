@@ -463,7 +463,7 @@ func (h *Handlers) reconcileProfilePublicStatsForPubkey(ctx context.Context, pub
 	if err := h.pool.QueryRow(ctx, `
 		SELECT follower_count, following_count, note_count, reply_count, recent_activity_at,
 		       long_form_note_count, media_count, zap_received_count, sats_zapped,
-		       content_zap_count, time_joined
+		       content_zap_count, time_joined, trusted_follower_count
 		FROM profile_public_stats
 		WHERE pubkey = $1
 	`, pubkey).Scan(
@@ -478,6 +478,7 @@ func (h *Handlers) reconcileProfilePublicStatsForPubkey(ctx context.Context, pub
 		&incremental.SatsZapped,
 		&incremental.ContentZapCount,
 		&incremental.TimeJoined,
+		&incremental.TrustedFollowerCount,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			found = false
@@ -520,6 +521,7 @@ func (h *Handlers) reconcileProfilePublicStatsForPubkey(ctx context.Context, pub
 	appendIfDiff("zap_received_count", incremental.ZapReceivedCount, recomputed.ZapReceivedCount)
 	appendIfDiff("sats_zapped", incremental.SatsZapped, recomputed.SatsZapped)
 	appendIfDiff("content_zap_count", incremental.ContentZapCount, recomputed.ContentZapCount)
+	appendIfDiff("trusted_follower_count", incremental.TrustedFollowerCount, recomputed.TrustedFollowerCount)
 	incrementalJoined := int64(0)
 	if incremental.TimeJoined != nil {
 		incrementalJoined = *incremental.TimeJoined
@@ -552,7 +554,8 @@ func (h *Handlers) reconcileProfilePublicStatsForPubkey(ctx context.Context, pub
 // writing anything. Kept in exact sync with that function intentionally —
 // any change there should be mirrored here.
 func (h *Handlers) computeTrueProfilePublicStats(ctx context.Context, pubkey string) (profilePublicStatsSnapshot, error) {
-	out, err := scanProfilePublicStats(h.pool.QueryRow(ctx, profilePublicStatsComputeSQL, pubkey))
+	weighting := h.engagementWeighting.normalized()
+	out, err := scanProfilePublicStats(h.pool.QueryRow(ctx, profilePublicStatsComputeSQL, pubkey, weighting.MaxHops, weighting.UntrustedWeight))
 	if err != nil {
 		return profilePublicStatsSnapshot{}, fmt.Errorf("compute true profile public stats for %s: %w", pubkey, err)
 	}

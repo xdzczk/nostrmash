@@ -19,6 +19,8 @@ type AccountStateStore interface {
 	PurgeAccountStateTransitionsOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 }
 
+const accountStateCountRefreshInterval = 10 * time.Minute
+
 var allAccountStates = []string{
 	string(account.StateUnknown),
 	string(account.StateObserved),
@@ -57,6 +59,9 @@ func RunAccountStateRecomputeLoop(ctx context.Context, log Logger, s AccountStat
 	)
 
 	refreshCounts(ctx, log, s)
+	// The count is a full scan of account_states (~0.5s). The recompute tick
+	// is a minute; the gauge does not need to be that fresh.
+	nextCounts := time.Now().Add(accountStateCountRefreshInterval)
 
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
@@ -66,7 +71,10 @@ func RunAccountStateRecomputeLoop(ctx context.Context, log Logger, s AccountStat
 			return
 		case <-ticker.C:
 			recomputeAccountStatesOnce(ctx, log, s, cfg)
-			refreshCounts(ctx, log, s)
+			if !time.Now().Before(nextCounts) {
+				refreshCounts(ctx, log, s)
+				nextCounts = time.Now().Add(accountStateCountRefreshInterval)
+			}
 			if cfg.TransitionRetentionMaxAge > 0 {
 				cutoff := time.Now().UTC().Add(-cfg.TransitionRetentionMaxAge)
 				if deleted, err := s.PurgeAccountStateTransitionsOlderThan(ctx, cutoff, 5000); err != nil {

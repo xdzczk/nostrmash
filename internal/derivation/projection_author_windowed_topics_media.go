@@ -15,14 +15,9 @@ func (h *Handlers) upsertAuthorTopicWindowTx(
 	cutoff int64,
 	version int,
 ) error {
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM author_topic_stats
-		WHERE pubkey = $1
-		  AND window_days = $2
-	`, pubkey, windowDays); err != nil {
-		return fmt.Errorf("delete prior author topic stats for %s window=%dd: %w", pubkey, windowDays, err)
-	}
-
+	// Rewrite only hashtags whose counts changed, and delete hashtags that
+	// fell out of the window. A delete-all plus insert rewrote every row on
+	// every sweeper pass (about 44k buffers and 200ms per call in production).
 	if h.incrementalWindowedRollups {
 		var hasDaily bool
 		if err := tx.QueryRow(ctx, `
@@ -37,31 +32,42 @@ func (h *Handlers) upsertAuthorTopicWindowTx(
 		}
 		if hasDaily {
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO author_topic_stats (
-					pubkey,
-					window_days,
-					hashtag,
-					usage_count,
-					active_days,
-					derivation_version
+				WITH agg AS (
+					SELECT
+						d.hashtag,
+						SUM(d.usage_count)::bigint AS usage_count,
+						COUNT(*) FILTER (WHERE d.usage_count > 0)::int AS active_days
+					FROM author_hashtag_daily d
+					WHERE d.pubkey = $1
+					  AND d.activity_date >= to_timestamp($4)::date
+					  AND d.hashtag !~ '^[0-9]+$'
+					GROUP BY d.hashtag
+				),
+				upserted AS (
+					INSERT INTO author_topic_stats (
+						pubkey,
+						window_days,
+						hashtag,
+						usage_count,
+						active_days,
+						derivation_version
+					)
+					SELECT $1, $2, hashtag, usage_count, active_days, $3
+					FROM agg
+					ON CONFLICT (pubkey, window_days, hashtag) DO UPDATE
+					SET usage_count = EXCLUDED.usage_count,
+					    active_days = EXCLUDED.active_days,
+					    derivation_version = EXCLUDED.derivation_version,
+					    updated_at = now()
+					WHERE author_topic_stats.usage_count IS DISTINCT FROM EXCLUDED.usage_count
+					   OR author_topic_stats.active_days IS DISTINCT FROM EXCLUDED.active_days
+					   OR author_topic_stats.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
+					RETURNING hashtag
 				)
-				SELECT
-					$1,
-					$2,
-					d.hashtag,
-					SUM(d.usage_count)::bigint AS usage_count,
-					COUNT(*) FILTER (WHERE d.usage_count > 0)::int AS active_days,
-					$3
-				FROM author_hashtag_daily d
-				WHERE d.pubkey = $1
-				  AND d.activity_date >= to_timestamp($4)::date
-				  AND d.hashtag !~ '^[0-9]+$'
-				GROUP BY d.hashtag
-				ON CONFLICT (pubkey, window_days, hashtag) DO UPDATE
-				SET usage_count = EXCLUDED.usage_count,
-				    active_days = EXCLUDED.active_days,
-				    derivation_version = EXCLUDED.derivation_version,
-				    updated_at = now()
+				DELETE FROM author_topic_stats t
+				WHERE t.pubkey = $1
+				  AND t.window_days = $2
+				  AND NOT EXISTS (SELECT 1 FROM agg a WHERE a.hashtag = t.hashtag)
 			`, pubkey, windowDays, version, cutoff); err != nil {
 				return fmt.Errorf("upsert author topic stats from daily for %s window=%dd: %w", pubkey, windowDays, err)
 			}
@@ -70,32 +76,43 @@ func (h *Handlers) upsertAuthorTopicWindowTx(
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO author_topic_stats (
-			pubkey,
-			window_days,
-			hashtag,
-			usage_count,
-			active_days,
-			derivation_version
+		WITH agg AS (
+			SELECT
+				eh.hashtag,
+				COUNT(*)::bigint AS usage_count,
+				COUNT(DISTINCT to_timestamp(eh.created_at)::date)::int AS active_days
+			FROM event_hashtags eh
+			WHERE eh.author_pubkey = $1
+			  AND eh.created_at >= $4
+			  AND eh.created_at <= $5
+			  AND eh.hashtag !~ '^[0-9]+$'
+			GROUP BY eh.hashtag
+		),
+		upserted AS (
+			INSERT INTO author_topic_stats (
+				pubkey,
+				window_days,
+				hashtag,
+				usage_count,
+				active_days,
+				derivation_version
+			)
+			SELECT $1, $2, hashtag, usage_count, active_days, $3
+			FROM agg
+			ON CONFLICT (pubkey, window_days, hashtag) DO UPDATE
+			SET usage_count = EXCLUDED.usage_count,
+			    active_days = EXCLUDED.active_days,
+			    derivation_version = EXCLUDED.derivation_version,
+			    updated_at = now()
+			WHERE author_topic_stats.usage_count IS DISTINCT FROM EXCLUDED.usage_count
+			   OR author_topic_stats.active_days IS DISTINCT FROM EXCLUDED.active_days
+			   OR author_topic_stats.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
+			RETURNING hashtag
 		)
-		SELECT
-			$1,
-			$2,
-			eh.hashtag,
-			COUNT(*)::bigint AS usage_count,
-			COUNT(DISTINCT to_timestamp(eh.created_at)::date)::int AS active_days,
-			$3
-		FROM event_hashtags eh
-		WHERE eh.author_pubkey = $1
-		  AND eh.created_at >= $4
-		  AND eh.created_at <= $5
-		  AND eh.hashtag !~ '^[0-9]+$'
-		GROUP BY eh.hashtag
-		ON CONFLICT (pubkey, window_days, hashtag) DO UPDATE
-		SET usage_count = EXCLUDED.usage_count,
-		    active_days = EXCLUDED.active_days,
-		    derivation_version = EXCLUDED.derivation_version,
-		    updated_at = now()
+		DELETE FROM author_topic_stats t
+		WHERE t.pubkey = $1
+		  AND t.window_days = $2
+		  AND NOT EXISTS (SELECT 1 FROM agg a WHERE a.hashtag = t.hashtag)
 	`, pubkey, windowDays, version, cutoff, maxSaneUnixCreatedAt); err != nil {
 		return fmt.Errorf("upsert author topic stats for %s window=%dd: %w", pubkey, windowDays, err)
 	}
@@ -160,6 +177,14 @@ func (h *Handlers) upsertAuthorMediaMixWindowTx(
 				    total_attachment_count = EXCLUDED.total_attachment_count,
 				    derivation_version = EXCLUDED.derivation_version,
 				    updated_at = now()
+				WHERE author_media_mix_stats.total_posts IS DISTINCT FROM EXCLUDED.total_posts
+				   OR author_media_mix_stats.with_image_count IS DISTINCT FROM EXCLUDED.with_image_count
+				   OR author_media_mix_stats.with_video_count IS DISTINCT FROM EXCLUDED.with_video_count
+				   OR author_media_mix_stats.with_link_count IS DISTINCT FROM EXCLUDED.with_link_count
+				   OR author_media_mix_stats.with_article_count IS DISTINCT FROM EXCLUDED.with_article_count
+				   OR author_media_mix_stats.text_only_count IS DISTINCT FROM EXCLUDED.text_only_count
+				   OR author_media_mix_stats.total_attachment_count IS DISTINCT FROM EXCLUDED.total_attachment_count
+				   OR author_media_mix_stats.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
 			`, pubkey, cutoff, windowDays, version)
 			if err != nil {
 				return fmt.Errorf("upsert author media mix stats from daily for %s window=%dd: %w", pubkey, windowDays, err)
@@ -223,6 +248,14 @@ func (h *Handlers) upsertAuthorMediaMixWindowTx(
 		    total_attachment_count = EXCLUDED.total_attachment_count,
 		    derivation_version = EXCLUDED.derivation_version,
 		    updated_at = now()
+		WHERE author_media_mix_stats.total_posts IS DISTINCT FROM EXCLUDED.total_posts
+		   OR author_media_mix_stats.with_image_count IS DISTINCT FROM EXCLUDED.with_image_count
+		   OR author_media_mix_stats.with_video_count IS DISTINCT FROM EXCLUDED.with_video_count
+		   OR author_media_mix_stats.with_link_count IS DISTINCT FROM EXCLUDED.with_link_count
+		   OR author_media_mix_stats.with_article_count IS DISTINCT FROM EXCLUDED.with_article_count
+		   OR author_media_mix_stats.text_only_count IS DISTINCT FROM EXCLUDED.text_only_count
+		   OR author_media_mix_stats.total_attachment_count IS DISTINCT FROM EXCLUDED.total_attachment_count
+		   OR author_media_mix_stats.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
 	`, pubkey, cutoff, windowDays, version)
 	if err != nil {
 		return fmt.Errorf("upsert author media mix stats for %s window=%dd: %w", pubkey, windowDays, err)

@@ -230,6 +230,18 @@ UI Maximum Memory on **standalone** resources (Postgres / Redis).
 Also set `API_DATABASE_MAX_CONNS=32` (Compose default) so raised Postgres
 `work_mem` cannot multiply into OOM under connection spikes.
 
+On this 30 GiB host the database is about 190 GB, so the planner needs a
+larger cache estimate than the stock 12 GB and the heavy trust statements
+set `work_mem` themselves. These are stored in the data volume
+(`postgresql.auto.conf`), not in a migration, because CI Postgres is small:
+
+```sql
+ALTER SYSTEM SET effective_cache_size = '20GB';
+ALTER SYSTEM SET max_parallel_workers_per_gather = 4;
+ALTER SYSTEM SET track_io_timing = on;
+SELECT pg_reload_conf();
+```
+
 Weekly host pulse (Phase 5):
 
 ```bash
@@ -248,7 +260,10 @@ Trust-bounded ingest (storage bounding) — set on the shared app env or per-ser
 TRUST_SEED_PUBKEYS=<hex_pubkey>
 
 # trust_worker — feeds the ingest gate snapshot
-TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL=10m
+TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL=30m
+# Partial Meilisearch batches wait this long so one index task covers more
+# documents. Full batches still drain immediately.
+WORKER_MEILISEARCH_SWEEPER_INTERVAL=5m
 TRUST_RUN_INTERVAL=1h
 
 # ingestor — start in shadow, flip to trusted_only after warmup

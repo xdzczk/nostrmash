@@ -265,12 +265,20 @@ func (h *Handlers) claimPendingAuthorAnalyticsPubkey(ctx context.Context) (strin
 	var markedAt time.Time
 	err = tx.QueryRow(ctx, `
 		WITH candidates AS (
-			SELECT pubkey, marked_at
-			FROM pending_author_analytics_recomputes
-			WHERE claimed_at IS NULL
-			   OR claimed_at < now() - $3::interval
-			ORDER BY marked_at ASC, pubkey ASC
-			FOR UPDATE SKIP LOCKED
+			SELECT p.pubkey, p.marked_at
+			FROM pending_author_analytics_recomputes p
+			WHERE (p.claimed_at IS NULL OR p.claimed_at < now() - $3::interval)
+			  AND (
+			    $4::float8 <= 0
+			    OR NOT EXISTS (
+			      SELECT 1
+			      FROM author_engagement_stats e
+			      WHERE e.pubkey = p.pubkey
+			        AND e.updated_at >= now() - make_interval(secs => $4::float8)
+			    )
+			  )
+			ORDER BY p.marked_at ASC, p.pubkey ASC
+			FOR UPDATE OF p SKIP LOCKED
 			LIMIT $1
 		),
 		locked AS (
@@ -291,6 +299,7 @@ func (h *Handlers) claimPendingAuthorAnalyticsPubkey(ctx context.Context) (strin
 		authorAnalyticsClaimCandidateWindow,
 		pubkeyLockNamespaceAuthorAnalytics,
 		authorAnalyticsClaimLease,
+		h.sweeperRefreshGap.Seconds(),
 	).Scan(&pubkey, &claimToken, &markedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -321,6 +330,16 @@ func (h *Handlers) rebuildClaimedAuthorAnalyticsPubkey(ctx context.Context, pubk
 
 	if err := h.projectAuthorAnalyticsForPubkeyTx(ctx, tx, pubkey, nil, true); err != nil {
 		return err
+	}
+	// The window upserts skip unchanged rows, so updated_at would not move
+	// and the sweeper gap would never engage. One row-touch per window is
+	// the clock the claim query reads.
+	if _, err := tx.Exec(ctx, `
+		UPDATE author_engagement_stats
+		SET updated_at = now()
+		WHERE pubkey = $1
+	`, pubkey); err != nil {
+		return fmt.Errorf("stamp author analytics refresh: %w", err)
 	}
 	return tx.Commit(ctx)
 }

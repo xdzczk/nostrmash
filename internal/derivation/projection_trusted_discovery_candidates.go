@@ -35,11 +35,17 @@ func (h *Handlers) rebuildTrustedNoteDiscoveryWithVersion(ctx context.Context, v
 	if err := storetrust.RefreshTrustPubkeysLatestTx(ctx, tx); err != nil {
 		return err
 	}
+	if err := storetrust.PrepareHeavyTx(ctx, tx); err != nil {
+		return err
+	}
 	if err := refreshTrustedNoteDiscoveryTx(ctx, tx, writeVersion); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit trusted note discovery rebuild tx: %w", err)
+	}
+	if err := h.recountTrustedFollowers(ctx); err != nil {
+		return err
 	}
 	return nil
 }
@@ -67,11 +73,31 @@ func (h *Handlers) rebuildTrustedProfileDiscoveryWithVersion(ctx context.Context
 	if err := storetrust.RefreshTrustPubkeysLatestTx(ctx, tx); err != nil {
 		return err
 	}
+	if err := storetrust.PrepareHeavyTx(ctx, tx); err != nil {
+		return err
+	}
 	if err := refreshTrustedProfileDiscoveryTx(ctx, tx, writeVersion); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit trusted profile discovery rebuild tx: %w", err)
+	}
+	if err := h.recountTrustedFollowers(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *Handlers) recountTrustedFollowers(ctx context.Context) error {
+	if h == nil || h.pool == nil {
+		return fmt.Errorf("handlers are not initialized")
+	}
+	weighting := h.engagementWeighting.normalized()
+	if err := storetrust.RecountTrustedFollowerCounts(ctx, h.pool, storetrust.TrustedFollowerPolicy{
+		MaxHops:         weighting.MaxHops,
+		UntrustedWeight: weighting.UntrustedWeight,
+	}); err != nil {
+		return fmt.Errorf("recount trusted followers: %w", err)
 	}
 	return nil
 }
@@ -116,6 +142,13 @@ func refreshTrustedNoteDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersion 
 			now()
 		FROM note_discovery_stats n
 		LEFT JOIN trust_pubkeys_latest latest ON latest.pubkey = n.author_pubkey
+		LEFT JOIN trusted_note_discovery_candidates existing ON existing.event_id = n.event_id
+		WHERE existing.event_id IS NULL
+		   OR existing.author_pubkey IS DISTINCT FROM n.author_pubkey
+		   OR existing.min_hops IS DISTINCT FROM latest.min_hops
+		   OR existing.trust_score IS DISTINCT FROM latest.score
+		   OR existing.source_run_id IS DISTINCT FROM latest.source_run_id
+		   OR existing.derivation_version IS DISTINCT FROM $2
 		ON CONFLICT (event_id) DO UPDATE
 		SET author_pubkey = EXCLUDED.author_pubkey,
 		    min_hops = EXCLUDED.min_hops,
@@ -124,6 +157,11 @@ func refreshTrustedNoteDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersion 
 		    trust_snapshot_refreshed_at = EXCLUDED.trust_snapshot_refreshed_at,
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
+		WHERE trusted_note_discovery_candidates.author_pubkey IS DISTINCT FROM EXCLUDED.author_pubkey
+		   OR trusted_note_discovery_candidates.min_hops IS DISTINCT FROM EXCLUDED.min_hops
+		   OR trusted_note_discovery_candidates.trust_score IS DISTINCT FROM EXCLUDED.trust_score
+		   OR trusted_note_discovery_candidates.source_run_id IS DISTINCT FROM EXCLUDED.source_run_id
+		   OR trusted_note_discovery_candidates.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
 	`, snapshotRefreshedAt, writeVersion); err != nil {
 		return fmt.Errorf("refresh trusted note candidates: %w", err)
 	}
@@ -183,6 +221,12 @@ func refreshTrustedProfileDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersi
 			now()
 		FROM profile_discovery_stats p
 		LEFT JOIN trust_pubkeys_latest latest ON latest.pubkey = p.pubkey
+		LEFT JOIN trusted_profile_discovery_candidates existing ON existing.pubkey = p.pubkey
+		WHERE existing.pubkey IS NULL
+		   OR existing.min_hops IS DISTINCT FROM latest.min_hops
+		   OR existing.trust_score IS DISTINCT FROM latest.score
+		   OR existing.source_run_id IS DISTINCT FROM latest.source_run_id
+		   OR existing.derivation_version IS DISTINCT FROM $2
 		ON CONFLICT (pubkey) DO UPDATE
 		SET min_hops = EXCLUDED.min_hops,
 		    trust_score = EXCLUDED.trust_score,
@@ -190,6 +234,10 @@ func refreshTrustedProfileDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersi
 		    trust_snapshot_refreshed_at = EXCLUDED.trust_snapshot_refreshed_at,
 		    derivation_version = EXCLUDED.derivation_version,
 		    projected_at = now()
+		WHERE trusted_profile_discovery_candidates.min_hops IS DISTINCT FROM EXCLUDED.min_hops
+		   OR trusted_profile_discovery_candidates.trust_score IS DISTINCT FROM EXCLUDED.trust_score
+		   OR trusted_profile_discovery_candidates.source_run_id IS DISTINCT FROM EXCLUDED.source_run_id
+		   OR trusted_profile_discovery_candidates.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
 	`, snapshotRefreshedAt, writeVersion); err != nil {
 		return fmt.Errorf("refresh trusted profile candidates: %w", err)
 	}

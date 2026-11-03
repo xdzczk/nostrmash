@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -135,6 +136,14 @@ func (r *Runtime) executePromoteRun(ctx context.Context, runID int64, snapshotRe
 
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit trust promote tx: %w", err)
+	}
+	// The run is already succeeded. A recount failure must not mark it failed;
+	// the next snapshot refresh recounts again.
+	if err := storetrust.RecountTrustedFollowerCounts(ctx, r.pool, storetrust.TrustedFollowerPolicy{
+		MaxHops:         r.neighborhoodMaxHops,
+		UntrustedWeight: r.trustedFollowerUntrustedWeight,
+	}); err != nil {
+		slog.Error("trusted follower recount after promote failed", "error", err, "run_id", runID)
 	}
 	metrics.ObserveWorkerJobExecution(jobs.JobTypeTrustPromoteRun, "success", time.Since(started))
 	metrics.ObserveTrustPhaseDuration(RunPhasePromote, "success", time.Since(started))

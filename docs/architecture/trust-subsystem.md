@@ -194,7 +194,7 @@ See [trust-bounded-ingest.md](trust-bounded-ingest.md) for gate semantics and ro
 `trust_worker` now maintains `trust_graph_snapshot` on a schedule:
 
 - **Seed reconcile** on startup: `TRUST_SEED_PUBKEYS` → `trust_seeds` (authoritative when configured).
-- **Snapshot refresh**: `TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL` (default `10m`) rebuilds the BFS reachable set from seeds + `follower_edges`.
+- **Snapshot refresh**: `TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL` (default `30m`) rebuilds the BFS reachable set from seeds + `follower_edges`.
 - **Global trust runs**: `TRUST_RUN_INTERVAL` (default `1h`) when score compute is enabled.
 
 The ingestor loads this snapshot into an in-memory `TrustedAuthorSet` for gate decisions without per-event DB lookups.

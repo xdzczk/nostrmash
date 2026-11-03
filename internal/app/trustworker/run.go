@@ -86,6 +86,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo) error {
 	)
 
 	st := store.NewPostgresStore(pool)
+	st.SetTrustedFollowerUntrustedWeight(cfg.DiscoveryEngagement.UntrustedWeight)
 	// Reconcile configured seeds into trust_seeds so the trust graph snapshot
 	// (and downstream ingest gate) have BFS roots. Non-fatal: a transient DB
 	// error here should not crash the worker; the next restart retries.
@@ -104,7 +105,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo) error {
 		cfg.EnableNeighborhoods,
 		cfg.NeighborhoodMaxMembers,
 		cfg.Shared.TrustPolicy.MaxHops,
-	).WithInteractionGraph(cfg.EnableInteractionGraph).WithSeedTeleport(cfg.EnableSeedTeleport)
+	).WithInteractionGraph(cfg.EnableInteractionGraph).WithSeedTeleport(cfg.EnableSeedTeleport).WithTrustedFollowerUntrustedWeight(cfg.DiscoveryEngagement.UntrustedWeight)
 	workerID := resolveWorkerID()
 
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)

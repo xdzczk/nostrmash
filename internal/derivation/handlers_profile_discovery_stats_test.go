@@ -200,6 +200,132 @@ func TestProjectProfileDiscoveryStats_TrustWeightedEngagement(t *testing.T) {
 	if engagedScore <= baselineScore {
 		t.Fatalf("expected trusted engagement to outrank baseline, got engaged=%f baseline=%f", engagedScore, baselineScore)
 	}
+
+	derive := func(event model.Event) {
+		t.Helper()
+		if err := pgStore.InsertCanonicalEvent(ctx, event, extractTagsFromRaw(t, event.RawJSON), "wss://relay.one", event.FirstSeenAt); err != nil {
+			t.Fatalf("insert event %s: %v", event.ID, err)
+		}
+		if err := handlers.DeriveEventBundle(ctx, event.ID); err != nil {
+			t.Fatalf("derive event bundle %s: %v", event.ID, err)
+		}
+	}
+	readCounts := func(pubkey string) (trusted, followers int64) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `
+			SELECT trusted_follower_count, follower_count
+			FROM profile_public_stats
+			WHERE pubkey = $1
+		`, pubkey).Scan(&trusted, &followers); err != nil {
+			t.Fatalf("read follower counts for %s: %v", pubkey, err)
+		}
+		return trusted, followers
+	}
+	seedTrust := func(pubkey string, hops int) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO trust_pubkeys_latest (pubkey, min_hops, score, rank)
+			VALUES ($1, $2, 0.5, 1)
+			ON CONFLICT (pubkey) DO UPDATE SET min_hops = EXCLUDED.min_hops
+		`, pubkey, hops); err != nil {
+			t.Fatalf("seed trust %s: %v", pubkey, err)
+		}
+	}
+
+	derive(newEventForTest("pw_farmed_meta", "pw_farmed_author", at.Unix(), 0, nil, `{"name":"Farmed"}`, at))
+	trusted, followers := readCounts("pw_farmed_author")
+	if trusted != 0 || followers != 6 {
+		t.Fatalf("untrusted ring trusted=%d follower_count=%d, want 0 and 6", trusted, followers)
+	}
+	followed, err := pgStore.GetMostFollowedProfiles(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("GetMostFollowedProfiles: %v", err)
+	}
+	for _, profile := range followed {
+		if profile.Pubkey == "pw_farmed_author" {
+			t.Fatalf("untrusted ring must not lead most followed: %#v", followed)
+		}
+	}
+
+	seedTrust("pw_hop4", 4)
+	derive(newEventForTest("pw_hop4_follow", "pw_hop4", at.Unix(), 3, [][]string{{"p", "pw_farmed_author"}}, "contacts", at))
+	trusted, followers = readCounts("pw_farmed_author")
+	if trusted != 0 || followers != 7 {
+		t.Fatalf("hop past the limit trusted=%d follower_count=%d, want 0 and 7", trusted, followers)
+	}
+
+	seedTrust("pw_farmed_author", 1)
+	derive(newEventForTest("pw_farmed_self", "pw_farmed_author", at.Unix(), 3, [][]string{{"p", "pw_farmed_author"}}, "contacts", at))
+	trusted, followers = readCounts("pw_farmed_author")
+	if trusted != 0 || followers != 8 {
+		t.Fatalf("self-follow trusted=%d follower_count=%d, want 0 and 8", trusted, followers)
+	}
+
+	derive(newEventForTest("pw_hop1_follow", "pw_hop1", at.Unix(), 3, [][]string{{"p", "pw_farmed_author"}}, "contacts", at))
+	trusted, followers = readCounts("pw_farmed_author")
+	if trusted != 1 || followers != 9 {
+		t.Fatalf("one in-graph follower trusted=%d follower_count=%d, want 1 and 9", trusted, followers)
+	}
+
+	seedTrust("pw_rival_fan_a", 1)
+	seedTrust("pw_rival_fan_b", 1)
+	derive(newEventForTest("pw_rival_meta", "pw_rival_author", at.Unix(), 0, nil, `{"name":"Rival"}`, at))
+	derive(newEventForTest("pw_rival_follow_a", "pw_rival_fan_a", at.Unix(), 3, [][]string{{"p", "pw_rival_author"}}, "contacts", at))
+	derive(newEventForTest("pw_rival_follow_b", "pw_rival_fan_b", at.Unix(), 3, [][]string{{"p", "pw_rival_author"}}, "contacts", at))
+	followed, err = pgStore.GetMostFollowedProfiles(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("GetMostFollowedProfiles after rival: %v", err)
+	}
+	if len(followed) < 2 || followed[0].Pubkey != "pw_rival_author" || followed[0].Score != 2 || followed[0].FollowerCount != 2 || followed[0].TrustedFollowerCount != 2 {
+		t.Fatalf("rival should rank by two trusted followers, got %#v", followed)
+	}
+	if followed[1].Pubkey != "pw_farmed_author" || followed[1].Score != 1 || followed[1].TrustedFollowerCount != 1 || followed[1].FollowerCount != 9 {
+		t.Fatalf("farm should rank by the one in-graph follower while keeping the raw ring, got %#v", followed[1])
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE profile_public_stats
+		SET follower_count = 67860,
+		    trusted_follower_count = 0
+		WHERE pubkey = 'pw_farmed_author'
+	`); err != nil {
+		t.Fatalf("inflate raw follower count: %v", err)
+	}
+	candidates, err := pgStore.ListLargeAccountFrontierCandidates(ctx, 10)
+	if err != nil {
+		t.Fatalf("list frontier before a trusted audience: %v", err)
+	}
+	for _, candidate := range candidates {
+		if candidate.Pubkey == "pw_farmed_author" {
+			t.Fatalf("raw count above 1000 with trusted count 0 is not a frontier candidate: %#v", candidates)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO profile_public_stats (
+			pubkey, follower_count, trusted_follower_count, derivation_version
+		) VALUES ('pw_popular', 5, 1000, 1)
+	`); err != nil {
+		t.Fatalf("insert in-graph audience: %v", err)
+	}
+	candidates, err = pgStore.ListLargeAccountFrontierCandidates(ctx, 10)
+	if err != nil {
+		t.Fatalf("list frontier: %v", err)
+	}
+	foundPopular := false
+	for _, candidate := range candidates {
+		if candidate.Pubkey == "pw_farmed_author" {
+			t.Fatalf("farm stayed off the frontier only while trusted count stayed under the floor: %#v", candidates)
+		}
+		if candidate.Pubkey == "pw_popular" {
+			foundPopular = true
+			if candidate.Rank >= 0 {
+				t.Fatalf("in-graph audience should sort ahead of ordinary trust ranks, got %#v", candidate)
+			}
+		}
+	}
+	if !foundPopular {
+		t.Fatalf("trusted audience at the floor should be a frontier candidate, got %#v", candidates)
+	}
 }
 
 // The legacy full-scan metric loader (incremental stats disabled) must

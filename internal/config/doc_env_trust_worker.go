@@ -48,8 +48,8 @@ func configEnvDocsTrustWorker() []EnvVarDoc {
 			Name:         "TRUST_GRAPH_SNAPSHOT_REFRESH_INTERVAL",
 			Runtimes:     []string{"trust_worker"},
 			Required:     false,
-			DefaultValue: "10m",
-			Description:  "Interval between trust_graph_snapshot rebuilds (seeds + follower edges) that the ingest gate reads.",
+			DefaultValue: "30m",
+			Description:  "Interval between trust_graph_snapshot rebuilds (seeds + follower edges) that the ingest gate reads. Each rebuild also refreshes trusted discovery projections, so keep this at 30m unless hop changes need to show up sooner.",
 		},
 		{
 			Name:         "TRUST_RUN_INTERVAL",

@@ -260,7 +260,10 @@ func buildFollowedProfileItems(rows []query.TrendingProfile, identities map[stri
 	items := make([]map[string]any, 0, len(rows))
 	for index, profile := range rows {
 		item := baseRankedProfileItem(profile)
-		item["ranking"] = stockRanking(index+1, float64(profile.FollowerCount), "audience_size", "follower_count", "followers", profile.FollowerCount)
+		trusted := profile.TrustedFollowerCount
+		item["score"] = float64(trusted)
+		item["trusted_follower_count"] = trusted
+		item["ranking"] = stockRanking(index+1, float64(trusted), "audience_size", "follower_count", "followers", trusted)
 		if identity, ok := identities[profile.Pubkey]; ok {
 			applyProfileIdentity(item, identity)
 		}

@@ -307,7 +307,12 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 	if err != nil {
 		return err
 	}
-	adminService := api.NewAdminService(pool, derivation.NewHandlers(pool), trust.NewRuntime(pool, false, true), api.AdminServiceOptions{
+	adminService := api.NewAdminService(pool, derivation.NewHandlersWithOptions(pool, derivation.HandlersOptions{
+		EngagementWeighting: derivation.EngagementWeightingOptions{
+			MaxHops:         cfg.Shared.TrustPolicy.MaxHops,
+			UntrustedWeight: cfg.DiscoveryEngagement.UntrustedWeight,
+		},
+	}), trust.NewRuntime(pool, false, true), api.AdminServiceOptions{
 		ServiceName:          cfg.Shared.ServiceName,
 		Environment:          cfg.Shared.Environment,
 		AppVersion:           appVersion,
