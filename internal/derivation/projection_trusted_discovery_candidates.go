@@ -44,10 +44,7 @@ func (h *Handlers) rebuildTrustedNoteDiscoveryWithVersion(ctx context.Context, v
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit trusted note discovery rebuild tx: %w", err)
 	}
-	if err := h.recountTrustedFollowers(ctx); err != nil {
-		return err
-	}
-	return nil
+	return h.recountTrustedFollowers(ctx)
 }
 
 func (h *Handlers) rebuildTrustedProfileDiscoveryWithVersion(ctx context.Context, versionOverride *int) error {
@@ -82,10 +79,7 @@ func (h *Handlers) rebuildTrustedProfileDiscoveryWithVersion(ctx context.Context
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit trusted profile discovery rebuild tx: %w", err)
 	}
-	if err := h.recountTrustedFollowers(ctx); err != nil {
-		return err
-	}
-	return nil
+	return h.recountTrustedFollowers(ctx)
 }
 
 func (h *Handlers) recountTrustedFollowers(ctx context.Context) error {
