@@ -601,45 +601,65 @@ func (q *Queries) PurgeStaleTrustedProfileDiscoveryCandidates(ctx context.Contex
 }
 
 const purgeSupersededReplaceableEvents = `-- name: PurgeSupersededReplaceableEvents :execrows
-WITH candidates AS (
+WITH gone AS (
+    SELECT p.event_id
+    FROM replaceable_event_purge p
+    WHERE NOT EXISTS (
+        SELECT 1 FROM events e WHERE e.id = p.event_id
+    )
+    LIMIT $1
+),
+removed_gone AS (
+    DELETE FROM replaceable_event_purge p
+    USING gone g
+    WHERE p.event_id = g.event_id
+),
+candidates AS (
     SELECT p.event_id
     FROM replaceable_event_purge p
     JOIN events e ON e.id = p.event_id
-    WHERE e.kind = ANY($1::int[])
-      AND e.first_seen_at < $2
+    WHERE e.kind = ANY($2::int[])
+      AND e.first_seen_at < $3
       AND NOT EXISTS (
         SELECT 1
         FROM jobs j
         WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
           AND (
             j.status IN ('pending', 'running')
-            OR (j.status = 'dead' AND j.updated_at > $3)
+            OR (j.status = 'dead' AND j.updated_at > $4)
           )
       )
     ORDER BY p.created_at ASC, p.event_id ASC
-    LIMIT $4
+    LIMIT $1
+),
+deleted_events AS (
+    DELETE FROM events e
+    USING candidates c
+    WHERE e.id = c.event_id
 )
-DELETE FROM events e
+DELETE FROM replaceable_event_purge p
 USING candidates c
-WHERE e.id = c.event_id
+WHERE p.event_id = c.event_id
 `
 
 type PurgeSupersededReplaceableEventsParams struct {
+	RowLimit         int32
 	Kinds            []int32
 	SupersededBefore pgtype.Timestamptz
 	DeadGraceBefore  pgtype.Timestamptz
-	RowLimit         int32
 }
 
 // Candidates are stamped into replaceable_event_purge when a winner is
 // recorded (enqueue_superseded_replaceable). Cost follows the queued
-// backlog, not the size of events. Deleting the event cascades the queue row.
+// backlog, not the size of events. The queue has no foreign key, so this
+// statement removes both the event and its queue row. gone drops ids whose
+// event was deleted by something else.
 func (q *Queries) PurgeSupersededReplaceableEvents(ctx context.Context, arg PurgeSupersededReplaceableEventsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeSupersededReplaceableEvents,
+		arg.RowLimit,
 		arg.Kinds,
 		arg.SupersededBefore,
 		arg.DeadGraceBefore,
-		arg.RowLimit,
 	)
 	if err != nil {
 		return 0, err

@@ -48,8 +48,23 @@ LIMIT @row_limit;
 -- name: PurgeSupersededReplaceableEvents :execrows
 -- Candidates are stamped into replaceable_event_purge when a winner is
 -- recorded (enqueue_superseded_replaceable). Cost follows the queued
--- backlog, not the size of events. Deleting the event cascades the queue row.
-WITH candidates AS (
+-- backlog, not the size of events. The queue has no foreign key, so this
+-- statement removes both the event and its queue row. gone drops ids whose
+-- event was deleted by something else.
+WITH gone AS (
+    SELECT p.event_id
+    FROM replaceable_event_purge p
+    WHERE NOT EXISTS (
+        SELECT 1 FROM events e WHERE e.id = p.event_id
+    )
+    LIMIT @row_limit
+),
+removed_gone AS (
+    DELETE FROM replaceable_event_purge p
+    USING gone g
+    WHERE p.event_id = g.event_id
+),
+candidates AS (
     SELECT p.event_id
     FROM replaceable_event_purge p
     JOIN events e ON e.id = p.event_id
@@ -66,10 +81,15 @@ WITH candidates AS (
       )
     ORDER BY p.created_at ASC, p.event_id ASC
     LIMIT @row_limit
+),
+deleted_events AS (
+    DELETE FROM events e
+    USING candidates c
+    WHERE e.id = c.event_id
 )
-DELETE FROM events e
+DELETE FROM replaceable_event_purge p
 USING candidates c
-WHERE e.id = c.event_id;
+WHERE p.event_id = c.event_id;
 
 -- name: PurgeProcessedDeletionEvents :execrows
 WITH candidates AS (

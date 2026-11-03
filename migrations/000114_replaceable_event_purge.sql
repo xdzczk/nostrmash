@@ -8,8 +8,12 @@
 
 SET LOCAL statement_timeout = '20min';
 
+-- No foreign key. The backfill inserts ids it just read from events, and a
+-- concurrent delete commits before the row is written. A foreign key check
+-- then fails and rolls back the whole migration. The purge deletes queue
+-- rows itself, including ones whose event is already gone.
 CREATE TABLE IF NOT EXISTS replaceable_event_purge (
-    event_id TEXT PRIMARY KEY REFERENCES events (id) ON DELETE CASCADE,
+    event_id TEXT PRIMARY KEY,
     created_at BIGINT NOT NULL
 );
 
@@ -124,3 +128,9 @@ WHERE rs.kind IN (30000, 30023, 30311, 34235, 34236)
       LIMIT 1
   ), '') = rs.d_tag
 ON CONFLICT (event_id) DO NOTHING;
+
+-- Drop ids that were deleted after the inserts above read them.
+DELETE FROM replaceable_event_purge p
+WHERE NOT EXISTS (
+    SELECT 1 FROM events e WHERE e.id = p.event_id
+);

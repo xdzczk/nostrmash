@@ -52,7 +52,7 @@ var supersededReplaceableKinds = []int{0, 3, 10000, 10001, 10002, 10003, 30000, 
 // version wins (enqueue_superseded_replaceable). The queue is ordered by
 // created_at, the grace window is a primary-key lookup of events.first_seen_at,
 // and the jobs lookup is the unique index on jobs.idempotency_key. An empty
-// queue is one index probe.
+// queue is one index probe. The statement deletes the event and its queue row.
 func (s *Retention) PurgeSupersededReplaceableEvents(
 	ctx context.Context,
 	supersededBefore time.Time,
