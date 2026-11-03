@@ -276,7 +276,12 @@ func (s *Read) GetEventComments(ctx context.Context, eventID string, limit int) 
 		return nil, fmt.Errorf("get event comments: %w", err)
 	}
 	defer rows.Close()
-	return scanRawText(rows)
+	raws, err := scanRawText(rows)
+	if err != nil {
+		return nil, err
+	}
+	// Same counters replies already carry, so a comment can use the note card.
+	return s.EnrichEventsWithCounts(ctx, raws)
 }
 
 // GetEventReports returns NIP-56 reports whose e tag targets this event.
