@@ -26,6 +26,18 @@ func TestProfileTrendingEngagement_RepliesUnlockLikes(t *testing.T) {
 	}
 }
 
+func TestProfileTrendingEngagement_MediaRepliesUnlockLikes(t *testing.T) {
+	replies := []weightedReply{
+		{Pubkey: "a", Content: "https://cdn.example/one.jpg", Weight: 1},
+		{Pubkey: "b", Content: "https://cdn.example/two.jpg", Weight: 1},
+	}
+	reactions := weightedPeople(3)
+	got := profileTrendingEngagement(replies, reactions, nil, nil)
+	if got != 5 {
+		t.Fatalf("media replies plus likes inside the budget = %v, want 5", got)
+	}
+}
+
 func TestProfileTrendingEngagement_GreetingPileDoesNotUnlockLikes(t *testing.T) {
 	replies := make([]weightedReply, 8)
 	for i := range replies {

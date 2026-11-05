@@ -3,6 +3,7 @@ package derivation
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -352,6 +353,63 @@ func TestSumDiscountedReplyWeights(t *testing.T) {
 		})
 		if !near(got.Total, greetingPileVote(2, 1)) || got.Substantive != 0 || got.UnlockShare != 0 {
 			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("distinct media replies each count", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "https://blossom.primal.net/" + strings.Repeat("ab", 32) + ".jpg", Weight: 1},
+			{Pubkey: "b", Content: "https://image.nostr.build/" + strings.Repeat("cd", 32) + ".png", Weight: 1},
+			{Pubkey: "c", Content: "🔥 https://i.nostr.build/iIl0sMyhaJhh1MBv.gif", Weight: 1},
+			{Pubkey: "d", Content: "https://cdn.example/meme.mp4", Weight: 1},
+			{Pubkey: "e", Content: "My last Halloween meme https://blossom.primal.net/" + strings.Repeat("ef", 32) + ".jpg", Weight: 1},
+		})
+		if got.Total != 5 || got.Substantive != 5 || got.UnlockShare != 1 || len(got.DiscountedPubkeys) != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("the same media file is one copied phrase", func(t *testing.T) {
+		hash := strings.Repeat("ab", 32)
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "https://blossom.primal.net/" + hash + ".jpg", Weight: 1},
+			{Pubkey: "b", Content: "https://npub1example.blossom.band/" + strings.ToUpper(hash) + ".jpeg?width=800", Weight: 0.5},
+			{Pubkey: "c", Content: "https://cdn.example/a.jpg?x=1", Weight: 1},
+			{Pubkey: "d", Content: "https://cdn.example/a.jpg?x=2", Weight: 1},
+			{Pubkey: "e", Content: "https://example.com/story", Weight: 1},
+			{Pubkey: "f", Content: "https://example.com/other-story", Weight: 1},
+		})
+		// Two hosts of one blob are one copy. Two query strings of one path
+		// are another. Two plain links are greetings at sqrt(2), and that
+		// pile is most of the thread, so nothing unlocks likes.
+		if !near(got.Total, 2+greetingPileVote(2, 1)) || got.Substantive != 0 || got.UnlockShare != 0 || len(got.DiscountedPubkeys) != 6 {
+			t.Fatalf("got total %v substantive %v share %v pile %d", got.Total, got.Substantive, got.UnlockShare, len(got.DiscountedPubkeys))
+		}
+	})
+
+	t.Run("one-character-apart media files do not share a pile", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "https://a.co/a.gif", Weight: 1},
+			{Pubkey: "b", Content: "https://a.co/b.gif", Weight: 1},
+		})
+		if got.Total != 2 || got.Substantive != 2 || len(got.DiscountedPubkeys) != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("a greeting with a picture stays a greeting", func(t *testing.T) {
+		got := sumDiscountedReplyWeights([]weightedReply{
+			{Pubkey: "a", Content: "GM https://example.com/coffee.jpg", Weight: 1},
+			{Pubkey: "b", Content: "gm", Weight: 1},
+			{Pubkey: "c", Content: "https://example.com/coffee.jpg", Weight: 1},
+		})
+		// The picture is its own submission. The two greetings stay a pile
+		// and do not merge into that file.
+		if !near(got.Total, 1+greetingPileVote(2, 1)) || got.Substantive != 1 || len(got.DiscountedPubkeys) != 2 {
+			t.Fatalf("got %+v", got)
+		}
+		if _, ok := got.DiscountedPubkeys["c"]; ok {
+			t.Fatalf("picture joined the greeting pile: %+v", got.DiscountedPubkeys)
 		}
 	})
 

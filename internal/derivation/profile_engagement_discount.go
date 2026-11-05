@@ -30,7 +30,8 @@ type profileDiscountedEngagement struct {
 // discountProfileVotes applies the note farm discount to profile votes.
 // Trending keeps one vote per signal per person. Rising keeps one person,
 // classified by their strongest signal. A copied phrase collapses to one
-// vote and does not open the like budget. A greeting pile counts
+// vote and does not open the like budget. A media-only reply counts as
+// that file. A greeting pile counts
 // sqrt(people) times its strongest weight. Zaps open likes and repost
 // slots even when a pile is most of the replies. Surplus reactions count
 // at the cheap floor, and surplus reposts at the lower reach floor.

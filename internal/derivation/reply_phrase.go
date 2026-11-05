@@ -2,6 +2,7 @@ package derivation
 
 import (
 	"math"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -93,6 +94,10 @@ type replyWeightSum struct {
 // A longer remark stays out of that near-copy pile. The same sentence
 // repeated by two people is its own pile, whatever its length.
 //
+// A reply that is only a media file is that file, not a greeting. Different
+// files each count. The same file from several people is one copied phrase.
+// A greeting that also has a picture stays a greeting.
+//
 // A copied phrase of two or more counts once, as the strongest trust weight
 // in it. A greeting pile of two or more counts sqrt(people) times that
 // strongest weight, so a wide good-morning audience outranks a pair and
@@ -108,8 +113,7 @@ func sumDiscountedReplyWeights(rows []weightedReply) replyWeightSum {
 	}
 	byPubkey := make(map[string]*replier, len(rows))
 	for _, row := range rows {
-		phrase := normalizeReplyPhrase(row.Content)
-		greeting := isGreetingClass(phrase)
+		phrase, greeting := replyContentPhrase(row.Content)
 		current, ok := byPubkey[row.Pubkey]
 		if !ok {
 			byPubkey[row.Pubkey] = &replier{weight: row.Weight, phrase: phrase, greeting: greeting}
@@ -269,6 +273,74 @@ func repostWeightOutsidePile(rows []weightedReply, pile map[string]struct{}) flo
 	return total
 }
 
+// mediaReplyPhrasePrefix marks a phrase built from a media file. Normalized
+// text never contains ":", so a real remark cannot start with this prefix.
+// Media phrases compare exactly: a one-character difference is a different
+// file, not a near-copy of a short reply.
+const mediaReplyPhrasePrefix = "media:"
+
+// replyContentPhrase is the pile key for one reply body. Words are the
+// phrase when any remain after URLs and mentions are stripped. A greeting
+// with a picture attached is still that greeting. When no words remain and
+// the body is a media file, the phrase is that file.
+func replyContentPhrase(content string) (string, bool) {
+	text := normalizeReplyPhrase(content)
+	if text != "" {
+		return text, isGreetingClass(text)
+	}
+	if media := mediaReplyKey(content); media != "" {
+		return media, false
+	}
+	return "", true
+}
+
+// mediaReplyKey identifies the media files in a caption-less reply. A
+// content-addressed blob uses its sha256, so the same file on two hosts is
+// one meme. Anything else uses the host and path, without a query string.
+// Non-media links are not files and stay out of this key.
+func mediaReplyKey(content string) string {
+	rawURLs := urlCandidatePattern.FindAllString(content, maxEventURLLinks)
+	if len(rawURLs) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(rawURLs))
+	seen := make(map[string]struct{}, len(rawURLs))
+	for _, raw := range rawURLs {
+		key := canonicalMediaKey(raw)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	return mediaReplyPhrasePrefix + strings.Join(keys, " ")
+}
+
+var mediaBlobHashPattern = regexp.MustCompile(`(?i)(?:^|/)([a-f0-9]{64})(?:\.[a-z0-9]{1,8})?$`)
+
+func canonicalMediaKey(raw string) string {
+	normalized, _, ok := normalizeEventURLCandidate(raw)
+	if !ok || !mediaURLPattern.MatchString(normalized) {
+		return ""
+	}
+	parsed, err := url.Parse(normalized)
+	if err != nil {
+		return ""
+	}
+	path := parsed.EscapedPath()
+	if hash := mediaBlobHashPattern.FindStringSubmatch(path); hash != nil {
+		return "blob:" + strings.ToLower(hash[1])
+	}
+	return "url:" + parsed.Host + strings.ToLower(path)
+}
+
 func normalizeReplyPhrase(content string) string {
 	normalized := strings.ToLower(content)
 	normalized = replyURLPattern.ReplaceAllString(normalized, " ")
@@ -377,7 +449,7 @@ const shortReplyMaxWords = lowSubstanceMaxWords + 1
 const shortReplyMaxRunes = lowSubstanceMaxRunes + 16
 
 func isShortReplyCandidate(phrase string) bool {
-	if phrase == "" {
+	if phrase == "" || strings.HasPrefix(phrase, mediaReplyPhrasePrefix) {
 		return false
 	}
 	fields := strings.Fields(phrase)

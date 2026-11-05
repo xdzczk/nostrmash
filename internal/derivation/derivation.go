@@ -134,7 +134,12 @@ const (
 	// not consume the reaction budget. Surplus reposts count at 0.10 of
 	// that. Rows keep the previous scores until the next derive or a
 	// time-range rebuild.
-	NoteDiscoveryStatsVersion = 15
+	// v16: a reply that is only a media file counts as that file. Different
+	// files each unlock likes and reposts. The same file from several people
+	// is one copied phrase. A greeting with a picture attached stays a
+	// greeting. Rows keep the previous scores until the next derive or a
+	// time-range rebuild.
+	NoteDiscoveryStatsVersion = 16
 	// v3: persist the (optionally trust-weighted) engagement and new-follower
 	// values the scores actually used, so ranking reasons/confidence can
 	// cite the same inputs instead of raw display counters. Also requires
@@ -175,7 +180,10 @@ const (
 	// even when a copied phrase is most of the replies. Reposts do not
 	// spend the reaction budget, and surplus reposts count at 0.10. Rows
 	// keep the previous scores until the profile-stats sweeper rewrites them.
-	ProfileDiscoveryStatsVersion   = 11
+	// v12: a media-only reply counts as that file, matching note discovery.
+	// Rows keep the previous scores until the profile-stats sweeper rewrites
+	// them.
+	ProfileDiscoveryStatsVersion   = 12
 	TrustedNoteDiscoveryVersion    = 1
 	TrustedProfileDiscoveryVersion = 1
 	DMUnreadCountsVersion          = 1
@@ -232,7 +240,10 @@ const (
 	// strongest trust weight. Exact copied phrases still count once. Rows
 	// keep the previous weights until the thread summary sweeper rewrites
 	// them.
-	ThreadSummaryVersion               = 9
+	// v10: a media-only reply counts as that file, matching note discovery.
+	// Rows keep the previous weights until the thread summary sweeper
+	// rewrites them.
+	ThreadSummaryVersion               = 10
 	TrustScoresGlobalVersion           = 3
 	TrustPubkeysLatestVersion          = 1
 	TrustNeighborhoodMembersVersion    = 1
