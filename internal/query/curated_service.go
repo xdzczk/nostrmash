@@ -43,7 +43,7 @@ func (s Service) GetDiscoveryStatsSeries(ctx context.Context, metric, window str
 		return DiscoveryStatsSeries{}, fmt.Errorf("unsupported stats window %q", window)
 	}
 	switch metric {
-	case "note_volume", "active_authors", "relay_events":
+	case "note_volume", "active_authors", "relay_events", "zap_count_24h", "sats_24h", "new_authors_24h", "nip17_dm_count_24h", "bridged_share_bps":
 	default:
 		return DiscoveryStatsSeries{}, fmt.Errorf("unsupported stats metric %q", metric)
 	}
