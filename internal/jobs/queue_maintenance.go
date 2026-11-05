@@ -158,28 +158,41 @@ func (q *Queue) PurgeTerminalJobs(
 	// 000040_jobs_finished_at.sql backfills existing terminal rows from
 	// updated_at, but anything written by an OLD worker after deploy is
 	// excluded from the purge until the next terminal-transition write.
-	tag, execErr := q.pool.Exec(ctx, `
+	//
+	// One status per statement. An OR of succeeded and dead made the planner
+	// seq-scan jobs, and the (status, finished_at) index can serve each
+	// status as a bounded range.
+	succeededDeleted, err := q.purgeTerminalStatus(ctx, StatusSucceeded, succeededBefore, limit)
+	if err != nil {
+		return 0, err
+	}
+	remaining := limit - int(succeededDeleted)
+	if remaining <= 0 {
+		return succeededDeleted, nil
+	}
+	deadDeleted, err := q.purgeTerminalStatus(ctx, StatusDead, deadBefore, remaining)
+	if err != nil {
+		return succeededDeleted, err
+	}
+	return succeededDeleted + deadDeleted, nil
+}
+
+func (q *Queue) purgeTerminalStatus(ctx context.Context, status string, finishedBefore time.Time, limit int) (int64, error) {
+	tag, err := q.pool.Exec(ctx, `
 		WITH candidates AS (
 			SELECT id
 			FROM jobs
-			WHERE finished_at IS NOT NULL
-			  AND ((status = $1 AND finished_at < $3)
-			       OR (status = $2 AND finished_at < $4))
+			WHERE status = $1
+			  AND finished_at < $2
 			ORDER BY finished_at ASC, id ASC
-			LIMIT $5
+			LIMIT $3
 		)
 		DELETE FROM jobs j
 		USING candidates c
 		WHERE j.id = c.id
-	`,
-		StatusSucceeded,
-		StatusDead,
-		succeededBefore.UTC(),
-		deadBefore.UTC(),
-		limit,
-	)
-	if execErr != nil {
-		return 0, fmt.Errorf("purge terminal jobs: %w", execErr)
+	`, status, finishedBefore.UTC(), limit)
+	if err != nil {
+		return 0, fmt.Errorf("purge terminal jobs: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
