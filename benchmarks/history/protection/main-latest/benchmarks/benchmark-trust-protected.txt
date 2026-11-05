@@ -1,11 +1,11 @@
 goos: linux
 goarch: amd64
 pkg: github.com/xdzczk/nostrmash/internal/trust
-cpu: Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
-BenchmarkComputeIterativeGlobalRankLarge-4   	    2192	    510649 ns/op	  318179 B/op	    1050 allocs/op
-BenchmarkComputeIterativeGlobalRankLarge-4   	    2350	    505041 ns/op	  318176 B/op	    1050 allocs/op
-BenchmarkComputeIterativeGlobalRankLarge-4   	    2376	    507609 ns/op	  318176 B/op	    1050 allocs/op
-BenchmarkComputeIterativeGlobalRankLarge-4   	    2214	    513046 ns/op	  318176 B/op	    1050 allocs/op
-BenchmarkComputeIterativeGlobalRankLarge-4   	    2322	    508317 ns/op	  318176 B/op	    1050 allocs/op
+cpu: INTEL(R) XEON(R) PLATINUM 8573C
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2570	    462470 ns/op	  318179 B/op	    1050 allocs/op
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2532	    461699 ns/op	  318176 B/op	    1050 allocs/op
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2629	    464789 ns/op	  318176 B/op	    1050 allocs/op
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2542	    461206 ns/op	  318178 B/op	    1050 allocs/op
+BenchmarkComputeIterativeGlobalRankLarge-4   	    2600	    464423 ns/op	  318176 B/op	    1050 allocs/op
 PASS
-ok  	github.com/xdzczk/nostrmash/internal/trust	7.032s
+ok  	github.com/xdzczk/nostrmash/internal/trust	6.217s

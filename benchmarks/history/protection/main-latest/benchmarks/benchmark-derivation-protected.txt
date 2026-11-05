@@ -1,11 +1,11 @@
 goos: linux
 goarch: amd64
 pkg: github.com/xdzczk/nostrmash/internal/derivation
-cpu: Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
-BenchmarkDeriveEventReferences-4   	 1596568	       754.2 ns/op	    1424 B/op	       5 allocs/op
-BenchmarkDeriveEventReferences-4   	 1588183	       757.6 ns/op	    1424 B/op	       5 allocs/op
-BenchmarkDeriveEventReferences-4   	 1585773	       766.6 ns/op	    1424 B/op	       5 allocs/op
-BenchmarkDeriveEventReferences-4   	 1583716	      1071 ns/op	    1424 B/op	       5 allocs/op
-BenchmarkDeriveEventReferences-4   	 1000000	      1165 ns/op	    1424 B/op	       5 allocs/op
+cpu: INTEL(R) XEON(R) PLATINUM 8573C
+BenchmarkDeriveEventReferences-4   	 1678906	       934.0 ns/op	    1424 B/op	       5 allocs/op
+BenchmarkDeriveEventReferences-4   	 1000000	      1065 ns/op	    1424 B/op	       5 allocs/op
+BenchmarkDeriveEventReferences-4   	 1000000	      1087 ns/op	    1424 B/op	       5 allocs/op
+BenchmarkDeriveEventReferences-4   	 1000000	      1024 ns/op	    1424 B/op	       5 allocs/op
+BenchmarkDeriveEventReferences-4   	 1000000	      1068 ns/op	    1424 B/op	       5 allocs/op
 PASS
-ok  	github.com/xdzczk/nostrmash/internal/derivation	9.577s
+ok  	github.com/xdzczk/nostrmash/internal/derivation	6.605s

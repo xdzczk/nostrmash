@@ -1,16 +1,16 @@
 goos: linux
 goarch: amd64
 pkg: github.com/xdzczk/nostrmash/internal/api_primal
-cpu: Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
-BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   78651	     15081 ns/op	    6291 B/op	     117 allocs/op
-BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   78806	     15028 ns/op	    6291 B/op	     117 allocs/op
-BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   79220	     14973 ns/op	    6291 B/op	     117 allocs/op
-BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   79339	     15054 ns/op	    6291 B/op	     117 allocs/op
-BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   79426	     14960 ns/op	    6291 B/op	     117 allocs/op
-BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  152888	      8377 ns/op	    9112 B/op	      96 allocs/op
-BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  150975	      7684 ns/op	    9112 B/op	      96 allocs/op
-BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  154593	      7762 ns/op	    9112 B/op	      96 allocs/op
-BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  153999	      7682 ns/op	    9112 B/op	      96 allocs/op
-BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  156158	      7738 ns/op	    9112 B/op	      96 allocs/op
+cpu: INTEL(R) XEON(R) PLATINUM 8573C
+BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   81219	     14577 ns/op	    6291 B/op	     117 allocs/op
+BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   82395	     14437 ns/op	    6291 B/op	     117 allocs/op
+BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   82488	     14483 ns/op	    6291 B/op	     117 allocs/op
+BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   82778	     14442 ns/op	    6291 B/op	     117 allocs/op
+BenchmarkWSGatewayDispatchCacheCallThreadView-4   	   82321	     15872 ns/op	    6291 B/op	     117 allocs/op
+BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  172659	      7001 ns/op	    9112 B/op	      96 allocs/op
+BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  155610	      7007 ns/op	    9112 B/op	      96 allocs/op
+BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  169164	      6992 ns/op	    9112 B/op	      96 allocs/op
+BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  170076	      6952 ns/op	    9112 B/op	      96 allocs/op
+BenchmarkWSGatewayDispatchCacheCallUserInfos-4    	  170240	      7013 ns/op	    9112 B/op	      96 allocs/op
 PASS
-ok  	github.com/xdzczk/nostrmash/internal/api_primal	14.133s
+ok  	github.com/xdzczk/nostrmash/internal/api_primal	13.067s
