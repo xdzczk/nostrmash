@@ -133,7 +133,9 @@ const trustedAuthorJoinClause = `INNER JOIN trust_graph_snapshot trusted ON trus
 // (the worker loop) log the error but do not block. RefreshRelayWindowSnapshots
 // runs every phase regardless of whether an earlier one failed, and
 // joins their errors so callers see everything that went wrong in a
-// single tick.
+// single tick. The hourly stats_snapshot_history insert commits after
+// the core homepage rows, so a failure there cannot roll home_window_24h
+// back.
 func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 	if h == nil || h.pool == nil {
 		return fmt.Errorf("handlers are not initialized")
@@ -268,7 +270,16 @@ func (h *Handlers) rollupOneRelayActivityChunk(ctx context.Context) (bool, error
 // RefreshRelayWindowSnapshots for why this is split from the
 // hashtags/domains phase.
 func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
-	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
+	// Stats history used to share this transaction. A scan error in that
+	// insert rolled the homepage rows back with it, so home_window_24h
+	// stayed stale even though the aggregates had already been computed.
+	// History commits on its own after these upserts succeed.
+	var (
+		now           time.Time
+		summary       relaySummarySnapshotPayload
+		homeWindow24h homeWindowSnapshotPayload
+	)
+	if err := pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
 		// Default work_mem (4MB) forces the COUNT(DISTINCT) hashtables
 		// to spill ~100-200MB to disk for the 7d windows. 128MB keeps
 		// everything in memory; SET LOCAL releases it on commit so the
@@ -278,7 +289,8 @@ func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 			return err
 		}
 
-		summary, err := computeRelaySummarySnapshot(ctx, tx)
+		var err error
+		summary, err = computeRelaySummarySnapshot(ctx, tx)
 		if err != nil {
 			return fmt.Errorf("compute relay summary snapshot: %w", err)
 		}
@@ -286,7 +298,7 @@ func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 			return err
 		}
 
-		now := time.Now().UTC()
+		now = time.Now().UTC()
 		topRelays24h, err := computeTopRelaysSnapshot(ctx, tx, now.Add(-24*time.Hour), 10)
 		if err != nil {
 			return fmt.Errorf("compute top relays 24h snapshot: %w", err)
@@ -305,14 +317,11 @@ func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 		cutoff24h := now.Add(-24 * time.Hour).Unix()
 		cutoff7d := now.Add(-7 * 24 * time.Hour).Unix()
 
-		homeWindow24h, err := computeHomeWindowSnapshot(ctx, tx, cutoff24h)
+		homeWindow24h, err = computeHomeWindowSnapshot(ctx, tx, cutoff24h)
 		if err != nil {
 			return fmt.Errorf("compute home window 24h snapshot: %w", err)
 		}
 		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow24h, homeWindow24h); err != nil {
-			return err
-		}
-		if err := insertStatsSnapshotHistory(ctx, tx, now, homeWindow24h, summary); err != nil {
 			return err
 		}
 		homeWindow7d, err := computeHomeWindowSnapshot(ctx, tx, cutoff7d)
@@ -358,6 +367,14 @@ func (h *Handlers) refreshCoreRelayWindowSnapshots(ctx context.Context) error {
 			return fmt.Errorf("compute home window languages 7d: %w", err)
 		}
 		return upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow7dLang, homeLang7)
+	}); err != nil {
+		return err
+	}
+	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
+		if err := configureRelayWindowSnapshotTx(ctx, tx); err != nil {
+			return err
+		}
+		return insertStatsSnapshotHistory(ctx, tx, now, homeWindow24h, summary)
 	})
 }
 
@@ -660,8 +677,12 @@ func insertStatsSnapshotHistory(
 	}
 	if err := tx.QueryRow(ctx, `
 		SELECT CASE
-			WHEN COALESCE(sum(total_count), 0) = 0 THEN 0
-			ELSE (sum(bridged_count) * 10000) / sum(total_count)
+			WHEN COALESCE(sum(total_count), 0) = 0 THEN 0::bigint
+			-- sum(bigint) is numeric, and numeric division keeps a fraction.
+			-- Scanning that into bigint fails (and used to roll back the
+			-- homepage snapshot). Cast the sums first so this is integer
+			-- division, which is what basis points are.
+			ELSE (sum(bridged_count)::bigint * 10000) / sum(total_count)::bigint
 		END
 		FROM content_flags_daily
 		WHERE day >= (now() AT TIME ZONE 'utc')::date - 1

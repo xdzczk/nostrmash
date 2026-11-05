@@ -567,3 +567,48 @@ func readHomeWindowSnapshot(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	}
 	return out
 }
+
+// A bridged share that is not a whole number used to come back as numeric.
+// pgx will not scan that into bigint, the history insert failed, and because
+// it shared the core snapshot transaction the homepage rows rolled back too.
+func TestRefreshRelayWindowSnapshots_BridgedShareBasisPoints(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO content_flags_daily (day, total_count, bridged_count)
+		VALUES ((now() AT TIME ZONE 'utc')::date, 3, 1)
+	`); err != nil {
+		t.Fatalf("insert content flags: %v", err)
+	}
+
+	handlers := derivation.NewHandlers(pool)
+	if err := handlers.RefreshRelayWindowSnapshots(ctx); err != nil {
+		t.Fatalf("refresh relay window snapshots: %v", err)
+	}
+
+	var bps int64
+	if err := pool.QueryRow(ctx, `
+		SELECT bridged_share_bps FROM stats_snapshot_history
+		ORDER BY bucket_start DESC
+		LIMIT 1
+	`).Scan(&bps); err != nil {
+		t.Fatalf("read bridged share: %v", err)
+	}
+	// (1 * 10000) / 3, integer division.
+	if bps != 3333 {
+		t.Fatalf("bridged_share_bps = %d, want 3333", bps)
+	}
+	var homeAge time.Duration
+	if err := pool.QueryRow(ctx, `
+		SELECT now() - computed_at FROM relay_window_snapshots
+		WHERE snapshot_label = 'home_window_24h'
+	`).Scan(&homeAge); err != nil {
+		t.Fatalf("read home snapshot age: %v", err)
+	}
+	if homeAge < 0 || homeAge > time.Minute {
+		t.Fatalf("home_window_24h was not committed with the refresh, age=%s", homeAge)
+	}
+}

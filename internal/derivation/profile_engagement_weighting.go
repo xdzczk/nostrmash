@@ -49,8 +49,9 @@ type profileWeightedScoreInputs struct {
 // The previous plan joined events first to discover the author and timed
 // out. Rows with NULL target_pubkey are skipped. The authored-note scan is
 // bounded to the 30d window on (pubkey, kind, created_at). Reply rows bring
-// their text so a copied phrase can collapse; reactions, reposts, and zaps
-// collapse to one row per engager in SQL.
+// their text so a copied phrase can collapse, and they are read a page at a
+// time so one busy profile cannot hold a statement open until the timeout.
+// Reactions, reposts, and zaps collapse to one row per engager in SQL.
 func loadProfileWeightedScoreInputsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -173,71 +174,130 @@ const profileRootNoteJoinSQL = `
 		)
 	LEFT JOIN trust_pubkeys_latest t ON t.pubkey = g.pubkey`
 
+// profileReplyVotePageSize is how many reply rows one statement may join to
+// events. The previous query joined the whole 30-day window in one
+// statement. Busy profiles streamed event content until the 15s statement
+// timeout cancelled it, the sweeper released the claim, and those profiles
+// never rebuilt. Each page is an index range plus that many primary-key
+// lookups, so the cost stays on the page rather than the profile's whole
+// reply history.
+const profileReplyVotePageSize = 1000
+
 func loadProfileReplyVotesTx(ctx context.Context, tx pgx.Tx, noteArgs []any) ([]profileVote, int64, int64, int64, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT
-			c.source_pubkey,
-			COALESCE(src.content, ''),
-			`+engagerWeightCaseSQL+`,
-			c.source_created_at,
-			COALESCE(n.created_at >= $3, false),
-			COALESCE(n.created_at >= $7, false),
-			(n.id IS NOT NULL),
-			COALESCE(c.source_created_at >= $3, false),
-			COALESCE(c.source_created_at >= $7, false)
-		FROM reply_count_contributions c
-		JOIN events src ON src.id = c.source_event_id
-		LEFT JOIN trust_pubkeys_latest t ON t.pubkey = c.source_pubkey
-		LEFT JOIN events n ON n.id = c.target_event_id
-			AND n.kind = 1
-			AND n.pubkey = $1
-			AND n.created_at >= $2
-			AND n.created_at <= $8
-			AND NOT EXISTS (
-				SELECT 1 FROM thread_edges te WHERE te.child_event_id = n.id
-			)
-		WHERE c.target_pubkey = $1
-		  AND c.source_pubkey <> $1
-		  AND c.source_created_at >= $2
-		  AND c.source_created_at <= $8
-	`, noteArgs...)
-	if err != nil {
-		return nil, 0, 0, 0, fmt.Errorf("load profile reply votes: %w", err)
+	return loadProfileReplyVotesPageTx(ctx, tx, noteArgs, profileReplyVotePageSize)
+}
+
+func loadProfileReplyVotesPageTx(ctx context.Context, tx pgx.Tx, noteArgs []any, pageSize int) ([]profileVote, int64, int64, int64, error) {
+	if pageSize <= 0 {
+		pageSize = profileReplyVotePageSize
 	}
-	defer rows.Close()
+	// Keyset starts before any real created_at. The contribution index is
+	// (target_pubkey, source_created_at); source_event_id and target_event_id
+	// break ties so two replies in the same second are both returned.
+	cursorAt := int64(-1)
+	cursorSrc := ""
+	cursorTgt := ""
 
 	var (
 		votes                       []profileVote
 		motion24, motion7, motion30 int64
 	)
-	for rows.Next() {
-		var vote profileVote
-		if err := rows.Scan(
-			&vote.Pubkey,
-			&vote.Content,
-			&vote.Weight,
-			&vote.EventAt,
-			&vote.Trending24h,
-			&vote.Trending7d,
-			&vote.Trending30d,
-			&vote.Rising24h,
-			&vote.Rising7d,
-		); err != nil {
-			return nil, 0, 0, 0, fmt.Errorf("scan profile reply vote: %w", err)
+	for {
+		rows, err := tx.Query(ctx, `
+			WITH page AS MATERIALIZED (
+				SELECT c.source_event_id, c.target_event_id, c.source_pubkey, c.source_created_at
+				FROM reply_count_contributions c
+				WHERE c.target_pubkey = $1
+				  AND c.source_pubkey <> $1
+				  AND c.source_created_at >= $2
+				  AND c.source_created_at <= $8
+				  AND (c.source_created_at, c.source_event_id, c.target_event_id) > ($9, $10, $11)
+				ORDER BY c.source_created_at ASC, c.source_event_id ASC, c.target_event_id ASC
+				LIMIT $12
+			)
+			SELECT
+				p.source_pubkey,
+				COALESCE(src.content, ''),
+				`+engagerWeightCaseSQL+`,
+				p.source_created_at,
+				COALESCE(n.created_at >= $3, false),
+				COALESCE(n.created_at >= $7, false),
+				(n.id IS NOT NULL),
+				COALESCE(p.source_created_at >= $3, false),
+				COALESCE(p.source_created_at >= $7, false),
+				p.source_event_id,
+				p.target_event_id
+			FROM page p
+			-- LEFT JOIN, not INNER: a dropped source row must not shrink the
+			-- page. The cursor walks the contribution index, and stopping
+			-- early because one event was missing would skip every later reply.
+			-- source_event_id is an ON DELETE CASCADE foreign key, so the
+			-- event is present and the content is just empty if it is not.
+			LEFT JOIN events src ON src.id = p.source_event_id
+			LEFT JOIN trust_pubkeys_latest t ON t.pubkey = p.source_pubkey
+			LEFT JOIN events n ON n.id = p.target_event_id
+				AND n.kind = 1
+				AND n.pubkey = $1
+				AND n.created_at >= $2
+				AND n.created_at <= $8
+				AND NOT EXISTS (
+					SELECT 1 FROM thread_edges te WHERE te.child_event_id = n.id
+				)
+			ORDER BY p.source_created_at ASC, p.source_event_id ASC, p.target_event_id ASC
+		`, append(append([]any{}, noteArgs...), cursorAt, cursorSrc, cursorTgt, pageSize)...)
+		if err != nil {
+			return nil, 0, 0, 0, fmt.Errorf("load profile reply votes: %w", err)
 		}
-		votes = append(votes, vote)
-		if vote.Trending24h && vote.EventAt > motion24 {
-			motion24 = vote.EventAt
+
+		n := 0
+		var pageAt int64
+		var pageSrc, pageTgt string
+		for rows.Next() {
+			var vote profileVote
+			if err := rows.Scan(
+				&vote.Pubkey,
+				&vote.Content,
+				&vote.Weight,
+				&vote.EventAt,
+				&vote.Trending24h,
+				&vote.Trending7d,
+				&vote.Trending30d,
+				&vote.Rising24h,
+				&vote.Rising7d,
+				&pageSrc,
+				&pageTgt,
+			); err != nil {
+				rows.Close()
+				return nil, 0, 0, 0, fmt.Errorf("scan profile reply vote: %w", err)
+			}
+			pageAt = vote.EventAt
+			n++
+			votes = append(votes, vote)
+			if vote.Trending24h && vote.EventAt > motion24 {
+				motion24 = vote.EventAt
+			}
+			if vote.Trending7d && vote.EventAt > motion7 {
+				motion7 = vote.EventAt
+			}
+			if vote.Trending30d && vote.EventAt > motion30 {
+				motion30 = vote.EventAt
+			}
 		}
-		if vote.Trending7d && vote.EventAt > motion7 {
-			motion7 = vote.EventAt
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, 0, 0, 0, fmt.Errorf("read profile reply votes: %w", err)
 		}
-		if vote.Trending30d && vote.EventAt > motion30 {
-			motion30 = vote.EventAt
+		if n == 0 {
+			break
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, 0, 0, fmt.Errorf("read profile reply votes: %w", err)
+		if pageAt == cursorAt && pageSrc == cursorSrc && pageTgt == cursorTgt {
+			return nil, 0, 0, 0, fmt.Errorf("read profile reply votes: page cursor did not advance")
+		}
+		cursorAt, cursorSrc, cursorTgt = pageAt, pageSrc, pageTgt
+		if n < pageSize {
+			break
+		}
 	}
 	return votes, motion24, motion7, motion30, nil
 }
