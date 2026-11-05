@@ -66,7 +66,7 @@ func meiliIndexSpecs() []indexSpec {
 			UID:        IndexProfiles,
 			PrimaryKey: "pubkey",
 			Settings: ms.Settings{
-				RankingRules:       []string{"words", "typo", "proximity", "attribute", "sort", "exactness"},
+				RankingRules:       []string{"words", "typo", "proximity", "attribute", "sort", "exactness", "nip05_verified:desc"},
 				ProximityPrecision: ms.ByAttribute,
 				// `pubkey` stays filterable only; see the notes index comment.
 				SearchableAttributes: []string{
@@ -83,6 +83,7 @@ func meiliIndexSpecs() []indexSpec {
 				SortableAttributes: []string{
 					"popularity",
 					"metadata_created_at",
+					"nip05_verified",
 				},
 				DisplayedAttributes: []string{
 					"pubkey",
@@ -92,6 +93,7 @@ func meiliIndexSpecs() []indexSpec {
 					"display_name",
 					"about",
 					"nip05",
+					"nip05_verified",
 					"popularity",
 				},
 			},

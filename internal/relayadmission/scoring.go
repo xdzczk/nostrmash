@@ -17,13 +17,17 @@ const largeRelayUserThreshold = 1000
 
 // ScoreComponents holds the transparent breakdown of a relay's computed score.
 type ScoreComponents struct {
-	PopularityScore  float64 `json:"popularity_score"`
-	ProbeHealthScore float64 `json:"probe_health_score"`
-	LatencyScore     float64 `json:"latency_score"`
-	YieldScore       float64 `json:"yield_score"`
-	DuplicatePenalty float64 `json:"duplicate_penalty"`
-	FailurePenalty   float64 `json:"failure_penalty"`
-	TotalScore       float64 `json:"total_score"`
+	PopularityScore   float64 `json:"popularity_score"`
+	ProbeHealthScore  float64 `json:"probe_health_score"`
+	LatencyScore      float64 `json:"latency_score"`
+	YieldScore        float64 `json:"yield_score"`
+	DuplicatePenalty  float64 `json:"duplicate_penalty"`
+	FailurePenalty    float64 `json:"failure_penalty"`
+	FirstSeenShare    float64 `json:"first_seen_share"`
+	ExclusiveShare    float64 `json:"exclusive_share"`
+	PropagationScore  float64 `json:"propagation_score"`
+	BlockedRefPenalty float64 `json:"blocked_ref_penalty"`
+	TotalScore        float64 `json:"total_score"`
 }
 
 // ComputeScore calculates a transparent, additive score for a relay record.
@@ -62,8 +66,15 @@ func ComputeScore(rec relayregistry.RelayRecord) ScoreComponents {
 		sc.FailurePenalty = -clamp(rec.ProbeFailRate*40, 0, 30)
 	}
 
+	sc.FirstSeenShare = rec.FirstSeenShare
+	sc.ExclusiveShare = rec.ExclusiveShare
+	sc.PropagationScore = clamp(rec.FirstSeenShare*8+rec.ExclusiveShare*4, 0, 12)
+	if rec.BlockedRefCount > 0 {
+		sc.BlockedRefPenalty = -math.Min(float64(rec.BlockedRefCount), 8)
+	}
+
 	sc.TotalScore = sc.PopularityScore + sc.ProbeHealthScore + sc.LatencyScore +
-		sc.YieldScore + sc.DuplicatePenalty + sc.FailurePenalty
+		sc.YieldScore + sc.DuplicatePenalty + sc.FailurePenalty + sc.PropagationScore + sc.BlockedRefPenalty
 
 	if sc.TotalScore < 0 {
 		sc.TotalScore = 0
@@ -90,6 +101,39 @@ func popularityScore(distinctUsers int) float64 {
 func MarshalComponents(sc ScoreComponents) json.RawMessage {
 	data, _ := json.Marshal(sc)
 	return data
+}
+
+// ApplyBlockedRefs copies kind-10006 mention counts onto rec.
+func ApplyBlockedRefs(rec relayregistry.RelayRecord, counts map[string]int) relayregistry.RelayRecord {
+	if counts == nil {
+		return rec
+	}
+	if count, ok := counts[rec.URLKey]; ok {
+		rec.BlockedRefCount = count
+		return rec
+	}
+	if count, ok := counts[rec.NormalizedURL]; ok {
+		rec.BlockedRefCount = count
+	}
+	return rec
+}
+
+// ApplyPropagationShare copies the latest daily propagation mix onto rec
+// so ComputeScore can include it. Lookup is by normalized URL, then URL key.
+func ApplyPropagationShare(rec relayregistry.RelayRecord, shares map[string]relayregistry.PropagationShare) relayregistry.RelayRecord {
+	if len(shares) == 0 {
+		return rec
+	}
+	share, ok := shares[rec.NormalizedURL]
+	if !ok {
+		share, ok = shares[rec.URLKey]
+	}
+	if !ok {
+		return rec
+	}
+	rec.FirstSeenShare = share.FirstSeen
+	rec.ExclusiveShare = share.Exclusive
+	return rec
 }
 
 func clamp(v, lo, hi float64) float64 {

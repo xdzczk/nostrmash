@@ -87,6 +87,26 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 	if err := h.applyZapEconomicsTx(ctx, tx, eventID, senderPubkey, receiver, createdAt, amountSats); err != nil {
 		return err
 	}
+	if targetEventID != "" && amountSats > 0 {
+		claimed, err := claimStatDeltaTx(ctx, tx, eventID, "zap_goal_progress")
+		if err != nil {
+			return err
+		}
+		if claimed {
+			if _, err := tx.Exec(ctx, `
+				UPDATE zap_goals SET raised_sats = raised_sats + $2 WHERE event_id = $1
+			`, targetEventID, amountSats); err != nil {
+				return fmt.Errorf("add zap goal progress: %w", err)
+			}
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE note_discovery_stats
+			SET first_zap_at = LEAST(COALESCE(first_zap_at, $2), $2)
+			WHERE event_id = $1 AND (first_zap_at IS NULL OR first_zap_at > $2)
+		`, targetEventID, createdAt); err != nil {
+			return fmt.Errorf("record first zap: %w", err)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit zap projection tx: %w", err)
 	}
@@ -96,18 +116,5 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 // rebuildZapReceiptsWithVersion reprojects kind-9735 receipts only so a full
 // rebuild rewrites amount_sats without scanning every event kind.
 func (h *Handlers) rebuildZapReceiptsWithVersion(ctx context.Context, versionOverride *int) error {
-	if h == nil || h.pool == nil {
-		return fmt.Errorf("handlers are not initialized")
-	}
-	eventIDs, err := h.queryEventIDsByKinds(ctx, 9735)
-	if err != nil {
-		return err
-	}
-	return h.rebuildProjectEventIDs(
-		ctx,
-		DerivationZapReceipts,
-		eventIDs,
-		h.projectZapReceiptsWithVersion,
-		versionOverride,
-	)
+	return h.rebuildProjectKinds(ctx, DerivationZapReceipts, []int{9735}, h.projectZapReceiptsWithVersion, versionOverride)
 }

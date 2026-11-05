@@ -201,7 +201,13 @@ func classifyPublicEndpoint(path string) publicEndpointClass {
 		path == "/api/v1/discovery/stats/content",
 		path == "/api/v1/discovery/stats/relays",
 		path == "/api/v1/discovery/network/stats",
-		path == "/api/v1/discovery/content/stats":
+		path == "/api/v1/discovery/content/stats",
+		strings.HasPrefix(path, "/api/v1/discovery/stats/"),
+		path == "/api/v1/discovery/zaps/leaderboard",
+		path == "/api/v1/hashtags/emerging",
+		strings.HasSuffix(path, "/history") && strings.HasPrefix(path, "/api/v1/hashtags/"),
+		strings.HasSuffix(path, "/moderation") && strings.HasPrefix(path, "/api/v1/profiles/"),
+		strings.HasSuffix(path, "/health/history") && strings.HasPrefix(path, "/api/v1/relays/"):
 		return publicEndpointClassPublicStats
 	case strings.HasPrefix(path, "/api/v1/discovery/"):
 		return publicEndpointClassDiscovery

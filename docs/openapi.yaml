@@ -988,6 +988,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/ExcludeBridged'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1011,6 +1012,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/ExcludeBridged'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1044,6 +1046,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/ExcludeBridged'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1204,6 +1207,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/ExcludeBridged'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1360,6 +1364,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/ExcludeBridged'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
@@ -1448,6 +1453,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/ExcludeBridged'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1643,6 +1649,353 @@ paths:
           description: Identity fields, verification status, and nutzap acceptance
         '404':
           $ref: '#/components/responses/Error'
+  /api/v1/profiles/{pubkey}/external-identities:
+    get:
+      tags: [public]
+      summary: NIP-39 external identity claims from the latest kind-0 event
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Platform, identity, and proof for each claim
+  /api/v1/events/{id}/labels:
+    get:
+      tags: [public]
+      summary: NIP-32 labels on one event
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Self labels and labels that target this event
+  /api/v1/discovery/stats/labels:
+    get:
+      tags: [public]
+      summary: Label distribution and language-label agreement
+      responses:
+        '200':
+          description: Top namespace/label pairs and ISO-639-1 agreement totals
+  /api/v1/discovery/stats/emoji:
+    get:
+      tags: [public]
+      summary: Custom emoji shortcode counts
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+      responses:
+        '200':
+          description: Shortcode counts for the window
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/groups:
+    get:
+      tags: [public]
+      summary: Relay groups ordered by activity, members, or recency
+      parameters:
+        - in: query
+          name: sort
+          schema: { type: string, enum: [active, members, recent], default: recent }
+      responses:
+        '200':
+          description: Group list
+  /api/v1/groups/{relayHost}/{groupId}:
+    get:
+      tags: [public]
+      summary: One relay group
+      parameters:
+        - { in: path, name: relayHost, required: true, schema: { type: string } }
+        - { in: path, name: groupId, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Group metadata
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/groups/{relayHost}/{groupId}/messages:
+    get:
+      tags: [public]
+      summary: Recent messages in one relay group
+      parameters:
+        - { in: path, name: relayHost, required: true, schema: { type: string } }
+        - { in: path, name: groupId, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Group messages
+  /api/v1/relays/{relayHost}/groups:
+    get:
+      tags: [public]
+      summary: Groups hosted by one relay
+      parameters:
+        - { in: path, name: relayHost, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Groups on the relay
+  /api/v1/discovery/stats/groups:
+    get:
+      tags: [public]
+      summary: Group census
+      responses:
+        '200':
+          description: Group counts and recent message volume
+  /api/v1/live/{address}/chat:
+    get:
+      tags: [public]
+      summary: Live-activity chat counters
+      parameters:
+        - { in: path, name: address, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Chat count and unique chatters
+  /api/v1/events/{id}/poll:
+    get:
+      tags: [public]
+      summary: Poll question and option counts
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Poll
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/polls:
+    get:
+      tags: [public]
+      summary: Recent or most-voted polls
+      parameters:
+        - in: query
+          name: sort
+          schema: { type: string, enum: [recent, votes], default: recent }
+      responses:
+        '200':
+          description: Poll list
+  /api/v1/discovery/stats/polls:
+    get:
+      tags: [public]
+      summary: Poll census
+      responses:
+        '200':
+          description: Poll and vote counts
+  /api/v1/profiles/{pubkey}/badges:
+    get:
+      tags: [public]
+      summary: Badges awarded to and accepted by a profile
+      parameters:
+        - { in: path, name: pubkey, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Badge awards and accepted badges
+  /api/v1/badges/{address}:
+    get:
+      tags: [public]
+      summary: One badge definition
+      parameters:
+        - { in: path, name: address, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Badge definition
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/stats/badges:
+    get:
+      tags: [public]
+      summary: Badge census
+      responses:
+        '200':
+          description: Definition and award counts
+  /api/v1/events/{id}/goal:
+    get:
+      tags: [public]
+      summary: Zap goal progress
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Goal amount and raised sats
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/goals:
+    get:
+      tags: [public]
+      summary: Zap goals ordered by sats raised
+      responses:
+        '200':
+          description: Goal list
+  /api/v1/profiles/{pubkey}/status:
+    get:
+      tags: [public]
+      summary: Latest user status
+      parameters:
+        - { in: path, name: pubkey, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Status records
+  /api/v1/discovery/curation-sets:
+    get:
+      tags: [public]
+      summary: Article and bookmark curation sets
+      responses:
+        '200':
+          description: Curation sets
+  /api/v1/curation-sets/{address}:
+    get:
+      tags: [public]
+      summary: One curation set and its items
+      parameters:
+        - { in: path, name: address, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Curation set
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/v1/profiles/{pubkey}/interests:
+    get:
+      tags: [public]
+      summary: Hashtags a profile lists as interests
+      parameters:
+        - { in: path, name: pubkey, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Interest lists
+  /api/v1/profiles/{pubkey}/lists:
+    get:
+      tags: [public]
+      summary: Relay preference lists for a profile
+      parameters:
+        - { in: path, name: pubkey, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: List summaries
+  /api/v1/discovery/stats/kinds:
+    get:
+      tags: [public]
+      summary: Event volume grouped by kind family
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+      responses:
+        '200':
+          description: Family totals and per-kind counts
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/stats/conversations:
+    get:
+      tags: [public]
+      summary: Daily thread shape
+      responses:
+        '200':
+          description: Thread shape series
+  /api/v1/discovery/zaps/leaderboard:
+    get:
+      tags: [public]
+      summary: Top zap senders or receivers
+      parameters:
+        - in: query
+          name: role
+          schema: { type: string, enum: [sender, receiver], default: receiver }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+      responses:
+        '200':
+          description: Zap leaderboard
+  /api/v1/discovery/stats/zaps/heatmap:
+    get:
+      tags: [public]
+      summary: Zap volume by weekday and hour
+      responses:
+        '200':
+          description: Zap heatmap
+  /api/v1/hashtags/emerging:
+    get:
+      tags: [public]
+      summary: Hashtags gaining volume
+      responses:
+        '200':
+          description: Emerging hashtags
+  /api/v1/hashtags/{tag}/history:
+    get:
+      tags: [public]
+      summary: Daily history for one hashtag
+      parameters:
+        - { in: path, name: tag, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Hashtag history
+  /api/v1/discovery/stats/deletions:
+    get:
+      tags: [public]
+      summary: Deletion volume and time to delete
+      responses:
+        '200':
+          description: Deletion stats
+  /api/v1/discovery/stats/moderation:
+    get:
+      tags: [public]
+      summary: Report volume and most-reported targets
+      responses:
+        '200':
+          description: Moderation stats
+  /api/v1/profiles/{pubkey}/moderation:
+    get:
+      tags: [public]
+      summary: Mute and report counts for a profile
+      parameters:
+        - { in: path, name: pubkey, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Profile moderation stats
+  /api/v1/discovery/stats/spam:
+    get:
+      tags: [public]
+      summary: Duplicate content clusters and burst authors
+      responses:
+        '200':
+          description: Spam stats
+  /api/v1/discovery/stats/relay-lists:
+    get:
+      tags: [public]
+      summary: Declared relay list size
+      responses:
+        '200':
+          description: Relay list stats
+  /api/v1/relays/{relayHost}/health/history:
+    get:
+      tags: [public]
+      summary: Daily relay probe history
+      parameters:
+        - { in: path, name: relayHost, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Relay health history
+  /api/v1/discovery/stats/relay-software:
+    get:
+      tags: [public]
+      summary: Relay software and NIP-11 limitation share
+      responses:
+        '200':
+          description: Relay software matrix
+  /api/v1/discovery/stats/media-hosts:
+    get:
+      tags: [public]
+      summary: Observed media hosts and declared Blossom servers
+      responses:
+        '200':
+          description: Media host share
+  /api/v1/profiles/{pubkey}/labels:
+    get:
+      tags: [public]
+      summary: Labels applied to or by a profile
+      parameters:
+        - { in: path, name: pubkey, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Profile labels
   /api/v1/discovery/stats/series:
     get:
       tags: [public]
@@ -1651,7 +2004,7 @@ paths:
         - in: query
           name: metric
           required: true
-          schema: { type: string, enum: [note_volume, active_authors, relay_events, zap_count_24h, sats_24h, new_authors_24h, nip17_dm_count_24h, bridged_share_bps] }
+          schema: { type: string, enum: [note_volume, active_authors, relay_events, zap_count_24h, sats_24h, new_authors_24h, nip17_dm_count_24h, bridged_share_bps, group_messages_24h, poll_votes_24h, live_chat_24h, reports_24h, deletions_24h, labels_24h, census_events_24h] }
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
@@ -2581,6 +2934,14 @@ paths:
           $ref: '#/components/responses/Error'
 components:
   parameters:
+    ExcludeBridged:
+      name: exclude_bridged
+      in: query
+      description: >
+        When true, drop events whose event_attributes.proxy_protocol is
+        non-empty. Profile trending applies the same rule to the latest
+        kind-0 event. Default false.
+      schema: { type: boolean, default: false }
     DiscoveryLanguage:
       name: lang
       in: query

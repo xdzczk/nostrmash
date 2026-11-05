@@ -131,7 +131,8 @@ Layer 3 is read-optimized projection state consumed by APIs:
 - `follower_edges`
 - `dm_unread_counts`, `dm_read_cursors`
 - `zap_receipts`, `nutzap_receipts`, `zap_daily`, `zap_edges`
-- `event_attributes`, `profile_fields`, `nip05_verifications`
+- `event_attributes`, `profile_fields`, `nip05_verifications`, `event_labels`, `profile_external_identities`, `custom_emoji_daily`, `relay_hint_daily`, `language_label_agreement_daily`
+- `follower_loss_events`, `profile_graph_stats`, `thread_shape_daily`, `author_reaction_received_daily`, `zap_leaderboard_daily`, `zap_hourly`, `content_shape_daily`, `hashtag_daily`, `hashtag_momentum`, `kind_engagement_daily`, `deletion_daily`, `report_daily`, `report_target_counts`, `mute_edges`, `profile_moderation_stats`, `content_fingerprints`, `author_cohort_retention`, `relay_list_stats_daily`, `relay_health_daily`, `network_graph_daily`
 - `dm_volume_daily`, `dm_relay_lists_latest`
 - `event_hashtags`
 - `note_discovery_stats`

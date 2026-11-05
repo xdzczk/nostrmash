@@ -37,6 +37,15 @@ func (h Handlers) GetEventCounts(w http.ResponseWriter, r *http.Request) {
 	if breakdown := h.reactionContentBreakdown(r.Context(), eventID); len(breakdown) > 0 {
 		payload["reaction_breakdown"] = breakdown
 	}
+	if h.pool != nil {
+		var trusted, reactions, reposts, zaps int64
+		if err := h.pool.QueryRow(r.Context(), `
+			SELECT trusted_engagement_count, reaction_count, repost_count, zap_count
+			FROM note_discovery_stats WHERE event_id = $1
+		`, eventID).Scan(&trusted, &reactions, &reposts, &zaps); err == nil && reactions+reposts+zaps > 0 {
+			payload["trusted_engagement_share"] = float64(trusted) / float64(reactions+reposts+zaps)
+		}
+	}
 	writeJSON(w, http.StatusOK, payload)
 }
 

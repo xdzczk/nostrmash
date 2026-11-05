@@ -636,6 +636,7 @@ func insertStatsSnapshotHistory(
 	relay relaySummarySnapshotPayload,
 ) error {
 	var zapCount, zapSats, newAuthors, nip17, bridgedBps int64
+	var groupMessages, pollVotes, liveChat, reports, deletions, labels, census int64
 	if err := tx.QueryRow(ctx, `
 		SELECT count(*)::bigint, COALESCE(sum(amount_sats), 0)::bigint
 		FROM zap_receipts
@@ -667,14 +668,28 @@ func insertStatsSnapshotHistory(
 	`).Scan(&bridgedBps); err != nil {
 		return fmt.Errorf("snapshot bridged share: %w", err)
 	}
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			COALESCE((SELECT sum(message_count) FROM group_activity_daily WHERE day >= (now() AT TIME ZONE 'utc')::date - 1), 0)::bigint,
+			COALESCE((SELECT count(*) FROM poll_votes WHERE created_at >= EXTRACT(EPOCH FROM now())::bigint - 86400), 0)::bigint,
+			COALESCE((SELECT sum(chat_count) FROM live_chat_daily WHERE day >= (now() AT TIME ZONE 'utc')::date - 1), 0)::bigint,
+			COALESCE((SELECT sum(count) FROM report_daily WHERE day >= (now() AT TIME ZONE 'utc')::date - 1), 0)::bigint,
+			COALESCE((SELECT sum(count) FROM deletion_daily WHERE day >= (now() AT TIME ZONE 'utc')::date - 1), 0)::bigint,
+			COALESCE((SELECT sum(label_count) FROM labels_daily WHERE day >= (now() AT TIME ZONE 'utc')::date - 1), 0)::bigint,
+			COALESCE((SELECT count(*) FROM kind_census_events WHERE seen_day >= (now() AT TIME ZONE 'utc')::date - 1), 0)::bigint
+	`).Scan(&groupMessages, &pollVotes, &liveChat, &reports, &deletions, &labels, &census); err != nil {
+		return fmt.Errorf("snapshot ecosystem counters: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO stats_snapshot_history (
 			bucket_start, computed_at, note_volume, active_authors, relay_events,
-			zap_count_24h, sats_24h, new_authors_24h, nip17_dm_count_24h, bridged_share_bps
+			zap_count_24h, sats_24h, new_authors_24h, nip17_dm_count_24h, bridged_share_bps,
+			group_messages_24h, poll_votes_24h, live_chat_24h, reports_24h, deletions_24h, labels_24h, census_events_24h
 		)
-		VALUES (date_trunc('hour', $1::timestamptz), $1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES (date_trunc('hour', $1::timestamptz), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		ON CONFLICT (bucket_start) DO NOTHING
-	`, computedAt, home.NoteVolume, home.ActiveAuthors, relay.Events24h, zapCount, zapSats, newAuthors, nip17, bridgedBps); err != nil {
+	`, computedAt, home.NoteVolume, home.ActiveAuthors, relay.Events24h, zapCount, zapSats, newAuthors, nip17, bridgedBps,
+		groupMessages, pollVotes, liveChat, reports, deletions, labels, census); err != nil {
 		return fmt.Errorf("insert stats snapshot history: %w", err)
 	}
 	return nil

@@ -117,12 +117,12 @@ func (h Handlers) GetRelayStats(w http.ResponseWriter, r *http.Request) {
 func (h Handlers) GetDiscoveryStatsSeries(w http.ResponseWriter, r *http.Request) {
 	metric := strings.TrimSpace(r.URL.Query().Get("metric"))
 	switch metric {
-	case "note_volume", "active_authors", "relay_events", "zap_count_24h", "sats_24h", "new_authors_24h", "nip17_dm_count_24h", "bridged_share_bps":
+	case "note_volume", "active_authors", "relay_events", "zap_count_24h", "sats_24h", "new_authors_24h", "nip17_dm_count_24h", "bridged_share_bps", "group_messages_24h", "poll_votes_24h", "live_chat_24h", "reports_24h", "deletions_24h", "labels_24h", "census_events_24h":
 	case "":
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "metric is required")
 		return
 	default:
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "metric must be one of note_volume, active_authors, relay_events, zap_count_24h, sats_24h, new_authors_24h, nip17_dm_count_24h, bridged_share_bps")
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "metric must be one of note_volume, active_authors, relay_events, zap_count_24h, sats_24h, new_authors_24h, nip17_dm_count_24h, bridged_share_bps, group_messages_24h, poll_votes_24h, live_chat_24h, reports_24h, deletions_24h, labels_24h, census_events_24h")
 		return
 	}
 	window := strings.TrimSpace(r.URL.Query().Get("window"))
@@ -350,6 +350,12 @@ func (h Handlers) contentStatsPayload(stats query.PublicDiscoveryNetworkStats) m
 		},
 		"note_volume": stats.NoteVolume,
 	}
+	if h.pool != nil {
+		if shape, engagement, err := h.contentShapePayload(context.Background()); err == nil {
+			content["length_and_mentions"] = shape
+			content["engagement_by_kind"] = engagement
+		}
+	}
 	if stats.TopHashtags != nil {
 		content["top_hashtags"] = stats.TopHashtags
 	}
@@ -371,6 +377,55 @@ func (h Handlers) contentStatsPayload(stats query.PublicDiscoveryNetworkStats) m
 		"result_scope":  "mixed",
 		"sections":      sections,
 	}
+}
+
+func (h Handlers) contentShapePayload(ctx context.Context) ([]map[string]any, []map[string]any, error) {
+	rows, err := h.pool.Query(ctx, `
+		SELECT kind, sum(posts)::bigint, sum(mention_total)::bigint, sum(hashtag_total)::bigint
+		FROM content_shape_daily
+		WHERE day >= (now() AT TIME ZONE 'utc')::date - 7
+		GROUP BY kind
+		ORDER BY kind
+	`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	shape := make([]map[string]any, 0)
+	for rows.Next() {
+		var kind int
+		var posts, mentions, hashtags int64
+		if err := rows.Scan(&kind, &posts, &mentions, &hashtags); err != nil {
+			return nil, nil, err
+		}
+		shape = append(shape, map[string]any{"kind": kind, "posts": posts, "mentions": mentions, "hashtags": hashtags})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	engagementRows, err := h.pool.Query(ctx, `
+		SELECT kind, sum(posts)::bigint, sum(reactions)::bigint, sum(replies)::bigint, sum(zaps)::bigint
+		FROM kind_engagement_daily
+		WHERE day >= (now() AT TIME ZONE 'utc')::date - 7
+		GROUP BY kind
+		ORDER BY kind
+	`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer engagementRows.Close()
+	engagement := make([]map[string]any, 0)
+	for engagementRows.Next() {
+		var kind int
+		var posts, reactions, replies, zaps int64
+		if err := engagementRows.Scan(&kind, &posts, &reactions, &replies, &zaps); err != nil {
+			return nil, nil, err
+		}
+		engagement = append(engagement, map[string]any{
+			"kind": kind, "posts": posts, "reactions": reactions, "replies": replies, "zaps": zaps,
+		})
+	}
+	return shape, engagement, engagementRows.Err()
 }
 
 func (h Handlers) relayStatsPayload(stats query.PublicDiscoveryNetworkStats, window string) map[string]any {

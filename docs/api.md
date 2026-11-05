@@ -114,7 +114,7 @@ Representative implemented native routes include:
 - `GET /api/v1/search/profiles`
 - `GET /api/v1/search/suggest`
 - `GET /api/v1/discovery/home`
-- `GET /api/v1/discovery/notes/trending`
+- `GET /api/v1/discovery/notes/trending` (`exclude_bridged=true` drops events with a non-empty NIP-48 proxy; the same flag is accepted on long-form, media, hashtag, domain, and profile trending)
 - `GET /api/v1/discovery/notes/bookmarked` (kind 1 and kind 30023, current public saves, no time window)
 - `GET /api/v1/discovery/notes/zapped` (sats received in the window; default `7d`)
 - `GET /api/v1/discovery/long-form/trending`
@@ -129,6 +129,12 @@ Representative implemented native routes include:
 - `GET /api/v1/relays/propagation` and `GET /api/v1/relays/overlap`
 - `GET /api/v1/authors/{pubkey}/analytics/zaps`
 - `GET /api/v1/profiles/{pubkey}/identity`
+- `GET /api/v1/profiles/{pubkey}/external-identities`
+- `GET /api/v1/events/{id}/labels`
+- `GET /api/v1/discovery/stats/labels` and `GET /api/v1/discovery/stats/emoji`
+- `GET /api/v1/groups`, `GET /api/v1/discovery/polls`, `GET /api/v1/discovery/goals`, `GET /api/v1/discovery/curation-sets`, `GET /api/v1/discovery/stats/kinds`, and `GET /api/v1/discovery/stats/media-hosts`
+- `GET /api/v1/discovery/stats/conversations`, `/zaps/heatmap`, `/deletions`, `/moderation`, `/spam`, `/relay-lists`, and `/relay-software`
+- `GET /api/v1/discovery/zaps/leaderboard`, `GET /api/v1/hashtags/emerging`, `GET /api/v1/hashtags/{tag}/history`, `GET /api/v1/profiles/{pubkey}/moderation`, and `GET /api/v1/relays/{relayHost}/health/history`
 - `GET /api/v1/discovery/domains/trending`
 - `GET /api/v1/discovery/domains/{domain}`
 - `GET /api/v1/discovery/domains/{domain}/notes`

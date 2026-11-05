@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/xdzczk/nostrmash/internal/nostr"
@@ -21,6 +22,11 @@ type TrustedAuthors interface {
 	Contains(pubkey string) bool
 	// Loaded reports whether the trusted set has ever loaded successfully.
 	Loaded() bool
+}
+
+// RelayInfoLookup reports the NIP-11 pubkey published by a source relay.
+type RelayInfoLookup interface {
+	RelayInfoPubkey(ctx context.Context, relayURL string) (string, bool, error)
 }
 
 // TargetExistenceChecker reports whether referenced events exist locally.
@@ -52,59 +58,13 @@ type gateDecision struct {
 // explode cardinality.
 func gateKindLabel(kind int) string {
 	switch kind {
-	case 1:
-		return "1"
-	case 4:
-		return "4"
-	case 6:
-		return "6"
-	case 7:
-		return "7"
-	case 16:
-		return "16"
-	case 20:
-		return "20"
-	case 21:
-		return "21"
-	case 22:
-		return "22"
-	case 1111:
-		return "1111"
-	case 1984:
-		return "1984"
-	case 9735:
-		return "9735"
-	case 9802:
-		return "9802"
-	case 10000:
-		return "10000"
-	case 10001:
-		return "10001"
-	case 10003:
-		return "10003"
-	case 30000:
-		return "30000"
-	case 30023:
-		return "30023"
-	case 30311:
-		return "30311"
-	case 34235:
-		return "34235"
-	case 34236:
-		return "34236"
-	case 5:
-		return "5"
-	case 1059:
-		return "1059"
-	case 9321:
-		return "9321"
-	case 10019:
-		return "10019"
-	case 10050:
-		return "10050"
 	case 0, 3, 10002:
 		return "open_kind"
 	default:
+		if isAuthorGatedKind(kind) || isEngagementKind(kind) || isRelayMetadataKind(kind) ||
+			kind == 1059 || kind == 1111 || kind == 9321 {
+			return strconv.Itoa(kind)
+		}
 		return "other"
 	}
 }
@@ -128,16 +88,22 @@ func gateKindLabel(kind int) string {
 // — an accepted trade-off against unbounded tombstone growth.
 func isAuthorGatedKind(kind int) bool {
 	switch kind {
-	case 1, 4, 5, 20, 21, 22, 1984, 9802, 10000, 10001, 10003, 10019, 10050, 30000, 30023, 30311, 34235, 34236:
+	case 1, 4, 5, 8, 9, 11, 20, 21, 22, 1063, 1068, 1984, 1985, 9041, 9802,
+		10000, 10001, 10003, 10006, 10007, 10009, 10012, 10015, 10019, 10030, 10050, 10063,
+		30000, 30002, 30004, 30005, 30008, 30009, 30015, 30023, 30311, 30315, 34235, 34236:
 		return true
 	default:
 		return false
 	}
 }
 
+func isRelayMetadataKind(kind int) bool {
+	return kind >= 39000 && kind <= 39003
+}
+
 func isEngagementKind(kind int) bool {
 	switch kind {
-	case 6, 7, 16, 9735:
+	case 6, 7, 16, 1018, 1311, 9735:
 		return true
 	default:
 		return false
@@ -148,7 +114,7 @@ func isEngagementKind(kind int) bool {
 // configured gate mode. It never rejects in open mode (records shadow_reject
 // for would-be drops); in trusted_only mode it enforces, including
 // fail-closed-on-never-loaded for author-gated kinds.
-func (p *Processor) evaluateGate(ctx context.Context, kind int, pubkey string, tags [][]string) gateDecision {
+func (p *Processor) evaluateGate(ctx context.Context, kind int, pubkey string, tags [][]string, relayURL string) gateDecision {
 	kindLabel := gateKindLabel(kind)
 	enforce := p.gateMode == TrustGateModeTrustedOnly
 
@@ -175,6 +141,18 @@ func (p *Processor) evaluateGate(ctx context.Context, kind int, pubkey string, t
 			}
 		}
 		return p.evaluateRecipientGate(kindLabel, tags, enforce)
+	case isRelayMetadataKind(kind):
+		return p.evaluateRelayMetadataGate(ctx, kindLabel, pubkey, relayURL, enforce)
+	case kind == 1311:
+		addrs := addressCoordinates(tags, "a")
+		if len(addrs) == 0 {
+			if enforce {
+				return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectMissingTarget}
+			}
+			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
+		}
+		decision, _ := p.evaluateAnyTarget(ctx, kindLabel, kind, nil, addrs, enforce)
+		return decision
 	case kind == 1111:
 		// NIP-22 comments follow the kind-1 split: a stored root accepts any
 		// author; otherwise only a trusted author is kept.
@@ -225,6 +203,23 @@ func (p *Processor) replyParentExists(ctx context.Context, kind int, tags [][]st
 		return true
 	}
 	return exists
+}
+
+func (p *Processor) evaluateRelayMetadataGate(ctx context.Context, kindLabel, pubkey, relayURL string, enforce bool) gateDecision {
+	reject := func() gateDecision {
+		if enforce {
+			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectUntrustedAuthor}
+		}
+		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
+	}
+	if p.relayInfo == nil || strings.TrimSpace(relayURL) == "" {
+		return reject()
+	}
+	infoPubkey, ok, err := p.relayInfo.RelayInfoPubkey(ctx, relayURL)
+	if err != nil || !ok || !strings.EqualFold(strings.TrimSpace(infoPubkey), strings.TrimSpace(pubkey)) {
+		return reject()
+	}
+	return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
 }
 
 // evaluateRecipientGate accepts when any p-tag recipient is trusted. Kind 1059
@@ -347,7 +342,7 @@ func (p *Processor) evaluateAnyTarget(
 // targets are resolved separately.
 func engagementTargetIDs(kind int, tags [][]string) []string {
 	switch kind {
-	case 9735, 9321:
+	case 9735, 9321, 1018:
 		if id := firstETagValue(tags); id != "" {
 			return []string{id}
 		}

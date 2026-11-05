@@ -56,6 +56,14 @@ func (s *fakeRegistryStore) ListRelays(_ context.Context, filter relayregistry.L
 	return out, nil
 }
 
+func (s *fakeRegistryStore) BlockedRefCounts(context.Context) (map[string]int, error) {
+	return nil, nil
+}
+
+func (s *fakeRegistryStore) LatestPropagationShares(context.Context) (map[string]relayregistry.PropagationShare, error) {
+	return nil, nil
+}
+
 func (s *fakeRegistryStore) SetAdmissionState(
 	_ context.Context,
 	urlKey string,

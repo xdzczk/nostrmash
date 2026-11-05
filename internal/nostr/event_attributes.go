@@ -20,6 +20,10 @@ type EventAttributes struct {
 	PowBits              int
 	PowTarget            int
 	TargetKind           *int
+	Subject              string
+	HasAlt               bool
+	PublishedAt          *int64
+	ZapSplitCount        int
 }
 
 // ParseEventAttributes reads client, expiration, content-warning, proxy,
@@ -73,6 +77,22 @@ func ParseEventAttributes(eventID string, tags [][]string) EventAttributes {
 				if n, err := strconv.Atoi(strings.TrimSpace(tag[1])); err == nil && n >= 0 && n <= 65535 {
 					out.TargetKind = &n
 				}
+			}
+		case "subject":
+			if out.Subject == "" {
+				out.Subject = trimBound(tag[1], 160)
+			}
+		case "alt":
+			out.HasAlt = true
+		case "published_at":
+			if out.PublishedAt == nil {
+				if n, err := strconv.ParseInt(strings.TrimSpace(tag[1]), 10, 64); err == nil && n > 0 {
+					out.PublishedAt = &n
+				}
+			}
+		case "zap":
+			if len(tag) >= 2 && strings.TrimSpace(tag[1]) != "" {
+				out.ZapSplitCount++
 			}
 		}
 	}

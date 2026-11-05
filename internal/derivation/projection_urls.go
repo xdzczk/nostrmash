@@ -117,6 +117,9 @@ func (h *Handlers) projectEventURLsWithVersion(ctx context.Context, eventID stri
 			return fmt.Errorf("upsert event url: %w", err)
 		}
 	}
+	if err := h.recordProjectedMediaHostsTx(ctx, tx, eventID, authorPubkey, createdAt, urls); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit URL projection tx: %w", err)
 	}

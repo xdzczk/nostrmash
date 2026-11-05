@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -24,7 +25,42 @@ func (h Handlers) GetAuthorAnalyticsSummary(w http.ResponseWriter, r *http.Reque
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, summary)
+	raw, err := json.Marshal(summary)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	payload["graph"] = h.profileGraphPayload(r.Context(), pubkey)
+	if h.pool != nil {
+		var plus, minus int64
+		_ = h.pool.QueryRow(r.Context(), `
+			SELECT COALESCE(sum(plus_count), 0)::bigint, COALESCE(sum(minus_count), 0)::bigint
+			FROM author_reaction_received_daily
+			WHERE pubkey = $1 AND day >= (now() AT TIME ZONE 'utc')::date - 30
+		`, pubkey).Scan(&plus, &minus)
+		if plus+minus > 0 {
+			payload["downvote_ratio_bps"] = minus * 10000 / (plus + minus)
+		}
+		var gained, lost int64
+		_ = h.pool.QueryRow(r.Context(), `
+			SELECT
+				(SELECT count(*) FROM follower_gain_events WHERE followed_pubkey = $1 AND gained_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7),
+				(SELECT count(*) FROM follower_loss_events WHERE followed_pubkey = $1 AND lost_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7)
+		`, pubkey).Scan(&gained, &lost)
+		payload["net_follower_change_7d"] = gained - lost
+		_ = h.pool.QueryRow(r.Context(), `
+			SELECT
+				(SELECT count(*) FROM follower_gain_events WHERE followed_pubkey = $1 AND gained_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 30),
+				(SELECT count(*) FROM follower_loss_events WHERE followed_pubkey = $1 AND lost_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 30)
+		`, pubkey).Scan(&gained, &lost)
+		payload["net_follower_change_30d"] = gained - lost
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (h Handlers) GetAuthorAnalyticsTopics(w http.ResponseWriter, r *http.Request) {

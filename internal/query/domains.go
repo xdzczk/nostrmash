@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/discoveryctx"
 	"github.com/xdzczk/nostrmash/internal/domainnorm"
 )
 
@@ -108,6 +109,7 @@ func (s Service) GetTrendingDomains(
 	limit int,
 	offset int,
 ) ([]DomainSummary, error) {
+	ctx = discoveryctx.WithExcludeBridged(ctx, scope.ExcludeBridged)
 	if window <= 0 {
 		return nil, fmt.Errorf("window must be positive")
 	}
@@ -124,7 +126,7 @@ func (s Service) GetTrendingDomains(
 	// request. Serve the same trust-filtered snapshot the homepage uses so
 	// the two surfaces rank the same domains. The live aggregate stays
 	// available for readers that have no snapshot and for other windows.
-	if isFixedDiscoveryWindow(window) {
+	if isFixedDiscoveryWindow(window) && !scope.ExcludeBridged {
 		if r := s.capabilities.curated.homeTrendingDomains; r != nil {
 			rows, err := r.GetHomeTrendingDomains(ctx, window, scope.Lang(), homeTrendingSnapshotLimit)
 			if err != nil {

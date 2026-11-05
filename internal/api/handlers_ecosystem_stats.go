@@ -215,19 +215,56 @@ func (h Handlers) GetAccountStats(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	var dau, wau int64
+	var dau, wau, active30, dormant, losses, gains int64
 	_ = h.pool.QueryRow(r.Context(), `
 		SELECT
 			count(DISTINCT pubkey) FILTER (WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 1),
-			count(DISTINCT pubkey) FILTER (WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 7)
+			count(DISTINCT pubkey) FILTER (WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 7),
+			count(DISTINCT pubkey)
 		FROM author_activity_daily
-		WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 7
+		WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 30
 		  AND post_count > 0
-	`).Scan(&dau, &wau)
+	`).Scan(&dau, &wau, &active30)
+	_ = h.pool.QueryRow(r.Context(), `
+		SELECT count(*)::bigint FROM profile_public_stats
+		WHERE recent_activity_at IS NOT NULL
+		  AND recent_activity_at < EXTRACT(EPOCH FROM now() - interval '30 days')::bigint
+	`).Scan(&dormant)
+	_ = h.pool.QueryRow(r.Context(), `
+		SELECT
+			(SELECT count(*) FROM follower_loss_events WHERE lost_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7),
+			(SELECT count(*) FROM follower_gain_events WHERE gained_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7)
+	`).Scan(&losses, &gains)
+	unfollow := int64(0)
+	if losses+gains > 0 {
+		unfollow = losses * 10000 / (losses + gains)
+	}
+	ageRows, err := h.pool.Query(r.Context(), `
+		SELECT width_bucket(EXTRACT(EPOCH FROM (now() - first_seen_at)) / 86400, ARRAY[1, 7, 30, 90, 365]::float8[]),
+		       count(*)::bigint
+		FROM author_first_seen
+		GROUP BY 1
+		ORDER BY 1
+	`)
+	ages := make([]map[string]any, 0)
+	if err == nil {
+		defer ageRows.Close()
+		for ageRows.Next() {
+			var bucket int
+			var count int64
+			if err := ageRows.Scan(&bucket, &count); err == nil {
+				ages = append(ages, map[string]any{"bucket": bucket, "authors": count})
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"new_authors":       newAuthors,
-		"active_authors_1d": dau,
-		"active_authors_7d": wau,
+		"new_authors":        newAuthors,
+		"active_authors_1d":  dau,
+		"active_authors_7d":  wau,
+		"active_authors_30d": active30,
+		"dormant_30d":        dormant,
+		"unfollow_rate_bps":  unfollow,
+		"account_age":        ages,
 	})
 }
 
@@ -244,6 +281,7 @@ func (h Handlers) GetRelayPropagation(w http.ResponseWriter, r *http.Request) {
 		       sum(events_seen)::bigint,
 		       sum(first_seen_count)::bigint,
 		       sum(exclusive_count)::bigint,
+		       sum(future_dated_count)::bigint,
 		       COALESCE(avg(latency_p50_ms), 0),
 		       COALESCE(avg(untrusted_event_share), 0)
 		FROM relay_propagation_daily
@@ -260,9 +298,9 @@ func (h Handlers) GetRelayPropagation(w http.ResponseWriter, r *http.Request) {
 	relays := make([]map[string]any, 0)
 	for rows.Next() {
 		var url string
-		var seen, first, exclusive int64
+		var seen, first, exclusive, future int64
 		var latency, untrusted float64
-		if err := rows.Scan(&url, &seen, &first, &exclusive, &latency, &untrusted); err != nil {
+		if err := rows.Scan(&url, &seen, &first, &exclusive, &future, &latency, &untrusted); err != nil {
 			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
 		}
@@ -275,7 +313,8 @@ func (h Handlers) GetRelayPropagation(w http.ResponseWriter, r *http.Request) {
 		relays = append(relays, map[string]any{
 			"relay_url": url, "events_seen": seen,
 			"first_seen_share": share(first), "exclusive_share": share(exclusive),
-			"latency_p50_ms": latency, "untrusted_share": untrusted,
+			"future_dated_share": share(future),
+			"latency_p50_ms":     latency, "untrusted_share": untrusted,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"window": statsWindowLabel(days), "relays": relays})
@@ -359,9 +398,27 @@ func (h Handlers) GetAuthorZapAnalytics(w http.ResponseWriter, r *http.Request) 
 	_ = h.pool.QueryRow(r.Context(), `
 		SELECT count(*)::bigint FROM zap_edges WHERE receiver_pubkey = $1 AND zap_count > 1
 	`, pubkey).Scan(&distinct)
+	var followers, reactions int64
+	_ = h.pool.QueryRow(r.Context(), `
+		SELECT COALESCE(follower_count, 0) FROM profile_public_stats WHERE pubkey = $1
+	`, pubkey).Scan(&followers)
+	_ = h.pool.QueryRow(r.Context(), `
+		SELECT COALESCE(sum(plus_count + minus_count + emoji_count), 0)::bigint
+		FROM author_reaction_received_daily
+		WHERE pubkey = $1 AND day >= (now() AT TIME ZONE 'utc')::date - $2::int
+	`, pubkey, days).Scan(&reactions)
+	satsPer1k := int64(0)
+	if followers > 0 {
+		satsPer1k = sent * 1000 / followers
+	}
+	zapReaction := float64(0)
+	if reactions > 0 {
+		zapReaction = float64(received) / float64(reactions)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"pubkey": pubkey, "window": statsWindowLabel(days), "series": series,
 		"inbound_zaps": received, "inbound_sats": sent, "repeat_zappers": distinct,
+		"sats_per_1k_followers": satsPer1k, "zap_to_reaction_ratio": zapReaction,
 	})
 }
 
@@ -437,7 +494,33 @@ func (h Handlers) GetProfileIdentity(w http.ResponseWriter, r *http.Request) {
 	if checkedAt != nil {
 		payload["nip05_checked_at"] = checkedAt.Unix()
 	}
+	var activeStatuses int64
+	_ = h.pool.QueryRow(r.Context(), `
+		SELECT count(*)::bigint FROM user_status_latest
+		WHERE pubkey = $1 AND (expires_at IS NULL OR expires_at > EXTRACT(EPOCH FROM now())::bigint)
+	`, pubkey).Scan(&activeStatuses)
+	payload["active_statuses"] = activeStatuses
+	payload["graph"] = h.profileGraphPayload(r.Context(), pubkey)
 	writeJSON(w, http.StatusOK, payload)
+}
+
+func (h Handlers) profileGraphPayload(ctx context.Context, pubkey string) map[string]any {
+	out := map[string]any{}
+	if h.pool == nil {
+		return out
+	}
+	var mutual, reciprocity, followBack, ghost, mentioned int64
+	if err := h.pool.QueryRow(ctx, `
+		SELECT mutual_count, reciprocity_bps, follow_back_rate_bps, ghost_follower_bps, mentioned_not_followed_count
+		FROM profile_graph_stats WHERE pubkey = $1
+	`, pubkey).Scan(&mutual, &reciprocity, &followBack, &ghost, &mentioned); err != nil {
+		return out
+	}
+	return map[string]any{
+		"mutual_count": mutual, "reciprocity_bps": reciprocity,
+		"follow_back_rate_bps": followBack, "ghost_follower_bps": ghost,
+		"mentioned_not_followed_count": mentioned,
+	}
 }
 
 func (h Handlers) dailyCounts(ctx context.Context, sql string) ([]map[string]any, error) {

@@ -16,6 +16,8 @@ import (
 // *relayregistry.Store implements it; tests use a fake.
 type registryStore interface {
 	ListRelays(ctx context.Context, filter relayregistry.ListFilter) ([]relayregistry.RelayRecord, error)
+	LatestPropagationShares(ctx context.Context) (map[string]relayregistry.PropagationShare, error)
+	BlockedRefCounts(ctx context.Context) (map[string]int, error)
 	SetAdmissionState(
 		ctx context.Context,
 		urlKey string,
@@ -69,9 +71,19 @@ func (c *Controller) Run(ctx context.Context) error {
 		return fmt.Errorf("load tier occupancy for admission: %w", err)
 	}
 
+	shares, err := c.store.LatestPropagationShares(ctx)
+	if err != nil {
+		return fmt.Errorf("load relay propagation shares: %w", err)
+	}
+	blocked, err := c.store.BlockedRefCounts(ctx)
+	if err != nil {
+		return fmt.Errorf("load blocked relay refs: %w", err)
+	}
+
 	var promotions, demotions int
 
 	for _, rec := range relays {
+		rec = ApplyBlockedRefs(ApplyPropagationShare(rec, shares), blocked)
 		sc := ComputeScore(rec)
 		newState := c.computeTransition(rec, sc)
 		// relays is ordered by score DESC, so when capacity is scarce the
@@ -125,8 +137,18 @@ func (c *Controller) RunDryRun(ctx context.Context) ([]AdmissionProposal, error)
 		return nil, fmt.Errorf("list relays for dry-run: %w", err)
 	}
 
+	shares, err := c.store.LatestPropagationShares(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load relay propagation shares: %w", err)
+	}
+	blocked, err := c.store.BlockedRefCounts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load blocked relay refs: %w", err)
+	}
+
 	proposals := make([]AdmissionProposal, 0, len(relays))
 	for _, rec := range relays {
+		rec = ApplyBlockedRefs(ApplyPropagationShare(rec, shares), blocked)
 		sc := ComputeScore(rec)
 		newState := c.computeTransition(rec, sc)
 		proposals = append(proposals, AdmissionProposal{

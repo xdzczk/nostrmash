@@ -21,6 +21,11 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	excludeBridged, err := parseExcludeBridged(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -31,13 +36,13 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_domains", discoveryCacheParams(map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_domains", cacheExcludeBridged(discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang))
+	}, lang), excludeBridged))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		rows, rowsErr := h.service.GetTrendingDomains(ctx, window, discoveryScope(lang), limit, offset)
+		rows, rowsErr := h.service.GetTrendingDomains(ctx, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
 		if rowsErr != nil {
 			return nil, rowsErr
 		}

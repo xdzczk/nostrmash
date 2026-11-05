@@ -490,6 +490,17 @@ Notes:
 - Rebuilds consume canonical Postgres data and do not require live relay access.
 - Truncating these derived tables is safe if you rerun the sequence above.
 
+Ecosystem tables that only fill as new events arrive can be backfilled with a full rebuild. Each one walks stored events in cursor batches. The claim ledger keeps a second run from double-counting daily counters. `zap_receipts` only sees receipts that have not been purged yet.
+
+```json
+{"derivation_name":"event_attributes","target_version":1,"scope":{"type":"full"}}
+{"derivation_name":"profile_fields","target_version":1,"scope":{"type":"full"}}
+{"derivation_name":"author_recent_events","target_version":1,"scope":{"type":"full"}}
+{"derivation_name":"zap_receipts","target_version":3,"scope":{"type":"full"}}
+```
+
+POST each body to `/admin/v1/rebuilds`. `author_recent_events` also writes `author_first_seen`.
+
 Author analytics projection rebuild order:
 
 1. `author_activity_daily`

@@ -21,6 +21,11 @@ func (h Handlers) GetTrendingHashtags(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	excludeBridged, err := parseExcludeBridged(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 50, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -31,13 +36,13 @@ func (h Handlers) GetTrendingHashtags(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_hashtags", discoveryCacheParams(map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_hashtags", cacheExcludeBridged(discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang))
+	}, lang), excludeBridged))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		topics, topicsErr := h.service.GetTrendingHashtags(ctx, window, discoveryScope(lang), limit, offset)
+		topics, topicsErr := h.service.GetTrendingHashtags(ctx, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
 		if topicsErr != nil {
 			return nil, topicsErr
 		}
@@ -96,6 +101,11 @@ func (h Handlers) GetHashtagSummary(w http.ResponseWriter, r *http.Request) {
 			},
 			"consistency": "eventual",
 		}
+		var interestFollowers int64
+		if h.pool != nil {
+			_ = h.pool.QueryRow(ctx, `SELECT follower_count FROM hashtag_interest_counts WHERE hashtag = $1`, summary.Hashtag).Scan(&interestFollowers)
+		}
+		payload["interest_followers"] = interestFollowers
 		h.addDiscoveryTrustMetadata(payload)
 		return payload, nil
 	}); err != nil {

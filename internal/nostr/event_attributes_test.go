@@ -12,6 +12,11 @@ func TestParseEventAttributes(t *testing.T) {
 		{"proxy", "https://example.com/1", "activitypub"},
 		{"nonce", "abc", "16"},
 		{"k", "1"},
+		{"subject", "Hello"},
+		{"alt", "a picture of a cat"},
+		{"published_at", "1700000001"},
+		{"zap", "aa", "wss://relay.example", "1"},
+		{"zap", "bb", "wss://relay.example", "1"},
 	})
 	if attrs.Client != "Damus" || attrs.ClientPubkey == "" {
 		t.Fatalf("client: %+v", attrs)
@@ -30,6 +35,12 @@ func TestParseEventAttributes(t *testing.T) {
 	}
 	if attrs.TargetKind == nil || *attrs.TargetKind != 1 {
 		t.Fatalf("target kind: %+v", attrs.TargetKind)
+	}
+	if attrs.Subject != "Hello" || !attrs.HasAlt || attrs.ZapSplitCount != 2 {
+		t.Fatalf("subject/alt/splits: %+v", attrs)
+	}
+	if attrs.PublishedAt == nil || *attrs.PublishedAt != 1700000001 {
+		t.Fatalf("published_at: %+v", attrs.PublishedAt)
 	}
 	if !attrs.Expired(1700000000) || attrs.Expired(1699999999) {
 		t.Fatal("expiry boundary")

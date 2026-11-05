@@ -73,6 +73,34 @@ func (h *Handlers) recordFollowerGainEventsTx(
 		}
 		gained = append(gained, followed)
 	}
+	lost := make([]string, 0)
+	next := make(map[string]struct{}, len(contacts))
+	for _, followed := range contacts {
+		followed = strings.TrimSpace(followed)
+		if followed != "" {
+			next[followed] = struct{}{}
+		}
+	}
+	for followed := range prev {
+		if followed == authorPubkey {
+			continue
+		}
+		if _, ok := next[followed]; ok {
+			continue
+		}
+		lost = append(lost, followed)
+	}
+	if len(lost) > 0 {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO follower_loss_events (followed_pubkey, follower_pubkey, lost_at)
+			SELECT DISTINCT followed, $2::text, $3::bigint
+			FROM unnest($1::text[]) AS followed
+			ON CONFLICT (followed_pubkey, follower_pubkey) DO UPDATE
+			SET lost_at = EXCLUDED.lost_at
+		`, lost, authorPubkey, contactListCreatedAt); err != nil {
+			return fmt.Errorf("record follower loss events for %s: %w", authorPubkey, err)
+		}
+	}
 	if len(gained) == 0 {
 		return nil
 	}

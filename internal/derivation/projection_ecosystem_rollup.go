@@ -45,10 +45,7 @@ func (h *Handlers) RefreshEcosystemDailyRollup(ctx context.Context) error {
 					WHEN NOT EXISTS (SELECT 1 FROM trust_graph_snapshot) THEN NULL
 					ELSE count(*) FILTER (WHERE ts.pubkey IS NULL)::double precision / NULLIF(count(*), 0)
 				END,
-				jsonb_build_object(
-					'1', count(*) FILTER (WHERE e.kind = 1),
-					'other', count(*) FILTER (WHERE e.kind <> 1)
-				)
+				COALESCE(kind_mix.mix, '{}'::jsonb)
 			FROM event_relays er
 			JOIN events e ON e.id = er.event_id
 			JOIN (
@@ -61,8 +58,20 @@ func (h *Handlers) RefreshEcosystemDailyRollup(ctx context.Context) error {
 				SELECT (EXTRACT(EPOCH FROM (er.seen_at - to_timestamp(e.created_at))) * 1000)::double precision AS latency_ms
 			) lat
 			LEFT JOIN trust_graph_snapshot ts ON ts.pubkey = e.pubkey
+			LEFT JOIN (
+				SELECT per_kind.relay_url, jsonb_object_agg(per_kind.kind::text, per_kind.n) AS mix
+				FROM (
+					SELECT er2.relay_url, e2.kind, count(*)::bigint AS n
+					FROM event_relays er2
+					JOIN events e2 ON e2.id = er2.event_id
+					WHERE er2.seen_at >= $1::date
+					  AND er2.seen_at < $1::date + interval '1 day'
+					GROUP BY er2.relay_url, e2.kind
+				) per_kind
+				GROUP BY per_kind.relay_url
+			) kind_mix ON kind_mix.relay_url = er.relay_url
 			WHERE er.seen_at >= $1::date AND er.seen_at < $1::date + interval '1 day'
-			GROUP BY er.relay_url
+			GROUP BY er.relay_url, kind_mix.mix
 			ON CONFLICT (day, relay_url) DO UPDATE
 			SET events_seen = EXCLUDED.events_seen,
 			    first_seen_count = EXCLUDED.first_seen_count,
@@ -102,11 +111,37 @@ func (h *Handlers) RefreshEcosystemDailyRollup(ctx context.Context) error {
 		`, day); err != nil {
 			return fmt.Errorf("rollup relay overlap: %w", err)
 		}
+		if err := refreshAnalyticsRollupTx(ctx, tx, day); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO ecosystem_daily_rollup (day) VALUES ($1::date)
 			ON CONFLICT (day) DO NOTHING
 		`, day); err != nil {
 			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM group_author_daily WHERE day < (now() AT TIME ZONE 'utc')::date - 35`); err != nil {
+			return fmt.Errorf("prune group authors: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM live_chat_author_daily WHERE day < (now() AT TIME ZONE 'utc')::date - 35`); err != nil {
+			return fmt.Errorf("prune live chat authors: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM groups_latest g
+			WHERE g.updated_at < now() - interval '60 days'
+			  AND NOT EXISTS (
+			      SELECT 1 FROM group_messages m
+			      WHERE m.relay_url = g.relay_url AND m.group_id = g.group_id
+			        AND m.created_at >= extract(epoch FROM now() - interval '60 days')::bigint
+			  )
+		`); err != nil {
+			return fmt.Errorf("prune idle groups: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM kind_census_events WHERE seen_day < (now() AT TIME ZONE 'utc')::date - 35`); err != nil {
+			return fmt.Errorf("prune kind census: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM kind_author_daily WHERE day < (now() AT TIME ZONE 'utc')::date - 35`); err != nil {
+			return fmt.Errorf("prune kind authors: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM client_author_daily WHERE day < (now() AT TIME ZONE 'utc')::date - 35`); err != nil {
 			return fmt.Errorf("prune client authors: %w", err)

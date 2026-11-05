@@ -17,6 +17,7 @@ import (
 type NostrConnector struct {
 	Log           *slog.Logger
 	Kinds         []int
+	CensusKinds   []int
 	FilterGroup   string
 	SinceResolver SinceResolver
 }
@@ -67,6 +68,21 @@ func (c NostrConnector) Connect(ctx context.Context, relayURL string) (Connectio
 	if err := conn.WriteMessage(websocket.TextMessage, reqRaw); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("write relay subscription: %w", err)
+	}
+	if len(c.CensusKinds) > 0 {
+		censusReq, err := json.Marshal([]any{
+			"REQ",
+			subID + "-census",
+			map[string]any{"kinds": c.CensusKinds, "since": since},
+		})
+		if err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("marshal census subscription: %w", err)
+		}
+		if err := conn.WriteMessage(websocket.TextMessage, censusReq); err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("write census subscription: %w", err)
+		}
 	}
 
 	wsConn := newWSRelayConnection(conn, relayURL, c.Log)

@@ -80,6 +80,12 @@ type RelayRecord struct {
 	YieldScore        float64
 	DuplicateRatio    float64
 
+	// Propagation shares are filled from relay_propagation_daily at score
+	// time. They are not columns on relay_registry.
+	FirstSeenShare  float64
+	ExclusiveShare  float64
+	BlockedRefCount int
+
 	ScoreComponents   json.RawMessage
 	CapabilitySummary json.RawMessage
 	Notes             json.RawMessage
@@ -111,6 +117,12 @@ type DesiredSetSnapshot struct {
 	RelayURLs   []string
 	Source      string
 	Notes       string
+}
+
+// PropagationShare is one relay's latest daily propagation mix.
+type PropagationShare struct {
+	FirstSeen float64
+	Exclusive float64
 }
 
 // ListFilter controls relay registry list queries.

@@ -116,6 +116,9 @@ func (h *Handlers) projectDeletionEventsWithVersion(ctx context.Context, eventID
 			if err != nil {
 				return fmt.Errorf("upsert deletion event: %w", err)
 			}
+			if err := recordDeletionDailyTx(ctx, tx, source.EventID, targetEventID, source.CreatedAt); err != nil {
+				return err
+			}
 			return h.reconcileDMUnreadForDeletedTarget(ctx, tx, targetEventID)
 		},
 	)

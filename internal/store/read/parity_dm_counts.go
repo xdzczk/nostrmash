@@ -37,7 +37,7 @@ func (s *Read) GetDirectMessageUnreadCounts(ctx context.Context, pubkey string, 
 		LEFT JOIN dm_read_cursors c
 		       ON c.user_pubkey = $1
 		      AND c.peer_pubkey = e.pubkey
-		WHERE e.kind = 4
+		WHERE e.kind IN (4, 1059)
 		  AND et.value = $1
 		  AND e.pubkey <> $1
 		  AND (
@@ -119,7 +119,7 @@ func (s *Read) GetDirectMessageCount(ctx context.Context, receiver string, sende
 		LEFT JOIN dm_read_cursors c
 		       ON c.user_pubkey = $1
 		      AND c.peer_pubkey = e.pubkey
-		WHERE e.kind = 4
+		WHERE e.kind IN (4, 1059)
 		  AND et.value = $1
 		  AND e.pubkey <> $1
 		  AND ($2 = '' OR e.pubkey = $2)

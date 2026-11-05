@@ -121,6 +121,7 @@ func (h *Handlers) DeriveEventBundle(ctx context.Context, eventID string) error 
 		h.ProjectDMVolume,
 		h.ProjectNutzapReceipts,
 		h.ProjectExtendedLists,
+		h.ProjectSurfaces,
 		h.ProjectReplyCounts,
 		h.ProjectReactionCounts,
 		h.ProjectRepostCounts,

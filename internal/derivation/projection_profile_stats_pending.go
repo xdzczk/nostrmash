@@ -300,6 +300,9 @@ func (h *Handlers) rebuildClaimedProfileStatsPubkey(ctx context.Context, pubkey 
 	if err := h.refreshProfileDiscoveryStatsTx(ctx, tx, pubkey, writeVersion, time.Now().UTC().Unix()); err != nil {
 		return fmt.Errorf("rebuild profile discovery stats: %w", err)
 	}
+	if err := h.refreshProfileGraphStatsTx(ctx, tx, pubkey); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 

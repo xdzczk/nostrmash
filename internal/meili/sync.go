@@ -100,6 +100,9 @@ const indexedNotesWhere = `
 // the 1.37M-document profiles index.
 const namedProfileSQL = `(btrim(coalesce(p.name, '')) <> '' OR btrim(coalesce(p.display_name, '')) <> '')`
 
+// nip05VerifiedSQL is 1-row lookup of the verification row. A missing row is unverified.
+const nip05VerifiedSQL = `COALESCE((SELECT v.status = 'verified' FROM nip05_verifications v WHERE v.pubkey = p.pubkey), false)`
+
 // indexedHashtagSQL drops one-off hashtags. popularity is the event count
 // maintained by refresh_search_document_hashtag.
 func indexedHashtagSQL() string {
@@ -126,6 +129,7 @@ func scanNoteDocument(sc rowScanner) (NoteDocument, string, error) {
 func scanProfileDocument(sc rowScanner) (ProfileDocument, error) {
 	var (
 		row        ProfileDocument
+		verified   bool
 		popularity int64
 	)
 	if err := sc.Scan(
@@ -136,9 +140,13 @@ func scanProfileDocument(sc rowScanner) (ProfileDocument, error) {
 		&row.DisplayName,
 		&row.About,
 		&row.NIP05,
+		&verified,
 		&popularity,
 	); err != nil {
 		return ProfileDocument{}, err
+	}
+	if verified {
+		row.NIP05Verified = 1
 	}
 	row.Popularity = float64(popularity)
 	return row, nil

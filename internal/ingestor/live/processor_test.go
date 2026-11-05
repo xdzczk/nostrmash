@@ -117,6 +117,10 @@ func (f *fakeStore) InsertInvalidEvent(ctx context.Context, invalid model.Invali
 	return nil
 }
 
+func (f *fakeStore) RecordKindCensus(context.Context, string, string, int, int64) (bool, error) {
+	return false, nil
+}
+
 func (f *fakeStore) InsertEventRelayProvenance(
 	ctx context.Context,
 	eventID string,
@@ -156,6 +160,10 @@ func (s *replaySafeStore) InsertCanonicalEventWithResult(
 
 func (s *replaySafeStore) InsertInvalidEvent(ctx context.Context, invalid model.InvalidEvent) error {
 	return nil
+}
+
+func (s *replaySafeStore) RecordKindCensus(context.Context, string, string, int, int64) (bool, error) {
+	return false, nil
 }
 
 func (s *replaySafeStore) InsertEventRelayProvenance(

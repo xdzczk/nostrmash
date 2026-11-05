@@ -21,6 +21,10 @@ type ProfileDocument struct {
 	DisplayName       string `json:"display_name,omitempty"`
 	About             string `json:"about,omitempty"`
 	NIP05             string `json:"nip05,omitempty"`
+	// 1 when the NIP-05 identifier is verified. Always sent so a later
+	// failed check can clear a previous boost. Ranking uses this as a
+	// tie-break after textual relevance.
+	NIP05Verified int `json:"nip05_verified"`
 	// Omitted on the wire. Meilisearch merges updates, so a null value would
 	// keep the key forever; AddDocuments replaces the profile and drops it.
 	ProfileJSON json.RawMessage `json:"profile_json,omitempty"`

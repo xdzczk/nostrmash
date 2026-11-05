@@ -98,9 +98,10 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 				)
 			  )
 			  %s
+			  %s
 			ORDER BY score DESC, s.created_at DESC, s.event_id ASC
 			LIMIT $2 OFFSET $3
-		`, scoreColumn, noteLanguageClause("s", "$5::text", lang))
+		`, scoreColumn, noteLanguageClause("s", "$5::text", lang), nativeEventFilter(ctx, "e.id"))
 		args := []any{minCreatedAt, limit, offset, kinds}
 		if lang != "" {
 			args = append(args, lang)
@@ -144,9 +145,10 @@ func (s *Read) getTrendingNotesForKinds(ctx context.Context, kinds []int, window
 				)
 			  )
 			  %s
+			  %s
 			ORDER BY score DESC, s.created_at DESC, s.event_id ASC
 			LIMIT $2 OFFSET $3
-		`, scoreColumn, noteLanguageClause("s", "$5::text", lang))
+		`, scoreColumn, noteLanguageClause("s", "$5::text", lang), nativeEventFilter(ctx, "e.id"))
 		args := []any{minCreatedAt, limit, offset, kinds}
 		if lang != "" {
 			args = append(args, lang)

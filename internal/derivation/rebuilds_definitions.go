@@ -22,6 +22,7 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       AuthorRecentEventsVersion,
 			description:    "Project author recent events ordered by created_at desc, id desc",
 			rebuildProject: h.projectAuthorRecentEventWithVersion,
+			rebuildFull:    h.rebuildAuthorRecentEventsWithVersion,
 		}, nil
 	case DerivationReplyCounts:
 		return projectionDefinition{
@@ -128,6 +129,7 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       EventAttributesVersion,
 			description:    "Project client, expiration, content-warning, proxy, proof-of-work, and target kind",
 			rebuildProject: h.projectEventAttributesWithVersion,
+			rebuildFull:    h.rebuildEventAttributesWithVersion,
 		}, nil
 	case DerivationProfileFields:
 		return projectionDefinition{
@@ -135,6 +137,7 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       ProfileFieldsVersion,
 			description:    "Decompose kind-0 metadata into queryable identity fields",
 			rebuildProject: h.projectProfileFieldsWithVersion,
+			rebuildFull:    h.rebuildProfileFieldsWithVersion,
 		}, nil
 	case DerivationDMVolume:
 		return projectionDefinition{
@@ -156,6 +159,14 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			compiled:       ExtendedListsVersion,
 			description:    "Project kind-10050 DM relay lists and kind-10019 nutzap wallet info",
 			rebuildProject: h.projectExtendedListsWithVersion,
+		}, nil
+	case DerivationSurfaces:
+		return projectionDefinition{
+			name:           DerivationSurfaces,
+			compiled:       SurfacesVersion,
+			description:    "Project groups, live chat, polls, badges, goals, lists, labels, and file metadata",
+			rebuildProject: h.projectSurfacesWithVersion,
+			rebuildFull:    h.rebuildSurfacesWithVersion,
 		}, nil
 	case DerivationEventURLs:
 		return projectionDefinition{

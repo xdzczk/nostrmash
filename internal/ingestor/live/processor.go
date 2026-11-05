@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/nostr"
@@ -36,6 +37,7 @@ type EventStore interface {
 		seenAt time.Time,
 		pubkey string,
 	) error
+	RecordKindCensus(ctx context.Context, eventID, pubkey string, kind int, createdAt int64) (bool, error)
 }
 
 // CheckpointWriter persists durable live checkpoint progress.
@@ -67,6 +69,7 @@ type Processor struct {
 	gateMode       string
 	trustedAuthors TrustedAuthors
 	targetChecker  TargetExistenceChecker
+	relayInfo      RelayInfoLookup
 
 	// blockedAuthors (optional) is consulted before the gate: any event from a
 	// blocked author is dropped regardless of gate mode.
@@ -127,6 +130,15 @@ func (p *Processor) SetTrustGate(mode string, trusted TrustedAuthors, checker Ta
 	p.gateMode = strings.ToLower(strings.TrimSpace(mode))
 	p.trustedAuthors = trusted
 	p.targetChecker = checker
+}
+
+// SetRelayInfo wires the NIP-11 pubkey lookup used to admit group metadata
+// (kinds 39000-39003) only from the relay that published it.
+func (p *Processor) SetRelayInfo(lookup RelayInfoLookup) {
+	if p == nil {
+		return
+	}
+	p.relayInfo = lookup
 }
 
 // SetBlockedAuthors wires an optional blocked-author drop. Blocked authors have
@@ -241,8 +253,24 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 			}
 			return nil
 		}
+		if config.IsCensusKind(result.Event.Kind) {
+			if _, err := p.store.RecordKindCensus(
+				ctx, result.Event.ID, result.Event.Pubkey, result.Event.Kind, result.Event.CreatedAt,
+			); err != nil {
+				return fmt.Errorf("record kind census: %w", err)
+			}
+			metrics.IncIngestOutcome("census")
+			if p.checkpointWriter != nil {
+				if err := p.checkpointWriter.MarkEventProcessed(
+					ctx, relayURL, result.Event.ID, result.Event.CreatedAt,
+				); err != nil {
+					return fmt.Errorf("persist live checkpoint (census): %w", err)
+				}
+			}
+			return nil
+		}
 		if p.trustedAuthors != nil {
-			decision := p.evaluateGate(ctx, result.Event.Kind, result.Event.Pubkey, result.Event.Tags)
+			decision := p.evaluateGate(ctx, result.Event.Kind, result.Event.Pubkey, result.Event.Tags, relayURL)
 			metrics.IncIngestGateDecision(decision.kindLabel, decision.decision)
 			if !decision.accept {
 				p.gatedCount.Add(1)

@@ -251,6 +251,21 @@ func (h *Handlers) refreshThreadSummaryTx(
 	replyWeight30d := reply30d.Total
 
 	var maxDepth int
+	var directReplies int
+	var firstReplyAt *int64
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*)::int, min(child.created_at)
+		FROM thread_edges te
+		JOIN events child ON child.id = te.child_event_id
+		WHERE te.root_event_id = $1 AND te.parent_event_id = $1
+	`, rootEventID).Scan(&directReplies, &firstReplyAt); err != nil {
+		return fmt.Errorf("compute thread shape: %w", err)
+	}
+	firstReplyLatency := 0
+	if firstReplyAt != nil && *firstReplyAt >= rootCreatedAt {
+		firstReplyLatency = int(*firstReplyAt - rootCreatedAt)
+	}
+
 	if err := tx.QueryRow(ctx, `
 		WITH RECURSIVE thread_tree(event_id, depth, path) AS (
 			SELECT $1::text, 0, ARRAY[$1::text]
@@ -270,6 +285,11 @@ func (h *Handlers) refreshThreadSummaryTx(
 	`, rootEventID).Scan(&maxDepth); err != nil {
 		return fmt.Errorf("compute thread summary max depth: %w", err)
 	}
+	branchingX100 := 0
+	if maxDepth > 0 {
+		branchingX100 = int(replyCount) * 100 / maxDepth
+	}
+	halfLifeS := 0
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO thread_summaries (
@@ -287,9 +307,13 @@ func (h *Handlers) refreshThreadSummaryTx(
 			authors_24h,
 			authors_7d,
 			authors_30d,
-			derivation_version
+			derivation_version,
+			direct_reply_count,
+			first_reply_latency_s,
+			branching_x100,
+			half_life_s
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		ON CONFLICT (root_event_id) DO UPDATE
 		SET reply_count = EXCLUDED.reply_count,
 		    participant_count = EXCLUDED.participant_count,
@@ -305,6 +329,10 @@ func (h *Handlers) refreshThreadSummaryTx(
 		    authors_7d = EXCLUDED.authors_7d,
 		    authors_30d = EXCLUDED.authors_30d,
 		    derivation_version = EXCLUDED.derivation_version,
+		    direct_reply_count = EXCLUDED.direct_reply_count,
+		    first_reply_latency_s = EXCLUDED.first_reply_latency_s,
+		    branching_x100 = EXCLUDED.branching_x100,
+		    half_life_s = EXCLUDED.half_life_s,
 		    projected_at = now()
 	`,
 		rootEventID,
@@ -322,6 +350,10 @@ func (h *Handlers) refreshThreadSummaryTx(
 		authors7d,
 		authors30d,
 		writeVersion,
+		directReplies,
+		firstReplyLatency,
+		branchingX100,
+		halfLifeS,
 	); err != nil {
 		return fmt.Errorf("upsert thread summary: %w", err)
 	}

@@ -113,7 +113,7 @@ func (h Handlers) GetLongForm(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	items := result.Events
+	items := h.attachLongFormAttributes(r.Context(), result.Events)
 	if items == nil {
 		items = []json.RawMessage{}
 	}
@@ -371,7 +371,7 @@ func (h Handlers) GetLive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items":       items,
+		"items":       h.attachLiveChatCounts(r.Context(), items),
 		"consistency": "eventual",
 	})
 }

@@ -136,6 +136,14 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	excludeBridged := false
+	if surface == "trending" {
+		excludeBridged, err = parseExcludeBridged(r)
+		if err != nil {
+			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -150,11 +158,11 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "unsupported discovery surface")
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "profiles_"+surface, discoveryCacheParams(map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "profiles_"+surface, cacheExcludeBridged(discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang))
+	}, lang), excludeBridged))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
 		var profilesRows []query.TrendingProfile
 		var rowsErr error
@@ -162,7 +170,7 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		case "rising":
 			profilesRows, rowsErr = h.service.GetRisingProfiles(ctx, window, discoveryScope(lang), limit, offset)
 		default:
-			profilesRows, rowsErr = h.service.GetTrendingProfiles(ctx, window, discoveryScope(lang), limit, offset)
+			profilesRows, rowsErr = h.service.GetTrendingProfiles(ctx, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
 		}
 		degraded := false
 		if rowsErr != nil {

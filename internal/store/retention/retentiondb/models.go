@@ -77,6 +77,12 @@ type AuthorActivityWindow struct {
 	UpdatedAt          pgtype.Timestamptz
 }
 
+type AuthorCohortRetention struct {
+	CohortWeek    pgtype.Date
+	WeekOffset    int32
+	ActiveAuthors int64
+}
+
 type AuthorEngagementStat struct {
 	Pubkey                   string
 	WindowDays               int32
@@ -167,6 +173,14 @@ type AuthorPostingPattern struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type AuthorReactionReceivedDaily struct {
+	Pubkey     string
+	Day        pgtype.Date
+	PlusCount  int64
+	MinusCount int64
+	EmojiCount int64
+}
+
 type AuthorRecentEvent struct {
 	AuthorPubkey      string
 	EventID           string
@@ -183,6 +197,29 @@ type AuthorTopicStat struct {
 	ActiveDays        int32
 	DerivationVersion int32
 	UpdatedAt         pgtype.Timestamptz
+}
+
+type BadgeAward struct {
+	AwardEventID      string
+	DefinitionAddress string
+	Recipient         string
+	AwardedAt         int64
+}
+
+type BadgeDefinition struct {
+	Address     string
+	Issuer      string
+	Name        string
+	Description string
+	Image       string
+	Thumb       string
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type BlossomServersLatest struct {
+	Pubkey    string
+	Servers   []byte
+	UpdatedAt pgtype.Timestamptz
 }
 
 type BookmarkEdge struct {
@@ -251,6 +288,20 @@ type ContactListsLatest struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type ContentFingerprint struct {
+	Fingerprint  string
+	FirstEventID string
+	FirstPubkey  string
+	EventCount   int64
+	PubkeyCount  int64
+	LastSeenAt   int64
+}
+
+type ContentFingerprintPubkey struct {
+	Fingerprint string
+	Pubkey      string
+}
+
 type ContentFlagsDaily struct {
 	Day                 pgtype.Date
 	TotalCount          int64
@@ -258,6 +309,15 @@ type ContentFlagsDaily struct {
 	ContentWarningCount int64
 	PowCount            int64
 	BridgedByProtocol   []byte
+}
+
+type ContentShapeDaily struct {
+	Day          pgtype.Date
+	Kind         int32
+	LengthHist   []byte
+	MentionTotal int64
+	HashtagTotal int64
+	Posts        int64
 }
 
 type CuratedCreatorPaidTier struct {
@@ -282,6 +342,36 @@ type CuratedRecommendedRead struct {
 	Title   string
 	Url     string
 	Rank    int32
+}
+
+type CurationSet struct {
+	Address     string
+	Author      string
+	Kind        int32
+	Title       string
+	Description string
+	Image       string
+	ItemCount   int32
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type CurationSetItem struct {
+	Address   string
+	ItemType  string
+	ItemValue string
+}
+
+type CustomEmojiDaily struct {
+	Day       pgtype.Date
+	Shortcode string
+	Count     int64
+}
+
+type DeletionDaily struct {
+	Day           pgtype.Date
+	Kind          int32
+	Count         int64
+	LatencyTotalS int64
 }
 
 type DeletionEvent struct {
@@ -361,6 +451,12 @@ type EcosystemDailyRollup struct {
 	ComputedAt pgtype.Timestamptz
 }
 
+type EmojiSetsLatest struct {
+	Pubkey     string
+	Shortcodes []byte
+	UpdatedAt  pgtype.Timestamptz
+}
+
 type Event struct {
 	ID          string
 	Pubkey      string
@@ -388,6 +484,15 @@ type EventAttribute struct {
 	TargetKind           pgtype.Int4
 	DerivationVersion    int32
 	ProjectedAt          pgtype.Timestamptz
+	Subject              string
+	HasAlt               bool
+	PublishedAt          pgtype.Int8
+	ZapSplitCount        int32
+	WordCount            int32
+	ReadingTimeS         int32
+	MentionCount         int32
+	HashtagCount         int32
+	ContentLength        int32
 }
 
 type EventHashtag struct {
@@ -397,6 +502,16 @@ type EventHashtag struct {
 	Hashtag           string
 	DerivationVersion int32
 	ProjectedAt       pgtype.Timestamptz
+}
+
+type EventLabel struct {
+	EventID       string
+	LabelerPubkey string
+	Namespace     string
+	Label         string
+	IsSelf        bool
+	TargetType    string
+	TargetValue   string
 }
 
 type EventReference struct {
@@ -440,6 +555,15 @@ type EventUrl struct {
 	IsMedia         bool
 }
 
+type FileMetadatum struct {
+	EventID   string
+	Url       string
+	Mime      string
+	SizeBytes int64
+	Dim       string
+	Blurhash  string
+}
+
 type FollowerEdge struct {
 	FollowedPubkey       string
 	FollowerPubkey       string
@@ -463,6 +587,77 @@ type FollowerGainsDaily struct {
 	Gained            int64
 	DerivationVersion int32
 	UpdatedAt         pgtype.Timestamptz
+}
+
+type FollowerLossEvent struct {
+	FollowedPubkey string
+	FollowerPubkey string
+	LostAt         int64
+	CreatedAt      pgtype.Timestamptz
+}
+
+type GroupActivityDaily struct {
+	RelayUrl      string
+	GroupID       string
+	Day           pgtype.Date
+	MessageCount  int64
+	UniqueAuthors int64
+}
+
+type GroupAuthorDaily struct {
+	RelayUrl string
+	GroupID  string
+	Day      pgtype.Date
+	Pubkey   string
+}
+
+type GroupListsLatest struct {
+	Pubkey    string
+	Groups    []byte
+	UpdatedAt pgtype.Timestamptz
+}
+
+type GroupMessage struct {
+	EventID   string
+	RelayUrl  string
+	GroupID   string
+	Author    string
+	CreatedAt int64
+	Kind      int32
+}
+
+type GroupsLatest struct {
+	RelayUrl        string
+	GroupID         string
+	Name            string
+	About           string
+	Picture         string
+	IsPublic        bool
+	IsOpen          bool
+	AdminCount      int32
+	MemberCount     int32
+	MetadataEventID string
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type HashtagDaily struct {
+	Day     pgtype.Date
+	Hashtag string
+	Events  int64
+	Authors int64
+}
+
+type HashtagInterestCount struct {
+	Hashtag       string
+	FollowerCount int64
+}
+
+type HashtagMomentum struct {
+	Hashtag      string
+	ZScore7d     float64
+	Status       string
+	HalfLifeDays float64
+	UpdatedAt    pgtype.Timestamptz
 }
 
 type IngestCheckpoint struct {
@@ -501,6 +696,13 @@ type IngestPubkeyFrontier struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type InterestListsLatest struct {
+	Pubkey    string
+	Kind      int32
+	Hashtags  []byte
+	UpdatedAt pgtype.Timestamptz
+}
+
 type InvalidEvent struct {
 	ID           int64
 	SourceRelay  pgtype.Text
@@ -528,6 +730,97 @@ type Job struct {
 	FinishedAt     pgtype.Timestamptz
 }
 
+type KindActivityDaily struct {
+	Day           pgtype.Date
+	Kind          int32
+	EventCount    int64
+	UniqueAuthors int64
+}
+
+type KindAuthorDaily struct {
+	Day    pgtype.Date
+	Kind   int32
+	Pubkey string
+}
+
+type KindCensusEvent struct {
+	EventID   string
+	Kind      int32
+	Pubkey    string
+	CreatedAt int64
+	SeenDay   pgtype.Date
+}
+
+type KindEngagementDaily struct {
+	Day       pgtype.Date
+	Kind      int32
+	Posts     int64
+	Reactions int64
+	Replies   int64
+	Zaps      int64
+}
+
+type LabelsDaily struct {
+	Day        pgtype.Date
+	LabelCount int64
+}
+
+type LanguageLabelAgreementDaily struct {
+	Day      pgtype.Date
+	Agree    int64
+	Disagree int64
+}
+
+type LiveActivityStat struct {
+	Address        string
+	ChatCount      int64
+	UniqueChatters int64
+	LastChatAt     int64
+}
+
+type LiveChatAuthorDaily struct {
+	Day     pgtype.Date
+	Address string
+	Pubkey  string
+}
+
+type LiveChatDaily struct {
+	Day            pgtype.Date
+	Address        string
+	ChatCount      int64
+	UniqueChatters int64
+}
+
+type MediaHostAuthorDaily struct {
+	Day             pgtype.Date
+	CanonicalDomain string
+	Pubkey          string
+}
+
+type MediaHostDaily struct {
+	Day             pgtype.Date
+	CanonicalDomain string
+	MediaCount      int64
+	Authors         int64
+}
+
+type MediaMimeDaily struct {
+	Day        pgtype.Date
+	Mime       string
+	MediaCount int64
+}
+
+type MuteEdge struct {
+	Muter string
+	Muted string
+}
+
+type NetworkGraphDaily struct {
+	Day                     pgtype.Date
+	FollowerDegreeHistogram []byte
+	MutualEdgeShareBps      int64
+}
+
 type Nip05Verification struct {
 	Pubkey        string
 	Nip05         string
@@ -550,30 +843,32 @@ type NoteBookmarkStat struct {
 }
 
 type NoteDiscoveryStat struct {
-	EventID            string
-	AuthorPubkey       string
-	CreatedAt          int64
-	ReplyCount         int64
-	RepostCount        int64
-	ReactionCount      int64
-	ZapCount           int64
-	ZapMsats           int64
-	Score24h           float64
-	Score7d            float64
-	LastScoredAt       pgtype.Timestamptz
-	DerivationVersion  int32
-	ProjectedAt        pgtype.Timestamptz
-	HasImage           bool
-	HasVideo           bool
-	HasLink            bool
-	HasArticle         bool
-	AttachmentCount    int32
-	PrimaryLanguage    pgtype.Text
-	LanguageConfidence pgtype.Float8
-	LanguageSource     pgtype.Text
-	Score30d           float64
-	NutzapCount        int64
-	NutzapSats         int64
+	EventID                string
+	AuthorPubkey           string
+	CreatedAt              int64
+	ReplyCount             int64
+	RepostCount            int64
+	ReactionCount          int64
+	ZapCount               int64
+	ZapMsats               int64
+	Score24h               float64
+	Score7d                float64
+	LastScoredAt           pgtype.Timestamptz
+	DerivationVersion      int32
+	ProjectedAt            pgtype.Timestamptz
+	HasImage               bool
+	HasVideo               bool
+	HasLink                bool
+	HasArticle             bool
+	AttachmentCount        int32
+	PrimaryLanguage        pgtype.Text
+	LanguageConfidence     pgtype.Float8
+	LanguageSource         pgtype.Text
+	Score30d               float64
+	NutzapCount            int64
+	NutzapSats             int64
+	TrustedEngagementCount int64
+	FirstZapAt             pgtype.Int8
 }
 
 type NoteZapWindowStat struct {
@@ -633,6 +928,28 @@ type PendingProfileStatsRecompute struct {
 	ClaimToken pgtype.UUID
 }
 
+type Poll struct {
+	EventID  string
+	Author   string
+	Question string
+	Options  []byte
+	PollType string
+	EndsAt   pgtype.Int8
+}
+
+type PollOptionCount struct {
+	PollEventID string
+	OptionID    string
+	Votes       int64
+}
+
+type PollVote struct {
+	PollEventID string
+	Voter       string
+	OptionIds   []byte
+	CreatedAt   int64
+}
+
 type PrimalAppSetting struct {
 	Pubkey       string
 	Client       string
@@ -685,6 +1002,12 @@ type PrimalNotificationsSeen struct {
 	SeenUntil int64
 }
 
+type ProfileBadgesLatest struct {
+	Pubkey    string
+	Accepted  []byte
+	UpdatedAt pgtype.Timestamptz
+}
+
 type ProfileDiscoveryRecentActivity struct {
 	Pubkey           string
 	RecentActivityAt int64
@@ -722,6 +1045,14 @@ type ProfileDiscoveryStat struct {
 	ScoredRisingEngagement30d pgtype.Float8
 }
 
+type ProfileExternalIdentity struct {
+	Pubkey    string
+	Platform  string
+	Identity  string
+	Proof     string
+	UpdatedAt pgtype.Timestamptz
+}
+
 type ProfileField struct {
 	Pubkey            string
 	Name              string
@@ -741,6 +1072,23 @@ type ProfileField struct {
 	MetadataCreatedAt int64
 	DerivationVersion int32
 	UpdatedAt         pgtype.Timestamptz
+}
+
+type ProfileGraphStat struct {
+	Pubkey                    string
+	MutualCount               int64
+	ReciprocityBps            int64
+	FollowBackRateBps         int64
+	GhostFollowerBps          int64
+	MentionedNotFollowedCount int64
+	ComputedAt                pgtype.Timestamptz
+}
+
+type ProfileModerationStat struct {
+	Pubkey          string
+	MutedByCount    int64
+	ReportsReceived int64
+	MuteRateBps     int64
 }
 
 type ProfilePublicStat struct {
@@ -903,6 +1251,31 @@ type RelayDesiredSet struct {
 	Notes         pgtype.Text
 }
 
+type RelayHealthDaily struct {
+	Day          pgtype.Date
+	UrlKey       string
+	Probes       int64
+	ConnectOkBps int64
+	ConnectP50Ms int64
+	ConnectP90Ms int64
+	EoseP50Ms    int64
+}
+
+type RelayHintDaily struct {
+	Day       pgtype.Date
+	RelayUrl  string
+	HintCount int64
+}
+
+type RelayListStatsDaily struct {
+	Day               pgtype.Date
+	Lists             int64
+	AvgRelaysX100     int64
+	P50Relays         int64
+	ReadOnlyShareBps  int64
+	WriteOnlyShareBps int64
+}
+
 type RelayListsLatest struct {
 	Pubkey            string
 	EventID           string
@@ -917,6 +1290,13 @@ type RelayOverlapDaily struct {
 	RelayA       string
 	RelayB       string
 	SharedEvents int64
+}
+
+type RelayPreferenceListsLatest struct {
+	Pubkey    string
+	Kind      int32
+	Relays    []byte
+	UpdatedAt pgtype.Timestamptz
 }
 
 type RelayProbeObservation struct {
@@ -976,6 +1356,10 @@ type RelayRegistry struct {
 	NotesJson             []byte
 	UpdatedAt             pgtype.Timestamptz
 	LastEoseSuccessAt     pgtype.Timestamptz
+	SearchRefCount        int64
+	BlockedRefCount       int64
+	FavoriteRefCount      int64
+	DmRefCount            int64
 }
 
 // Generic homepage-window snapshot store keyed by snapshot_label. Despite the historical name, hosts snapshots for relay summary, note volume / active authors, top languages, and top hashtags. Refreshed every few minutes by derivation.RefreshRelayWindowSnapshots — see internal/derivation/projection_relay_window_snapshots.go.
@@ -1017,6 +1401,12 @@ type ReplyCountContribution struct {
 	SourceCreatedAt   pgtype.Int8
 }
 
+type ReportDaily struct {
+	Day        pgtype.Date
+	ReportType string
+	Count      int64
+}
+
 type ReportTarget struct {
 	ReportEventID     string
 	TagName           string
@@ -1027,6 +1417,13 @@ type ReportTarget struct {
 	CreatedAt         int64
 	DerivationVersion int32
 	ProjectedAt       pgtype.Timestamptz
+}
+
+type ReportTargetCount struct {
+	TargetType    string
+	TargetValue   string
+	ReportCount   int64
+	ReporterCount int64
 }
 
 type RepostCount struct {
@@ -1077,16 +1474,23 @@ type SearchDocument struct {
 
 // Hourly append-only history of rolling 24-hour public discovery metrics, written by RefreshRelayWindowSnapshots.
 type StatsSnapshotHistory struct {
-	BucketStart     pgtype.Timestamptz
-	ComputedAt      pgtype.Timestamptz
-	NoteVolume      int64
-	ActiveAuthors   int64
-	RelayEvents     int64
-	ZapCount24h     int64
-	Sats24h         int64
-	NewAuthors24h   int64
-	Nip17DmCount24h int64
-	BridgedShareBps int64
+	BucketStart      pgtype.Timestamptz
+	ComputedAt       pgtype.Timestamptz
+	NoteVolume       int64
+	ActiveAuthors    int64
+	RelayEvents      int64
+	ZapCount24h      int64
+	Sats24h          int64
+	NewAuthors24h    int64
+	Nip17DmCount24h  int64
+	BridgedShareBps  int64
+	GroupMessages24h int64
+	PollVotes24h     int64
+	LiveChat24h      int64
+	Reports24h       int64
+	Deletions24h     int64
+	Labels24h        int64
+	CensusEvents24h  int64
 }
 
 type StoragePressureState struct {
@@ -1109,23 +1513,35 @@ type ThreadEdge struct {
 	ProjectedAt       pgtype.Timestamptz
 }
 
+type ThreadShapeDaily struct {
+	Day              pgtype.Date
+	Threads          int64
+	P50FirstReplyS   int64
+	AvgDepthX100     int64
+	AvgBranchingX100 int64
+}
+
 type ThreadSummary struct {
-	RootEventID       string
-	ReplyCount        int64
-	ParticipantCount  int32
-	MaxDepth          int32
-	LastActivityAt    int64
-	Replies24h        int64
-	Replies7d         int64
-	DerivationVersion int32
-	ProjectedAt       pgtype.Timestamptz
-	ReplyWeight24h    float64
-	ReplyWeight7d     float64
-	Authors24h        int32
-	Authors7d         int32
-	Replies30d        int64
-	Authors30d        int32
-	ReplyWeight30d    float64
+	RootEventID        string
+	ReplyCount         int64
+	ParticipantCount   int32
+	MaxDepth           int32
+	LastActivityAt     int64
+	Replies24h         int64
+	Replies7d          int64
+	DerivationVersion  int32
+	ProjectedAt        pgtype.Timestamptz
+	ReplyWeight24h     float64
+	ReplyWeight7d      float64
+	Authors24h         int32
+	Authors7d          int32
+	Replies30d         int64
+	Authors30d         int32
+	ReplyWeight30d     float64
+	DirectReplyCount   int32
+	FirstReplyLatencyS int32
+	BranchingX100      int32
+	HalfLifeS          int32
 }
 
 type TrustGraphSnapshot struct {
@@ -1310,14 +1726,28 @@ type UntrustedPurgeTrustedPubkey struct {
 	Pubkey string
 }
 
+type UserStatusLatest struct {
+	Pubkey    string
+	DTag      string
+	Content   string
+	Link      string
+	ExpiresAt pgtype.Int8
+	UpdatedAt pgtype.Timestamptz
+}
+
 type ZapDaily struct {
-	Day          pgtype.Date
-	ZapCount     int64
-	SatsTotal    int64
-	SelfZapCount int64
-	NutzapCount  int64
-	NutzapSats   int64
-	Hist         []byte
+	Day            pgtype.Date
+	ZapCount       int64
+	SatsTotal      int64
+	SelfZapCount   int64
+	NutzapCount    int64
+	NutzapSats     int64
+	Hist           []byte
+	AmountP50Sats  int64
+	AmountP90Sats  int64
+	AmountMeanSats int64
+	GiniBps        int64
+	TtfzP50S       int64
 }
 
 type ZapEdge struct {
@@ -1327,6 +1757,31 @@ type ZapEdge struct {
 	SatsTotal      int64
 	FirstAt        int64
 	LastAt         int64
+}
+
+type ZapGoal struct {
+	EventID     string
+	Author      string
+	AmountMsats int64
+	RaisedSats  int64
+	ClosedAt    pgtype.Int8
+	Summary     string
+	Relays      []byte
+}
+
+type ZapHourly struct {
+	DayOfWeek int32
+	Hour      int32
+	ZapCount  int64
+	Sats      int64
+}
+
+type ZapLeaderboardDaily struct {
+	Day      pgtype.Date
+	Role     string
+	Pubkey   string
+	Sats     int64
+	ZapCount int64
 }
 
 type ZapParticipantDaily struct {

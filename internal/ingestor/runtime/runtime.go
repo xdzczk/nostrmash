@@ -158,6 +158,7 @@ func buildRunner(
 	// operators watch trusted-set/gate metrics before flipping to enforce.
 	trustedSet := NewTrustedAuthorSet(cfg.TrustGate.MaxHops)
 	processor.SetTrustGate(cfg.TrustGate.Mode, trustedSet, eventStore)
+	processor.SetRelayInfo(eventStore)
 	processor.SetBlockedAuthors(trustedSet)
 
 	var observations *ObservationBuffer
@@ -414,6 +415,7 @@ func runLifecycle(
 			relay.NostrConnector{
 				Log:           log,
 				Kinds:         runner.kinds,
+				CensusKinds:   config.CensusKinds(),
 				FilterGroup:   cfg.Relay.ActiveFilterGroup,
 				SinceResolver: sinceResolver,
 			},
@@ -449,6 +451,7 @@ func runLifecycle(
 			relay.NostrConnector{
 				Log:           log,
 				Kinds:         runner.kinds,
+				CensusKinds:   config.CensusKinds(),
 				FilterGroup:   cfg.Relay.ActiveFilterGroup,
 				SinceResolver: sinceResolver,
 			},

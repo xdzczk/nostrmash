@@ -25,6 +25,7 @@ var AllowedTagNames = []string{
 	"a",
 	"d",
 	"e",
+	"ends",
 	"g",
 	"group",
 	"image",

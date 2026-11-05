@@ -52,6 +52,7 @@ const (
 	DerivationDMVolume                    = "dm_volume"
 	DerivationNutzapReceipts              = "nutzap_receipts"
 	DerivationExtendedLists               = "extended_lists"
+	DerivationSurfaces                    = "surfaces"
 	DerivationBookmarkLists               = "bookmark_lists"
 	DerivationNoteDiscoveryStats          = "note_discovery_stats"
 	DerivationProfileDiscoveryStats       = "profile_discovery_stats"
@@ -102,6 +103,7 @@ const (
 	DMVolumeVersion        = 1
 	NutzapReceiptsVersion  = 1
 	ExtendedListsVersion   = 1
+	SurfacesVersion        = 1
 	// BookmarkListsVersion projects public kind-10003 lists and kind-30003
 	// bookmark sets into distinct saved-note counts. Private (encrypted)
 	// bookmarks are not in the tags and are not counted.

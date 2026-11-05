@@ -436,6 +436,13 @@ func (s *Read) GetDiscoveryStatsSeries(ctx context.Context, metric string, windo
 		"new_authors_24h":    "new_authors_24h",
 		"nip17_dm_count_24h": "nip17_dm_count_24h",
 		"bridged_share_bps":  "bridged_share_bps",
+		"group_messages_24h": "group_messages_24h",
+		"poll_votes_24h":     "poll_votes_24h",
+		"live_chat_24h":      "live_chat_24h",
+		"reports_24h":        "reports_24h",
+		"deletions_24h":      "deletions_24h",
+		"labels_24h":         "labels_24h",
+		"census_events_24h":  "census_events_24h",
 	}[metric]
 	if !ok {
 		return out, fmt.Errorf("unsupported stats metric %q", metric)
@@ -753,6 +760,29 @@ func (s *Read) GetCuratedRecommendedReads(ctx context.Context, limit int) ([]Cur
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read curated recommended read rows: %w", err)
+	}
+	if len(out) > 0 {
+		return out, nil
+	}
+	fallback, err := s.pool.Query(ctx, `
+		SELECT i.item_value, s.title, '', row_number() OVER (ORDER BY s.updated_at DESC, i.item_value ASC)
+		FROM curation_set_items i
+		JOIN curation_sets s ON s.address = i.address
+		WHERE s.kind = 30004
+		  AND s.author IN (SELECT pubkey FROM trust_pubkeys_latest)
+		ORDER BY s.updated_at DESC, i.item_value ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return out, nil
+	}
+	defer fallback.Close()
+	for fallback.Next() {
+		var row CuratedRecommendedRead
+		if err := fallback.Scan(&row.EventID, &row.Title, &row.URL, &row.Rank); err != nil {
+			return out, nil
+		}
+		out = append(out, row)
 	}
 	return out, nil
 }

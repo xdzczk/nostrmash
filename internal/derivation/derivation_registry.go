@@ -46,6 +46,7 @@ var RegisteredDerivations = []RegisteredDerivation{
 	{Name: DerivationDMVolume, Version: DMVolumeVersion, Description: "Count NIP-04 and NIP-17 messages per receiver per day"},
 	{Name: DerivationNutzapReceipts, Version: NutzapReceiptsVersion, Description: "Project NIP-61 nutzap receipts by sender, receiver, mint, and sats"},
 	{Name: DerivationExtendedLists, Version: ExtendedListsVersion, Description: "Project kind-10050 DM relay lists and kind-10019 nutzap wallet info"},
+	{Name: DerivationSurfaces, Version: SurfacesVersion, Description: "Project groups, live chat, polls, badges, goals, lists, labels, and file metadata"},
 	{Name: DerivationBookmarkLists, Version: BookmarkListsVersion, Description: "Project public bookmark lists into distinct saved-note counts"},
 	{Name: DerivationNoteDiscoveryStats, Version: NoteDiscoveryStatsVersion, Description: "Project per-note discovery counters and rolling scores"},
 	{Name: DerivationProfileDiscoveryStats, Version: ProfileDiscoveryStatsVersion, Description: "Project per-profile discovery counters and rolling scores"},

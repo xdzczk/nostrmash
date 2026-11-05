@@ -117,6 +117,12 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 	}
 
+	if hinted, hintErr := r.registryStore.InsertHintRelays(ctx, limit); hintErr != nil {
+		r.log.Warn("relay_hint_insert_failed", "error", hintErr)
+	} else if hinted > 0 {
+		inserted += hinted
+	}
+
 	r.log.Info("relay_discovery_completed",
 		"total_candidates", len(candidates),
 		"refreshed", refreshed,
@@ -180,15 +186,6 @@ func planDiscoveryUpserts(
 }
 
 func (r *Runner) aggregateRelayReferences(ctx context.Context) ([]relayCandidateAgg, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT pubkey, relays_json::text
-		FROM relay_lists_latest
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("query relay_lists_latest: %w", err)
-	}
-	defer rows.Close()
-
 	normalizeOpts := relayurl.NormalizeOptions{RequireTLS: !r.allowPrivate}
 	validateOpts := relayurl.ValidateOptions{AllowPrivateNetwork: r.allowPrivate}
 
@@ -197,21 +194,58 @@ func (r *Runner) aggregateRelayReferences(ctx context.Context) ([]relayCandidate
 	// key -> normalizedURL
 	relayURLs := make(map[string]string)
 
+	// Kind 10002 is the public read/write list. Kind 10050 is the DM relay
+	// list. A person who names a relay on either list counts once.
+	for _, query := range []string{
+		`SELECT pubkey, relays_json::text FROM relay_lists_latest`,
+		`SELECT pubkey, relays_json::text FROM dm_relay_lists_latest`,
+	} {
+		if err := r.accumulateRelayLists(ctx, query, normalizeOpts, validateOpts, relayPubkeys, relayURLs); err != nil {
+			return nil, err
+		}
+	}
+
+	candidates := make([]relayCandidateAgg, 0, len(relayPubkeys))
+	for urlKey, pubkeys := range relayPubkeys {
+		candidates = append(candidates, relayCandidateAgg{
+			NormalizedURL: relayURLs[urlKey],
+			URLKey:        urlKey,
+			DistinctUsers: len(pubkeys),
+			WeightedScore: float64(len(pubkeys)),
+		})
+	}
+
+	// Sort by distinct user count descending so new-insert budget prefers popular relays.
+	sortCandidates(candidates)
+	return candidates, nil
+}
+
+func (r *Runner) accumulateRelayLists(
+	ctx context.Context,
+	query string,
+	normalizeOpts relayurl.NormalizeOptions,
+	validateOpts relayurl.ValidateOptions,
+	relayPubkeys map[string]map[string]struct{},
+	relayURLs map[string]string,
+) error {
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return fmt.Errorf("query relay lists: %w", err)
+	}
+	defer rows.Close()
 	for rows.Next() {
 		var pubkey, relaysText string
 		if err := rows.Scan(&pubkey, &relaysText); err != nil {
-			return nil, fmt.Errorf("scan relay list row: %w", err)
+			return fmt.Errorf("scan relay list row: %w", err)
 		}
 		pubkey = strings.TrimSpace(pubkey)
 		if pubkey == "" {
 			continue
 		}
-
 		var relays []string
 		if err := json.Unmarshal([]byte(relaysText), &relays); err != nil {
 			continue
 		}
-
 		for _, raw := range relays {
 			normalized, err := relayurl.Normalize(raw, normalizeOpts)
 			if err != nil {
@@ -229,22 +263,9 @@ func (r *Runner) aggregateRelayReferences(ctx context.Context) ([]relayCandidate
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read relay list rows: %w", err)
+		return fmt.Errorf("read relay list rows: %w", err)
 	}
-
-	candidates := make([]relayCandidateAgg, 0, len(relayPubkeys))
-	for urlKey, pubkeys := range relayPubkeys {
-		candidates = append(candidates, relayCandidateAgg{
-			NormalizedURL: relayURLs[urlKey],
-			URLKey:        urlKey,
-			DistinctUsers: len(pubkeys),
-			WeightedScore: float64(len(pubkeys)),
-		})
-	}
-
-	// Sort by distinct user count descending so new-insert budget prefers popular relays.
-	sortCandidates(candidates)
-	return candidates, nil
+	return nil
 }
 
 func sortCandidates(candidates []relayCandidateAgg) {

@@ -21,7 +21,7 @@ import (
 // (deleting allowlisted tags, or leaving disallowed ones undeleted) without
 // any test coverage catching it — TestPruneFilteredEventTags only exercises
 // a couple of tag names, not the full allowlist boundary.
-var notInListPattern = regexp.MustCompile(`(?s)NOT IN \(([^)]*)\)`)
+var notInListPattern = regexp.MustCompile(`(?s)tag_name NOT IN \(([^)]*)\)`)
 
 func TestAllowedTagNamesMatchesDisallowedNameQuery(t *testing.T) {
 	want := slices.Clone(eventtags.AllowedTagNames)
@@ -29,7 +29,7 @@ func TestAllowedTagNamesMatchesDisallowedNameQuery(t *testing.T) {
 
 	for _, path := range []string{
 		"queries/retention.sql",
-		"../../../migrations/000106_kind_expansion.sql",
+		"../../../migrations/000118_ws0_backfill_foundations.sql",
 	} {
 		got := extractQuotedList(t, path)
 		if !slices.Equal(got, want) {

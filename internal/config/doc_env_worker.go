@@ -378,14 +378,14 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "2000",
-			Description:  "Maximum raw engagement events (kinds 6/7/1059/9321/9735) deleted per retention purge batch.",
+			Description:  "Maximum raw engagement events (kinds 6/7/1018/1059/1311/9321/9735) deleted per retention purge batch.",
 		},
 		{
 			Name:         "WORKER_RETENTION_ENGAGEMENT_ENABLED",
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "true",
-			Description:  "Enable periodic retention purge of raw engagement events (kinds 6/7/1059/9321/9735). Lifetime aggregate counters survive; only raw rows and cascade-cleaned contributions are removed. Kind 1059 is wrapped-DM ciphertext and kind 9321 is a nutzap receipt.",
+			Description:  "Enable periodic retention purge of raw engagement events (kinds 6/7/1018/1059/1311/9321/9735). Lifetime aggregate counters survive; only raw rows and cascade-cleaned contributions are removed. Kind 1059 is wrapped-DM ciphertext, kind 9321 is a nutzap receipt, kind 1018 is a poll response, and kind 1311 is live chat.",
 		},
 		{
 			Name:         "WORKER_RETENTION_ENGAGEMENT_MAX_AGE",
@@ -567,7 +567,7 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "true",
-			Description:  "Enable retention purge of author-gated raw events (kinds 1/4/5/20/21/22/1984/9802/10000/10001/10003/30000/30023/30311/34235/34236; kind-1 replies already in thread_edges are kept; kinds 16 and 1111 stay bounded by their target rule) plus their derived event_urls/event_hashtags rows, all whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty.",
+			Description:  "Enable retention purge of author-gated raw events (kinds 1/4/5/8/9/11/20/21/22/1063/1068/1984/1985/9041/9802/10000/10001/10003/10006/10007/10009/10012/10015/10019/10030/10050/10063/30000/30002/30004/30005/30008/30009/30015/30023/30311/30315/34235/34236; kind-1 replies already in thread_edges are kept; kinds 16, 1111, 1018, and 1311 stay bounded by their target rule) plus their derived event_urls/event_hashtags rows, all whose author is outside trust_graph_snapshot. Fail-safe: deletes nothing while the trust graph snapshot is empty.",
 		},
 		{
 			Name:         "WORKER_RETENTION_UNTRUSTED_AUTHOR_MAX_AGE",

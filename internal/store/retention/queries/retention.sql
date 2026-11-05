@@ -7,7 +7,7 @@
 WITH candidates AS (
     SELECT e.id
     FROM events e
-    WHERE e.kind IN (6, 7, 1059, 9321, 9735)
+    WHERE e.kind IN (6, 7, 1018, 1059, 1311, 9321, 9735)
       AND e.created_at < @created_before_unix::bigint
       AND NOT EXISTS (
         SELECT 1
@@ -31,7 +31,7 @@ WHERE e.id = c.id;
 -- candidate before deleting it (see internal/store/retention/events_retention.go).
 SELECT e.id
 FROM events e
-WHERE e.kind IN (6, 7, 1059, 9321, 9735)
+WHERE e.kind IN (6, 7, 1018, 1059, 1311, 9321, 9735)
   AND e.created_at < @created_before_unix::bigint
   AND NOT EXISTS (
     SELECT 1
@@ -486,7 +486,7 @@ WITH candidates AS (
     SELECT et.event_id, et.tag_index, et.value_index
     FROM event_tags et
     WHERE et.tag_name NOT IN (
-        'a', 'd', 'e', 'g', 'group', 'image', 'imeta', 'm', 'p', 'r',
+        'a', 'd', 'e', 'ends', 'g', 'group', 'image', 'imeta', 'm', 'p', 'r',
         'series', 'starts', 'status', 'summary', 't', 'thumb', 'title', 'u', 'url', 'video', 'word'
     )
     LIMIT @row_limit

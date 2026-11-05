@@ -128,6 +128,7 @@ func streamProfilesConn(ctx context.Context, conn *pgxpool.Conn, batchSize int, 
 				coalesce(p.display_name, ''),
 				coalesce(p.about, ''),
 				coalesce(p.nip05, ''),
+				` + nip05VerifiedSQL + `,
 				coalesce(stats.follower_count, 0) + coalesce(stats.note_count, 0)
 			FROM profiles_latest p
 			LEFT JOIN profile_public_stats stats ON stats.pubkey = p.pubkey

@@ -120,6 +120,26 @@ func TestComputeScore_LowLatency(t *testing.T) {
 	}
 }
 
+func TestComputeScore_PropagationShare(t *testing.T) {
+	plain := ComputeScore(relayregistry.RelayRecord{DistinctUserRefCount: 20})
+	rec := ApplyPropagationShare(relayregistry.RelayRecord{
+		NormalizedURL:        "wss://relay.example",
+		DistinctUserRefCount: 20,
+	}, map[string]relayregistry.PropagationShare{
+		"wss://relay.example": {FirstSeen: 0.5, Exclusive: 0.25},
+	})
+	sc := ComputeScore(rec)
+	if sc.FirstSeenShare != 0.5 || sc.ExclusiveShare != 0.25 {
+		t.Fatalf("shares = %f %f", sc.FirstSeenShare, sc.ExclusiveShare)
+	}
+	if sc.PropagationScore != 5 {
+		t.Fatalf("propagation score = %f, want 5", sc.PropagationScore)
+	}
+	if sc.TotalScore != plain.TotalScore+5 {
+		t.Fatalf("total = %f, plain = %f", sc.TotalScore, plain.TotalScore)
+	}
+}
+
 func TestComputeScore_NeverNegativeTotal(t *testing.T) {
 	rec := relayregistry.RelayRecord{
 		ProbeFailRate:  1.0,

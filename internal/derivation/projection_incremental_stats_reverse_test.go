@@ -108,7 +108,7 @@ func TestReverseIncrementalAuthorStatsTx_UndoesAllProjections(t *testing.T) {
 	// durable volume ledger: reversal must not unclaim it, or a later
 	// re-derive would count the same event twice. The row is reclaimed by
 	// the orphan prune after the event itself is deleted.
-	assertScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id IN ('rev_alice_note','rev_bob_reply') AND projection <> 'event_attribute_daily'`, 0)
+	assertScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id IN ('rev_alice_note','rev_bob_reply') AND projection NOT IN ('event_attribute_daily', 'kind_activity', 'tag_enrichment', 'media_host', 'content_fingerprint')`, 0)
 	assertScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id IN ('rev_alice_note','rev_bob_reply') AND projection = 'event_attribute_daily'`, 2)
 
 	// Idempotency: reversing again (e.g. a retried purge batch after a crash

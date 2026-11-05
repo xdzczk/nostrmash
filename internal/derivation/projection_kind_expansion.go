@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/xdzczk/nostrmash/internal/nostr"
 )
@@ -148,6 +149,44 @@ func (h *Handlers) projectReportTargetsWithVersion(ctx context.Context, eventID 
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		`, eventID, item.name, item.value, author, item.kind, content, createdAt, writeVersion); err != nil {
 			return fmt.Errorf("insert report target: %w", err)
+		}
+	}
+	if kind == 1984 && len(targets) > 0 {
+		claimed, err := claimStatDeltaTx(ctx, tx, eventID, "report_daily")
+		if err != nil {
+			return err
+		}
+		if claimed {
+			day := time.Unix(createdAt, 0).UTC().Format("2006-01-02")
+			for _, item := range targets {
+				if _, err := tx.Exec(ctx, `
+					INSERT INTO report_daily (day, report_type, count)
+					VALUES ($1::date, $2, 1)
+					ON CONFLICT (day, report_type) DO UPDATE
+					SET count = report_daily.count + 1
+				`, day, item.kind); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(ctx, `
+					INSERT INTO report_target_counts (target_type, target_value, report_count, reporter_count)
+					VALUES ($1, $2, 1, 1)
+					ON CONFLICT (target_type, target_value) DO UPDATE
+					SET report_count = report_target_counts.report_count + 1,
+					    reporter_count = report_target_counts.reporter_count + 1
+				`, item.name, item.value); err != nil {
+					return err
+				}
+				if item.name == "p" {
+					if _, err := tx.Exec(ctx, `
+						INSERT INTO profile_moderation_stats (pubkey, reports_received)
+						VALUES ($1, 1)
+						ON CONFLICT (pubkey) DO UPDATE
+						SET reports_received = profile_moderation_stats.reports_received + 1
+					`, item.value); err != nil {
+						return err
+					}
+				}
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

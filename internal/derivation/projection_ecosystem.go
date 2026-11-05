@@ -3,6 +3,7 @@ package derivation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -29,7 +30,8 @@ func (h *Handlers) projectEventAttributesWithVersion(ctx context.Context, eventI
 	var author string
 	var kind int
 	var createdAt int64
-	if err := h.pool.QueryRow(ctx, `SELECT pubkey, kind, created_at FROM events WHERE id = $1`, eventID).Scan(&author, &kind, &createdAt); err != nil {
+	var content string
+	if err := h.pool.QueryRow(ctx, `SELECT pubkey, kind, created_at, content FROM events WHERE id = $1`, eventID).Scan(&author, &kind, &createdAt, &content); err != nil {
 		return fmt.Errorf("load event for attributes: %w", err)
 	}
 	tags, err := h.loadEventTags(ctx, eventID)
@@ -53,12 +55,15 @@ func (h *Handlers) projectEventAttributesWithVersion(ctx context.Context, eventI
 	if attrs.TargetKind != nil {
 		targetKind = *attrs.TargetKind
 	}
+	words, mentions, hashtags, length, reading := contentShape(kind, content, tags)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO event_attributes (
 			event_id, client, client_pubkey, expires_at, content_warning, content_warning_reason,
-			proxy_protocol, proxy_id, pow_bits, pow_target, target_kind, derivation_version
+			proxy_protocol, proxy_id, pow_bits, pow_target, target_kind, derivation_version,
+			subject, has_alt, published_at, zap_split_count, word_count, reading_time_s,
+			mention_count, hashtag_count, content_length
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		ON CONFLICT (event_id) DO UPDATE
 		SET client = EXCLUDED.client,
 		    client_pubkey = EXCLUDED.client_pubkey,
@@ -71,10 +76,23 @@ func (h *Handlers) projectEventAttributesWithVersion(ctx context.Context, eventI
 		    pow_target = EXCLUDED.pow_target,
 		    target_kind = EXCLUDED.target_kind,
 		    derivation_version = EXCLUDED.derivation_version,
+		    subject = EXCLUDED.subject,
+		    has_alt = EXCLUDED.has_alt,
+		    published_at = EXCLUDED.published_at,
+		    zap_split_count = EXCLUDED.zap_split_count,
+		    word_count = EXCLUDED.word_count,
+		    reading_time_s = EXCLUDED.reading_time_s,
+		    mention_count = EXCLUDED.mention_count,
+		    hashtag_count = EXCLUDED.hashtag_count,
+		    content_length = EXCLUDED.content_length,
 		    projected_at = now()
 	`, eventID, attrs.Client, attrs.ClientPubkey, attrs.ExpiresAt, attrs.ContentWarning, attrs.ContentWarningReason,
-		attrs.ProxyProtocol, attrs.ProxyID, attrs.PowBits, attrs.PowTarget, targetKind, writeVersion); err != nil {
+		attrs.ProxyProtocol, attrs.ProxyID, attrs.PowBits, attrs.PowTarget, targetKind, writeVersion,
+		attrs.Subject, attrs.HasAlt, attrs.PublishedAt, attrs.ZapSplitCount, words, reading, mentions, hashtags, length); err != nil {
 		return fmt.Errorf("upsert event attributes: %w", err)
+	}
+	if err := projectTagEnrichmentTx(ctx, tx, eventID, author, kind, createdAt, tags); err != nil {
+		return fmt.Errorf("project tag enrichment: %w", err)
 	}
 	claimed, err := claimStatDeltaTx(ctx, tx, eventID, "event_attribute_daily")
 	if err != nil {
@@ -135,8 +153,45 @@ func (h *Handlers) projectEventAttributesWithVersion(ctx context.Context, eventI
 			return fmt.Errorf("upsert content flags daily: %w", err)
 		}
 	}
+	if err := bumpStoredKindActivityTx(ctx, tx, eventID, author, kind, createdAt); err != nil {
+		return err
+	}
+	if err := recordContentFingerprintTx(ctx, tx, eventID, author, content, kind, createdAt); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit event attributes: %w", err)
+	}
+	return nil
+}
+
+func bumpStoredKindActivityTx(ctx context.Context, tx pgx.Tx, eventID, author string, kind int, createdAt int64) error {
+	claimed, err := claimStatDeltaTx(ctx, tx, eventID, "kind_activity")
+	if err != nil || !claimed {
+		return err
+	}
+	day := time.Unix(createdAt, 0).UTC().Format("2006-01-02")
+	authorTag, err := tx.Exec(ctx, `
+		INSERT INTO kind_author_daily (day, kind, pubkey)
+		VALUES ($1::date, $2, $3)
+		ON CONFLICT DO NOTHING
+	`, day, kind, author)
+	if err != nil {
+		return fmt.Errorf("insert kind author: %w", err)
+	}
+	unique := int64(0)
+	if authorTag.RowsAffected() > 0 {
+		unique = 1
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO kind_activity_daily (day, kind, event_count, unique_authors)
+		VALUES ($1::date, $2, 1, $3)
+		ON CONFLICT (day, kind) DO UPDATE
+		SET event_count = kind_activity_daily.event_count + 1,
+		    unique_authors = kind_activity_daily.unique_authors + EXCLUDED.unique_authors
+	`, day, kind, unique)
+	if err != nil {
+		return fmt.Errorf("upsert kind activity: %w", err)
 	}
 	return nil
 }
@@ -159,12 +214,13 @@ func (h *Handlers) projectProfileFieldsWithVersion(ctx context.Context, eventID 
 	}
 	var createdAt int64
 	var content string
+	var winnerID string
 	if err := h.pool.QueryRow(ctx, `
-		SELECT created_at, content FROM events
+		SELECT id, created_at, content FROM events
 		WHERE pubkey = $1 AND kind = 0
 		ORDER BY created_at DESC, id DESC
 		LIMIT 1
-	`, pubkey).Scan(&createdAt, &content); err != nil {
+	`, pubkey).Scan(&winnerID, &createdAt, &content); err != nil {
 		return fmt.Errorf("load latest profile content: %w", err)
 	}
 	fields := parseProfileFields(content)
@@ -226,6 +282,13 @@ func (h *Handlers) projectProfileFieldsWithVersion(ctx context.Context, eventID 
 		WHERE nip05_verifications.nip05 IS DISTINCT FROM EXCLUDED.nip05
 	`, pubkey, fields.NIP05, fields.NIP05Domain); err != nil {
 		return fmt.Errorf("schedule nip05 verification: %w", err)
+	}
+	identityTags, err := h.loadEventTags(ctx, winnerID)
+	if err != nil {
+		return err
+	}
+	if err := replaceExternalIdentitiesTx(ctx, tx, pubkey, identityTags); err != nil {
+		return fmt.Errorf("replace external identities: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit profile fields: %w", err)
@@ -536,6 +599,11 @@ func (h *Handlers) projectExtendedListsWithVersion(ctx context.Context, eventID 
 	switch kind {
 	case 10050:
 		relays, _ := json.Marshal(tagValues(tags, "relay"))
+		var previousRelays []byte
+		_ = tx.QueryRow(ctx, `SELECT relays_json FROM dm_relay_lists_latest WHERE pubkey = $1`, pubkey).Scan(&previousRelays)
+		if err := diffRelayRefColumnTx(ctx, tx, "dm_ref_count", previousRelays, normalizeRelayList(tagValues(tags, "relay"))); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO dm_relay_lists_latest (pubkey, event_id, created_at, relays_json, derivation_version)
 			VALUES ($1, $2, $3, $4, $5)
@@ -736,6 +804,38 @@ func (h *Handlers) applyReactionBreakdownTx(ctx context.Context, tx pgx.Tx, sour
 		    minus_count = profile_reaction_daily.minus_count + EXCLUDED.minus_count,
 		    emoji_count = profile_reaction_daily.emoji_count + EXCLUDED.emoji_count
 	`, reactor, day, plus, minus, emoji)
+	if err != nil {
+		return err
+	}
+	var author string
+	if err := tx.QueryRow(ctx, `SELECT pubkey FROM events WHERE id = $1`, targetID).Scan(&author); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO author_reaction_received_daily (pubkey, day, plus_count, minus_count, emoji_count)
+		VALUES ($1, $2::date, $3, $4, $5)
+		ON CONFLICT (pubkey, day) DO UPDATE
+		SET plus_count = author_reaction_received_daily.plus_count + EXCLUDED.plus_count,
+		    minus_count = author_reaction_received_daily.minus_count + EXCLUDED.minus_count,
+		    emoji_count = author_reaction_received_daily.emoji_count + EXCLUDED.emoji_count
+	`, author, day, plus, minus, emoji); err != nil {
+		return err
+	}
+	var trusted bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM trust_pubkeys_latest WHERE pubkey = $1)`, reactor).Scan(&trusted); err != nil {
+		return err
+	}
+	if !trusted {
+		return nil
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE note_discovery_stats
+		SET trusted_engagement_count = trusted_engagement_count + 1
+		WHERE event_id = $1
+	`, targetID)
 	return err
 }
 

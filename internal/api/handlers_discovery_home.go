@@ -31,6 +31,11 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	excludeBridged, err := parseExcludeBridged(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -41,13 +46,13 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_notes", discoveryCacheParams(map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_notes", cacheExcludeBridged(discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang))
+	}, lang), excludeBridged))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		notes, notesErr := h.service.GetTrendingNotes(ctx, window, discoveryScope(lang), limit, offset)
+		notes, notesErr := h.service.GetTrendingNotes(ctx, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
 		degraded := false
 		if notesErr != nil {
 			if query.IsUnsupportedCapability(notesErr) {
@@ -104,6 +109,11 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	excludeBridged, err := parseExcludeBridged(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -114,13 +124,13 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_long_form", discoveryCacheParams(map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_long_form", cacheExcludeBridged(discoveryCacheParams(map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang))
+	}, lang), excludeBridged))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		articles, articlesErr := h.service.GetTrendingLongForm(ctx, window, discoveryScope(lang), limit, offset)
+		articles, articlesErr := h.service.GetTrendingLongForm(ctx, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
 		degraded := false
 		if articlesErr != nil {
 			if query.IsUnsupportedCapability(articlesErr) {
@@ -182,6 +192,11 @@ func (h Handlers) GetTrendingMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	excludeBridged, err := parseExcludeBridged(r)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -192,14 +207,14 @@ func (h Handlers) GetTrendingMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_media", discoveryCacheParams(map[string]any{
+	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_media", cacheExcludeBridged(discoveryCacheParams(map[string]any{
 		"format": format,
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang))
+	}, lang), excludeBridged))
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		events, eventsErr := h.service.GetTrendingMedia(ctx, format, window, discoveryScope(lang), limit, offset)
+		events, eventsErr := h.service.GetTrendingMedia(ctx, format, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
 		degraded := false
 		if eventsErr != nil {
 			if query.IsUnsupportedCapability(eventsErr) {

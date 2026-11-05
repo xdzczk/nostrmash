@@ -334,14 +334,27 @@ func applyConfiguredFilterGroups(cfg *RelayConfig) error {
 // 9321, 9735) are target-gated; 9321 also accepts a trusted p-tag recipient.
 // The rest (0, 3, 10002) stay open so the trust graph and profiles can bootstrap.
 var defaultFilterGroupKinds = []int{
-	0, 1, 3, 4, 5, 6, 7, 16, 20, 21, 22, 1059, 1111, 1984, 9321,
-	9735, 9802, 10000, 10001, 10002, 10003, 10019, 10050, 30000, 30023, 30311, 34235, 34236,
+	0, 1, 3, 4, 5, 6, 7, 8, 9, 11, 16, 20, 21, 22, 1018, 1059, 1063, 1068, 1111, 1311, 1984, 1985, 9041, 9321,
+	9735, 9802, 10000, 10001, 10002, 10003, 10006, 10007, 10009, 10012, 10015, 10019, 10030, 10050, 10063,
+	30000, 30002, 30004, 30005, 30008, 30009, 30015, 30023, 30311, 30315, 34235, 34236,
+	39000, 39001, 39002, 39003,
+}
+
+func formatFilterKinds(kinds []int) string {
+	parts := make([]string, len(kinds))
+	for i, kind := range kinds {
+		parts[i] = strconv.Itoa(kind)
+	}
+	return strings.Join(parts, ",")
 }
 
 func defaultFilterGroups() map[string]FilterGroup {
 	return map[string]FilterGroup{
 		defaultFilterGroupName: {
 			Kinds: append([]int(nil), defaultFilterGroupKinds...),
+		},
+		censusFilterGroupName: {
+			Kinds: CensusKinds(),
 		},
 	}
 }
@@ -360,8 +373,9 @@ func validateFilterGroups(cfg RelayConfig) error {
 	slices.Sort(wantKinds)
 	if !slices.Equal(gotKinds, wantKinds) {
 		return fmt.Errorf(
-			"relay filter group %q must use kinds 0,1,3,4,5,6,7,16,20,21,22,1059,1111,1984,9321,9735,9802,10000,10001,10002,10003,10019,10050,30000,30023,30311,34235,34236 in this chunk",
+			"relay filter group %q must use kinds %s in this chunk",
 			defaultFilterGroupName,
+			formatFilterKinds(defaultFilterGroupKinds),
 		)
 	}
 	active := strings.TrimSpace(cfg.ActiveFilterGroup)
@@ -370,6 +384,14 @@ func validateFilterGroups(cfg RelayConfig) error {
 	}
 	if _, ok := cfg.FilterGroups[active]; !ok {
 		return fmt.Errorf("INGESTOR_FILTER_GROUP %q is not defined", active)
+	}
+	if census, ok := cfg.FilterGroups[censusFilterGroupName]; ok {
+		want := CensusKinds()
+		got := append([]int(nil), census.Kinds...)
+		slices.Sort(got)
+		if !slices.Equal(got, want) {
+			return fmt.Errorf("relay filter group %q must use the built-in census kind list", censusFilterGroupName)
+		}
 	}
 	return nil
 }

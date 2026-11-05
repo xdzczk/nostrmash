@@ -140,6 +140,10 @@ func storeResult(ctx context.Context, pool *pgxpool.Pool, row dueRow, result Res
 			status = StatusUnreachable
 		}
 	}
+	var previous string
+	if err := pool.QueryRow(ctx, `SELECT status FROM nip05_verifications WHERE pubkey = $1`, row.Pubkey).Scan(&previous); err != nil {
+		return err
+	}
 	_, err := pool.Exec(ctx, `
 		UPDATE nip05_verifications
 		SET status = $2,
@@ -150,7 +154,13 @@ func storeResult(ctx context.Context, pool *pgxpool.Pool, row dueRow, result Res
 		    updated_at = now()
 		WHERE pubkey = $1
 	`, row.Pubkey, status, next, failures, result.ErrorCode)
-	return err
+	if err != nil {
+		return err
+	}
+	if previous == status {
+		return nil
+	}
+	return markProfileSearchDirty(ctx, pool, row.Pubkey)
 }
 
 func splitNIP05(value string) (local, domain string, ok bool) {
@@ -174,11 +184,14 @@ func SchedulePending(ctx context.Context, pool *pgxpool.Pool, pubkey, identifier
 	}
 	local, domain, ok := splitNIP05(identifier)
 	if !ok {
-		_, err := pool.Exec(ctx, `DELETE FROM nip05_verifications WHERE pubkey = $1`, pubkey)
-		return err
+		tag, err := pool.Exec(ctx, `DELETE FROM nip05_verifications WHERE pubkey = $1`, pubkey)
+		if err != nil || tag.RowsAffected() == 0 {
+			return err
+		}
+		return markProfileSearchDirty(ctx, pool, pubkey)
 	}
 	_ = local
-	_, err := pool.Exec(ctx, `
+	tag, err := pool.Exec(ctx, `
 		INSERT INTO nip05_verifications (pubkey, nip05, domain, status, next_check_at, failure_count)
 		VALUES ($1, $2, $3, 'pending', now(), 0)
 		ON CONFLICT (pubkey) DO UPDATE
@@ -191,5 +204,20 @@ func SchedulePending(ctx context.Context, pool *pgxpool.Pool, pubkey, identifier
 		    updated_at = now()
 		WHERE nip05_verifications.nip05 IS DISTINCT FROM EXCLUDED.nip05
 	`, pubkey, strings.ToLower(strings.TrimSpace(identifier)), domain)
+	if err != nil || tag.RowsAffected() == 0 {
+		return err
+	}
+	return markProfileSearchDirty(ctx, pool, pubkey)
+}
+
+func markProfileSearchDirty(ctx context.Context, pool *pgxpool.Pool, pubkey string) error {
+	_, err := pool.Exec(ctx, `
+		INSERT INTO pending_meilisearch_syncs (event_id)
+		SELECT metadata_event_id
+		FROM profiles_latest
+		WHERE pubkey = $1
+		ON CONFLICT (event_id) DO UPDATE
+		SET marked_at = now()
+	`, pubkey)
 	return err
 }
