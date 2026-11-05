@@ -1,21 +1,21 @@
 goos: linux
 goarch: amd64
 pkg: github.com/xdzczk/nostrmash/internal/query
-cpu: AMD EPYC 9V74 80-Core Processor                
-BenchmarkServiceGetEventBatch-4     	   71294	     16589 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetEventBatch-4     	   72570	     16382 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetEventBatch-4     	   72422	     17677 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetEventBatch-4     	   64443	     17065 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetEventBatch-4     	   69718	     17446 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetUserInfos-4      	   36160	     31582 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetUserInfos-4      	   39416	     30590 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetUserInfos-4      	   39344	     30725 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetUserInfos-4      	   39708	     30828 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetUserInfos-4      	   39230	     30639 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   35463	     33653 ns/op	   22731 B/op	     329 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   35457	     34307 ns/op	   22732 B/op	     329 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   35674	     33831 ns/op	   22732 B/op	     329 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   35365	     33970 ns/op	   22732 B/op	     329 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   34926	     34017 ns/op	   22731 B/op	     329 allocs/op
+cpu: Intel(R) Xeon(R) 6975P-C
+BenchmarkServiceGetEventBatch-4     	   82308	     14578 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetEventBatch-4     	   81271	     15241 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetEventBatch-4     	   72326	     14594 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetEventBatch-4     	   83145	     14587 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetEventBatch-4     	   81732	     14522 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetUserInfos-4      	   42890	     27325 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetUserInfos-4      	   43251	     27816 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetUserInfos-4      	   43137	     27429 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetUserInfos-4      	   43530	     27673 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetUserInfos-4      	   43904	     27678 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   35181	     34186 ns/op	   22732 B/op	     329 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   35120	     34005 ns/op	   22732 B/op	     329 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   35192	     33977 ns/op	   22732 B/op	     329 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   35343	     34031 ns/op	   22732 B/op	     329 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   35018	     34134 ns/op	   22732 B/op	     329 allocs/op
 PASS
-ok  	github.com/xdzczk/nostrmash/internal/query	22.148s
+ok  	github.com/xdzczk/nostrmash/internal/query	21.788s
