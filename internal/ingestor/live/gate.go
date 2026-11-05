@@ -94,6 +94,14 @@ func gateKindLabel(kind int) string {
 		return "34236"
 	case 5:
 		return "5"
+	case 1059:
+		return "1059"
+	case 9321:
+		return "9321"
+	case 10019:
+		return "10019"
+	case 10050:
+		return "10050"
 	case 0, 3, 10002:
 		return "open_kind"
 	default:
@@ -120,7 +128,7 @@ func gateKindLabel(kind int) string {
 // — an accepted trade-off against unbounded tombstone growth.
 func isAuthorGatedKind(kind int) bool {
 	switch kind {
-	case 1, 4, 5, 20, 21, 22, 1984, 9802, 10000, 10001, 10003, 30000, 30023, 30311, 34235, 34236:
+	case 1, 4, 5, 20, 21, 22, 1984, 9802, 10000, 10001, 10003, 10019, 10050, 30000, 30023, 30311, 34235, 34236:
 		return true
 	default:
 		return false
@@ -155,6 +163,18 @@ func (p *Processor) evaluateGate(ctx context.Context, kind int, pubkey string, t
 		}
 		return p.evaluateAuthorGate(kindLabel, pubkey, enforce)
 
+	case kind == 1059:
+		return p.evaluateRecipientGate(kindLabel, tags, enforce)
+	case kind == 9321:
+		ids := engagementTargetIDs(kind, tags)
+		addrs := addressCoordinates(tags, "a")
+		if len(ids) > 0 || len(addrs) > 0 {
+			decision, ok := p.evaluateAnyTarget(ctx, kindLabel, kind, ids, addrs, enforce)
+			if ok && decision.decision == gateDecisionAccept {
+				return decision
+			}
+		}
+		return p.evaluateRecipientGate(kindLabel, tags, enforce)
 	case kind == 1111:
 		// NIP-22 comments follow the kind-1 split: a stored root accepts any
 		// author; otherwise only a trusted author is kept.
@@ -205,6 +225,33 @@ func (p *Processor) replyParentExists(ctx context.Context, kind int, tags [][]st
 		return true
 	}
 	return exists
+}
+
+// evaluateRecipientGate accepts when any p-tag recipient is trusted. Kind 1059
+// gift wraps are signed by an ephemeral key, so the author is not the person.
+func (p *Processor) evaluateRecipientGate(kindLabel string, tags [][]string, enforce bool) gateDecision {
+	recipients := exactTagValues(tags, "p")
+	if len(recipients) == 0 {
+		if enforce {
+			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectMissingTarget}
+		}
+		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
+	}
+	if !p.trustedAuthors.Loaded() {
+		if enforce {
+			return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionFailClosed}
+		}
+		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
+	}
+	for _, recipient := range recipients {
+		if p.trustedAuthors.Contains(recipient) {
+			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
+		}
+	}
+	if enforce {
+		return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectUntrustedAuthor}
+	}
+	return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
 }
 
 func (p *Processor) evaluateAuthorGate(kindLabel, pubkey string, enforce bool) gateDecision {
@@ -300,7 +347,7 @@ func (p *Processor) evaluateAnyTarget(
 // targets are resolved separately.
 func engagementTargetIDs(kind int, tags [][]string) []string {
 	switch kind {
-	case 9735:
+	case 9735, 9321:
 		if id := firstETagValue(tags); id != "" {
 			return []string{id}
 		}

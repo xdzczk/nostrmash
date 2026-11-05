@@ -1546,6 +1546,103 @@ paths:
             ranked by event count.
         '400':
           $ref: '#/components/responses/Error'
+  /api/v1/discovery/stats/clients:
+    get:
+      tags: [public]
+      summary: Client, bridge, content-warning, and proof-of-work mix
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+      responses:
+        '200':
+          description: Daily client and content-flag rollups
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/stats/identity:
+    get:
+      tags: [public]
+      summary: Profile identity and NIP-05 verification coverage
+      responses:
+        '200':
+          description: Decomposed kind-0 field prevalence and provider domains
+  /api/v1/discovery/stats/zaps:
+    get:
+      tags: [public]
+      summary: Lightning and nutzap volume
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+      responses:
+        '200':
+          description: Daily zap and nutzap totals, histogram, and participant counts
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/stats/accounts:
+    get:
+      tags: [public]
+      summary: New and active author counts
+      responses:
+        '200':
+          description: First-seen authors by day and recent active authors
+  /api/v1/relays/propagation:
+    get:
+      tags: [public]
+      summary: Per-relay first-seen, exclusivity, and latency
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+      responses:
+        '200':
+          description: Completed UTC-day relay propagation rollups
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/relays/overlap:
+    get:
+      tags: [public]
+      summary: Pairwise event overlap for admitted relays
+      parameters:
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+      responses:
+        '200':
+          description: Shared-event counts for admitted relay pairs
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/authors/{pubkey}/analytics/zaps:
+    get:
+      tags: [public]
+      summary: Zap and nutzap series for one author
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+        - in: query
+          name: window
+          schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
+      responses:
+        '200':
+          description: Daily sent and received zap totals
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/profiles/{pubkey}/identity:
+    get:
+      tags: [public]
+      summary: Decomposed profile fields and NIP-05 verification status
+      parameters:
+        - in: path
+          name: pubkey
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Identity fields, verification status, and nutzap acceptance
+        '404':
+          $ref: '#/components/responses/Error'
   /api/v1/discovery/stats/series:
     get:
       tags: [public]
@@ -1554,7 +1651,7 @@ paths:
         - in: query
           name: metric
           required: true
-          schema: { type: string, enum: [note_volume, active_authors, relay_events] }
+          schema: { type: string, enum: [note_volume, active_authors, relay_events, zap_count_24h, sats_24h, new_authors_24h, nip17_dm_count_24h, bridged_share_bps] }
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 7d }

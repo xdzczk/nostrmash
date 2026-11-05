@@ -12,6 +12,7 @@ import (
 
 	"github.com/xdzczk/nostrmash/internal/metrics"
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/traceutil"
 )
 
@@ -36,6 +37,7 @@ func (s *PostgresStore) GetEventRawByID(ctx context.Context, id string) (rawJSON
 		SELECT raw_json::text
 		FROM events
 		WHERE id = $1
+		  AND `+nostr.EventStillLiveSQL("events")+`
 	`, trimmedID).Scan(&raw)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -76,6 +78,7 @@ func (s *PostgresStore) GetEventRawsByIDs(ctx context.Context, ids []string) (ma
 		SELECT id, raw_json::text
 		FROM events
 		WHERE id = ANY($1::text[])
+		  AND `+nostr.EventStillLiveSQL("events")+`
 	`, trimmedIDs)
 	if err != nil {
 		return nil, fmt.Errorf("get events by ids: %w", err)

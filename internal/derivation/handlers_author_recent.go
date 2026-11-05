@@ -65,6 +65,9 @@ func (h *Handlers) projectAuthorRecentEventWithVersion(ctx context.Context, even
 	if err != nil {
 		return fmt.Errorf("upsert author_recent_events: %w", err)
 	}
+	if err := h.recordAuthorFirstSeenTx(ctx, tx, pubkey, createdAt, eventID); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit author projection tx: %w", err)
 	}

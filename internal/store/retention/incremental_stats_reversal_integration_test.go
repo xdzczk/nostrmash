@@ -119,7 +119,8 @@ func TestPurgeUntrustedAuthorEvents_ReversesIncrementalStats(t *testing.T) {
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(usage_count),0) FROM author_hashtag_daily WHERE pubkey='untrusted_pub' AND hashtag='ai'`, 0)
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(total_posts),0) FROM author_media_daily WHERE pubkey='untrusted_pub'`, 1)
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(post_count),0) FROM author_hourly_activity WHERE pubkey='untrusted_pub'`, 1)
-	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='untrusted_note'`, 4)
+	// Four reversible author-stat claims, plus the durable event_attribute_daily ledger.
+	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='untrusted_note'`, 5)
 
 	deleted, err := s.PurgeUntrustedAuthorEvents(ctx, ref, ref.Add(-7*24*time.Hour), 100)
 	if err != nil {
@@ -135,7 +136,10 @@ func TestPurgeUntrustedAuthorEvents_ReversesIncrementalStats(t *testing.T) {
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(usage_count),0) FROM author_hashtag_daily WHERE pubkey='untrusted_pub' AND hashtag='ai'`, 0)
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(total_posts),0) FROM author_media_daily WHERE pubkey='untrusted_pub'`, 0)
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(post_count),0) FROM author_hourly_activity WHERE pubkey='untrusted_pub'`, 0)
-	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='untrusted_note'`, 0)
+	// The durable client/content ledger stays so a re-ingest cannot double-count.
+	// Orphan prune removes it after the event row is gone and the grace elapses.
+	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='untrusted_note' AND projection = 'event_attribute_daily'`, 1)
+	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='untrusted_note' AND projection <> 'event_attribute_daily'`, 0)
 }
 
 // TestPurgeExpiredEngagementEvents_ReversesIncrementalStats covers the other
@@ -188,8 +192,8 @@ func TestPurgeExpiredEngagementEvents_ReversesIncrementalStats(t *testing.T) {
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(engagement_received),0) FROM author_activity_daily WHERE pubkey='alice'`, 1)
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(reaction_received),0) FROM author_hourly_activity WHERE pubkey='alice'`, 1)
 	// profile_public_stats (recent_activity_at for bob) + author_activity_daily
-	// + author_hourly_activity.
-	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='engage_reaction'`, 3)
+	// + author_hourly_activity, plus durable event_attribute_daily and reaction_daily.
+	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='engage_reaction'`, 5)
 
 	deleted, err := s.PurgeExpiredEngagementEvents(ctx, ref, ref.Add(-7*24*time.Hour), 100)
 	if err != nil {
@@ -203,7 +207,8 @@ func TestPurgeExpiredEngagementEvents_ReversesIncrementalStats(t *testing.T) {
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(engagement_given),0) FROM author_activity_daily WHERE pubkey='bob'`, 0)
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(engagement_received),0) FROM author_activity_daily WHERE pubkey='alice'`, 0)
 	assertRetentionScalar(t, ctx, pool, `SELECT COALESCE(SUM(reaction_received),0) FROM author_hourly_activity WHERE pubkey='alice'`, 0)
-	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='engage_reaction'`, 0)
+	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='engage_reaction' AND projection NOT IN ('event_attribute_daily', 'reaction_daily')`, 0)
+	assertRetentionScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id='engage_reaction' AND projection IN ('event_attribute_daily', 'reaction_daily')`, 2)
 
 	// The target note itself was untouched by this purge (only its
 	// engagement was hard-deleted), so its own counters must be unaffected.

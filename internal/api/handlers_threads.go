@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -33,7 +34,37 @@ func (h Handlers) GetEventCounts(w http.ResponseWriter, r *http.Request) {
 	if counts.QuoteCount > 0 {
 		payload["quote_count"] = counts.QuoteCount
 	}
+	if breakdown := h.reactionContentBreakdown(r.Context(), eventID); len(breakdown) > 0 {
+		payload["reaction_breakdown"] = breakdown
+	}
 	writeJSON(w, http.StatusOK, payload)
+}
+
+func (h Handlers) reactionContentBreakdown(ctx context.Context, eventID string) []map[string]any {
+	if h.pool == nil {
+		return nil
+	}
+	rows, err := h.pool.Query(ctx, `
+		SELECT content_key, count
+		FROM reaction_content_counts
+		WHERE target_event_id = $1 AND count > 0
+		ORDER BY count DESC, content_key ASC
+		LIMIT 20
+	`, eventID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make([]map[string]any, 0)
+	for rows.Next() {
+		var key string
+		var count int64
+		if err := rows.Scan(&key, &count); err != nil {
+			return out
+		}
+		out = append(out, map[string]any{"content": key, "count": count})
+	}
+	return out
 }
 
 // GetEventReplies returns direct replies ordered by created_at asc, id asc with cursor pagination.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
@@ -64,6 +65,7 @@ func (s *Read) GetFeedEvents(
 			SELECT e.raw_json
 			FROM events e
 			WHERE e.kind = ANY($1::int[])
+			  AND `+nostr.EventStillLiveSQL("e")+`
 			  AND e.created_at >= $2
 			  AND e.created_at <= $3
 			  AND (
@@ -964,6 +966,7 @@ func feedVisibilitySQL(includeReplies, onlyReplies, hasImage bool) string {
 	case !includeReplies:
 		clause = `AND NOT EXISTS (SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id)`
 	}
+	clause += " AND " + nostr.EventStillLiveSQL("e")
 	if hasImage {
 		clause += `
 					  AND (

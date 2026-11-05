@@ -47,6 +47,11 @@ const (
 	DerivationRelayListsLatest            = "relay_lists_latest"
 	DerivationEventHashtags               = "event_hashtags"
 	DerivationEventURLs                   = "event_urls"
+	DerivationEventAttributes             = "event_attributes"
+	DerivationProfileFields               = "profile_fields"
+	DerivationDMVolume                    = "dm_volume"
+	DerivationNutzapReceipts              = "nutzap_receipts"
+	DerivationExtendedLists               = "extended_lists"
 	DerivationBookmarkLists               = "bookmark_lists"
 	DerivationNoteDiscoveryStats          = "note_discovery_stats"
 	DerivationProfileDiscoveryStats       = "profile_discovery_stats"
@@ -90,6 +95,13 @@ const (
 	// v2: all-numeric hashtags ("1" parsed from "#1 app") are not topics.
 	EventHashtagsVersion = 2
 	EventURLsVersion     = 2
+	// EventAttributesVersion projects client, NIP-40 expiration, content
+	// warnings, NIP-48 proxy, NIP-13 work, and the k target kind.
+	EventAttributesVersion = 1
+	ProfileFieldsVersion   = 1
+	DMVolumeVersion        = 1
+	NutzapReceiptsVersion  = 1
+	ExtendedListsVersion   = 1
 	// BookmarkListsVersion projects public kind-10003 lists and kind-30003
 	// bookmark sets into distinct saved-note counts. Private (encrypted)
 	// bookmarks are not in the tags and are not counted.

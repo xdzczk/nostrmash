@@ -222,7 +222,7 @@ func TestEvaluateGate_AuthorGatedProductKinds(t *testing.T) {
 	trusted := &fakeTrustedAuthors{loaded: true, members: map[string]struct{}{"alice": {}}}
 	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, &fakeTargetChecker{})
 
-	for _, kind := range []int{4, 5, 20, 21, 22, 1984, 9802, 10000, 10001, 10003, 30000, 30023, 30311, 34235, 34236} {
+	for _, kind := range []int{4, 5, 20, 21, 22, 1984, 9802, 10000, 10001, 10003, 10019, 10050, 30000, 30023, 30311, 34235, 34236} {
 		if d := enforce.evaluateGate(context.Background(), kind, "alice", nil); !d.accept || d.decision != gateDecisionAccept {
 			t.Fatalf("kind %d trusted author: expected accept, got %+v", kind, d)
 		}
@@ -358,5 +358,30 @@ func TestEngagementTargetIDs(t *testing.T) {
 		if len(got) != 2 || got[0] != "a" || got[1] != "b" {
 			t.Fatalf("kind %d target ids: expected [a b], got %v", kind, got)
 		}
+	}
+}
+
+func TestEvaluateGate_GiftWrapAndNutzap(t *testing.T) {
+	t.Parallel()
+	trusted := &fakeTrustedAuthors{loaded: true, members: map[string]struct{}{"alice": {}}}
+	enforce := newGateProcessor(t, TrustGateModeTrustedOnly, trusted, &fakeTargetChecker{exists: map[string]struct{}{"note1": {}}})
+
+	if d := enforce.evaluateGate(context.Background(), 1059, "ephemeral", [][]string{{"p", "alice"}}); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("gift wrap to trusted recipient: %+v", d)
+	}
+	if d := enforce.evaluateGate(context.Background(), 1059, "ephemeral", [][]string{{"p", "mallory"}}); d.accept || d.decision != gateDecisionRejectUntrustedAuthor {
+		t.Fatalf("gift wrap to untrusted recipient: %+v", d)
+	}
+	if d := enforce.evaluateGate(context.Background(), 1059, "ephemeral", nil); d.accept || d.decision != gateDecisionRejectMissingTarget {
+		t.Fatalf("gift wrap without recipient: %+v", d)
+	}
+	if d := enforce.evaluateGate(context.Background(), 9321, "mallory", [][]string{{"e", "note1"}, {"p", "alice"}}); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("nutzap with stored target: %+v", d)
+	}
+	if d := enforce.evaluateGate(context.Background(), 9321, "mallory", [][]string{{"p", "alice"}}); !d.accept || d.decision != gateDecisionAccept {
+		t.Fatalf("nutzap to trusted recipient: %+v", d)
+	}
+	if d := enforce.evaluateGate(context.Background(), 9321, "mallory", [][]string{{"p", "bob"}}); d.accept || d.decision != gateDecisionRejectUntrustedAuthor {
+		t.Fatalf("nutzap to untrusted recipient: %+v", d)
 	}
 }

@@ -7,7 +7,7 @@
 WITH candidates AS (
     SELECT e.id
     FROM events e
-    WHERE e.kind IN (6, 7, 9735)
+    WHERE e.kind IN (6, 7, 1059, 9321, 9735)
       AND e.created_at < @created_before_unix::bigint
       AND NOT EXISTS (
         SELECT 1
@@ -31,7 +31,7 @@ WHERE e.id = c.id;
 -- candidate before deleting it (see internal/store/retention/events_retention.go).
 SELECT e.id
 FROM events e
-WHERE e.kind IN (6, 7, 9735)
+WHERE e.kind IN (6, 7, 1059, 9321, 9735)
   AND e.created_at < @created_before_unix::bigint
   AND NOT EXISTS (
     SELECT 1

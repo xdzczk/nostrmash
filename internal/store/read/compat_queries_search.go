@@ -79,6 +79,7 @@ func (s *Read) SearchNotes(
 			FROM events
 			LEFT JOIN note_discovery_stats nds ON nds.event_id = events.id
 			WHERE events.kind IN (`+nostr.IndexedNoteKindsSQL+`)
+			  AND `+nostr.EventStillLiveSQL("events")+`
 			  AND ($3::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $3::bigint))
 			  AND (
 				$4::text IS NULL OR (
@@ -165,6 +166,7 @@ func (s *Read) SearchNotesBefore(
 		FROM events
 		LEFT JOIN note_discovery_stats nds ON nds.event_id = events.id
 		WHERE events.kind IN (`+nostr.IndexedNoteKindsSQL+`)
+		  AND `+nostr.EventStillLiveSQL("events")+`
 		  AND (events.created_at, events.id) < ($2::bigint, $3::text)
 		  AND ($4::bigint IS NULL OR events.created_at >= (extract(epoch from now())::bigint - $4::bigint))
 		  AND (

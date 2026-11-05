@@ -12,7 +12,7 @@ On a fixed disk, subscribing to broad relay filters and storing every kind indef
 
 - Relay subscriptions stay broad (relays cannot filter by author at scale). Enforcement happens locally in the ingest hot path.
 - Kinds `0`, `3`, `10002` remain open so the trust graph can grow and profiles resolve. This is acceptable for the first rollout, not a permanent guarantee against kind-0/3 spam.
-- Root kind `1` notes (no thread parent) and authored kinds `4` (DMs, gated on sender trust), `5` (deletion tombstones), `20`/`21`/`22` (pictures and video), `34235`/`34236` (addressable video), `1984` (reports), `9802` (highlights), `10000`/`10001` (mute and pin lists), `10003` (bookmark lists), `30000` (categorized people lists), `30311` (live activities), and `30023` (long-form articles) are hard-gated: persist only when the author is in the trusted set.
+- Root kind `1` notes (no thread parent) and authored kinds `4` (DMs, gated on sender trust), `5` (deletion tombstones), `20`/`21`/`22` (pictures and video), `34235`/`34236` (addressable video), `1984` (reports), `9802` (highlights), `10000`/`10001` (mute and pin lists), `10003` (bookmark lists), `10019` (nutzap wallet info), `10050` (DM relay list), `30000` (categorized people lists), `30311` (live activities), and `30023` (long-form articles) are hard-gated: persist only when the author is in the trusted set. Kind `1059` gift wraps are gated on a trusted `p`-tag recipient, because the author key is ephemeral. Kind `9321` nutzaps follow the kind `9735` target-exists rule and fall back to a trusted recipient.
 - Kind `1` replies whose thread parent (NIP-10 `reply`, else `root` / legacy single `#e`) already exists locally are accepted from any author — the same target-exists rule as engagement — so conversation totals are not capped to the trust graph. Mentions alone do not open this bypass. Kind `1111` comments follow the same split on the NIP-22 root (uppercase `E` event id or uppercase `A` address).
 - Kinds `6`, `7`, `16`, and `9735` are kept only when their target already exists locally (engagement on already-stored/trusted content). Kind `16` accepts an `e` event id or an `a` address resolved through `replaceable_state`. Engagement that arrives before its target is dropped permanently in v1 (no pending buffer).
 - Kind `5` used to also accept deletions whose referenced `e`-tag target existed locally; that path still let untrusted tombstone spam dominate the events table, so deletions are now strictly author-gated like notes.
@@ -29,9 +29,15 @@ flowchart TD
   K -->|"1111"| Root{"NIP-22 root exists locally?"}
   Root -->|yes| Store
   Root -->|no| T
-  K -->|"4,5,20,21,22,1984,9802,10000,10001,10003,30000,30023,30311,34235,34236"| T
+  K -->|"4,5,20,21,22,1984,9802,10000,10001,10003,10019,10050,30000,30023,30311,34235,34236"| T
   T -->|yes| Store
   T -->|no| Drop["metric only; no invalid_events"]
+  K -->|"1059"| P{"any p-tag recipient trusted?"}
+  K -->|"9321"| Zap{"target exists locally?"}
+  Zap -->|yes| Store
+  Zap -->|no| P
+  P -->|yes| Store
+  P -->|no| Drop
   K -->|"6,7,16,9735"| Tgt{"target event or address exists locally?"}
   Tgt -->|yes| Store
   Tgt -->|no| Drop
@@ -58,7 +64,7 @@ On a fresh database the snapshot is seeds-only until kind-3 contact lists arrive
 | --- | --- | --- |
 | `TrustedAuthorSet` | `INGESTOR_TRUST_GATE_REFRESH_INTERVAL` (default `2m`) | Loads pubkeys from `trust_graph_snapshot WHERE min_hops <= INGESTOR_TRUST_GATE_MAX_HOPS` (default `2`). Avoids a per-event DB lookup. |
 | Last-good retention | — | Failed refreshes keep the previous set; staleness is visible via `nostrmash_ingest_trusted_set_age_seconds`. |
-| Fail-closed | `INGESTOR_TRUST_GATE_MODE=trusted_only` | If the set has **never** loaded successfully, author-gated kinds (`1` roots / `4` / `5` / `20` / `21` / `22` / `1984` / `9802` / `10000` / `10001` / `10003` / `30000` / `30023` / `30311` / `34235` / `34236`) are rejected. Open kinds, target-local engagement, kind-1 replies to already-stored parents, and kind-1111 comments on a stored root are unaffected so the graph can bootstrap. |
+| Fail-closed | `INGESTOR_TRUST_GATE_MODE=trusted_only` | If the set has **never** loaded successfully, author-gated kinds (`1` roots / `4` / `5` / `20` / `21` / `22` / `1984` / `9802` / `10000` / `10001` / `10003` / `10019` / `10050` / `30000` / `30023` / `30311` / `34235` / `34236`) and recipient-gated kinds (`1059`, and `9321` when no target is stored) are rejected. Open kinds, target-local engagement, kind-1 replies to already-stored parents, and kind-1111 comments on a stored root are unaffected so the graph can bootstrap. |
 
 ### Ingest gate (`ingestor`)
 
@@ -72,7 +78,9 @@ Gate decisions per kind:
 
 - `0`, `3`, `10002`: always accept.
 - `1`: accept if the thread parent already exists locally (any author), else accept iff author in trusted set (or shadow-reject in `open` mode). Parent resolution matches thread projection: prefer `e` marked `reply`, else `root` / legacy single unmarked `#e`. Mentions do not count as a parent.
-- `4`, `5`, `20`, `21`, `22`, `1984`, `9802`, `10000`, `10001`, `10003`, `30000`, `30023`, `30311`, `34235`, `34236`: accept iff author in trusted set (or shadow-reject in `open` mode). Kind `4` is gated on the sender (author) being trusted. Kind `5` deletions are author-gated only (no target-exists bypass).
+- `4`, `5`, `20`, `21`, `22`, `1984`, `9802`, `10000`, `10001`, `10003`, `10019`, `10050`, `30000`, `30023`, `30311`, `34235`, `34236`: accept iff author in trusted set (or shadow-reject in `open` mode). Kind `4` is gated on the sender (author) being trusted. Kind `5` deletions are author-gated only (no target-exists bypass).
+- `1059`: accept iff any `p`-tag recipient is trusted. The author key is ephemeral.
+- `9321`: accept when the first `e` tag or an `a` address is already stored; otherwise the same trusted-recipient rule as `1059`.
 - `1111`: accept when the NIP-22 root exists locally (uppercase `E`, or uppercase `A` resolved to the current replaceable), else the author gate.
 - `6`, `7`, `16`, `9735`: accept iff a target exists locally. Kind `9735` uses the same first-`e`-tag rule as zap derivation. Kind `16` also accepts an `a` tag resolved through `replaceable_state`.
 
@@ -87,7 +95,7 @@ Rejected events increment metrics only. They are **not** written to `invalid_eve
 | Env | Default | Meaning |
 | --- | --- | --- |
 | `WORKER_RETENTION_ENGAGEMENT_ENABLED` | `true` | Enable the engagement purge loop. |
-| `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` | `768h` (32d) | Purge raw kinds `6`/`7`/`9735` older than this (by `events.created_at`). One day past the 30d discovery window. |
+| `WORKER_RETENTION_ENGAGEMENT_MAX_AGE` | `768h` (32d) | Purge raw kinds `6`/`7`/`1059`/`9321`/`9735` older than this (by `events.created_at`). One day past the 30d discovery window. Daily zap, client, and DM counters are kept. |
 | `WORKER_RETENTION_ENGAGEMENT_DEAD_GRACE` | `168h` (7d) | Derivation-safety: block purge while `derive_event_bundle` is pending/running, or dead with `updated_at` within this window. |
 | `WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL` | `1h` | Scheduled purge cadence. |
 | `WORKER_RETENTION_ENGAGEMENT_DELETE_BATCH_LIMIT` | `2000` | Max rows deleted per batch (auto-paced like job retention). |
@@ -104,7 +112,7 @@ Cascade FKs clean contribution/interaction rows. `reaction_counts` / `repost_cou
 | `WORKER_RETENTION_REPLACEABLE_RUN_INTERVAL` | `1h` | Scheduled purge cadence. |
 | `WORKER_RETENTION_REPLACEABLE_DELETE_BATCH_LIMIT` | `2000` | Max rows deleted per batch (auto-paced like job retention). |
 
-Purges raw replaceable events that have been strictly superseded by a newer winner recorded in `replaceable_state` (latest-wins Nostr semantics). This covers the non-parameterized kinds `0`/`3`/`10000`/`10001`/`10002`/`10003` (addressed by `pubkey`+`kind`, `d_tag` always empty) and the parameterized kinds `30000`, `30023`, `30311`, `34235`, and `34236` (addressed by `pubkey`+`kind`+`d_tag`, so each distinct `d_tag` is its own latest-wins slot). The purge derives each candidate's `d_tag` with the same first-`d`-tag rule as the replaceable derivation and joins `replaceable_state` on `(pubkey, kind, d_tag)`. The current winner is never deleted, and a newer-but-not-yet-projected version is protected because it ranks above the recorded winner. Cascade FKs clean `event_tags`, `event_relays`, `event_references`, `pubkey_references`, and `follower_edges`; the latest-version projections (`contact_lists_latest`, `relay_lists_latest`, `profiles_latest`, `replaceable_state`) reference the winner and survive. Kind `3` carries the bulk of the savings because superseded contact lists hold the largest tag fan-out, with `30023` article revisions next.
+Purges raw replaceable events that have been strictly superseded by a newer winner recorded in `replaceable_state` (latest-wins Nostr semantics). This covers the non-parameterized kinds `0`/`3`/`10000`/`10001`/`10002`/`10003`/`10019`/`10050` (addressed by `pubkey`+`kind`, `d_tag` always empty) and the parameterized kinds `30000`, `30023`, `30311`, `34235`, and `34236` (addressed by `pubkey`+`kind`+`d_tag`, so each distinct `d_tag` is its own latest-wins slot). The purge derives each candidate's `d_tag` with the same first-`d`-tag rule as the replaceable derivation and joins `replaceable_state` on `(pubkey, kind, d_tag)`. The current winner is never deleted, and a newer-but-not-yet-projected version is protected because it ranks above the recorded winner. Cascade FKs clean `event_tags`, `event_relays`, `event_references`, `pubkey_references`, and `follower_edges`; the latest-version projections (`contact_lists_latest`, `relay_lists_latest`, `profiles_latest`, `replaceable_state`) reference the winner and survive. Kind `3` carries the bulk of the savings because superseded contact lists hold the largest tag fan-out, with `30023` article revisions next.
 
 ### Processed deletion retention (`worker`)
 
@@ -125,7 +133,7 @@ Migration `000050` dropped the `deletion_events.event_id` FK cascade, turning `d
 | `TRUST_*` | `trust_worker` (+ shared policy) | Seeds, snapshot refresh, global trust runs, graph policy for read surfaces |
 | `INGESTOR_TRUST_GATE_*` | `ingestor` | Live ingest enforcement |
 | `WORKER_RETENTION_ENGAGEMENT_*` | `worker` | Raw engagement purge |
-| `WORKER_RETENTION_REPLACEABLE_*` | `worker` | Superseded replaceable purge (kinds 0/3/10000/10001/10002/10003 and parameterized 30000/30023/30311/34235/34236) |
+| `WORKER_RETENTION_REPLACEABLE_*` | `worker` | Superseded replaceable purge (kinds 0/3/10000/10001/10002/10003/10019/10050 and parameterized 30000/30023/30311/34235/34236) |
 | `WORKER_RETENTION_DELETION_*` | `worker` | Processed deletion purge (kind 5; tombstone ledger kept) |
 
 `TRUST_CANONICAL_INGEST_MODE` is **deprecated**. It was a config placeholder that was never wired into the ingest hot path. Use `INGESTOR_TRUST_GATE_MODE` instead.
@@ -134,7 +142,7 @@ Migration `000050` dropped the `deletion_events.event_id` FK cascade, turning `d
 
 Gate metrics (ingestor, bounded labels):
 
-- `nostrmash_ingest_gate_decisions_total{kind,decision}` — `kind` is one of `1`, `4`, `5`, `6`, `7`, `16`, `20`, `21`, `22`, `1111`, `1984`, `9735`, `9802`, `10000`, `10001`, `10003`, `30000`, `30023`, `30311`, `34235`, `34236`, `open_kind`, `other`; `decision` is one of `accept`, `reject_untrusted_author`, `reject_missing_target`, `shadow_reject`, `fail_closed`
+- `nostrmash_ingest_gate_decisions_total{kind,decision}` — `kind` is one of `1`, `4`, `5`, `6`, `7`, `16`, `20`, `21`, `22`, `1059`, `1111`, `1984`, `9321`, `9735`, `9802`, `10000`, `10001`, `10003`, `10019`, `10050`, `30000`, `30023`, `30311`, `34235`, `34236`, `open_kind`, `other`; `decision` is one of `accept`, `reject_untrusted_author`, `reject_missing_target`, `shadow_reject`, `fail_closed`
 - `nostrmash_ingest_trusted_set_size`
 - `nostrmash_ingest_trusted_set_loaded` (0/1)
 - `nostrmash_ingest_trusted_set_age_seconds`

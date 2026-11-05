@@ -1097,8 +1097,8 @@ func testRelayConfig() RelayConfig {
 	return RelayConfig{
 		FilterGroups: map[string]FilterGroup{
 			"default_v1": {Kinds: []int{
-				0, 1, 3, 4, 5, 6, 7, 16, 20, 21, 22, 1111, 1984,
-				9735, 9802, 10000, 10001, 10002, 10003, 30000, 30023, 30311, 34235, 34236,
+				0, 1, 3, 4, 5, 6, 7, 16, 20, 21, 22, 1059, 1111, 1984, 9321,
+				9735, 9802, 10000, 10001, 10002, 10003, 10019, 10050, 30000, 30023, 30311, 34235, 34236,
 			}},
 		},
 		ActiveFilterGroup:            "default_v1",

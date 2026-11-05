@@ -52,6 +52,20 @@ Local binary build output convention:
 
 For details and replay mode, see `docs/development.md`.
 
+## Adding an ingest kind or a derivation
+
+Live ingest only stores the built-in `default_v1` kind set. A new kind has to be added in every place that list is repeated, or it is dropped, ungated, or retained forever:
+
+- `defaultFilterGroupKinds` in `internal/config/config.go`, the validation error string, and `testRelayConfig` in `internal/config/config_test.go`
+- `gateKindLabel` plus `isAuthorGatedKind`, `isEngagementKind`, or a dedicated branch in `internal/ingestor/live/gate.go`
+- `untrustedPurgeKinds` when the kind is author-gated, and `supersededReplaceableKinds` when an older replaceable version should be deleted
+- `INSERT` into `untrusted_purge_kind_cursor` in the migration that introduces the kind
+- `nostr.IndexedNoteKindsSQL` only when the kind is note-like content
+- the engagement retention SQL when the raw row should age out with kinds 6/7/9735
+- `docs/architecture/trust-bounded-ingest.md` and the ingestor env description
+
+A new projection needs a name and version in `internal/derivation/derivation.go`, a row in `RegisteredDerivations`, a step in `DeriveEventBundle` when it runs per event, and a `projectionDefinition` in `rebuilds_definitions.go`. Backfills over existing rows use a cursor loop, not one unbounded migration statement. Production statement timeout is 15 seconds.
+
 ## Before opening a PR
 
 Run this baseline sequence for reproducible CI parity (pinned Go toolchain in Docker):

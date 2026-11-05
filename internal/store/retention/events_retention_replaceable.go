@@ -23,7 +23,7 @@ import (
 // version is dead weight. The purge query derives each candidate's d_tag and
 // joins replaceable_state on (pubkey, kind, d_tag), which reduces to d_tag=”
 // for the non-parameterized family.
-var supersededReplaceableKinds = []int{0, 3, 10000, 10001, 10002, 10003, 30000, 30023, 30311, 34235, 34236}
+var supersededReplaceableKinds = []int{0, 3, 10000, 10001, 10002, 10003, 10019, 10050, 30000, 30023, 30311, 34235, 34236}
 
 // PurgeSupersededReplaceableEvents deletes a bounded batch of raw replaceable
 // events that have been strictly superseded by a newer winner recorded in

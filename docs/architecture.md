@@ -130,7 +130,9 @@ Layer 3 is read-optimized projection state consumed by APIs:
 - `contact_lists_latest`, `relay_lists_latest`
 - `follower_edges`
 - `dm_unread_counts`, `dm_read_cursors`
-- `zap_receipts`
+- `zap_receipts`, `nutzap_receipts`, `zap_daily`, `zap_edges`
+- `event_attributes`, `profile_fields`, `nip05_verifications`
+- `dm_volume_daily`, `dm_relay_lists_latest`
 - `event_hashtags`
 - `note_discovery_stats`
 - `profile_public_stats`

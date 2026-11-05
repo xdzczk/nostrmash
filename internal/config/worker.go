@@ -37,6 +37,8 @@ type WorkerConfig struct {
 	Hydration                  HydrationConfig
 	Meilisearch                MeilisearchConfig
 	RelayRegistry              RelayRegistryConfig
+	NIP05                      WorkerNIP05Config
+	ExpiredEventRetention      WorkerExpiredEventRetentionConfig
 }
 
 // WorkerIncrementalStatsConfig controls the O(1) delta path that replaces
@@ -178,8 +180,27 @@ type WorkerInvalidEventPayloadTrimConfig struct {
 	BatchLimit int
 }
 
+// WorkerNIP05Config configures outbound NIP-05 verification. It is off until
+// an operator turns it on, because it fetches https://domain/.well-known/nostr.json.
+type WorkerNIP05Config struct {
+	Enabled         bool
+	Interval        time.Duration
+	Batch           int
+	Timeout         time.Duration
+	RecheckInterval time.Duration
+}
+
+// WorkerExpiredEventRetentionConfig deletes events whose NIP-40 expiration
+// is older than Grace.
+type WorkerExpiredEventRetentionConfig struct {
+	Enabled          bool
+	Grace            time.Duration
+	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
 // WorkerEngagementRetentionConfig configures the purger that deletes raw
-// engagement events (kinds 6/7/9735) older than MaxAge. Lifetime aggregate
+// engagement events (kinds 6/7/1059/9321/9735) older than MaxAge. Lifetime aggregate
 // counters (reaction_counts/repost_counts have no FK to events) survive the
 // delete; only the high-volume raw rows and their cascade-cleaned
 // contribution/interaction rows are removed.
@@ -425,6 +446,14 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	nip05Cfg, err := loadWorkerNIP05Config()
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	expiredCfg, err := loadExpiredEventRetentionConfig()
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	cfg := WorkerConfig{
 		Shared:                     shared,
 		Concurrency:                concurrency.Concurrency,
@@ -455,6 +484,8 @@ func LoadWorker() (WorkerConfig, error) {
 		AccountState:               accountState,
 		Hydration:                  hydrationCfg,
 		Meilisearch:                loadWorkerMeilisearchConfig(),
+		NIP05:                      nip05Cfg,
+		ExpiredEventRetention:      expiredCfg,
 	}
 	relayRegistryCfg, err := LoadRelayRegistryConfig()
 	if err != nil {
@@ -743,6 +774,31 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.MeilisearchSweeper.Concurrency <= 0 {
 			return fmt.Errorf("WORKER_MEILISEARCH_SWEEPER_CONCURRENCY must be > 0")
+		}
+	}
+	if cfg.NIP05.Enabled {
+		if cfg.NIP05.Interval <= 0 {
+			return fmt.Errorf("WORKER_NIP05_INTERVAL must be > 0")
+		}
+		if cfg.NIP05.Batch <= 0 {
+			return fmt.Errorf("WORKER_NIP05_BATCH must be > 0")
+		}
+		if cfg.NIP05.Timeout <= 0 {
+			return fmt.Errorf("WORKER_NIP05_TIMEOUT must be > 0")
+		}
+		if cfg.NIP05.RecheckInterval <= 0 {
+			return fmt.Errorf("WORKER_NIP05_RECHECK_INTERVAL must be > 0")
+		}
+	}
+	if cfg.ExpiredEventRetention.Enabled {
+		if cfg.ExpiredEventRetention.Grace <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_EXPIRED_GRACE must be > 0")
+		}
+		if cfg.ExpiredEventRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_EXPIRED_RUN_INTERVAL must be > 0")
+		}
+		if cfg.ExpiredEventRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_EXPIRED_DELETE_BATCH_LIMIT must be > 0")
 		}
 	}
 	if cfg.Meilisearch.Enabled {

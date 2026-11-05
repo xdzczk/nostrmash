@@ -269,6 +269,26 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 				return nil
 			}
 		}
+		if nostr.ParseEventAttributes(result.Event.ID, result.Event.Tags).Expired(seenAt.Unix()) {
+			metrics.IncIngestOutcome("expired")
+			p.log.Debug(
+				"ingest_event_expired",
+				"relay_url", relayURL,
+				"event_id", result.Event.ID,
+				"kind", result.Event.Kind,
+			)
+			if p.checkpointWriter != nil {
+				if err := p.checkpointWriter.MarkEventProcessed(
+					ctx,
+					relayURL,
+					result.Event.ID,
+					result.Event.CreatedAt,
+				); err != nil {
+					return fmt.Errorf("persist live checkpoint (expired): %w", err)
+				}
+			}
+			return nil
+		}
 		event := model.Event{
 			ID:          result.Event.ID,
 			Pubkey:      result.Event.Pubkey,

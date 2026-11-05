@@ -104,7 +104,12 @@ func TestReverseIncrementalAuthorStatsTx_UndoesAllProjections(t *testing.T) {
 	assertScalar(t, ctx, pool, `SELECT COALESCE(SUM(with_image_count),0) FROM author_media_daily WHERE pubkey='alice'`, 0)
 	assertScalar(t, ctx, pool, `SELECT COALESCE(SUM(post_count),0) FROM author_hourly_activity WHERE pubkey='alice'`, 0)
 	assertScalar(t, ctx, pool, `SELECT COALESCE(SUM(reply_received),0) FROM author_hourly_activity WHERE pubkey='alice'`, 0)
-	assertScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id IN ('rev_alice_note','rev_bob_reply')`, 0)
+	// Reversible author-stat claims are cleared. event_attribute_daily is a
+	// durable volume ledger: reversal must not unclaim it, or a later
+	// re-derive would count the same event twice. The row is reclaimed by
+	// the orphan prune after the event itself is deleted.
+	assertScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id IN ('rev_alice_note','rev_bob_reply') AND projection <> 'event_attribute_daily'`, 0)
+	assertScalar(t, ctx, pool, `SELECT COUNT(*) FROM applied_stat_deltas WHERE event_id IN ('rev_alice_note','rev_bob_reply') AND projection = 'event_attribute_daily'`, 2)
 
 	// Idempotency: reversing again (e.g. a retried purge batch after a crash
 	// between reversal and delete) must be a safe no-op, not a double

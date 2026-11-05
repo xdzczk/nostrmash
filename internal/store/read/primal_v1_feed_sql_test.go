@@ -26,8 +26,11 @@ func TestAuthorFeedPageSQLUsesPerKindIndexWalk(t *testing.T) {
 		t.Fatalf("include_replies should not probe thread_edges: %s", withReplies)
 	}
 	repliesOnly := authorFeedPageSQL([]int{1}, false, true, false)
-	if strings.Contains(repliesOnly, "NOT EXISTS") || !strings.Contains(repliesOnly, "EXISTS") {
+	if strings.Contains(repliesOnly, "NOT EXISTS (SELECT 1 FROM thread_edges") || !strings.Contains(repliesOnly, "EXISTS (SELECT 1 FROM thread_edges") {
 		t.Fatalf("replies-only filter: %s", repliesOnly)
+	}
+	if !strings.Contains(repliesOnly, "event_attributes ea_exp") {
+		t.Fatalf("expired events should be hidden: %s", repliesOnly)
 	}
 }
 

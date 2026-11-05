@@ -428,9 +428,14 @@ func (s *Read) GetDiscoveryStatsSeries(ctx context.Context, metric string, windo
 		return out, fmt.Errorf("window must be positive")
 	}
 	column, ok := map[string]string{
-		"note_volume":    "note_volume",
-		"active_authors": "active_authors",
-		"relay_events":   "relay_events",
+		"note_volume":        "note_volume",
+		"active_authors":     "active_authors",
+		"relay_events":       "relay_events",
+		"zap_count_24h":      "zap_count_24h",
+		"sats_24h":           "sats_24h",
+		"new_authors_24h":    "new_authors_24h",
+		"nip17_dm_count_24h": "nip17_dm_count_24h",
+		"bridged_share_bps":  "bridged_share_bps",
 	}[metric]
 	if !ok {
 		return out, fmt.Errorf("unsupported stats metric %q", metric)

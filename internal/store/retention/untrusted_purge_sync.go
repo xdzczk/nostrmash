@@ -14,7 +14,7 @@ import (
 // reclaims. Kind 1 replies are filtered out per page (thread_edges), not by
 // dropping kind 1 entirely.
 var untrustedPurgeKinds = []int32{
-	1, 4, 5, 20, 21, 22, 1984, 9802, 10000, 10001, 10003, 30000, 30023, 30311, 34235, 34236,
+	1, 4, 5, 20, 21, 22, 1984, 9802, 10000, 10001, 10003, 10019, 10050, 30000, 30023, 30311, 34235, 34236,
 }
 
 const (

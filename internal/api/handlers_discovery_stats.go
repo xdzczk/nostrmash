@@ -117,12 +117,12 @@ func (h Handlers) GetRelayStats(w http.ResponseWriter, r *http.Request) {
 func (h Handlers) GetDiscoveryStatsSeries(w http.ResponseWriter, r *http.Request) {
 	metric := strings.TrimSpace(r.URL.Query().Get("metric"))
 	switch metric {
-	case "note_volume", "active_authors", "relay_events":
+	case "note_volume", "active_authors", "relay_events", "zap_count_24h", "sats_24h", "new_authors_24h", "nip17_dm_count_24h", "bridged_share_bps":
 	case "":
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "metric is required")
 		return
 	default:
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "metric must be one of note_volume, active_authors, relay_events")
+		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "metric must be one of note_volume, active_authors, relay_events, zap_count_24h, sats_24h, new_authors_24h, nip17_dm_count_24h, bridged_share_bps")
 		return
 	}
 	window := strings.TrimSpace(r.URL.Query().Get("window"))

@@ -151,7 +151,8 @@ func (h *Handlers) RefreshRelayWindowSnapshots(ctx context.Context) error {
 	// on 24h/7d: a 30d COUNT(DISTINCT pubkey) over event_relays does not
 	// fit the per-statement timeout.
 	window30dErr := h.refreshDiscovery30dSnapshots(ctx)
-	return errors.Join(rollupErr, coreErr, trendingErr, window30dErr)
+	ecosystemErr := h.RefreshEcosystemDailyRollup(ctx)
+	return errors.Join(rollupErr, coreErr, trendingErr, window30dErr, ecosystemErr)
 }
 
 // Relay-activity rollup cadence knobs.
@@ -634,13 +635,46 @@ func insertStatsSnapshotHistory(
 	home homeWindowSnapshotPayload,
 	relay relaySummarySnapshotPayload,
 ) error {
+	var zapCount, zapSats, newAuthors, nip17, bridgedBps int64
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*)::bigint, COALESCE(sum(amount_sats), 0)::bigint
+		FROM zap_receipts
+		WHERE created_at >= EXTRACT(EPOCH FROM now())::bigint - 86400
+	`).Scan(&zapCount, &zapSats); err != nil {
+		return fmt.Errorf("snapshot zap window: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*)::bigint FROM author_first_seen
+		WHERE first_seen_at >= now() - interval '24 hours'
+	`).Scan(&newAuthors); err != nil {
+		return fmt.Errorf("snapshot new authors: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(sum(message_count), 0)::bigint
+		FROM dm_volume_daily
+		WHERE protocol = 'nip17'
+		  AND day >= (now() AT TIME ZONE 'utc')::date - 1
+	`).Scan(&nip17); err != nil {
+		return fmt.Errorf("snapshot wrapped dms: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT CASE
+			WHEN COALESCE(sum(total_count), 0) = 0 THEN 0
+			ELSE (sum(bridged_count) * 10000) / sum(total_count)
+		END
+		FROM content_flags_daily
+		WHERE day >= (now() AT TIME ZONE 'utc')::date - 1
+	`).Scan(&bridgedBps); err != nil {
+		return fmt.Errorf("snapshot bridged share: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO stats_snapshot_history (
-			bucket_start, computed_at, note_volume, active_authors, relay_events
+			bucket_start, computed_at, note_volume, active_authors, relay_events,
+			zap_count_24h, sats_24h, new_authors_24h, nip17_dm_count_24h, bridged_share_bps
 		)
-		VALUES (date_trunc('hour', $1::timestamptz), $1, $2, $3, $4)
+		VALUES (date_trunc('hour', $1::timestamptz), $1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (bucket_start) DO NOTHING
-	`, computedAt, home.NoteVolume, home.ActiveAuthors, relay.Events24h); err != nil {
+	`, computedAt, home.NoteVolume, home.ActiveAuthors, relay.Events24h, zapCount, zapSats, newAuthors, nip17, bridgedBps); err != nil {
 		return fmt.Errorf("insert stats snapshot history: %w", err)
 	}
 	return nil

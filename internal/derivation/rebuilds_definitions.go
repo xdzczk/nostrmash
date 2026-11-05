@@ -122,6 +122,41 @@ func (h *Handlers) projectionDefinition(derivationName string) (projectionDefini
 			description:    "Project normalized hashtags from note-like events",
 			rebuildProject: h.projectEventHashtagsWithVersion,
 		}, nil
+	case DerivationEventAttributes:
+		return projectionDefinition{
+			name:           DerivationEventAttributes,
+			compiled:       EventAttributesVersion,
+			description:    "Project client, expiration, content-warning, proxy, proof-of-work, and target kind",
+			rebuildProject: h.projectEventAttributesWithVersion,
+		}, nil
+	case DerivationProfileFields:
+		return projectionDefinition{
+			name:           DerivationProfileFields,
+			compiled:       ProfileFieldsVersion,
+			description:    "Decompose kind-0 metadata into queryable identity fields",
+			rebuildProject: h.projectProfileFieldsWithVersion,
+		}, nil
+	case DerivationDMVolume:
+		return projectionDefinition{
+			name:           DerivationDMVolume,
+			compiled:       DMVolumeVersion,
+			description:    "Count NIP-04 and NIP-17 messages per receiver per day",
+			rebuildProject: h.projectDMVolumeWithVersion,
+		}, nil
+	case DerivationNutzapReceipts:
+		return projectionDefinition{
+			name:           DerivationNutzapReceipts,
+			compiled:       NutzapReceiptsVersion,
+			description:    "Project NIP-61 nutzap receipts by sender, receiver, mint, and sats",
+			rebuildProject: h.projectNutzapReceiptsWithVersion,
+		}, nil
+	case DerivationExtendedLists:
+		return projectionDefinition{
+			name:           DerivationExtendedLists,
+			compiled:       ExtendedListsVersion,
+			description:    "Project kind-10050 DM relay lists and kind-10019 nutzap wallet info",
+			rebuildProject: h.projectExtendedListsWithVersion,
+		}, nil
 	case DerivationEventURLs:
 		return projectionDefinition{
 			name:           DerivationEventURLs,

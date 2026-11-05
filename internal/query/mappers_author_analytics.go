@@ -6,6 +6,13 @@ import (
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
 
+func engagementRate(received, posts int64) float64 {
+	if posts <= 0 {
+		return 0
+	}
+	return float64(received) / float64(posts)
+}
+
 func authorAnalyticsSummaryFromStore(pubkey string, rows []readmodel.AuthorAnalyticsSummaryProjection) AuthorAnalyticsSummary {
 	out := AuthorAnalyticsSummary{
 		Pubkey:  pubkey,
@@ -22,6 +29,7 @@ func authorAnalyticsSummaryFromStore(pubkey string, rows []readmodel.AuthorAnaly
 			EngagementGiven:          row.EngagementGiven,
 			CadencePostsPerDay:       row.CadencePostsPerDay,
 			CadencePostsPerActiveDay: row.CadencePostsPerActiveDay,
+			EngagementRatePerPost:    engagementRate(row.EngagementReceived, row.PostCount),
 			RecentActivityAt:         row.RecentActivityAt,
 			MediaMix:                 authorMediaMixFromStore(row.MediaMix),
 			QuoteRepost: AuthorAnalyticsQuoteRepostWindow{

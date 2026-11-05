@@ -137,6 +137,53 @@ func loadInvalidEventRetentionConfig() (WorkerInvalidEventRetentionConfig, error
 	}, nil
 }
 
+func loadWorkerNIP05Config() (WorkerNIP05Config, error) {
+	interval, err := getEnvPositiveDurationStrict("WORKER_NIP05_INTERVAL", 5*time.Minute)
+	if err != nil {
+		return WorkerNIP05Config{}, err
+	}
+	batch, err := getEnvPositiveIntStrict("WORKER_NIP05_BATCH", 25)
+	if err != nil {
+		return WorkerNIP05Config{}, err
+	}
+	timeout, err := getEnvPositiveDurationStrict("WORKER_NIP05_TIMEOUT", 8*time.Second)
+	if err != nil {
+		return WorkerNIP05Config{}, err
+	}
+	recheck, err := getEnvPositiveDurationStrict("WORKER_NIP05_RECHECK_INTERVAL", 7*24*time.Hour)
+	if err != nil {
+		return WorkerNIP05Config{}, err
+	}
+	return WorkerNIP05Config{
+		Enabled:         getEnvBool("WORKER_NIP05_ENABLED", false),
+		Interval:        interval,
+		Batch:           batch,
+		Timeout:         timeout,
+		RecheckInterval: recheck,
+	}, nil
+}
+
+func loadExpiredEventRetentionConfig() (WorkerExpiredEventRetentionConfig, error) {
+	grace, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EXPIRED_GRACE", 24*time.Hour)
+	if err != nil {
+		return WorkerExpiredEventRetentionConfig{}, err
+	}
+	interval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_EXPIRED_RUN_INTERVAL", time.Hour)
+	if err != nil {
+		return WorkerExpiredEventRetentionConfig{}, err
+	}
+	limit, err := getEnvPositiveIntStrict("WORKER_RETENTION_EXPIRED_DELETE_BATCH_LIMIT", 2000)
+	if err != nil {
+		return WorkerExpiredEventRetentionConfig{}, err
+	}
+	return WorkerExpiredEventRetentionConfig{
+		Enabled:          getEnvBool("WORKER_RETENTION_EXPIRED_ENABLED", true),
+		Grace:            grace,
+		RunInterval:      interval,
+		DeleteBatchLimit: limit,
+	}, nil
+}
+
 func loadEngagementRetentionConfig() (WorkerEngagementRetentionConfig, error) {
 	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_MAX_AGE", 32*24*time.Hour)
 	if err != nil {

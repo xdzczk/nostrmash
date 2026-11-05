@@ -93,6 +93,12 @@ type AuthorEngagementStat struct {
 	UpdatedAt                pgtype.Timestamptz
 }
 
+type AuthorFirstSeen struct {
+	Pubkey       string
+	FirstSeenAt  pgtype.Timestamptz
+	FirstEventID string
+}
+
 type AuthorHashtagDaily struct {
 	Pubkey            string
 	ActivityDate      pgtype.Date
@@ -191,6 +197,19 @@ type BookmarkEdge struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type ClientAuthorDaily struct {
+	Day    pgtype.Date
+	Client string
+	Pubkey string
+}
+
+type ClientDaily struct {
+	Day        pgtype.Date
+	Client     string
+	Kind       int32
+	EventCount int64
+}
+
 type CommentEdge struct {
 	SourceEventID     string
 	RootEventID       string
@@ -230,6 +249,15 @@ type ContactListsLatest struct {
 	ContactsJson      []byte
 	DerivationVersion int32
 	UpdatedAt         pgtype.Timestamptz
+}
+
+type ContentFlagsDaily struct {
+	Day                 pgtype.Date
+	TotalCount          int64
+	BridgedCount        int64
+	ContentWarningCount int64
+	PowCount            int64
+	BridgedByProtocol   []byte
 }
 
 type CuratedCreatorPaidTier struct {
@@ -303,6 +331,15 @@ type DmReadCursor struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type DmRelayListsLatest struct {
+	Pubkey            string
+	EventID           string
+	CreatedAt         int64
+	RelaysJson        []byte
+	DerivationVersion int32
+	UpdatedAt         pgtype.Timestamptz
+}
+
 type DmUnreadCount struct {
 	ReceiverPubkey string
 	SenderPubkey   string
@@ -310,6 +347,18 @@ type DmUnreadCount struct {
 	LatestAt       int64
 	LatestEventID  string
 	UpdatedAt      pgtype.Timestamptz
+}
+
+type DmVolumeDaily struct {
+	Day            pgtype.Date
+	ReceiverPubkey string
+	Protocol       string
+	MessageCount   int64
+}
+
+type EcosystemDailyRollup struct {
+	Day        pgtype.Date
+	ComputedAt pgtype.Timestamptz
 }
 
 type Event struct {
@@ -323,6 +372,22 @@ type Event struct {
 	FirstSeenAt pgtype.Timestamptz
 	InsertedAt  pgtype.Timestamptz
 	ContentTsv  interface{}
+}
+
+type EventAttribute struct {
+	EventID              string
+	Client               string
+	ClientPubkey         string
+	ExpiresAt            pgtype.Int8
+	ContentWarning       bool
+	ContentWarningReason string
+	ProxyProtocol        string
+	ProxyID              string
+	PowBits              int16
+	PowTarget            int16
+	TargetKind           pgtype.Int4
+	DerivationVersion    int32
+	ProjectedAt          pgtype.Timestamptz
 }
 
 type EventHashtag struct {
@@ -463,6 +528,18 @@ type Job struct {
 	FinishedAt     pgtype.Timestamptz
 }
 
+type Nip05Verification struct {
+	Pubkey        string
+	Nip05         string
+	Domain        string
+	Status        string
+	CheckedAt     pgtype.Timestamptz
+	NextCheckAt   pgtype.Timestamptz
+	FailureCount  int32
+	LastErrorCode string
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type NoteBookmarkStat struct {
 	EventID           string
 	AuthorPubkey      string
@@ -495,6 +572,8 @@ type NoteDiscoveryStat struct {
 	LanguageConfidence pgtype.Float8
 	LanguageSource     pgtype.Text
 	Score30d           float64
+	NutzapCount        int64
+	NutzapSats         int64
 }
 
 type NoteZapWindowStat struct {
@@ -508,6 +587,31 @@ type NoteZapWindowStat struct {
 	Sats30d      int64
 	ZapCount30d  int64
 	ProjectedAt  pgtype.Timestamptz
+}
+
+type NutzapInfoLatest struct {
+	Pubkey            string
+	EventID           string
+	CreatedAt         int64
+	RelaysJson        []byte
+	MintsJson         []byte
+	P2pk              string
+	DerivationVersion int32
+	UpdatedAt         pgtype.Timestamptz
+}
+
+type NutzapReceipt struct {
+	EventID           string
+	CreatedAt         int64
+	SenderPubkey      string
+	ReceiverPubkey    string
+	TargetEventID     string
+	TargetAddress     string
+	AmountSats        int64
+	MintUrl           string
+	Unit              string
+	DerivationVersion int32
+	ProjectedAt       pgtype.Timestamptz
 }
 
 type PendingAuthorAnalyticsRecompute struct {
@@ -618,6 +722,27 @@ type ProfileDiscoveryStat struct {
 	ScoredRisingEngagement30d pgtype.Float8
 }
 
+type ProfileField struct {
+	Pubkey            string
+	Name              string
+	DisplayName       string
+	Nip05             string
+	Nip05Local        string
+	Nip05Domain       string
+	Lud16             string
+	Lud16Domain       string
+	HasLud06          bool
+	WebsiteDomain     string
+	HasPicture        bool
+	HasBanner         bool
+	HasAbout          bool
+	IsBot             bool
+	CompletenessScore int16
+	MetadataCreatedAt int64
+	DerivationVersion int32
+	UpdatedAt         pgtype.Timestamptz
+}
+
 type ProfilePublicStat struct {
 	Pubkey               string
 	FollowerCount        int64
@@ -636,6 +761,14 @@ type ProfilePublicStat struct {
 	TrustedFollowerCount int64
 }
 
+type ProfileReactionDaily struct {
+	Pubkey     string
+	Day        pgtype.Date
+	PlusCount  int64
+	MinusCount int64
+	EmojiCount int64
+}
+
 type ProfileSupportStat struct {
 	Pubkey        string
 	CappedSats24h int64
@@ -648,6 +781,17 @@ type ProfileSupportStat struct {
 	RawSats30d    int64
 	Supporters30d int64
 	ProjectedAt   pgtype.Timestamptz
+}
+
+type ProfileZapDaily struct {
+	Pubkey              string
+	Day                 pgtype.Date
+	ReceivedCount       int64
+	ReceivedSats        int64
+	SentCount           int64
+	SentSats            int64
+	NutzapReceivedCount int64
+	NutzapReceivedSats  int64
 }
 
 type ProfilesLatest struct {
@@ -689,6 +833,18 @@ type QuoteContribution struct {
 	TargetAddress     string
 	DerivationVersion int32
 	ProjectedAt       pgtype.Timestamptz
+}
+
+type ReactionContentCount struct {
+	TargetEventID string
+	ContentKey    string
+	Count         int64
+}
+
+type ReactionContentEdge struct {
+	SourceEventID string
+	TargetEventID string
+	ContentKey    string
 }
 
 type ReactionCount struct {
@@ -756,6 +912,13 @@ type RelayListsLatest struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type RelayOverlapDaily struct {
+	Day          pgtype.Date
+	RelayA       string
+	RelayB       string
+	SharedEvents int64
+}
+
 type RelayProbeObservation struct {
 	ID                     int64
 	UrlKey                 string
@@ -770,6 +933,19 @@ type RelayProbeObservation struct {
 	SampleYieldCount       pgtype.Int4
 	SampleDuplicateRatio   pgtype.Float8
 	CapabilitySnapshotJson []byte
+}
+
+type RelayPropagationDaily struct {
+	Day                 pgtype.Date
+	RelayUrl            string
+	EventsSeen          int64
+	FirstSeenCount      int64
+	ExclusiveCount      int64
+	LatencyP50Ms        float64
+	LatencyP90Ms        float64
+	FutureDatedCount    int64
+	UntrustedEventShare pgtype.Float8
+	KindMix             []byte
 }
 
 type RelayRegistry struct {
@@ -901,11 +1077,16 @@ type SearchDocument struct {
 
 // Hourly append-only history of rolling 24-hour public discovery metrics, written by RefreshRelayWindowSnapshots.
 type StatsSnapshotHistory struct {
-	BucketStart   pgtype.Timestamptz
-	ComputedAt    pgtype.Timestamptz
-	NoteVolume    int64
-	ActiveAuthors int64
-	RelayEvents   int64
+	BucketStart     pgtype.Timestamptz
+	ComputedAt      pgtype.Timestamptz
+	NoteVolume      int64
+	ActiveAuthors   int64
+	RelayEvents     int64
+	ZapCount24h     int64
+	Sats24h         int64
+	NewAuthors24h   int64
+	Nip17DmCount24h int64
+	BridgedShareBps int64
 }
 
 type StoragePressureState struct {
@@ -1127,6 +1308,31 @@ type UntrustedPurgeKindCursor struct {
 
 type UntrustedPurgeTrustedPubkey struct {
 	Pubkey string
+}
+
+type ZapDaily struct {
+	Day          pgtype.Date
+	ZapCount     int64
+	SatsTotal    int64
+	SelfZapCount int64
+	NutzapCount  int64
+	NutzapSats   int64
+	Hist         []byte
+}
+
+type ZapEdge struct {
+	SenderPubkey   string
+	ReceiverPubkey string
+	ZapCount       int64
+	SatsTotal      int64
+	FirstAt        int64
+	LastAt         int64
+}
+
+type ZapParticipantDaily struct {
+	Day    pgtype.Date
+	Pubkey string
+	Role   string
 }
 
 type ZapReceipt struct {

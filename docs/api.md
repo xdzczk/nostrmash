@@ -125,6 +125,10 @@ Representative implemented native routes include:
 - `GET /api/v1/discovery/stats/network`
 - `GET /api/v1/discovery/stats/content`
 - `GET /api/v1/discovery/stats/relays`
+- `GET /api/v1/discovery/stats/clients`, `/identity`, `/zaps`, and `/accounts`
+- `GET /api/v1/relays/propagation` and `GET /api/v1/relays/overlap`
+- `GET /api/v1/authors/{pubkey}/analytics/zaps`
+- `GET /api/v1/profiles/{pubkey}/identity`
 - `GET /api/v1/discovery/domains/trending`
 - `GET /api/v1/discovery/domains/{domain}`
 - `GET /api/v1/discovery/domains/{domain}/notes`

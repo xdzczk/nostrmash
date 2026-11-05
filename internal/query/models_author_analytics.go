@@ -43,6 +43,7 @@ type AuthorAnalyticsWindowSummary struct {
 	EngagementGiven          int64                            `json:"engagement_given"`
 	CadencePostsPerDay       float64                          `json:"cadence_posts_per_day"`
 	CadencePostsPerActiveDay float64                          `json:"cadence_posts_per_active_day"`
+	EngagementRatePerPost    float64                          `json:"engagement_rate_per_post,omitempty"`
 	RecentActivityAt         *int64                           `json:"recent_activity_at,omitempty"`
 	MediaMix                 AuthorAnalyticsMediaMix          `json:"media_mix"`
 	QuoteRepost              AuthorAnalyticsQuoteRepostWindow `json:"quote_repost"`

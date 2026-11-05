@@ -327,14 +327,15 @@ func applyConfiguredFilterGroups(cfg *RelayConfig) error {
 // defaultFilterGroupKinds is the canonical live-ingest kind set for
 // default_v1. Ordering is kept ascending so it matches the sorted form used by
 // validateFilterGroups. Authored kinds (1, 4, 5, 20, 21, 22, 1984, 9802,
-// 10000, 10001, 10003, 30000, 30023, 30311, 34235, 34236) are author-trust-gated
-// in internal/ingestor/live/gate.go. Kind 1111 is accepted when its NIP-22 root
-// is stored, otherwise author-gated. Engagement kinds (6, 7, 16, 9735) are
-// target-gated. The rest (0, 3, 10002) stay open so the trust graph and
-// profiles can bootstrap.
+// 10000, 10001, 10003, 10019, 10050, 30000, 30023, 30311, 34235, 34236) are
+// author-trust-gated in internal/ingestor/live/gate.go. Kind 1111 is accepted
+// when its NIP-22 root is stored, otherwise author-gated. Kind 1059 is
+// accepted when a p-tag recipient is trusted. Engagement kinds (6, 7, 16,
+// 9321, 9735) are target-gated; 9321 also accepts a trusted p-tag recipient.
+// The rest (0, 3, 10002) stay open so the trust graph and profiles can bootstrap.
 var defaultFilterGroupKinds = []int{
-	0, 1, 3, 4, 5, 6, 7, 16, 20, 21, 22, 1111, 1984,
-	9735, 9802, 10000, 10001, 10002, 10003, 30000, 30023, 30311, 34235, 34236,
+	0, 1, 3, 4, 5, 6, 7, 16, 20, 21, 22, 1059, 1111, 1984, 9321,
+	9735, 9802, 10000, 10001, 10002, 10003, 10019, 10050, 30000, 30023, 30311, 34235, 34236,
 }
 
 func defaultFilterGroups() map[string]FilterGroup {
@@ -359,7 +360,7 @@ func validateFilterGroups(cfg RelayConfig) error {
 	slices.Sort(wantKinds)
 	if !slices.Equal(gotKinds, wantKinds) {
 		return fmt.Errorf(
-			"relay filter group %q must use kinds 0,1,3,4,5,6,7,16,20,21,22,1111,1984,9735,9802,10000,10001,10002,10003,30000,30023,30311,34235,34236 in this chunk",
+			"relay filter group %q must use kinds 0,1,3,4,5,6,7,16,20,21,22,1059,1111,1984,9321,9735,9802,10000,10001,10002,10003,10019,10050,30000,30023,30311,34235,34236 in this chunk",
 			defaultFilterGroupName,
 		)
 	}

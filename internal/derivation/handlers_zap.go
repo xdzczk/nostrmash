@@ -84,6 +84,9 @@ func (h *Handlers) projectZapReceiptsWithVersion(ctx context.Context, eventID st
 	`, eventID, createdAt, targetEventID, senderPubkey, receiver, amountSats, targetAddress, writeVersion); err != nil {
 		return fmt.Errorf("upsert zap receipt: %w", err)
 	}
+	if err := h.applyZapEconomicsTx(ctx, tx, eventID, senderPubkey, receiver, createdAt, amountSats); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit zap projection tx: %w", err)
 	}

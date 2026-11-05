@@ -44,7 +44,7 @@ func (h *Handlers) projectReactionEventsWithVersion(ctx context.Context, eventID
 			if err != nil {
 				return fmt.Errorf("upsert reaction event: %w", err)
 			}
-			return nil
+			return h.applyReactionBreakdownTx(ctx, tx, source.EventID, targetEventID, source.Pubkey, source.Content, source.CreatedAt)
 		},
 	)
 }
