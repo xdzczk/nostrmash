@@ -387,11 +387,12 @@ func (h Handlers) GetRelayHealthHistory(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT day, probes, connect_ok_bps, connect_p50_ms, connect_p90_ms, eose_p50_ms
-		FROM relay_health_daily
-		WHERE url_key LIKE '%' || $1
-		  AND day >= (now() AT TIME ZONE 'utc')::date - 30
-		ORDER BY day ASC
+		SELECT h.day, h.probes, h.connect_ok_bps, h.connect_p50_ms, h.connect_p90_ms, h.eose_p50_ms
+		FROM relay_health_daily h
+		JOIN relay_registry r ON r.url_key = h.url_key
+		WHERE split_part(r.normalized_url, '/', 3) = $1
+		  AND h.day >= (now() AT TIME ZONE 'utc')::date - 30
+		ORDER BY h.day ASC
 	`, host)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")

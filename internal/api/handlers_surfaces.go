@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -136,9 +137,42 @@ func (h Handlers) GetGroupStats(w http.ResponseWriter, r *http.Request) {
 		    (SELECT count(DISTINCT (relay_url, group_id)) FROM group_activity_daily WHERE day >= (now() AT TIME ZONE 'utc')::date - 7 AND message_count > 0),
 		    (SELECT COALESCE(sum(message_count), 0) FROM group_activity_daily WHERE day >= (now() AT TIME ZONE 'utc')::date - 1)
 	`).Scan(&groups, &active1, &active7, &messages)
+	series := make([]map[string]any, 0)
+	if rows, err := h.pool.Query(r.Context(), `
+		SELECT day, sum(message_count)::bigint, count(DISTINCT (relay_url, group_id))::bigint
+		FROM group_activity_daily
+		WHERE day >= (now() AT TIME ZONE 'utc')::date - 30
+		GROUP BY day ORDER BY day ASC
+	`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var day time.Time
+			var count, active int64
+			if err := rows.Scan(&day, &count, &active); err == nil {
+				series = append(series, map[string]any{"day": day.Format("2006-01-02"), "messages": count, "active_groups": active})
+			}
+		}
+	}
+	histogram := make([]map[string]any, 0)
+	if rows, err := h.pool.Query(r.Context(), `
+		SELECT width_bucket(member_count, ARRAY[1, 10, 50, 200, 1000]), count(*)::bigint
+		FROM groups_latest
+		GROUP BY 1 ORDER BY 1
+	`); err == nil {
+		defer rows.Close()
+		labels := []string{"0", "1_9", "10_49", "50_199", "200_999", "1000_plus"}
+		for rows.Next() {
+			var bucket int
+			var count int64
+			if err := rows.Scan(&bucket, &count); err == nil && bucket >= 0 && bucket < len(labels) {
+				histogram = append(histogram, map[string]any{"members": labels[bucket], "groups": count})
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"groups": groups, "active_groups_1d": active1, "active_groups_7d": active7,
-		"messages_1d": messages, "consistency": "eventual",
+		"messages_1d": messages, "series": series, "size_histogram": histogram,
+		"consistency": "eventual",
 	})
 }
 
