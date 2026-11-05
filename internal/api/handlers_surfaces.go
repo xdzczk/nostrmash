@@ -38,7 +38,7 @@ func (h Handlers) GetGroups(w http.ResponseWriter, r *http.Request) {
 		           SELECT sum(message_count) FROM group_activity_daily a
 		           WHERE a.relay_url = g.relay_url AND a.group_id = g.group_id
 		             AND a.day >= (now() AT TIME ZONE 'utc')::date - 7
-		       ), 0)::bigint
+		       ), 0)::bigint AS messages_7d
 		FROM groups_latest g
 		ORDER BY `+order+`
 		LIMIT 50
@@ -180,7 +180,7 @@ func (h Handlers) GetPolls(w http.ResponseWriter, r *http.Request) {
 		order = "votes DESC, p.event_id DESC"
 	}
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT p.event_id, p.author, p.question, p.poll_type, COALESCE(sum(c.votes), 0)::bigint
+		SELECT p.event_id, p.author, p.question, p.poll_type, COALESCE(sum(c.votes), 0)::bigint AS votes
 		FROM polls p
 		LEFT JOIN poll_option_counts c ON c.poll_event_id = p.event_id
 		GROUP BY p.event_id, p.author, p.question, p.poll_type
