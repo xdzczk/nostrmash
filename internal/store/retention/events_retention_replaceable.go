@@ -52,8 +52,8 @@ var supersededReplaceableKinds = []int{
 //     deadGraceBefore. Past deadGraceBefore a permanently-dead derivation no
 //     longer pins disk.
 //
-// Candidates come from replaceable_event_purge, filled when a newer
-// version wins (enqueue_superseded_replaceable). The queue is ordered by
+// Candidates come from replaceable_event_purge. A newer version queues the
+// winner it displaces, and a losing derivation queues itself. The queue is ordered by
 // created_at, the grace window is a primary-key lookup of events.first_seen_at,
 // and the jobs lookup is the unique index on jobs.idempotency_key. An empty
 // queue is one index probe. The statement deletes the event and its queue row.

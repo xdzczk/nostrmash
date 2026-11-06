@@ -34,6 +34,26 @@ func insertParameterizedReplaceableWinner(t *testing.T, ctx context.Context, poo
 	}
 }
 
+// displaceReplaceableWinner moves an address onto a newer version. The purge
+// queue records that displaced id. A first insert of the current winner does
+// not scan older history.
+func displaceReplaceableWinner(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pubkey string, kind int, dTag, eventID string, createdAt int64) {
+	t.Helper()
+	tag, err := pool.Exec(ctx, `
+		UPDATE replaceable_state
+		SET event_id = $4,
+		    created_at = $5,
+		    updated_at = now()
+		WHERE pubkey = $1 AND kind = $2 AND d_tag = $3
+	`, pubkey, kind, dTag, eventID, createdAt)
+	if err != nil {
+		t.Fatalf("displace replaceable winner %s: %v", eventID, err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("displace replaceable winner %s updated %d rows", eventID, tag.RowsAffected())
+	}
+}
+
 func insertReplaceableDTag(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, dTag string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
@@ -60,13 +80,15 @@ func TestPurgeSupersededReplaceableEvents_SafeGuards(t *testing.T) {
 	// Pubkey A, kind 3: old superseded version with no blocking job -> purge.
 	insertReplaceableEventRow(t, ctx, pool, "a3_win", "A", 3, 200, oldSeen)
 	insertReplaceableEventRow(t, ctx, pool, "a3_old", "A", 3, 100, oldSeen)
-	insertReplaceableWinner(t, ctx, pool, "A", 3, "a3_win", 200)
+	insertReplaceableWinner(t, ctx, pool, "A", 3, "a3_old", 100)
+	displaceReplaceableWinner(t, ctx, pool, "A", 3, "", "a3_win", 200)
 
 	// Pubkey B, kind 0: old superseded with a stale dead job (past grace) -> purge.
 	insertReplaceableEventRow(t, ctx, pool, "b0_win", "B", 0, 200, oldSeen)
 	insertReplaceableEventRow(t, ctx, pool, "b0_old", "B", 0, 100, oldSeen)
 	insertDeriveJob(t, ctx, pool, "b0_old", "dead", deadGraceBefore.Add(-24*time.Hour))
-	insertReplaceableWinner(t, ctx, pool, "B", 0, "b0_win", 200)
+	insertReplaceableWinner(t, ctx, pool, "B", 0, "b0_old", 100)
+	displaceReplaceableWinner(t, ctx, pool, "B", 0, "", "b0_win", 200)
 
 	// Pubkey C, kind 10002: superseded but blocked (pending job) and a
 	// recently-ingested superseded version (within MinAge) -> both kept.
@@ -74,7 +96,9 @@ func TestPurgeSupersededReplaceableEvents_SafeGuards(t *testing.T) {
 	insertReplaceableEventRow(t, ctx, pool, "c_pending", "C", 10002, 100, oldSeen)
 	insertDeriveJob(t, ctx, pool, "c_pending", "pending", ref)
 	insertReplaceableEventRow(t, ctx, pool, "c_recent", "C", 10002, 200, recentSeen)
-	insertReplaceableWinner(t, ctx, pool, "C", 10002, "c_win", 300)
+	insertReplaceableWinner(t, ctx, pool, "C", 10002, "c_pending", 100)
+	displaceReplaceableWinner(t, ctx, pool, "C", 10002, "", "c_recent", 200)
+	displaceReplaceableWinner(t, ctx, pool, "C", 10002, "", "c_win", 300)
 
 	// Pubkey D, kind 3: only the winner exists -> kept.
 	insertReplaceableEventRow(t, ctx, pool, "d3_only", "D", 3, 100, oldSeen)
@@ -96,7 +120,8 @@ func TestPurgeSupersededReplaceableEvents_SafeGuards(t *testing.T) {
 	insertReplaceableDTag(t, ctx, pool, "f_art_win", "art")
 	insertReplaceableEventRow(t, ctx, pool, "f_art_old", "F", 30023, 100, oldSeen)
 	insertReplaceableDTag(t, ctx, pool, "f_art_old", "art")
-	insertParameterizedReplaceableWinner(t, ctx, pool, "F", 30023, "art", "f_art_win", 200)
+	insertParameterizedReplaceableWinner(t, ctx, pool, "F", 30023, "art", "f_art_old", 100)
+	displaceReplaceableWinner(t, ctx, pool, "F", 30023, "art", "f_art_win", 200)
 	insertReplaceableEventRow(t, ctx, pool, "f_bio_only", "F", 30023, 300, oldSeen)
 	insertReplaceableDTag(t, ctx, pool, "f_bio_only", "bio")
 	insertParameterizedReplaceableWinner(t, ctx, pool, "F", 30023, "bio", "f_bio_only", 300)
@@ -104,19 +129,22 @@ func TestPurgeSupersededReplaceableEvents_SafeGuards(t *testing.T) {
 	// Pubkey G, kind 10003 (non-parameterized, d_tag ''): superseded -> purge.
 	insertReplaceableEventRow(t, ctx, pool, "g_win", "G", 10003, 200, oldSeen)
 	insertReplaceableEventRow(t, ctx, pool, "g_old", "G", 10003, 100, oldSeen)
-	insertReplaceableWinner(t, ctx, pool, "G", 10003, "g_win", 200)
+	insertReplaceableWinner(t, ctx, pool, "G", 10003, "g_old", 100)
+	displaceReplaceableWinner(t, ctx, pool, "G", 10003, "", "g_win", 200)
 
 	// Pubkey H, kind 10001 pin list: superseded version is purged; the winner stays.
 	insertReplaceableEventRow(t, ctx, pool, "h_win", "H", 10001, 200, oldSeen)
 	insertReplaceableEventRow(t, ctx, pool, "h_old", "H", 10001, 100, oldSeen)
-	insertReplaceableWinner(t, ctx, pool, "H", 10001, "h_win", 200)
+	insertReplaceableWinner(t, ctx, pool, "H", 10001, "h_old", 100)
+	displaceReplaceableWinner(t, ctx, pool, "H", 10001, "", "h_win", 200)
 
 	// Pubkey I, kind 30311: superseded d-tag version is purged; the current stream stays.
 	insertReplaceableEventRow(t, ctx, pool, "i_win", "I", 30311, 200, oldSeen)
 	insertReplaceableDTag(t, ctx, pool, "i_win", "stream")
 	insertReplaceableEventRow(t, ctx, pool, "i_old", "I", 30311, 100, oldSeen)
 	insertReplaceableDTag(t, ctx, pool, "i_old", "stream")
-	insertParameterizedReplaceableWinner(t, ctx, pool, "I", 30311, "stream", "i_win", 200)
+	insertParameterizedReplaceableWinner(t, ctx, pool, "I", 30311, "stream", "i_old", 100)
+	displaceReplaceableWinner(t, ctx, pool, "I", 30311, "stream", "i_win", 200)
 
 	deleted, err := NewPostgresStore(pool).PurgeSupersededReplaceableEvents(ctx, supersededBefore, deadGraceBefore, 100)
 	if err != nil {

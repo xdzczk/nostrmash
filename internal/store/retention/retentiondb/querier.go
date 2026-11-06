@@ -104,8 +104,8 @@ type Querier interface {
 	PurgeStaleEventRelays(ctx context.Context, arg PurgeStaleEventRelaysParams) (int64, error)
 	PurgeStaleTrustedNoteDiscoveryCandidates(ctx context.Context, arg PurgeStaleTrustedNoteDiscoveryCandidatesParams) (int64, error)
 	PurgeStaleTrustedProfileDiscoveryCandidates(ctx context.Context, arg PurgeStaleTrustedProfileDiscoveryCandidatesParams) (int64, error)
-	// Candidates are stamped into replaceable_event_purge when a winner is
-	// recorded (enqueue_superseded_replaceable). Cost follows the queued
+	// Candidates are stamped into replaceable_event_purge when a newer version
+	// displaces the current winner, and when a losing version is derived. Cost follows the queued
 	// backlog, not the size of events. The queue has no foreign key, so this
 	// statement removes both the event and its queue row. gone drops ids whose
 	// event was deleted by something else.
