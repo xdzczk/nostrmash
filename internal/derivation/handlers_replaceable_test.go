@@ -99,4 +99,24 @@ func TestUpdateReplaceableState_TieBreakByEventID(t *testing.T) {
 	if winnerID != "00000000" || winnerCreatedAt != 1001 {
 		t.Fatalf("unexpected winner after newer event: id=%s created_at=%d", winnerID, winnerCreatedAt)
 	}
+
+	rows, err := pool.Query(ctx, `SELECT event_id FROM replaceable_event_purge ORDER BY event_id`)
+	if err != nil {
+		t.Fatalf("query replaceable purge queue: %v", err)
+	}
+	defer rows.Close()
+	var queued []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan replaceable purge queue: %v", err)
+		}
+		queued = append(queued, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read replaceable purge queue: %v", err)
+	}
+	if len(queued) != 2 || queued[0] != "aaaaaaaa" || queued[1] != "bbbbbbbb" {
+		t.Fatalf("purge queue = %v, want the two displaced versions", queued)
+	}
 }

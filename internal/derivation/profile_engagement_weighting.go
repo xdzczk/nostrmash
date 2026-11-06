@@ -49,9 +49,9 @@ type profileWeightedScoreInputs struct {
 // The previous plan joined events first to discover the author and timed
 // out. Rows with NULL target_pubkey are skipped. The authored-note scan is
 // bounded to the 30d window on (pubkey, kind, created_at). Reply rows bring
-// their text so a copied phrase can collapse, and they are read a page at a
-// time so one busy profile cannot hold a statement open until the timeout.
-// Reactions, reposts, and zaps collapse to one row per engager in SQL.
+// their text so a copied phrase can collapse. Replies, reactions, reposts,
+// and zaps are read a page at a time and then folded to one vote per
+// engager, so one busy profile cannot hold a statement open until the timeout.
 func loadProfileWeightedScoreInputsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -147,41 +147,15 @@ func loadProfileWeightedScoreInputsTx(
 	return out, nil
 }
 
-// profileSignalSelectSQL aggregates one engager. $4/$5/$6 are the trust-weight
-// binds. Motion is the latest engagement on a root note published in the window.
-const profileSignalSelectSQL = `
-	g.pubkey,
-	MAX(` + engagerWeightCaseSQL + `) AS weight,
-	COALESCE(bool_or(g.created_at >= $3), false) AS rising_24h,
-	COALESCE(bool_or(g.created_at >= $7), false) AS rising_7d,
-	COALESCE(bool_or(n.created_at >= $3), false) AS trending_24h,
-	COALESCE(bool_or(n.created_at >= $7), false) AS trending_7d,
-	COALESCE(bool_or(n.id IS NOT NULL), false) AS trending_30d,
-	COALESCE(MAX(g.created_at) FILTER (WHERE n.created_at >= $3), 0) AS motion_24h,
-	COALESCE(MAX(g.created_at) FILTER (WHERE n.created_at >= $7), 0) AS motion_7d,
-	COALESCE(MAX(g.created_at) FILTER (WHERE n.id IS NOT NULL), 0) AS motion_30d`
-
-// profileRootNoteJoinSQL matches a target that is this author's root note
-// published inside the 30d window. Trust weight is joined on the engager.
-const profileRootNoteJoinSQL = `
-	LEFT JOIN events n ON n.id = g.target_event_id
-		AND n.kind = 1
-		AND n.pubkey = $1
-		AND n.created_at >= $2
-		AND n.created_at <= $8
-		AND NOT EXISTS (
-			SELECT 1 FROM thread_edges te WHERE te.child_event_id = n.id
-		)
-	LEFT JOIN trust_pubkeys_latest t ON t.pubkey = g.pubkey`
-
 // profileReplyVotePageSize is how many reply rows one statement may join to
-// events. The previous query joined the whole 30-day window in one
-// statement. Busy profiles streamed event content until the 15s statement
-// timeout cancelled it, the sweeper released the claim, and those profiles
-// never rebuilt. Each page is an index range plus that many primary-key
-// lookups, so the cost stays on the page rather than the profile's whole
-// reply history.
-const profileReplyVotePageSize = 1000
+// the target note. Event text is loaded afterwards, in smaller batches:
+// a page of 1000 bodies still streamed past the 15s statement timeout.
+// profileReplyContentBatch is that second statement's size.
+const (
+	profileReplyVotePageSize  = 200
+	profileReplyContentBatch  = 40
+	profileSignalVotePageSize = 200
+)
 
 func loadProfileReplyVotesTx(ctx context.Context, tx pgx.Tx, noteArgs []any) ([]profileVote, int64, int64, int64, error) {
 	return loadProfileReplyVotesPageTx(ctx, tx, noteArgs, profileReplyVotePageSize)
@@ -200,6 +174,7 @@ func loadProfileReplyVotesPageTx(ctx context.Context, tx pgx.Tx, noteArgs []any,
 
 	var (
 		votes                       []profileVote
+		sourceIDs                   []string
 		motion24, motion7, motion30 int64
 	)
 	for {
@@ -217,7 +192,6 @@ func loadProfileReplyVotesPageTx(ctx context.Context, tx pgx.Tx, noteArgs []any,
 			)
 			SELECT
 				p.source_pubkey,
-				COALESCE(src.content, ''),
 				`+engagerWeightCaseSQL+`,
 				p.source_created_at,
 				COALESCE(n.created_at >= $3, false),
@@ -228,12 +202,6 @@ func loadProfileReplyVotesPageTx(ctx context.Context, tx pgx.Tx, noteArgs []any,
 				p.source_event_id,
 				p.target_event_id
 			FROM page p
-			-- LEFT JOIN, not INNER: a dropped source row must not shrink the
-			-- page. The cursor walks the contribution index, and stopping
-			-- early because one event was missing would skip every later reply.
-			-- source_event_id is an ON DELETE CASCADE foreign key, so the
-			-- event is present and the content is just empty if it is not.
-			LEFT JOIN events src ON src.id = p.source_event_id
 			LEFT JOIN trust_pubkeys_latest t ON t.pubkey = p.source_pubkey
 			LEFT JOIN events n ON n.id = p.target_event_id
 				AND n.kind = 1
@@ -256,7 +224,6 @@ func loadProfileReplyVotesPageTx(ctx context.Context, tx pgx.Tx, noteArgs []any,
 			var vote profileVote
 			if err := rows.Scan(
 				&vote.Pubkey,
-				&vote.Content,
 				&vote.Weight,
 				&vote.EventAt,
 				&vote.Trending24h,
@@ -273,6 +240,7 @@ func loadProfileReplyVotesPageTx(ctx context.Context, tx pgx.Tx, noteArgs []any,
 			pageAt = vote.EventAt
 			n++
 			votes = append(votes, vote)
+			sourceIDs = append(sourceIDs, pageSrc)
 			if vote.Trending24h && vote.EventAt > motion24 {
 				motion24 = vote.EventAt
 			}
@@ -299,100 +267,243 @@ func loadProfileReplyVotesPageTx(ctx context.Context, tx pgx.Tx, noteArgs []any,
 			break
 		}
 	}
+	if err := attachReplyContent(ctx, tx, votes, sourceIDs); err != nil {
+		return nil, 0, 0, 0, err
+	}
 	return votes, motion24, motion7, motion30, nil
 }
 
+// attachReplyContent fills reply text after the page query. Pulling content
+// in the same statement as the note join made a page of large bodies exceed
+// the statement timeout while the cursor was still walking.
+func attachReplyContent(ctx context.Context, tx pgx.Tx, votes []profileVote, sourceIDs []string) error {
+	if len(votes) == 0 {
+		return nil
+	}
+	if len(votes) != len(sourceIDs) {
+		return fmt.Errorf("read profile reply votes: content ids do not match votes")
+	}
+	content := make(map[string]string, len(sourceIDs))
+	for start := 0; start < len(sourceIDs); start += profileReplyContentBatch {
+		end := start + profileReplyContentBatch
+		if end > len(sourceIDs) {
+			end = len(sourceIDs)
+		}
+		rows, err := tx.Query(ctx, `
+			SELECT id, COALESCE(content, '')
+			FROM events
+			WHERE id = ANY($1::text[])
+		`, sourceIDs[start:end])
+		if err != nil {
+			return fmt.Errorf("load profile reply content: %w", err)
+		}
+		for rows.Next() {
+			var id, body string
+			if err := rows.Scan(&id, &body); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan profile reply content: %w", err)
+			}
+			content[id] = body
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return fmt.Errorf("read profile reply content: %w", err)
+		}
+	}
+	for i := range votes {
+		votes[i].Content = content[sourceIDs[i]]
+	}
+	return nil
+}
+
 func loadProfileSignalVotesTx(ctx context.Context, tx pgx.Tx, noteArgs []any) ([]profileVote, []profileVote, []profileVote, int64, int64, int64, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT src, pubkey, weight, rising_24h, rising_7d, trending_24h, trending_7d, trending_30d, motion_24h, motion_7d, motion_30d
-		FROM (
-			SELECT 'reaction'::text AS src, `+profileSignalSelectSQL+`
-			FROM (
-				SELECT reactor_pubkey AS pubkey, target_event_id, created_at
+	return loadProfileSignalVotesPageTx(ctx, tx, noteArgs, profileSignalVotePageSize)
+}
+
+// loadProfileSignalVotesPageTx aggregates reactions, reposts, and zaps one
+// page at a time. One statement used to join every 30-day row to its target
+// note, and that scan exceeded the statement timeout for busy profiles.
+// Weight depends only on the engager, so folding each page into one vote per
+// pubkey matches the old GROUP BY.
+func loadProfileSignalVotesPageTx(ctx context.Context, tx pgx.Tx, noteArgs []any, pageSize int) ([]profileVote, []profileVote, []profileVote, int64, int64, int64, error) {
+	if pageSize <= 0 {
+		pageSize = profileSignalVotePageSize
+	}
+	reactions, react24, react7, react30, err := pageProfileSignal(ctx, tx, noteArgs, pageSize, profileReactionSignalPageSQL)
+	if err != nil {
+		return nil, nil, nil, 0, 0, 0, err
+	}
+	reposts, repost24, repost7, repost30, err := pageProfileSignal(ctx, tx, noteArgs, pageSize, profileRepostSignalPageSQL)
+	if err != nil {
+		return nil, nil, nil, 0, 0, 0, err
+	}
+	zaps, zap24, zap7, zap30, err := pageProfileSignal(ctx, tx, noteArgs, pageSize, profileZapSignalPageSQL)
+	if err != nil {
+		return nil, nil, nil, 0, 0, 0, err
+	}
+	return reactions, reposts, zaps, laterUnix(react24, repost24, zap24), laterUnix(react7, repost7, zap7), laterUnix(react30, repost30, zap30), nil
+}
+
+const profileSignalPageSelectSQL = `
+			SELECT
+				p.pubkey,
+				` + engagerWeightCaseSQL + `,
+				p.created_at,
+				COALESCE(n.created_at >= $3, false),
+				COALESCE(n.created_at >= $7, false),
+				(n.id IS NOT NULL),
+				COALESCE(p.created_at >= $3, false),
+				COALESCE(p.created_at >= $7, false),
+				p.event_id
+			FROM page p
+			LEFT JOIN trust_pubkeys_latest t ON t.pubkey = p.pubkey
+			LEFT JOIN events n ON n.id = p.target_event_id
+				AND n.kind = 1
+				AND n.pubkey = $1
+				AND n.created_at >= $2
+				AND n.created_at <= $8
+				AND NOT EXISTS (
+					SELECT 1 FROM thread_edges te WHERE te.child_event_id = n.id
+				)
+			ORDER BY p.created_at ASC, p.event_id ASC`
+
+const profileReactionSignalPageSQL = `
+			WITH page AS MATERIALIZED (
+				SELECT event_id, reactor_pubkey AS pubkey, target_event_id, created_at
 				FROM reaction_events
 				WHERE target_pubkey = $1
 				  AND reactor_pubkey <> $1
 				  AND created_at >= $2
 				  AND created_at <= $8
-			) g
-			`+profileRootNoteJoinSQL+`
-			GROUP BY g.pubkey
-			UNION ALL
-			SELECT 'repost'::text AS src, `+profileSignalSelectSQL+`
-			FROM (
-				SELECT reposter_pubkey AS pubkey, target_event_id, created_at
+				  AND (created_at, event_id) > ($9, $10)
+				ORDER BY created_at ASC, event_id ASC
+				LIMIT $11
+			)` + profileSignalPageSelectSQL
+
+const profileRepostSignalPageSQL = `
+			WITH page AS MATERIALIZED (
+				SELECT event_id, reposter_pubkey AS pubkey, target_event_id, created_at
 				FROM repost_events
 				WHERE target_pubkey = $1
 				  AND reposter_pubkey <> $1
 				  AND created_at >= $2
 				  AND created_at <= $8
-			) g
-			`+profileRootNoteJoinSQL+`
-			GROUP BY g.pubkey
-			UNION ALL
-			SELECT 'zap'::text AS src, `+profileSignalSelectSQL+`
-			FROM (
-				SELECT sender_pubkey AS pubkey, event_id AS target_event_id, created_at
+				  AND (created_at, event_id) > ($9, $10)
+				ORDER BY created_at ASC, event_id ASC
+				LIMIT $11
+			)` + profileSignalPageSelectSQL
+
+const profileZapSignalPageSQL = `
+			WITH page AS MATERIALIZED (
+				SELECT zap_receipt_id AS event_id, sender_pubkey AS pubkey, event_id AS target_event_id, created_at
 				FROM zap_receipts
 				WHERE receiver_pubkey = $1
 				  AND sender_pubkey <> $1
 				  AND created_at >= $2
 				  AND created_at <= $8
-			) g
-			`+profileRootNoteJoinSQL+`
-			GROUP BY g.pubkey
-		) votes
-	`, noteArgs...)
-	if err != nil {
-		return nil, nil, nil, 0, 0, 0, fmt.Errorf("load profile signal votes: %w", err)
-	}
-	defer rows.Close()
+				  AND (created_at, zap_receipt_id) > ($9, $10)
+				ORDER BY created_at ASC, zap_receipt_id ASC
+				LIMIT $11
+			)` + profileSignalPageSelectSQL
 
-	var reactions, reposts, zaps []profileVote
+type profileSignalState struct {
+	weight     float64
+	rising24   bool
+	rising7    bool
+	trending24 bool
+	trending7  bool
+	trending30 bool
+}
+
+func pageProfileSignal(ctx context.Context, tx pgx.Tx, noteArgs []any, pageSize int, query string) ([]profileVote, int64, int64, int64, error) {
+	cursorAt := int64(-1)
+	cursorID := ""
+	byPubkey := map[string]*profileSignalState{}
+	var order []string
 	var motion24, motion7, motion30 int64
-	for rows.Next() {
-		var src string
-		var vote profileVote
-		var voteMotion24, voteMotion7, voteMotion30 int64
-		if err := rows.Scan(
-			&src,
-			&vote.Pubkey,
-			&vote.Weight,
-			&vote.Rising24h,
-			&vote.Rising7d,
-			&vote.Trending24h,
-			&vote.Trending7d,
-			&vote.Trending30d,
-			&voteMotion24,
-			&voteMotion7,
-			&voteMotion30,
-		); err != nil {
-			return nil, nil, nil, 0, 0, 0, fmt.Errorf("scan profile signal vote: %w", err)
+	for {
+		rows, err := tx.Query(ctx, query, append(append([]any{}, noteArgs...), cursorAt, cursorID, pageSize)...)
+		if err != nil {
+			return nil, 0, 0, 0, fmt.Errorf("load profile signal votes: %w", err)
 		}
-		switch src {
-		case "reaction":
-			reactions = append(reactions, vote)
-		case "repost":
-			reposts = append(reposts, vote)
-		case "zap":
-			zaps = append(zaps, vote)
-		default:
-			return nil, nil, nil, 0, 0, 0, fmt.Errorf("unknown profile signal %q", src)
+		n := 0
+		var pageAt int64
+		var pageID string
+		for rows.Next() {
+			var pubkey, eventID string
+			var weight float64
+			var created int64
+			var trending24, trending7, trending30, rising24, rising7 bool
+			if err := rows.Scan(
+				&pubkey,
+				&weight,
+				&created,
+				&trending24,
+				&trending7,
+				&trending30,
+				&rising24,
+				&rising7,
+				&eventID,
+			); err != nil {
+				rows.Close()
+				return nil, 0, 0, 0, fmt.Errorf("scan profile signal vote: %w", err)
+			}
+			pageAt = created
+			pageID = eventID
+			n++
+			state := byPubkey[pubkey]
+			if state == nil {
+				state = &profileSignalState{}
+				byPubkey[pubkey] = state
+				order = append(order, pubkey)
+			}
+			state.weight = weight
+			state.rising24 = state.rising24 || rising24
+			state.rising7 = state.rising7 || rising7
+			state.trending24 = state.trending24 || trending24
+			state.trending7 = state.trending7 || trending7
+			state.trending30 = state.trending30 || trending30
+			if trending24 && created > motion24 {
+				motion24 = created
+			}
+			if trending7 && created > motion7 {
+				motion7 = created
+			}
+			if trending30 && created > motion30 {
+				motion30 = created
+			}
 		}
-		if voteMotion24 > motion24 {
-			motion24 = voteMotion24
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, 0, 0, 0, fmt.Errorf("read profile signal votes: %w", err)
 		}
-		if voteMotion7 > motion7 {
-			motion7 = voteMotion7
+		if n == 0 {
+			break
 		}
-		if voteMotion30 > motion30 {
-			motion30 = voteMotion30
+		if pageAt == cursorAt && pageID == cursorID {
+			return nil, 0, 0, 0, fmt.Errorf("read profile signal votes: page cursor did not advance")
+		}
+		cursorAt, cursorID = pageAt, pageID
+		if n < pageSize {
+			break
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, nil, 0, 0, 0, fmt.Errorf("read profile signal votes: %w", err)
+	votes := make([]profileVote, 0, len(order))
+	for _, pubkey := range order {
+		state := byPubkey[pubkey]
+		votes = append(votes, profileVote{
+			Pubkey:      pubkey,
+			Weight:      state.weight,
+			Rising24h:   state.rising24,
+			Rising7d:    state.rising7,
+			Trending24h: state.trending24,
+			Trending7d:  state.trending7,
+			Trending30d: state.trending30,
+		})
 	}
-	return reactions, reposts, zaps, motion24, motion7, motion30, nil
+	return votes, motion24, motion7, motion30, nil
 }
 
 func loadProfileAuthoredMotionTx(

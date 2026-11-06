@@ -129,3 +129,132 @@ func TestLoadProfileReplyVotesPageTx_WalksEveryPage(t *testing.T) {
 		t.Fatal("reply to a non-root note was dropped from rising")
 	}
 }
+
+// Pages of two must fold every in-window reaction, including two reactions
+// from one person, and must keep a reaction to a non-root note out of the
+// trending flags.
+func TestLoadProfileSignalVotesPageTx_WalksEveryPage(t *testing.T) {
+	ctx := context.Background()
+	dbURL := dbtest.DatabaseURL(t, "profile signal pages")
+	pool := dbtest.SetupSchemaPool(t, ctx, dbURL, "profile_signal_pages")
+	if err := dbmigrate.Migrate(ctx, pool, "test-v1"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	now := time.Now().UTC()
+	rootAt := now.Add(-2 * time.Hour).Unix()
+	likeAt := now.Add(-20 * time.Minute).Unix()
+	author := "signal_author"
+	events := []struct {
+		id, pubkey string
+		created    int64
+	}{
+		{"sig_root", author, rootAt},
+		{"sig_child", author, likeAt},
+		{"like_a1", "liker_a", likeAt},
+		{"like_a2", "liker_a", likeAt + 1},
+		{"like_b", "liker_b", likeAt},
+		{"like_c", "liker_c", likeAt + 2},
+		{"like_d", "liker_d", likeAt + 3},
+		{"like_self", author, likeAt},
+		{"like_old", "liker_old", now.Add(-40 * 24 * time.Hour).Unix()},
+	}
+	for _, event := range events {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO events (id, pubkey, created_at, kind, sig, content, raw_json)
+			VALUES ($1, $2, $3, 1, 'sig', '', '{}'::jsonb)
+		`, event.id, event.pubkey, event.created); err != nil {
+			t.Fatalf("insert event %s: %v", event.id, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO thread_edges (child_event_id, child_created_at, parent_event_id, derivation_version)
+		VALUES ('sig_child', $1, 'sig_root', 1)
+	`, likeAt); err != nil {
+		t.Fatalf("insert thread edge: %v", err)
+	}
+
+	type reaction struct {
+		id, target, pubkey string
+		created            int64
+	}
+	reactions := []reaction{
+		{"like_a1", "sig_root", "liker_a", likeAt},
+		{"like_a2", "sig_root", "liker_a", likeAt + 1},
+		{"like_b", "sig_root", "liker_b", likeAt},
+		{"like_c", "sig_child", "liker_c", likeAt + 2},
+		{"like_d", "sig_root", "liker_d", likeAt + 3},
+		{"like_self", "sig_root", author, likeAt},
+		{"like_old", "sig_root", "liker_old", now.Add(-40 * 24 * time.Hour).Unix()},
+	}
+	for _, row := range reactions {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO reaction_events (
+				event_id, target_event_id, reactor_pubkey, content, created_at,
+				derivation_version, target_pubkey
+			) VALUES ($1, $2, $3, '+', $4, 1, $5)
+		`, row.id, row.target, row.pubkey, row.created, author); err != nil {
+			t.Fatalf("insert reaction %s: %v", row.id, err)
+		}
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	nowUnix := now.Unix()
+	noteArgs := []any{
+		author,
+		nowUnix - int64((30 * 24 * time.Hour).Seconds()),
+		nowUnix - int64((24 * time.Hour).Seconds()),
+		false,
+		3,
+		0.0,
+		nowUnix - int64((7 * 24 * time.Hour).Seconds()),
+		maxSaneUnixCreatedAt,
+	}
+	got, _, _, motion24, _, _, err := loadProfileSignalVotesPageTx(ctx, tx, noteArgs, 2)
+	if err != nil {
+		t.Fatalf("load profile signal votes: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("got %d reaction votes, want 4 people across pages of 2", len(got))
+	}
+	byPubkey := map[string]profileVote{}
+	for _, vote := range got {
+		if _, ok := byPubkey[vote.Pubkey]; ok {
+			t.Fatalf("pubkey %s was not folded into one vote", vote.Pubkey)
+		}
+		byPubkey[vote.Pubkey] = vote
+		if vote.Weight != 1 {
+			t.Fatalf("%s weight = %v, want 1", vote.Pubkey, vote.Weight)
+		}
+		if vote.Content != "" {
+			t.Fatalf("%s content = %q, want empty", vote.Pubkey, vote.Content)
+		}
+	}
+	for _, pubkey := range []string{"liker_a", "liker_b", "liker_d"} {
+		vote, ok := byPubkey[pubkey]
+		if !ok {
+			t.Fatalf("missing reaction from %s", pubkey)
+		}
+		if !vote.Trending30d || !vote.Rising24h {
+			t.Fatalf("root reaction %s flags trending30=%v rising24=%v", pubkey, vote.Trending30d, vote.Rising24h)
+		}
+	}
+	child, ok := byPubkey["liker_c"]
+	if !ok {
+		t.Fatal("missing reaction to the child note")
+	}
+	if child.Trending30d || child.Trending24h || child.Trending7d {
+		t.Fatalf("reaction to a non-root note counted as trending: %+v", child)
+	}
+	if !child.Rising24h {
+		t.Fatal("reaction to a non-root note was dropped from rising")
+	}
+	if motion24 != likeAt+3 {
+		t.Fatalf("trending motion = %d, want the latest root reaction %d", motion24, likeAt+3)
+	}
+}

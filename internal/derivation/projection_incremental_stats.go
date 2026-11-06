@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -706,7 +707,15 @@ func (h *Handlers) applyFollowerCountDeltasTx(
 		bump(followed, -1, 0, -trustedDelta)
 	}
 
-	for _, d := range deltas {
+	// Stable pubkey order. Two contact-list rewrites that touch the same
+	// profiles otherwise lock profile_public_stats in map order and deadlock.
+	pubkeys := make([]string, 0, len(deltas))
+	for pubkey := range deltas {
+		pubkeys = append(pubkeys, pubkey)
+	}
+	sort.Strings(pubkeys)
+	for _, pubkey := range pubkeys {
+		d := deltas[pubkey]
 		if d.followerDelta == 0 && d.followingDelta == 0 && d.trustedFollowerDelta == 0 {
 			continue
 		}

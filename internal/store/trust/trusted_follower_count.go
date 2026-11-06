@@ -2,8 +2,11 @@ package trust
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -61,6 +64,27 @@ func RecountTrustedFollowerCounts(ctx context.Context, pool *pgxpool.Pool, polic
 		return fmt.Errorf("recount trusted followers: pool is nil")
 	}
 	policy = policy.normalized()
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		err = recountTrustedFollowerCountsOnce(ctx, pool, policy)
+		if !isDeadlock(err) || attempt == 3 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt) * 50 * time.Millisecond):
+		}
+	}
+	return err
+}
+
+func isDeadlock(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "40P01"
+}
+
+func recountTrustedFollowerCountsOnce(ctx context.Context, pool *pgxpool.Pool, policy TrustedFollowerPolicy) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin trusted follower recount: %w", err)
@@ -132,6 +156,7 @@ func RecountTrustedFollowerCounts(ctx context.Context, pool *pgxpool.Pool, polic
 				1
 			)
 		FROM trusted_follower_counted c
+		ORDER BY c.pubkey
 		ON CONFLICT (pubkey) DO UPDATE
 		SET trusted_follower_count = EXCLUDED.trusted_follower_count,
 		    updated_at = now()
