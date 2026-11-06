@@ -127,6 +127,8 @@ Representative implemented native routes include:
 - `GET /api/v1/discovery/stats/relays`
 - `GET /api/v1/discovery/stats/clients`, `/identity`, `/zaps`, and `/accounts`
 - `GET /api/v1/relays/propagation` and `GET /api/v1/relays/overlap`
+
+`/discovery/stats/accounts` keeps two populations apart. `new_authors` is pubkeys the index first saw, by day. `active_authors_1d`, `active_authors_7d`, and `active_authors_30d` count pubkeys who posted in that window, including pubkeys with no kind-0 profile. `profiles` is the kind-0 population and matches `/discovery/stats/identity` `profiles`. `profiles_posted_30d` is how many of those profiles posted in 30 days, and `dormant_30d` is the rest. `account_age` buckets the same profiles by their oldest stored event into under 1 day, 1–7 days, 7–30 days, 30–90 days, 90–365 days, and 1 year or more. A missing, future, or pre-2020 timestamp is counted in `account_age_unknown` instead of a bucket.
 - `GET /api/v1/authors/{pubkey}/analytics/zaps`
 - `GET /api/v1/profiles/{pubkey}/identity`
 - `GET /api/v1/profiles/{pubkey}/external-identities`

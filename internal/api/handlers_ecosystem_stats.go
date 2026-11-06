@@ -200,6 +200,10 @@ func (h Handlers) GetZapStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// accountAgeEpochFloor is 2020-01-01 UTC. A stored created_at older than
+// this is not an account age: Nostr did not exist yet.
+const accountAgeEpochFloor int64 = 1577836800
+
 func (h Handlers) GetAccountStats(w http.ResponseWriter, r *http.Request) {
 	if h.pool == nil {
 		writeError(r.Context(), w, http.StatusServiceUnavailable, "feature_unavailable", "stats database is not configured")
@@ -215,8 +219,8 @@ func (h Handlers) GetAccountStats(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	var dau, wau, active30, dormant, losses, gains int64
-	_ = h.pool.QueryRow(r.Context(), `
+	var dau, wau, active30, losses, gains int64
+	if err := h.pool.QueryRow(r.Context(), `
 		SELECT
 			count(DISTINCT pubkey) FILTER (WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 1),
 			count(DISTINCT pubkey) FILTER (WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 7),
@@ -224,48 +228,103 @@ func (h Handlers) GetAccountStats(w http.ResponseWriter, r *http.Request) {
 		FROM author_activity_daily
 		WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 30
 		  AND post_count > 0
-	`).Scan(&dau, &wau, &active30)
-	_ = h.pool.QueryRow(r.Context(), `
-		SELECT count(*)::bigint FROM profile_public_stats
-		WHERE recent_activity_at IS NOT NULL
-		  AND recent_activity_at < EXTRACT(EPOCH FROM now() - interval '30 days')::bigint
-	`).Scan(&dormant)
-	_ = h.pool.QueryRow(r.Context(), `
+	`).Scan(&dau, &wau, &active30); err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	// profiles is the kind-0 population, the same count as identity stats.
+	// Dormant profiles are that population minus those who posted in 30 days,
+	// so the two numbers share a denominator. active_authors_* stays every
+	// pubkey who posted, including pubkeys that never published a profile.
+	var profiles, postedProfiles int64
+	if err := h.pool.QueryRow(r.Context(), `
+		SELECT
+			count(*)::bigint,
+			count(*) FILTER (WHERE EXISTS (
+				SELECT 1 FROM author_activity_daily a
+				WHERE a.pubkey = f.pubkey
+				  AND a.activity_date >= (now() AT TIME ZONE 'utc')::date - 30
+				  AND a.post_count > 0
+			))::bigint
+		FROM profile_fields f
+	`).Scan(&profiles, &postedProfiles); err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if err := h.pool.QueryRow(r.Context(), `
 		SELECT
 			(SELECT count(*) FROM follower_loss_events WHERE lost_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7),
 			(SELECT count(*) FROM follower_gain_events WHERE gained_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7)
-	`).Scan(&losses, &gains)
+	`).Scan(&losses, &gains); err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
 	unfollow := int64(0)
 	if losses+gains > 0 {
 		unfollow = losses * 10000 / (losses + gains)
 	}
+	// Age is the oldest stored event for a kind-0 profile, not the moment
+	// the index first saw the pubkey. Future dates and pre-Nostr dates are
+	// counted separately so they do not land in the newest or oldest bucket.
 	ageRows, err := h.pool.Query(r.Context(), `
-		SELECT width_bucket(EXTRACT(EPOCH FROM (now() - first_seen_at)) / 86400, ARRAY[1, 7, 30, 90, 365]::float8[]),
+		SELECT width_bucket(
+		         ((EXTRACT(EPOCH FROM now()) - s.time_joined) / 86400.0)::float8,
+		         ARRAY[1, 7, 30, 90, 365]::float8[]
+		       ),
 		       count(*)::bigint
-		FROM author_first_seen
+		FROM profile_fields f
+		JOIN profile_public_stats s ON s.pubkey = f.pubkey
+		WHERE s.time_joined IS NOT NULL
+		  AND s.time_joined >= $1
+		  AND s.time_joined <= EXTRACT(EPOCH FROM now())::bigint
 		GROUP BY 1
-		ORDER BY 1
-	`)
-	ages := make([]map[string]any, 0)
-	if err == nil {
-		defer ageRows.Close()
-		for ageRows.Next() {
-			var bucket int
-			var count int64
-			if err := ageRows.Scan(&bucket, &count); err == nil {
-				ages = append(ages, map[string]any{"bucket": bucket, "authors": count})
-			}
+	`, accountAgeEpochFloor)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	defer ageRows.Close()
+	ageCounts := map[int]int64{}
+	var aged int64
+	for ageRows.Next() {
+		var bucket int
+		var count int64
+		if err := ageRows.Scan(&bucket, &count); err != nil {
+			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
 		}
+		if bucket < 0 || bucket > 5 {
+			continue
+		}
+		ageCounts[bucket] = count
+		aged += count
+	}
+	if err := ageRows.Err(); err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"new_authors":        newAuthors,
-		"active_authors_1d":  dau,
-		"active_authors_7d":  wau,
-		"active_authors_30d": active30,
-		"dormant_30d":        dormant,
-		"unfollow_rate_bps":  unfollow,
-		"account_age":        ages,
+		"new_authors":         newAuthors,
+		"active_authors_1d":   dau,
+		"active_authors_7d":   wau,
+		"active_authors_30d":  active30,
+		"profiles":            profiles,
+		"profiles_posted_30d": postedProfiles,
+		"dormant_30d":         profiles - postedProfiles,
+		"unfollow_rate_bps":   unfollow,
+		"account_age":         accountAgeBuckets(ageCounts),
+		"account_age_unknown": profiles - aged,
 	})
+}
+
+// accountAgeBuckets returns one row per width_bucket index. Thresholds are
+// 1, 7, 30, 90, and 365 days: 0 is under a day, 5 is a year or more.
+func accountAgeBuckets(counts map[int]int64) []map[string]any {
+	out := make([]map[string]any, 0, 6)
+	for bucket := 0; bucket < 6; bucket++ {
+		out = append(out, map[string]any{"bucket": bucket, "authors": counts[bucket]})
+	}
+	return out
 }
 
 func (h Handlers) GetRelayPropagation(w http.ResponseWriter, r *http.Request) {

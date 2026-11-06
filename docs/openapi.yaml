@@ -1571,7 +1571,10 @@ paths:
       summary: Profile identity and NIP-05 verification coverage
       responses:
         '200':
-          description: Decomposed kind-0 field prevalence and provider domains
+          description: >
+            Kind-0 field prevalence and provider domains. profiles counts
+            profile_fields rows, the same population as
+            /discovery/stats/accounts profiles.
   /api/v1/discovery/stats/zaps:
     get:
       tags: [public]
@@ -1588,10 +1591,21 @@ paths:
   /api/v1/discovery/stats/accounts:
     get:
       tags: [public]
-      summary: New and active author counts
+      summary: New authors, posting activity, and profile age
       responses:
         '200':
-          description: First-seen authors by day and recent active authors
+          description: >
+            new_authors is pubkeys first seen by the index, by day.
+            active_authors_1d, active_authors_7d, and active_authors_30d
+            count pubkeys with a post in that window, including pubkeys
+            that never published a kind-0 profile. profiles is the kind-0
+            population (same count as /discovery/stats/identity profiles).
+            profiles_posted_30d is how many of those profiles posted in 30
+            days, and dormant_30d is the rest. account_age buckets those
+            profiles by the oldest stored event created_at into indices
+            0 through 5 (under 1 day, 1–7, 7–30, 30–90, 90–365, 1 year or
+            more). account_age_unknown counts profiles whose oldest event
+            is missing, in the future, or before 2020-01-01.
   /api/v1/relays/propagation:
     get:
       tags: [public]
