@@ -1,7 +1,9 @@
 package nostr
 
-import "strings"
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEngagementCountSQLUsesIndexArms(t *testing.T) {
 	for _, sql := range []string{

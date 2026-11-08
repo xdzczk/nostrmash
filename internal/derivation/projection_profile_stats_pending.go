@@ -292,6 +292,12 @@ func (h *Handlers) rebuildClaimedProfileStatsPubkey(ctx context.Context, pubkey 
 		return err
 	}
 	if !needed {
+		// Nothing to aggregate, including a gift-wrap-only key. Drop a
+		// leftover discovery score so a rescore still removes a phantom
+		// row, without running the window scans.
+		if _, err := tx.Exec(ctx, `DELETE FROM profile_discovery_stats WHERE pubkey = $1`, pubkey); err != nil {
+			return fmt.Errorf("delete projectionless profile discovery row: %w", err)
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("commit skipped profile stats rebuild: %w", err)
 		}
