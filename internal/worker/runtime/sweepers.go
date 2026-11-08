@@ -47,6 +47,7 @@ func RunAuthorAnalyticsSweeperLoop(
 		case <-ticker.C:
 			if workerIdx == 0 {
 				reportAuthorAnalyticsBacklog(ctx, log, handlers)
+				purgeProjectionlessPending(ctx, log, handlers)
 			}
 			started := time.Now()
 			processed, err := handlers.DrainPendingAuthorAnalyticsBatchWithTimeout(ctx, cfg.BatchSize, cfg.RebuildTimeout)
@@ -293,6 +294,25 @@ func runWithBatchTimeout(ctx context.Context, timeout time.Duration, fn func(con
 		return res.processed, res.err
 	case <-callCtx.Done():
 		return 0, fmt.Errorf("meilisearch sweeper batch exceeded %s hard timeout: %w", timeout, callCtx.Err())
+	}
+}
+
+// purgeProjectionlessPending removes gift-wrap-only pubkeys in
+// bounded batches until a batch deletes nothing. That last batch is
+// the real authors, which the per-pubkey rebuild still owns.
+func purgeProjectionlessPending(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		deleted, err := handlers.PurgeProjectionlessPending(ctx, 0)
+		if err != nil {
+			log.Error("projectionless_pending_purge_failed", "error", err)
+			return
+		}
+		if deleted == 0 {
+			return
+		}
 	}
 }
 

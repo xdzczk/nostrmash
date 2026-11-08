@@ -97,7 +97,7 @@ func TestExpandEventTags_KindScopedFilters(t *testing.T) {
 
 func TestOpenPool(t *testing.T) {
 	t.Run("rejects invalid dsn", func(t *testing.T) {
-		pool, err := OpenPool(context.Background(), "not a postgres dsn", 0)
+		pool, err := OpenPool(context.Background(), "not a postgres dsn", 0, "")
 		if err == nil {
 			if pool != nil {
 				pool.Close()
@@ -108,9 +108,18 @@ func TestOpenPool(t *testing.T) {
 
 	t.Run("connects to configured test database", func(t *testing.T) {
 		dbURL := dbtest.DatabaseURL(t, "store")
-		pool, err := OpenPool(context.Background(), dbURL, 0)
+		pool, err := OpenPool(context.Background(), dbURL, 0, "nostrmash-test")
 		if err != nil {
 			t.Fatalf("OpenPool(test DB): %v", err)
+		}
+		var applicationName string
+		if err := pool.QueryRow(context.Background(), `SELECT current_setting('application_name')`).Scan(&applicationName); err != nil {
+			pool.Close()
+			t.Fatalf("read application_name: %v", err)
+		}
+		if applicationName != "nostrmash-test" {
+			pool.Close()
+			t.Fatalf("application_name = %q", applicationName)
 		}
 		pool.Close()
 	})

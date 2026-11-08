@@ -26,6 +26,26 @@ func Run(ctx context.Context, log Logger, cfg config.WorkerConfig, build BuildIn
 func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, bootstrap Bootstrap, claimLoop ClaimLoopFn) {
 	runtimebootstrap.StartMetricsEndpoint(ctx, log, cfg.Shared.Observability.MetricsAddr)
 	runtimebootstrap.StartDebugEndpoint(ctx, log, cfg.Shared.Observability.DebugAddr)
+	maxConns := 0
+	if bootstrap.Pool != nil {
+		maxConns = int(bootstrap.Pool.Config().MaxConns)
+	}
+	fitted := fitWorkerSweeperConcurrency(cfg, maxConns)
+	if fitted.AuthorAnalyticsSweeper.Concurrency != cfg.AuthorAnalyticsSweeper.Concurrency ||
+		fitted.ProfileStatsSweeper.Concurrency != cfg.ProfileStatsSweeper.Concurrency ||
+		fitted.MeilisearchSweeper.Concurrency != cfg.MeilisearchSweeper.Concurrency {
+		log.Info(
+			"sweeper_concurrency_capped",
+			"max_conns", maxConns,
+			"author_analytics", fitted.AuthorAnalyticsSweeper.Concurrency,
+			"profile_stats", fitted.ProfileStatsSweeper.Concurrency,
+			"meilisearch", fitted.MeilisearchSweeper.Concurrency,
+			"author_analytics_requested", cfg.AuthorAnalyticsSweeper.Concurrency,
+			"profile_stats_requested", cfg.ProfileStatsSweeper.Concurrency,
+			"meilisearch_requested", cfg.MeilisearchSweeper.Concurrency,
+		)
+	}
+	cfg = fitted
 	logPoolCapacityBudget(log, cfg, bootstrap.Pool)
 
 	// All background loops (retention, sweepers, metrics, claim loops) share a

@@ -91,7 +91,7 @@ func BootstrapRuntime(
 	cfg config.IngestorConfig,
 	build BuildInfo,
 ) (*pgxpool.Pool, func(), error) {
-	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL, cfg.Shared.Database.MaxConns)
+	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL, cfg.Shared.Database.MaxConns, "nostrmash-"+cfg.Shared.ServiceName)
 	if err != nil {
 		log.Error("db_connect", "error", err)
 		return nil, func() {}, fmt.Errorf("db connect: %w", err)

@@ -47,7 +47,7 @@ type Bootstrap struct {
 }
 
 func BootstrapRuntime(ctx context.Context, log Logger, cfg config.WorkerConfig, build BuildInfo) (Bootstrap, func(), error) {
-	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL, cfg.Shared.Database.MaxConns)
+	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL, cfg.Shared.Database.MaxConns, "nostrmash-"+cfg.Shared.ServiceName)
 	if err != nil {
 		log.Error("db_connect", "error", err)
 		return Bootstrap{}, func() {}, fmt.Errorf("db connect: %w", err)
@@ -215,9 +215,15 @@ func logPoolCapacityBudget(log Logger, cfg config.WorkerConfig, pool *pgxpool.Po
 	if cfg.MeilisearchSweeper.Enabled {
 		sweeperDemand += cfg.MeilisearchSweeper.Concurrency
 	}
-	const ancillaryReserve = 4
-	totalDemand := bundleDemand + sweeperDemand + ancillaryReserve
 	maxConns := int(pool.Config().MaxConns)
+	ancillaryReserve := 4
+	if maxConns > 0 && bundleDemand+sweeperDemand+ancillaryReserve > maxConns {
+		// fitWorkerSweeperConcurrency already shrank the sweepers and
+		// kept a single spare connection. Reporting the original reserve
+		// of 4 would warn about a budget the process is no longer using.
+		ancillaryReserve = 1
+	}
+	totalDemand := bundleDemand + sweeperDemand + ancillaryReserve
 	log.Info(
 		"db_pool_capacity_budget",
 		"max_conns", maxConns,

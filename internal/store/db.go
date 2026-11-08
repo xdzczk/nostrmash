@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -19,13 +20,22 @@ import (
 // workers blocked at pool.Acquire() and producing the symptom of
 // "bundles never run, frontend goes stale" even though no individual
 // query is failing.
-func OpenPool(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool.Pool, error) {
+func OpenPool(ctx context.Context, databaseURL string, maxConns int32, applicationName string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse pool config: %w", err)
 	}
 	if maxConns > 0 {
 		cfg.MaxConns = maxConns
+	}
+	// pg_stat_activity.application_name is what lets a sweeper ignore its
+	// own process when deciding the server is saturated, and what makes a
+	// busy backend attributable to api, worker, ingestor, or trust_worker.
+	if name := strings.TrimSpace(applicationName); name != "" {
+		if cfg.ConnConfig.RuntimeParams == nil {
+			cfg.ConnConfig.RuntimeParams = map[string]string{}
+		}
+		cfg.ConnConfig.RuntimeParams["application_name"] = name
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

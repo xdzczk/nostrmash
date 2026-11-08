@@ -276,16 +276,19 @@ func (h *Handlers) claimPendingAuthorAnalyticsPubkey(ctx context.Context) (strin
 		WITH candidates AS (
 			SELECT p.pubkey, p.marked_at
 			FROM pending_author_analytics_recomputes p
+			-- A NOT EXISTS against author_engagement_stats was planned as a
+			-- hash of the whole stats table (millions of rows) on every
+			-- claim. The lateral lookup hits the primary key for this
+			-- pubkey and stops at one fresh window.
+			LEFT JOIN LATERAL (
+				SELECT e.updated_at
+				FROM author_engagement_stats e
+				WHERE e.pubkey = p.pubkey
+				  AND e.updated_at >= now() - make_interval(secs => $4::float8)
+				LIMIT 1
+			) fresh ON $4::float8 > 0
 			WHERE (p.claimed_at IS NULL OR p.claimed_at < now() - $3::interval)
-			  AND (
-			    $4::float8 <= 0
-			    OR NOT EXISTS (
-			      SELECT 1
-			      FROM author_engagement_stats e
-			      WHERE e.pubkey = p.pubkey
-			        AND e.updated_at >= now() - make_interval(secs => $4::float8)
-			    )
-			  )
+			  AND ($4::float8 <= 0 OR fresh.updated_at IS NULL)
 			ORDER BY p.marked_at ASC, p.pubkey ASC
 			FOR UPDATE OF p SKIP LOCKED
 			LIMIT $1

@@ -33,7 +33,7 @@ func main() {
 	}
 
 	// Migrations run sequentially on one connection; a tiny pool is enough.
-	pool, err := store.OpenPool(ctx, databaseURL, 2)
+	pool, err := store.OpenPool(ctx, databaseURL, 2, "nostrmash-migrate")
 	if err != nil {
 		log.Error("migrate_open_pool", "error", err)
 		os.Exit(1)

@@ -48,7 +48,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		return err
 	}
 
-	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL, cfg.Shared.Database.MaxConns)
+	pool, err := store.OpenPool(ctx, cfg.Shared.Database.URL, cfg.Shared.Database.MaxConns, "nostrmash-"+cfg.Shared.ServiceName)
 	if err != nil {
 		return err
 	}
