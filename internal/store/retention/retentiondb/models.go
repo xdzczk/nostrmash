@@ -99,6 +99,21 @@ type AuthorEngagementStat struct {
 	UpdatedAt                pgtype.Timestamptz
 }
 
+type AuthorFeedEvent struct {
+	EventID   string
+	Pubkey    string
+	Kind      int32
+	CreatedAt int64
+}
+
+type AuthorFeedIndexState struct {
+	ID              bool
+	CursorKind      int32
+	CursorCreatedAt pgtype.Int8
+	CursorEventID   string
+	Complete        bool
+}
+
 type AuthorFirstSeen struct {
 	Pubkey       string
 	FirstSeenAt  pgtype.Timestamptz
@@ -413,6 +428,12 @@ type DerivationVersion struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type DiscoveryDailyRollupState struct {
+	ID          bool
+	HashtagNext pgtype.Date
+	DomainNext  pgtype.Date
+}
+
 type DmReadCursor struct {
 	UserPubkey        string
 	PeerPubkey        string
@@ -444,6 +465,16 @@ type DmVolumeDaily struct {
 	ReceiverPubkey string
 	Protocol       string
 	MessageCount   int64
+}
+
+type DomainAuthorDaily struct {
+	Day             pgtype.Date
+	CanonicalDomain string
+	AuthorPubkey    string
+	Language        string
+	Links           int32
+	Notes           int32
+	LatestCreatedAt int64
 }
 
 type EcosystemDailyRollup struct {
@@ -638,6 +669,14 @@ type GroupsLatest struct {
 	MemberCount     int32
 	MetadataEventID string
 	UpdatedAt       pgtype.Timestamptz
+}
+
+type HashtagAuthorDaily struct {
+	Day          pgtype.Date
+	Hashtag      string
+	AuthorPubkey string
+	Language     string
+	Events       int32
 }
 
 type HashtagDaily struct {
