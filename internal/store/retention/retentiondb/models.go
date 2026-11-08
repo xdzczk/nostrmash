@@ -428,6 +428,14 @@ type DerivationVersion struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type DiscoveryArchive struct {
+	Day         pgtype.Date
+	Language    string
+	WindowLabel string
+	Payload     []byte
+	ComputedAt  pgtype.Timestamptz
+}
+
 type DiscoveryDailyRollupState struct {
 	ID          bool
 	HashtagNext pgtype.Date
@@ -477,6 +485,14 @@ type DomainAuthorDaily struct {
 	LatestCreatedAt int64
 }
 
+type DomainMomentum struct {
+	Domain       string
+	ZScore7d     float64
+	Status       string
+	HalfLifeDays float64
+	UpdatedAt    pgtype.Timestamptz
+}
+
 type EcosystemDailyRollup struct {
 	Day        pgtype.Date
 	ComputedAt pgtype.Timestamptz
@@ -486,6 +502,20 @@ type EmojiSetsLatest struct {
 	Pubkey     string
 	Shortcodes []byte
 	UpdatedAt  pgtype.Timestamptz
+}
+
+type EntityBaseline struct {
+	EntityType string
+	EntityKey  string
+	Metric     string
+	Typical    float64
+	SampleDays int32
+	UpdatedAt  pgtype.Timestamptz
+}
+
+type EntityBaselineState struct {
+	ID        bool
+	RebuiltOn pgtype.Date
 }
 
 type Event struct {
@@ -1280,6 +1310,16 @@ type RelayActivityHourly struct {
 type RelayActivityRollupState struct {
 	ID            bool
 	RolledUpUntil pgtype.Timestamptz
+}
+
+type RelayCoverageChange struct {
+	ID         int64
+	OccurredAt pgtype.Timestamptz
+	UrlKey     string
+	Host       string
+	FromState  string
+	ToState    string
+	ChangeKind string
 }
 
 type RelayDesiredSet struct {
