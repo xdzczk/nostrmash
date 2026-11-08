@@ -1,6 +1,6 @@
 {
-  "started_at": "2026-11-08T15:22:40.003449Z",
-  "duration_ms": 30054,
+  "started_at": "2026-11-08T15:34:24.454729141Z",
+  "duration_ms": 30080,
   "ws_clients": 32,
   "api_clients": 32,
   "base_url": "http://localhost:8080",
@@ -8,72 +8,72 @@
   "channels": [
     {
       "name": "ws",
-      "total": 46823,
-      "ok": 36019,
-      "errors": 10804,
-      "error_rate": 0.2307413023514085,
-      "throughput_rps": 1557.9466031125426,
+      "total": 39330,
+      "ok": 30257,
+      "errors": 9073,
+      "error_rate": 0.2306890414441902,
+      "throughput_rps": 1307.5105422330178,
       "latency": {
-        "count": 46823,
-        "min_ns": 63054,
-        "max_ns": 461729099,
-        "mean_ns": 20539738,
-        "p50_ns": 10667252,
-        "p95_ns": 109229729,
-        "p99_ns": 139030077
+        "count": 39330,
+        "min_ns": 113821,
+        "max_ns": 227638783,
+        "mean_ns": 24462052,
+        "p50_ns": 13878606,
+        "p95_ns": 122571947,
+        "p99_ns": 155059136
       },
       "by_class": {
-        "eose": 36019,
-        "notice": 10804
+        "eose": 30257,
+        "notice": 9073
       },
       "by_request": {
-        "contact_list": 3599,
-        "events": 3595,
-        "feed": 3598,
-        "get_bookmarks": 3601,
-        "net_stats": 3605,
-        "search": 3609,
-        "server_name": 3603,
-        "thread_view": 3599,
-        "user_followers": 3601,
-        "user_infos": 3605,
-        "user_mentions": 3603,
-        "user_profile": 3606,
-        "user_zaps": 3599
+        "contact_list": 3020,
+        "events": 3025,
+        "feed": 3019,
+        "get_bookmarks": 3031,
+        "net_stats": 3032,
+        "search": 3032,
+        "server_name": 3025,
+        "thread_view": 3025,
+        "user_followers": 3021,
+        "user_infos": 3024,
+        "user_mentions": 3021,
+        "user_profile": 3028,
+        "user_zaps": 3027
       }
     },
     {
       "name": "api",
-      "total": 56945,
-      "ok": 56913,
+      "total": 47259,
+      "ok": 47227,
       "errors": 32,
-      "error_rate": 0.0005619457371147599,
-      "throughput_rps": 1894.736973586565,
+      "error_rate": 0.0006771197020673311,
+      "throughput_rps": 1571.1070611591708,
       "latency": {
-        "count": 56945,
-        "min_ns": 67687,
-        "max_ns": 572969245,
-        "mean_ns": 16864925,
-        "p50_ns": 6059032,
-        "p95_ns": 106801723,
-        "p99_ns": 131916277
+        "count": 47259,
+        "min_ns": 104073,
+        "max_ns": 322939415,
+        "mean_ns": 20325974,
+        "p50_ns": 8470016,
+        "p95_ns": 119586601,
+        "p99_ns": 147173872
       },
       "by_class": {
-        "2xx": 39832,
-        "4xx": 17081,
+        "2xx": 33056,
+        "4xx": 14171,
         "transport": 32
       },
       "by_request": {
-        "author_events": 5697,
-        "event_by_id": 5695,
-        "followers": 5695,
-        "health": 5689,
-        "network_stats": 5692,
-        "profile_by_pubkey": 5696,
-        "search": 5706,
-        "thread": 5694,
-        "trending_hashtags": 5689,
-        "trending_notes": 5692
+        "author_events": 4725,
+        "event_by_id": 4724,
+        "followers": 4724,
+        "health": 4721,
+        "network_stats": 4723,
+        "profile_by_pubkey": 4727,
+        "search": 4745,
+        "thread": 4725,
+        "trending_hashtags": 4721,
+        "trending_notes": 4724
       }
     }
   ]
