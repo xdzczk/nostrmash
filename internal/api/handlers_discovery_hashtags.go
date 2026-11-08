@@ -47,6 +47,7 @@ func (h Handlers) GetTrendingHashtags(w http.ResponseWriter, r *http.Request) {
 			return nil, topicsErr
 		}
 		hashtags := buildDiscoveryHashtagItems(topics)
+		h.attachHashtagBaselines(ctx, windowLabel, hashtags)
 		payloadResponse := map[string]any{
 			"surface":     "trending",
 			"hashtags":    hashtags,

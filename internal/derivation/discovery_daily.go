@@ -85,6 +85,9 @@ func (h *Handlers) prepareDiscoveryDailySnapshots(ctx context.Context) bool {
 	if err := h.refreshDiscoveryDailyRecent(ctx); err != nil {
 		return false
 	}
+	// Baselines are a once-a-day read of the buckets just sealed. A failure
+	// here leaves yesterday's medians in place and does not skip snapshots.
+	_ = h.rebuildEntityBaselines(ctx)
 	return true
 }
 

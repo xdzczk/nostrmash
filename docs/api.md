@@ -136,7 +136,9 @@ Representative implemented native routes include:
 - `GET /api/v1/discovery/stats/labels` and `GET /api/v1/discovery/stats/emoji`
 - `GET /api/v1/groups`, `GET /api/v1/discovery/polls`, `GET /api/v1/discovery/goals`, `GET /api/v1/discovery/curation-sets`, `GET /api/v1/discovery/stats/kinds`, and `GET /api/v1/discovery/stats/media-hosts`
 - `GET /api/v1/discovery/stats/conversations`, `/zaps/heatmap`, `/deletions`, `/moderation`, `/spam`, `/relay-lists`, and `/relay-software`
-- `GET /api/v1/discovery/zaps/leaderboard`, `GET /api/v1/hashtags/emerging`, `GET /api/v1/hashtags/{tag}/history`, `GET /api/v1/profiles/{pubkey}/moderation`, and `GET /api/v1/relays/{relayHost}/health/history`
+- `GET /api/v1/discovery/zaps/leaderboard`, `GET /api/v1/hashtags/emerging`, `GET /api/v1/discovery/domains/emerging`, `GET /api/v1/hashtags/{tag}/history`, `GET /api/v1/profiles/{pubkey}/moderation`, and `GET /api/v1/relays/{relayHost}/health/history`
+- `GET /api/v1/discovery/archive` and `GET /api/v1/discovery/archive/{date}` (one stored 24-hour overview per UTC day; a missing or future day is 404)
+- `GET /api/v1/relays/coverage-changes` (relays that entered or left the indexed set)
 - `GET /api/v1/discovery/domains/trending`
 - `GET /api/v1/discovery/domains/{domain}`
 - `GET /api/v1/discovery/domains/{domain}/notes`

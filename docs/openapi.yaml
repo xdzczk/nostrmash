@@ -1932,6 +1932,42 @@ paths:
       responses:
         '200':
           description: Emerging hashtags
+  /api/v1/discovery/domains/emerging:
+    get:
+      tags: [public]
+      summary: Domains shared by more people than their recent pace
+      responses:
+        '200':
+          description: Emerging domains
+  /api/v1/discovery/archive:
+    get:
+      tags: [public]
+      summary: UTC days that have an overview snapshot
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 30, maximum: 366 }
+      responses:
+        '200':
+          description: Archived days, newest first
+  /api/v1/discovery/archive/{date}:
+    get:
+      tags: [public]
+      summary: Overview snapshot for one UTC day
+      parameters:
+        - { in: path, name: date, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Archived overview
+        '404':
+          description: That day has not been archived
+  /api/v1/relays/coverage-changes:
+    get:
+      tags: [public]
+      summary: Relays added to or dropped from the index
+      responses:
+        '200':
+          description: Coverage change log
   /api/v1/hashtags/{tag}/history:
     get:
       tags: [public]

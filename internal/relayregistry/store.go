@@ -3,6 +3,7 @@ package relayregistry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -224,6 +225,7 @@ func (s *Store) SetManualPolicy(ctx context.Context, urlKey string, policy Manua
 }
 
 // SetAdmissionState updates the admission state and score for a relay.
+// Crossing into or out of the indexed set appends a coverage-change row.
 func (s *Store) SetAdmissionState(
 	ctx context.Context,
 	urlKey string,
@@ -231,16 +233,50 @@ func (s *Store) SetAdmissionState(
 	score float64,
 	scoreComponents json.RawMessage,
 ) error {
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin admission update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var previous AdmissionState
+	var normalizedURL string
+	err = tx.QueryRow(ctx, `
+		SELECT admission_state, normalized_url
+		FROM relay_registry
+		WHERE url_key = $1
+		FOR UPDATE
+	`, urlKey).Scan(&previous, &normalizedURL)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("read admission state: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE relay_registry
 		SET admission_state = $2,
 		    score = $3,
 		    score_components_json = $4,
 		    updated_at = now()
 		WHERE url_key = $1
-	`, urlKey, string(state), score, scoreComponents)
-	if err != nil {
+	`, urlKey, string(state), score, scoreComponents); err != nil {
 		return fmt.Errorf("set admission state: %w", err)
+	}
+	if kind, ok := CoverageChangeKind(previous, state); ok {
+		host := CoverageHost(normalizedURL)
+		if host == "" {
+			host = urlKey
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO relay_coverage_changes (url_key, host, from_state, to_state, change_kind)
+			VALUES ($1, $2, $3, $4, $5)
+		`, urlKey, host, string(previous), string(state), kind); err != nil {
+			return fmt.Errorf("record coverage change: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit admission update: %w", err)
 	}
 	return nil
 }

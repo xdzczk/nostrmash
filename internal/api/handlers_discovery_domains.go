@@ -47,6 +47,7 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 			return nil, rowsErr
 		}
 		domains := buildDiscoveryDomainItems(rows, windowLabel)
+		h.attachDomainBaselines(ctx, windowLabel, domains)
 		payload := map[string]any{
 			"surface":     "trending",
 			"window":      windowLabel,

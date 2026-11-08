@@ -158,7 +158,7 @@ func (h Handlers) GetDiscoveryStatsSeries(w http.ResponseWriter, r *http.Request
 		if metric == "active_authors" {
 			summary = "Each point is the rolling 24-hour count of distinct note authors, sampled once per UTC hour. It is not an hourly increment, and it is not the count of pubkeys seen on relays."
 		}
-		return map[string]any{
+		payload := map[string]any{
 			"metric":        series.Metric,
 			"window":        series.Window,
 			"computed_at":   series.ComputedAt,
@@ -168,7 +168,14 @@ func (h Handlers) GetDiscoveryStatsSeries(w http.ResponseWriter, r *http.Request
 			"result_scope":  scope,
 			"point_meaning": "rolling_24h_total",
 			"summary":       summary,
-		}, nil
+		}
+		if h.pool != nil && (metric == "note_volume" || metric == "active_authors") && len(series.Points) > 0 {
+			baseline, baselineErr := weekdaySeriesBaseline(ctx, h.pool, metric, float64(series.Points[len(series.Points)-1].V))
+			if baselineErr == nil && baseline != nil {
+				payload["baseline"] = baseline
+			}
+		}
+		return payload, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
 			writeError(r.Context(), w, http.StatusNotImplemented, "feature_unavailable", "discovery stats series are not available on this deployment")

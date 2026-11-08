@@ -136,6 +136,12 @@ func refreshRelayWindowSnapshotsOnce(ctx context.Context, log Logger, handlers *
 	}
 	paidCancel()
 
+	archiveCtx, archiveCancel := context.WithTimeout(ctx, 15*time.Second)
+	if err := handlers.WriteDiscoveryArchive(archiveCtx); err != nil {
+		log.Error("discovery_archive_write_failed", "error", err)
+	}
+	archiveCancel()
+
 	// Report the snapshot's actual staleness regardless of whether this
 	// tick's refresh succeeded — a failing tick is exactly the case the
 	// NostrMashRelayWindowSnapshotStale alert needs to catch, and reading

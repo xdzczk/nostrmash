@@ -138,6 +138,36 @@ func (h Handlers) GetEmergingHashtags(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+func (h Handlers) GetEmergingDomains(w http.ResponseWriter, r *http.Request) {
+	if h.pool == nil {
+		writeError(r.Context(), w, http.StatusServiceUnavailable, "feature_unavailable", "stats database is not configured")
+		return
+	}
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT domain, z_score_7d, status, half_life_days
+		FROM domain_momentum
+		WHERE status = 'emerging'
+		ORDER BY z_score_7d DESC
+		LIMIT 50
+	`)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	defer rows.Close()
+	items := make([]map[string]any, 0)
+	for rows.Next() {
+		var domain, status string
+		var score, half float64
+		if err := rows.Scan(&domain, &score, &status, &half); err != nil {
+			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+		items = append(items, map[string]any{"domain": domain, "z_score_7d": score, "status": status, "half_life_days": half})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 func (h Handlers) GetHashtagHistory(w http.ResponseWriter, r *http.Request) {
 	tag := strings.ToLower(strings.TrimSpace(r.PathValue("tag")))
 	if tag == "" || h.pool == nil {
