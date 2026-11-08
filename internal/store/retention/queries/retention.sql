@@ -25,6 +25,27 @@ DELETE FROM events e
 USING candidates c
 WHERE e.id = c.id;
 
+-- name: SelectExpiredGiftWrapCandidates :many
+-- Kind 1059 gift wraps age out on first_seen_at, not the author-claimed
+-- created_at, and on a shorter horizon than other engagement. The scan
+-- uses idx_events_kind_first_seen. The jobs predicate matches
+-- SelectExpiredEngagementEventCandidates.
+SELECT e.id
+FROM events e
+WHERE e.kind = 1059
+  AND e.first_seen_at < @seen_before
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jobs j
+    WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
+      AND (
+        j.status IN ('pending', 'running')
+        OR (j.status = 'dead' AND j.updated_at > @dead_grace_before)
+      )
+  )
+ORDER BY e.first_seen_at ASC, e.id ASC
+LIMIT @row_limit;
+
 -- name: SelectExpiredEngagementEventCandidates :many
 -- Read-only counterpart to PurgeExpiredEngagementEvents' candidates CTE,
 -- used by the Go wrapper to reverse incremental author-stat deltas for each

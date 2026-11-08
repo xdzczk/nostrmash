@@ -14,7 +14,7 @@ func configEnvDocsShared() []EnvVarDoc {
 			Runtimes:     []string{"api", "ingestor", "trust_worker", "worker"},
 			Required:     false,
 			DefaultValue: "per-service (api 32, worker 16, ingestor 8, trust_worker 8)",
-			Description:  "Override pgxpool max connections. Precedence: this env var (when > 0) > pool_max_conns in DATABASE_URL > per-service default. When unset and the DSN omits pool_max_conns, a safe per-service default is applied instead of the pgx default of 4, which is dangerously low: the API deadlocks under mixed WS+API load, and worker sweeper goroutines (author_analytics, profile_stats, meilisearch) monopolize all connections and block bundle workers indefinitely.",
+			Description:  "Override pgxpool max connections. Precedence: this env var (when > 0) > pool_max_conns in DATABASE_URL > per-service default. Explicit values are clamped to a per-service ceiling (api 32, worker 24, ingestor 12, trust_worker 12) so the binaries cannot collectively exceed Postgres max_connections. When unset and the DSN omits pool_max_conns, a safe per-service default is applied instead of the pgx default of 4, which is dangerously low: the API deadlocks under mixed WS+API load, and worker sweeper goroutines (author_analytics, profile_stats, meilisearch) monopolize all connections and block bundle workers indefinitely.",
 		},
 		{
 			Name:         "DEBUG_ADDR",

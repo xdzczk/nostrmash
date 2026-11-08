@@ -10,6 +10,83 @@ import (
 	"github.com/xdzczk/nostrmash/internal/testutil/derivationbootstrap"
 )
 
+func TestGiftWrapDoesNotEnqueueOrRebuildStats(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	derivationbootstrap.MustMigrate(t, ctx, pool, "test-v1")
+
+	handlers := derivation.NewHandlers(pool)
+	pgStore := store.NewPostgresStore(pool)
+	baseTime := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+
+	wrap := newEventForTest(
+		"gift_wrap_skip",
+		"ephemeral",
+		1000,
+		1059,
+		[][]string{{"p", "alice"}},
+		"ciphertext",
+		baseTime,
+	)
+	tags := extractTagsFromRaw(t, wrap.RawJSON)
+	if err := pgStore.InsertCanonicalEvent(ctx, wrap, tags, "wss://relay.one", wrap.FirstSeenAt); err != nil {
+		t.Fatalf("insert gift wrap: %v", err)
+	}
+
+	if err := handlers.MarkAuthorAnalyticsDirty(ctx, wrap.ID); err != nil {
+		t.Fatalf("MarkAuthorAnalyticsDirty: %v", err)
+	}
+	if err := handlers.MarkProfileStatsDirty(ctx, wrap.ID); err != nil {
+		t.Fatalf("MarkProfileStatsDirty: %v", err)
+	}
+	if err := handlers.ApplyIncrementalAuthorStats(ctx, wrap.ID); err != nil {
+		t.Fatalf("ApplyIncrementalAuthorStats: %v", err)
+	}
+	if err := handlers.ProjectAuthorRecentEvent(ctx, wrap.ID); err != nil {
+		t.Fatalf("ProjectAuthorRecentEvent: %v", err)
+	}
+
+	assertCount := func(query, what string, want int) {
+		t.Helper()
+		var got int
+		if err := pool.QueryRow(ctx, query).Scan(&got); err != nil {
+			t.Fatalf("count %s: %v", what, err)
+		}
+		if got != want {
+			t.Fatalf("%s: got %d want %d", what, got, want)
+		}
+	}
+	assertCount(`SELECT COUNT(*) FROM pending_author_analytics_recomputes`, "author analytics queue", 0)
+	assertCount(`SELECT COUNT(*) FROM pending_profile_stats_recomputes`, "profile stats queue", 0)
+	assertCount(`SELECT COUNT(*) FROM author_recent_events WHERE author_pubkey = 'ephemeral'`, "author recent", 0)
+	assertCount(`SELECT COUNT(*) FROM profile_public_stats WHERE pubkey = 'ephemeral'`, "profile stats", 0)
+
+	if _, err := pool.Exec(ctx, `INSERT INTO pending_author_analytics_recomputes (pubkey) VALUES ('ephemeral')`); err != nil {
+		t.Fatalf("seed author analytics queue: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO pending_profile_stats_recomputes (pubkey) VALUES ('ephemeral')`); err != nil {
+		t.Fatalf("seed profile stats queue: %v", err)
+	}
+	processed, err := handlers.DrainPendingAuthorAnalyticsBatch(ctx, 10)
+	if err != nil {
+		t.Fatalf("drain author analytics: %v", err)
+	}
+	if processed != 1 {
+		t.Fatalf("author analytics drain processed %d", processed)
+	}
+	processed, err = handlers.DrainPendingProfileStatsBatch(ctx, 10)
+	if err != nil {
+		t.Fatalf("drain profile stats: %v", err)
+	}
+	if processed != 1 {
+		t.Fatalf("profile stats drain processed %d", processed)
+	}
+	assertCount(`SELECT COUNT(*) FROM pending_author_analytics_recomputes`, "author analytics queue after drain", 0)
+	assertCount(`SELECT COUNT(*) FROM pending_profile_stats_recomputes`, "profile stats queue after drain", 0)
+	assertCount(`SELECT COUNT(*) FROM author_engagement_stats WHERE pubkey = 'ephemeral'`, "engagement stats", 0)
+}
+
 func TestMarkProfileStatsDirty_SkipsKind3(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

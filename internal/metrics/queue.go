@@ -23,6 +23,11 @@ var (
 
 	profileStatsSweeperBatchDuration *prometheus.HistogramVec
 	profileStatsSweeperProcessed     *prometheus.CounterVec
+
+	authorAnalyticsPending          prometheus.Gauge
+	authorAnalyticsPendingOldestAge prometheus.Gauge
+	profileStatsPending             prometheus.Gauge
+	profileStatsPendingOldestAge    prometheus.Gauge
 )
 
 func registerQueueMetrics() {
@@ -114,6 +119,30 @@ func registerQueueMetrics() {
 		},
 		[]string{"result"},
 	)
+	authorAnalyticsPending = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_pending_author_analytics_recomputes",
+			Help: "Rows waiting in pending_author_analytics_recomputes.",
+		},
+	)
+	authorAnalyticsPendingOldestAge = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_pending_author_analytics_oldest_age_seconds",
+			Help: "Age in seconds of the oldest pending_author_analytics_recomputes row.",
+		},
+	)
+	profileStatsPending = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_pending_profile_stats_recomputes",
+			Help: "Rows waiting in pending_profile_stats_recomputes.",
+		},
+	)
+	profileStatsPendingOldestAge = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nostrmash_pending_profile_stats_oldest_age_seconds",
+			Help: "Age in seconds of the oldest pending_profile_stats_recomputes row.",
+		},
+	)
 
 	registry.MustRegister(
 		queueOperationDuration,
@@ -128,7 +157,39 @@ func registerQueueMetrics() {
 		meilisearchSweeperProcessed,
 		profileStatsSweeperBatchDuration,
 		profileStatsSweeperProcessed,
+		authorAnalyticsPending,
+		authorAnalyticsPendingOldestAge,
+		profileStatsPending,
+		profileStatsPendingOldestAge,
 	)
+}
+
+// SetAuthorAnalyticsBacklog publishes the pending author-analytics queue
+// depth and the age of its oldest row.
+func SetAuthorAnalyticsBacklog(backlog int64, oldestAgeSeconds float64) {
+	ensureRegistered()
+	if backlog < 0 {
+		backlog = 0
+	}
+	if oldestAgeSeconds < 0 {
+		oldestAgeSeconds = 0
+	}
+	authorAnalyticsPending.Set(float64(backlog))
+	authorAnalyticsPendingOldestAge.Set(oldestAgeSeconds)
+}
+
+// SetProfileStatsBacklog publishes the pending profile-stats queue depth
+// and the age of its oldest row.
+func SetProfileStatsBacklog(backlog int64, oldestAgeSeconds float64) {
+	ensureRegistered()
+	if backlog < 0 {
+		backlog = 0
+	}
+	if oldestAgeSeconds < 0 {
+		oldestAgeSeconds = 0
+	}
+	profileStatsPending.Set(float64(backlog))
+	profileStatsPendingOldestAge.Set(oldestAgeSeconds)
 }
 
 func ObserveQueueOperation(operation, result string, d time.Duration) {

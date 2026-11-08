@@ -289,6 +289,55 @@ groups:
           description: "Database size growth exceeds 100 MiB/hour over a 6h derivative window. Review high-growth tables and retention posture."
           runbook: "docs/operations.md#alert-response-playbook"
 
+      - alert: NostrMashGiftWrapIngestHigh
+        # 2 accepts/s is about 7k gift wraps an hour. Ordinary DM traffic
+        # is far below that; a single recipient's flood is tens per second.
+        # The hourly budget should already be dropping the excess
+        # (NostrMashGiftWrapRecipientBudget). This fires when accepted
+        # volume itself is still too high.
+        expr: sum(rate(nostrmash_ingest_gate_decisions_total{kind="1059",decision="accept"}[10m])) > 2
+        for: 10m
+        labels:
+          severity: warning
+          slo: capacity-planning
+        annotations:
+          summary: "Gift wrap ingest is far above normal"
+          description: "Kind 1059 accepts exceed 2/s for 10m. Check INGESTOR_GIFT_WRAP_RECIPIENT_PER_HOUR and whether one trusted recipient is being wrapped by many ephemeral authors."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashGiftWrapRecipientBudget
+        expr: sum(rate(nostrmash_ingest_gate_decisions_total{kind="1059",decision="reject_recipient_budget"}[10m])) > 1
+        for: 15m
+        labels:
+          severity: warning
+          slo: capacity-planning
+        annotations:
+          summary: "Gift wrap recipient budget is dropping a sustained flood"
+          description: "Kind 1059 events are being rejected by the per-recipient hourly budget at more than 1/s for 15m. Ingest is protected; investigate the recipient and the relays delivering the wraps."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashAuthorAnalyticsBacklog
+        expr: nostrmash_pending_author_analytics_recomputes > 20000
+        for: 2h
+        labels:
+          severity: warning
+          slo: capacity-planning
+        annotations:
+          summary: "Author analytics recompute queue is not draining"
+          description: "pending_author_analytics_recomputes has stayed above 20k for 2h. The sweeper is standing down under database pressure or events that do not affect analytics are still being marked dirty."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashProfileStatsBacklog
+        expr: nostrmash_pending_profile_stats_recomputes > 5000
+        for: 1h
+        labels:
+          severity: warning
+          slo: capacity-planning
+        annotations:
+          summary: "Profile stats recompute queue is not draining"
+          description: "pending_profile_stats_recomputes has stayed above 5k for 1h. Check profile-stats sweeper errors and database saturation."
+          runbook: "docs/operations.md#alert-response-playbook"
+
       - alert: NostrMashInvalidEventsGrowthHigh
         expr: nostrmash:storage:heavy_table_growth_bytes_per_hour:6h{table="invalid_events"} > 10485760
         for: 6h

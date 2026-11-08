@@ -386,6 +386,32 @@ func TestEvaluateGate_GiftWrapAndNutzap(t *testing.T) {
 	}
 }
 
+func TestEvaluateGate_GiftWrapRecipientBudget(t *testing.T) {
+	t.Parallel()
+	trusted := &fakeTrustedAuthors{loaded: true, members: map[string]struct{}{"alice": {}}}
+	for _, mode := range []string{TrustGateModeTrustedOnly, TrustGateModeOpen} {
+		p := newGateProcessor(t, mode, trusted, &fakeTargetChecker{})
+		p.SetGiftWrapRecipientLimit(2)
+		for i := 0; i < 2; i++ {
+			d := p.evaluateGate(context.Background(), 1059, "ephemeral", [][]string{{"p", "alice"}}, "")
+			if !d.accept || d.decision != gateDecisionAccept {
+				t.Fatalf("%s wrap %d: %+v", mode, i, d)
+			}
+		}
+		d := p.evaluateGate(context.Background(), 1059, "ephemeral", [][]string{{"p", "alice"}}, "")
+		if d.accept || d.decision != gateDecisionRejectRecipientBudget {
+			t.Fatalf("%s over budget: %+v", mode, d)
+		}
+		// A different trusted recipient still has a full budget.
+		trusted.members["bob"] = struct{}{}
+		d = p.evaluateGate(context.Background(), 1059, "ephemeral", [][]string{{"p", "bob"}}, "")
+		if !d.accept || d.decision != gateDecisionAccept {
+			t.Fatalf("%s other recipient: %+v", mode, d)
+		}
+		delete(trusted.members, "bob")
+	}
+}
+
 type fakeRelayInfo struct{ pubkey string }
 
 func (f fakeRelayInfo) RelayInfoPubkey(context.Context, string) (string, bool, error) {

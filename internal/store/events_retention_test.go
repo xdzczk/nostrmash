@@ -47,6 +47,40 @@ func remainingEventIDs(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []
 	return out
 }
 
+func TestPurgeExpiredEngagementEvents_GiftWrapUsesFirstSeen(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDatabaseURL(t)
+	pool := setupSchemaPool(t, ctx, dbURL)
+	mustMigrateAndSeedDerivations(t, ctx, pool, "test-v1")
+
+	now := time.Now().UTC()
+	recentUnix := now.Add(time.Hour).Unix()
+	insertEventRow(t, ctx, pool, "wrap_old_seen", 1059, recentUnix)
+	insertEventRow(t, ctx, pool, "wrap_fresh", 1059, recentUnix)
+	insertEventRow(t, ctx, pool, "wrap_pending", 1059, recentUnix)
+	if _, err := pool.Exec(ctx, `
+		UPDATE events
+		SET first_seen_at = $2
+		WHERE id = ANY($1)
+	`, []string{"wrap_old_seen", "wrap_pending"}, now.Add(-72*time.Hour)); err != nil {
+		t.Fatalf("backdate first_seen_at: %v", err)
+	}
+	insertDeriveJob(t, ctx, pool, "wrap_pending", "pending", now)
+
+	deleted, err := NewPostgresStore(pool).PurgeExpiredEngagementEvents(ctx, now, now.Add(-7*24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("expected 1 deletion, got %d", deleted)
+	}
+	got := remainingEventIDs(t, ctx, pool)
+	want := []string{"wrap_fresh", "wrap_pending"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("remaining mismatch: got %v want %v", got, want)
+	}
+}
+
 func TestPurgeExpiredEngagementEvents_DerivationSafeGuard(t *testing.T) {
 	ctx := context.Background()
 	dbURL := testDatabaseURL(t)

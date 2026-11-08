@@ -88,6 +88,12 @@ func (h *Handlers) MarkProfileStatsDirty(ctx context.Context, eventID string) er
 	if kind == 3 {
 		return nil
 	}
+	// Discovery and public-stat recomputes only change for notes, media,
+	// reposts, reactions, and zaps. Kind 1059 (and metadata, lists, wraps)
+	// must not enqueue the signing key.
+	if !profileStatsDirtyKind(kind) {
+		return nil
+	}
 	tags, err := h.loadEventTags(ctx, eventID)
 	if err != nil {
 		return err
@@ -156,6 +162,9 @@ func (h *Handlers) DrainPendingProfileStatsBatch(ctx context.Context, limit int)
 		return 0, fmt.Errorf("handlers are not initialized")
 	}
 	if limit <= 0 {
+		return 0, nil
+	}
+	if saturated, err := h.databaseSaturated(ctx); err == nil && saturated {
 		return 0, nil
 	}
 
@@ -274,6 +283,20 @@ func (h *Handlers) rebuildClaimedProfileStatsPubkey(ctx context.Context, pubkey 
 		return fmt.Errorf("begin profile stats rebuild tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setSweeperStatementTimeout(ctx, tx); err != nil {
+		return err
+	}
+	needed, err := pubkeyNeedsProjectionRebuild(ctx, tx, pubkey)
+	if err != nil {
+		return err
+	}
+	if !needed {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit skipped profile stats rebuild: %w", err)
+		}
+		return nil
+	}
 
 	// When incremental profile_public_stats is enabled, note/reply/follower
 	// counters are maintained with O(1) deltas in the derive bundle. The
@@ -409,17 +432,11 @@ func (h *Handlers) EnqueueStaleProfileDiscoveryRescores(
 	return tag.RowsAffected(), nil
 }
 
-// PendingProfileStatsBacklog returns the current depth of the dirty
-// queue. Exposed for metrics / admin observability.
-func (h *Handlers) PendingProfileStatsBacklog(ctx context.Context) (int64, error) {
-	if h == nil || h.pool == nil {
-		return 0, fmt.Errorf("handlers are not initialized")
-	}
-	var n int64
-	if err := h.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM pending_profile_stats_recomputes
-	`).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count pending profile stats: %w", err)
-	}
-	return n, nil
+// PendingProfileStatsBacklog returns the depth of the dirty queue and
+// the age of its oldest row. Exposed for metrics / admin observability.
+func (h *Handlers) PendingProfileStatsBacklog(ctx context.Context) (int64, float64, error) {
+	return h.pendingRecomputeBacklog(ctx, `
+		SELECT count(*), min(marked_at)
+		FROM pending_profile_stats_recomputes
+	`)
 }

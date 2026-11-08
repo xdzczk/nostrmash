@@ -11,9 +11,16 @@ import (
 	"github.com/xdzczk/nostrmash/internal/store/retention/retentiondb"
 )
 
+// giftWrapMaxAge is how long a kind-1059 gift wrap stays after we first
+// stored it. The shared engagement horizon is much longer; ciphertext
+// from an ephemeral author should not wait that long.
+const giftWrapMaxAge = 48 * time.Hour
+
 // PurgeExpiredEngagementEvents deletes a bounded batch of raw engagement events
 // (kinds 6/7/9735) whose author-claimed created_at is older than createdBefore,
-// in ascending created_at order. Cascade FKs clean the dependent
+// in ascending created_at order. Kind 1059 is included in that set and is
+// also deleted once first_seen_at is older than giftWrapMaxAge, whichever
+// comes first. Cascade FKs clean the dependent
 // contribution/interaction rows; lifetime aggregate counters in
 // reaction_counts/repost_counts have no FK to events and therefore survive.
 //
@@ -54,15 +61,28 @@ func (s *Retention) PurgeExpiredEngagementEvents(
 	}
 
 	started := time.Now()
+	giftWrapBefore := started.UTC().Add(-giftWrapMaxAge)
 	var rows int64
 	err := s.guardedWithTx(ctx, func(tx pgx.Tx, q *retentiondb.Queries) error {
-		ids, err := q.SelectExpiredEngagementEventCandidates(ctx, retentiondb.SelectExpiredEngagementEventCandidatesParams{
-			CreatedBeforeUnix: createdBefore.UTC().Unix(),
-			DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
-			RowLimit:          int32(limit),
+		ids, err := q.SelectExpiredGiftWrapCandidates(ctx, retentiondb.SelectExpiredGiftWrapCandidatesParams{
+			SeenBefore:      tsz(giftWrapBefore),
+			DeadGraceBefore: tsz(deadGraceBefore.UTC()),
+			RowLimit:        int32(limit),
 		})
 		if err != nil {
-			return fmt.Errorf("select expired engagement event candidates: %w", err)
+			return fmt.Errorf("select expired gift wrap candidates: %w", err)
+		}
+		remaining := limit - len(ids)
+		if remaining > 0 {
+			more, err := q.SelectExpiredEngagementEventCandidates(ctx, retentiondb.SelectExpiredEngagementEventCandidatesParams{
+				CreatedBeforeUnix: createdBefore.UTC().Unix(),
+				DeadGraceBefore:   tsz(deadGraceBefore.UTC()),
+				RowLimit:          int32(remaining),
+			})
+			if err != nil {
+				return fmt.Errorf("select expired engagement event candidates: %w", err)
+			}
+			ids = appendUniqueIDs(ids, more)
 		}
 		rows, err = s.reverseAndDeleteTx(ctx, tx, q, ids)
 		return err
@@ -72,4 +92,22 @@ func (s *Retention) PurgeExpiredEngagementEvents(
 		return 0, fmt.Errorf("purge expired engagement events: %w", err)
 	}
 	return rows, nil
+}
+
+func appendUniqueIDs(dst, more []string) []string {
+	if len(more) == 0 {
+		return dst
+	}
+	seen := make(map[string]struct{}, len(dst)+len(more))
+	for _, id := range dst {
+		seen[id] = struct{}{}
+	}
+	for _, id := range more {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		dst = append(dst, id)
+	}
+	return dst
 }

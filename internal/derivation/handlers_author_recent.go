@@ -21,13 +21,17 @@ func (h *Handlers) projectAuthorRecentEventWithVersion(ctx context.Context, even
 
 	var pubkey string
 	var createdAt int64
+	var kind int
 	err := h.pool.QueryRow(ctx, `
-		SELECT pubkey, created_at
+		SELECT pubkey, created_at, kind
 		FROM events
 		WHERE id = $1
-	`, eventID).Scan(&pubkey, &createdAt)
+	`, eventID).Scan(&pubkey, &createdAt, &kind)
 	if err != nil {
 		return fmt.Errorf("load event for author projection: %w", err)
+	}
+	if kind == 1059 {
+		return nil
 	}
 
 	tx, err := h.pool.Begin(ctx)

@@ -311,6 +311,13 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Description:  "Minimum stability window before newly seen trust candidates become active.",
 		},
 		{
+			Name:         "INGESTOR_GIFT_WRAP_RECIPIENT_PER_HOUR",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "240",
+			Description:  "Maximum kind-1059 gift wraps accepted for one trusted p-tag recipient per hour. Further wraps for that recipient are dropped in both open and trusted_only mode. A non-positive value falls back to this default.",
+		},
+		{
 			Name:         "INGESTOR_TRUST_GATE_MAX_HOPS",
 			Runtimes:     []string{"ingestor"},
 			Required:     false,

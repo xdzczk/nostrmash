@@ -45,6 +45,9 @@ func RunAuthorAnalyticsSweeperLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if workerIdx == 0 {
+				reportAuthorAnalyticsBacklog(ctx, log, handlers)
+			}
 			started := time.Now()
 			processed, err := handlers.DrainPendingAuthorAnalyticsBatchWithTimeout(ctx, cfg.BatchSize, cfg.RebuildTimeout)
 			outcome := "ok"
@@ -293,6 +296,24 @@ func runWithBatchTimeout(ctx context.Context, timeout time.Duration, fn func(con
 	}
 }
 
+func reportAuthorAnalyticsBacklog(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	backlog, oldestAge, err := handlers.PendingAuthorAnalyticsBacklog(ctx)
+	if err != nil {
+		log.Error("author_analytics_sweeper_backlog_gauge_failed", "error", err)
+		return
+	}
+	metrics.SetAuthorAnalyticsBacklog(backlog, oldestAge)
+}
+
+func reportProfileStatsBacklog(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	backlog, oldestAge, err := handlers.PendingProfileStatsBacklog(ctx)
+	if err != nil {
+		log.Error("profile_stats_sweeper_backlog_gauge_failed", "error", err)
+		return
+	}
+	metrics.SetProfileStatsBacklog(backlog, oldestAge)
+}
+
 // reportMeilisearchBacklogGauge publishes the pending Meilisearch sync backlog
 // and oldest-entry age to Prometheus. Failures are logged and swallowed so a
 // transient DB hiccup never wedges the sweeper.
@@ -337,6 +358,9 @@ func RunProfileStatsSweeperLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if workerIdx == 0 {
+				reportProfileStatsBacklog(ctx, log, handlers)
+			}
 			started := time.Now()
 			processed, err := handlers.DrainPendingProfileStatsBatch(ctx, cfg.BatchSize)
 			outcome := "ok"

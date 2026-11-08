@@ -392,7 +392,7 @@ func configEnvDocsWorker() []EnvVarDoc {
 			Runtimes:     []string{"worker"},
 			Required:     false,
 			DefaultValue: "768h0m0s",
-			Description:  "Age (by event created_at) beyond which raw engagement events become eligible for retention purge. The default is 32d, one day past the 30d discovery window.",
+			Description:  "Age (by event created_at) beyond which raw engagement events become eligible for retention purge. The default is 32d, one day past the 30d discovery window. Kind 1059 gift wraps are also deleted once first_seen_at is older than 48h, so ciphertext does not wait out the full horizon.",
 		},
 		{
 			Name:         "WORKER_RETENTION_ENGAGEMENT_RUN_INTERVAL",

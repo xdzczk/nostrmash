@@ -45,9 +45,10 @@ type IngestorAccountObservationConfig struct {
 // rejects); "trusted_only" enforces the gate (kind 1 must be from a trusted
 // author; kinds 6/7/9735 must target an already-stored event).
 type IngestorTrustGateConfig struct {
-	Mode            string
-	RefreshInterval time.Duration
-	MaxHops         int
+	Mode                     string
+	RefreshInterval          time.Duration
+	MaxHops                  int
+	GiftWrapRecipientPerHour int
 }
 
 // IngestorAuthorMetadataDiscoveryConfig controls the background loop that
@@ -175,9 +176,10 @@ func LoadIngestor() (IngestorConfig, error) {
 			TopPubkeys: getEnvInt("INGESTOR_TRUST_PRIORITIZATION_TOP_PUBKEYS", 2000),
 		},
 		TrustGate: IngestorTrustGateConfig{
-			Mode:            strings.ToLower(strings.TrimSpace(getEnv("INGESTOR_TRUST_GATE_MODE", "open"))),
-			RefreshInterval: trustGateRefreshInterval,
-			MaxHops:         trustGateMaxHops,
+			Mode:                     strings.ToLower(strings.TrimSpace(getEnv("INGESTOR_TRUST_GATE_MODE", "open"))),
+			RefreshInterval:          trustGateRefreshInterval,
+			MaxHops:                  trustGateMaxHops,
+			GiftWrapRecipientPerHour: getEnvInt("INGESTOR_GIFT_WRAP_RECIPIENT_PER_HOUR", 240),
 		},
 		TrustFetch: IngestorTrustFetchConfig{
 			Enabled:               getEnvBool("INGESTOR_TRUST_FETCH_ENABLED", true),

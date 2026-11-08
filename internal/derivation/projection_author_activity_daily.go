@@ -129,6 +129,9 @@ func (h *Handlers) authorAnalyticsAffectedPubkeys(
 	references []derivedReference,
 	tags [][]string,
 ) ([]string, error) {
+	if !authorAnalyticsDirtyKind(kind) {
+		return nil, nil
+	}
 	pubkeys := []string{sourcePubkey}
 
 	appendEventAuthor := func(eventID string) error {

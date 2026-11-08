@@ -200,7 +200,8 @@ type WorkerExpiredEventRetentionConfig struct {
 }
 
 // WorkerEngagementRetentionConfig configures the purger that deletes raw
-// engagement events (kinds 6/7/1059/9321/9735) older than MaxAge. Lifetime aggregate
+// engagement events (kinds 6/7/1059/9321/9735) older than MaxAge. Kind 1059
+// is also deleted 48h after first_seen_at. Lifetime aggregate
 // counters (reaction_counts/repost_counts have no FK to events) survive the
 // delete; only the high-volume raw rows and their cascade-cleaned
 // contribution/interaction rows are removed.

@@ -124,9 +124,11 @@ func (s Service) GetTrendingDomains(
 	}
 	// 24h, 7d, and 30d are the windows the overview and the links tab
 	// request. Serve the same trust-filtered snapshot the homepage uses so
-	// the two surfaces rank the same domains. The live aggregate stays
-	// available for readers that have no snapshot and for other windows.
-	if isFixedDiscoveryWindow(window) && !scope.ExcludeBridged {
+	// the two surfaces rank the same domains, including when the caller
+	// sets exclude_bridged. The live COUNT(DISTINCT) over event_urls is
+	// what times out under load; the snapshot is already limited to
+	// trusted authors. The live aggregate stays available for other windows.
+	if isFixedDiscoveryWindow(window) {
 		if r := s.capabilities.curated.homeTrendingDomains; r != nil {
 			rows, err := r.GetHomeTrendingDomains(ctx, window, scope.Lang(), homeTrendingSnapshotLimit)
 			if err != nil {

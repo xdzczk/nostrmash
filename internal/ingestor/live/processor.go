@@ -70,6 +70,7 @@ type Processor struct {
 	trustedAuthors TrustedAuthors
 	targetChecker  TargetExistenceChecker
 	relayInfo      RelayInfoLookup
+	giftWrap       giftWrapBudget
 
 	// blockedAuthors (optional) is consulted before the gate: any event from a
 	// blocked author is dropped regardless of gate mode.
@@ -130,6 +131,16 @@ func (p *Processor) SetTrustGate(mode string, trusted TrustedAuthors, checker Ta
 	p.gateMode = strings.ToLower(strings.TrimSpace(mode))
 	p.trustedAuthors = trusted
 	p.targetChecker = checker
+}
+
+// SetGiftWrapRecipientLimit caps how many kind-1059 gift wraps one p-tag
+// recipient may accept per hour. Zero disables the cap. The limit is
+// enforced only after the recipient has already passed the trust check.
+func (p *Processor) SetGiftWrapRecipientLimit(perHour int) {
+	if p == nil {
+		return
+	}
+	p.giftWrap.setLimit(perHour)
 }
 
 // SetRelayInfo wires the NIP-11 pubkey lookup used to admit group metadata
@@ -228,7 +239,10 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 	}
 	result := nostr.ParseAndValidate(payload, p.validateOpts)
 	if result.Valid() {
-		if p.observationSink != nil {
+		// Kind 1059 is signed by a fresh key. Recording that key creates an
+		// account_states row per wrap and is what a gift-wrap flood uses
+		// to grow the account table. The trusted recipient is already known.
+		if p.observationSink != nil && result.Event.Kind != 1059 {
 			p.observationSink.Observe(result.Event.Pubkey)
 		}
 		if p.blockedAuthors != nil && p.blockedAuthors.Blocked(result.Event.Pubkey) {

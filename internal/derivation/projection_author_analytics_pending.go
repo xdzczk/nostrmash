@@ -64,6 +64,12 @@ func (h *Handlers) MarkAuthorAnalyticsDirty(ctx context.Context, eventID string)
 		}
 		return fmt.Errorf("load event for author analytics dirty marking: %w", err)
 	}
+	// Windowed author analytics only move for notes, reposts, reactions,
+	// and zaps. Everything else, including kind-1059 gift wraps from a
+	// fresh key, used to enqueue that key for a full rebuild.
+	if !authorAnalyticsDirtyKind(kind) {
+		return nil
+	}
 	tags, err := h.loadEventTags(ctx, eventID)
 	if err != nil {
 		return err
@@ -170,6 +176,9 @@ func (h *Handlers) DrainPendingAuthorAnalyticsBatchWithTimeout(ctx context.Conte
 		return 0, fmt.Errorf("handlers are not initialized")
 	}
 	if limit <= 0 {
+		return 0, nil
+	}
+	if saturated, err := h.databaseSaturated(ctx); err == nil && saturated {
 		return 0, nil
 	}
 
@@ -328,6 +337,20 @@ func (h *Handlers) rebuildClaimedAuthorAnalyticsPubkey(ctx context.Context, pubk
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := setSweeperStatementTimeout(ctx, tx); err != nil {
+		return err
+	}
+	needed, err := pubkeyNeedsProjectionRebuild(ctx, tx, pubkey)
+	if err != nil {
+		return err
+	}
+	if !needed {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit skipped author analytics rebuild: %w", err)
+		}
+		return nil
+	}
+
 	if err := h.projectAuthorAnalyticsForPubkeyTx(ctx, tx, pubkey, nil, true); err != nil {
 		return err
 	}
@@ -395,17 +418,11 @@ func (h *Handlers) releasePendingAuthorAnalyticsClaim(ctx context.Context, pubke
 	return nil
 }
 
-// PendingAuthorAnalyticsBacklog returns the current depth of the dirty
-// queue. Exposed for metrics / admin observability.
-func (h *Handlers) PendingAuthorAnalyticsBacklog(ctx context.Context) (int64, error) {
-	if h == nil || h.pool == nil {
-		return 0, fmt.Errorf("handlers are not initialized")
-	}
-	var n int64
-	if err := h.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM pending_author_analytics_recomputes
-	`).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count pending author analytics: %w", err)
-	}
-	return n, nil
+// PendingAuthorAnalyticsBacklog returns the depth of the dirty queue and
+// the age of its oldest row. Exposed for metrics / admin observability.
+func (h *Handlers) PendingAuthorAnalyticsBacklog(ctx context.Context) (int64, float64, error) {
+	return h.pendingRecomputeBacklog(ctx, `
+		SELECT count(*), min(marked_at)
+		FROM pending_author_analytics_recomputes
+	`)
 }

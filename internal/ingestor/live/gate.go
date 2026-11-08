@@ -9,7 +9,8 @@ import (
 )
 
 // Trust gate modes. "open" runs in shadow (records would-be decisions as
-// metrics but never rejects); "trusted_only" enforces.
+// metrics but still stores the event); "trusted_only" enforces. The kind-1059
+// per-recipient hourly budget is the exception: it drops the event in both modes.
 const (
 	TrustGateModeOpen        = "open"
 	TrustGateModeTrustedOnly = "trusted_only"
@@ -43,6 +44,7 @@ const (
 	gateDecisionRejectUntrustedAuthor = "reject_untrusted_author"
 	gateDecisionRejectMissingTarget   = "reject_missing_target"
 	gateDecisionRejectBlockedAuthor   = "reject_blocked_author"
+	gateDecisionRejectRecipientBudget = "reject_recipient_budget"
 	gateDecisionShadowReject          = "shadow_reject"
 	gateDecisionFailClosed            = "fail_closed"
 )
@@ -238,10 +240,27 @@ func (p *Processor) evaluateRecipientGate(kindLabel string, tags [][]string, enf
 		}
 		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionShadowReject}
 	}
+	overBudget := false
 	for _, recipient := range recipients {
-		if p.trustedAuthors.Contains(recipient) {
-			return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
+		if !p.trustedAuthors.Contains(recipient) {
+			continue
 		}
+		// Kind 1059 is signed by a fresh key, so a trusted recipient is the
+		// only check. A single recipient can still accept an unbounded
+		// stream; the hourly budget is what stops that from becoming a
+		// derive-queue flood. A wrap is admitted when any trusted recipient
+		// still has budget.
+		if kindLabel == "1059" && !p.allowGiftWrap(recipient) {
+			overBudget = true
+			continue
+		}
+		return gateDecision{accept: true, kindLabel: kindLabel, decision: gateDecisionAccept}
+	}
+	if overBudget {
+		// The hourly cap is a volume limit, not a trust decision, so it
+		// drops the event in open mode too. Shadowing it would keep
+		// storing the flood the cap exists to stop.
+		return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectRecipientBudget}
 	}
 	if enforce {
 		return gateDecision{accept: false, kindLabel: kindLabel, decision: gateDecisionRejectUntrustedAuthor}

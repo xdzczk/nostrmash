@@ -60,6 +60,12 @@ func (h *Handlers) ApplyIncrementalAuthorStats(ctx context.Context, eventID stri
 		}
 		return fmt.Errorf("load event for incremental stats: %w", err)
 	}
+	// Gift wraps are signed by an ephemeral key. Touching profile and
+	// activity rows for that key creates one stats row per wrap and
+	// does not describe a person.
+	if kind == 1059 {
+		return nil
+	}
 
 	tags, err := h.loadEventTags(ctx, eventID)
 	if err != nil {

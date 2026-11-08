@@ -122,6 +122,11 @@ type Querier interface {
 	// used by the Go wrapper to reverse incremental author-stat deltas for each
 	// candidate before deleting it (see internal/store/retention/events_retention.go).
 	SelectExpiredEngagementEventCandidates(ctx context.Context, arg SelectExpiredEngagementEventCandidatesParams) ([]string, error)
+	// Kind 1059 gift wraps age out on first_seen_at, not the author-claimed
+	// created_at, and on a shorter horizon than other engagement. The scan
+	// uses idx_events_kind_first_seen. The jobs predicate matches
+	// SelectExpiredEngagementEventCandidates.
+	SelectExpiredGiftWrapCandidates(ctx context.Context, arg SelectExpiredGiftWrapCandidatesParams) ([]string, error)
 	// Read-only counterpart to PurgeUntrustedAuthorEvents' candidates CTE, used
 	// by the Go wrapper to reverse incremental author-stat deltas for each
 	// candidate before deleting it (see

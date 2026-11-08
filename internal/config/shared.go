@@ -98,17 +98,31 @@ var databaseMaxConnsDefaults = map[string]int32{
 	"trust_worker": 8,
 }
 
+// databaseMaxConnsCeilings cap an explicit DATABASE_MAX_CONNS so the four
+// binaries cannot be configured above Postgres max_connections. Production
+// set 96 on several services at once and filled every backend slot.
+var databaseMaxConnsCeilings = map[string]int32{
+	"api":          32,
+	"worker":       24,
+	"ingestor":     12,
+	"trust_worker": 12,
+}
+
 // databaseMaxConnsFallbackDefault is used for any service name not in the map
 // (kept above the pgx default of 4 so no binary silently runs undersized).
 const databaseMaxConnsFallbackDefault int32 = 16
 
 // resolveDatabaseMaxConns applies precedence env > DSN > per-service default.
-// A value of 0 means "do not override" and is passed through to store.OpenPool,
+// An explicit env value above databaseMaxConnsCeilings is clamped. A value
+// of 0 means "do not override" and is passed through to store.OpenPool,
 // which then honors whatever pool_max_conns the DSN carries (or the pgx
 // default). We only fall back to a service default when the operator has
 // expressed no preference at all (env unset/zero AND DSN silent).
 func resolveDatabaseMaxConns(serviceName string, envMaxConns int32, databaseURL string) int32 {
 	if envMaxConns > 0 {
+		if ceiling, ok := databaseMaxConnsCeilings[strings.TrimSpace(serviceName)]; ok && envMaxConns > ceiling {
+			return ceiling
+		}
 		return envMaxConns
 	}
 	if dsnSpecifiesPoolMaxConns(databaseURL) {

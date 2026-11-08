@@ -158,6 +158,7 @@ func buildRunner(
 	// operators watch trusted-set/gate metrics before flipping to enforce.
 	trustedSet := NewTrustedAuthorSet(cfg.TrustGate.MaxHops)
 	processor.SetTrustGate(cfg.TrustGate.Mode, trustedSet, eventStore)
+	processor.SetGiftWrapRecipientLimit(cfg.TrustGate.GiftWrapRecipientPerHour)
 	processor.SetRelayInfo(eventStore)
 	processor.SetBlockedAuthors(trustedSet)
 

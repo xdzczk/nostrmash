@@ -76,7 +76,11 @@ func TestResolveDatabaseMaxConns(t *testing.T) {
 		url     string
 		want    int32
 	}{
-		{name: "env wins over everything", service: "api", env: 50, url: "postgres://h/db?pool_max_conns=10", want: 50},
+		{name: "env wins over dsn below the ceiling", service: "api", env: 16, url: "postgres://h/db?pool_max_conns=10", want: 16},
+		{name: "env above the api ceiling is clamped", service: "api", env: 96, url: "postgres://h/db", want: 32},
+		{name: "env above the worker ceiling is clamped", service: "worker", env: 96, url: "postgres://h/db", want: 24},
+		{name: "env above the ingestor ceiling is clamped", service: "ingestor", env: 96, url: "postgres://h/db", want: 12},
+		{name: "env above the trust worker ceiling is clamped", service: "trust_worker", env: 96, url: "postgres://h/db", want: 12},
 		{name: "dsn honored when env unset", service: "api", env: 0, url: "postgres://h/db?pool_max_conns=10", want: 0},
 		{name: "api service default", service: "api", env: 0, url: "postgres://h/db", want: 32},
 		{name: "worker service default", service: "worker", env: 0, url: "postgres://h/db", want: 16},

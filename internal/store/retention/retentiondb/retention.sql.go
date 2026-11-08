@@ -828,6 +828,54 @@ func (q *Queries) SelectExpiredEngagementEventCandidates(ctx context.Context, ar
 	return items, nil
 }
 
+const selectExpiredGiftWrapCandidates = `-- name: SelectExpiredGiftWrapCandidates :many
+SELECT e.id
+FROM events e
+WHERE e.kind = 1059
+  AND e.first_seen_at < $1
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jobs j
+    WHERE j.idempotency_key = 'derive_event_bundle:' || e.id
+      AND (
+        j.status IN ('pending', 'running')
+        OR (j.status = 'dead' AND j.updated_at > $2)
+      )
+  )
+ORDER BY e.first_seen_at ASC, e.id ASC
+LIMIT $3
+`
+
+type SelectExpiredGiftWrapCandidatesParams struct {
+	SeenBefore      pgtype.Timestamptz
+	DeadGraceBefore pgtype.Timestamptz
+	RowLimit        int32
+}
+
+// Kind 1059 gift wraps age out on first_seen_at, not the author-claimed
+// created_at, and on a shorter horizon than other engagement. The scan
+// uses idx_events_kind_first_seen. The jobs predicate matches
+// SelectExpiredEngagementEventCandidates.
+func (q *Queries) SelectExpiredGiftWrapCandidates(ctx context.Context, arg SelectExpiredGiftWrapCandidatesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, selectExpiredGiftWrapCandidates, arg.SeenBefore, arg.DeadGraceBefore, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectUntrustedAuthorEventCandidates = `-- name: SelectUntrustedAuthorEventCandidates :many
 SELECT c.event_id
 FROM untrusted_purge_candidates c

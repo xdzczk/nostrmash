@@ -153,9 +153,12 @@ func registerCoreMetrics() {
 	)
 	primalWSRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "nostrmash_primal_ws_request_duration_seconds",
-			Help:    "Latency of Primal websocket request handling by request kind.",
-			Buckets: prometheus.DefBuckets,
+			Name: "nostrmash_primal_ws_request_duration_seconds",
+			Help: "Latency of Primal websocket request handling by request kind.",
+			// DefBuckets top out at 10s, which made feed calls that ran
+			// longer look like a 10s p95. The extra buckets show whether
+			// a slow request is 15s, 30s, or still running at 60s.
+			Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 15, 30, 60},
 		},
 		[]string{"request_kind"},
 	)
