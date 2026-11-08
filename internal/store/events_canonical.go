@@ -146,6 +146,9 @@ func (s *PostgresStore) InsertCanonicalEventWithResult(
 	}
 
 	if outcome.EventInserted {
+		if err := indexNewAuthorFeedEventTx(ctx, tx, event, tags); err != nil {
+			return outcome, err
+		}
 		if s.jobPublisher == nil {
 			return outcome, fmt.Errorf("canonical event job publisher is not configured")
 		}

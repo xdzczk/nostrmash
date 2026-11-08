@@ -71,6 +71,10 @@ func buildRouteDefinitions(
 	if !v1Enabled {
 		v1Handler = http.NotFoundHandler()
 	}
+	publicReads := api.NewPublicReadCache(api.PublicReadCacheConfig{})
+	cachedRead := func(handler http.HandlerFunc) http.Handler {
+		return publicReads.Handler(handler)
+	}
 	return []routeDefinition{
 		newPublicRoute("GET /health", true, http.HandlerFunc(api.Health)),
 		newPublicRoute("GET /ready", true, api.Ready(pool)),
@@ -78,7 +82,7 @@ func buildRouteDefinitions(
 
 		newPublicRoute("GET /api/v1/events/{id}", true, http.HandlerFunc(handlers.GetEventByID)),
 		newPublicRoute("POST /api/v1/events/batch", true, http.HandlerFunc(handlers.BatchGetEvents)),
-		newPublicRoute("GET /api/v1/events/{id}/seen-on", true, http.HandlerFunc(handlers.GetEventSeenOn)),
+		newPublicRoute("GET /api/v1/events/{id}/seen-on", true, cachedRead(handlers.GetEventSeenOn)),
 		newPublicRoute("GET /api/v1/profiles/{pubkey}", true, http.HandlerFunc(handlers.GetProfileByPubkey)),
 		newPublicRoute("GET /api/v1/profiles/{pubkey}/topics", true, http.HandlerFunc(handlers.GetProfileTopics)),
 		newPublicRoute("POST /api/v1/profiles/batch", true, http.HandlerFunc(handlers.BatchGetProfiles)),
@@ -96,14 +100,14 @@ func buildRouteDefinitions(
 		newPublicRoute("GET /api/v1/authors/{pubkey}/analytics/performance-summary", true, http.HandlerFunc(handlers.GetAuthorAnalyticsPerformanceSummary)),
 		newPublicRoute("GET /api/v1/authors/{pubkey}/analytics/recycle-candidates", true, http.HandlerFunc(handlers.GetAuthorAnalyticsRecycleCandidates)),
 		newPublicRoute("GET /api/v1/events/{id}/counts", true, http.HandlerFunc(handlers.GetEventCounts)),
-		newPublicRoute("GET /api/v1/events/{id}/replies", true, http.HandlerFunc(handlers.GetEventReplies)),
-		newPublicRoute("GET /api/v1/events/{id}/ancestors", true, http.HandlerFunc(handlers.GetEventAncestors)),
+		newPublicRoute("GET /api/v1/events/{id}/replies", true, cachedRead(handlers.GetEventReplies)),
+		newPublicRoute("GET /api/v1/events/{id}/ancestors", true, cachedRead(handlers.GetEventAncestors)),
 		newPublicRoute("GET /api/v1/events/{id}/actions", true, http.HandlerFunc(handlers.GetEventActions)),
 		newPublicRoute("GET /api/v1/events/{id}/zaps", true, http.HandlerFunc(handlers.GetEventZaps)),
-		newPublicRoute("GET /api/v1/threads/{eventId}", true, http.HandlerFunc(handlers.GetThread)),
-		newPublicRoute("GET /api/v1/threads/{root_event_id}/summary", true, http.HandlerFunc(handlers.GetThreadSummary)),
-		newPublicRoute("GET /api/v1/threads/{root_event_id}/activity", true, http.HandlerFunc(handlers.GetThreadActivity)),
-		newPublicRoute("GET /api/v1/notes/{event_id}/summary", true, http.HandlerFunc(handlers.GetNoteSummary)),
+		newPublicRoute("GET /api/v1/threads/{eventId}", true, cachedRead(handlers.GetThread)),
+		newPublicRoute("GET /api/v1/threads/{root_event_id}/summary", true, cachedRead(handlers.GetThreadSummary)),
+		newPublicRoute("GET /api/v1/threads/{root_event_id}/activity", true, cachedRead(handlers.GetThreadActivity)),
+		newPublicRoute("GET /api/v1/notes/{event_id}/summary", true, cachedRead(handlers.GetNoteSummary)),
 		newPublicRoute("GET /api/v1/notes/{event_id}/related", true, http.HandlerFunc(handlers.GetNoteRelated)),
 		newPublicRoute("GET /api/v1/relays/health", true, http.HandlerFunc(handlers.GetRelaysHealth)),
 		newPublicRoute("GET /api/v1/relays/popular", true, http.HandlerFunc(handlers.GetPopularRelays)),
@@ -149,7 +153,7 @@ func buildRouteDefinitions(
 		newPublicRoute("GET /api/v1/authors/{pubkey}/analytics/zaps", true, http.HandlerFunc(handlers.GetAuthorZapAnalytics)),
 		newPublicRoute("GET /api/v1/profiles/{pubkey}/identity", true, http.HandlerFunc(handlers.GetProfileIdentity)),
 		newPublicRoute("GET /api/v1/profiles/{pubkey}/external-identities", true, http.HandlerFunc(handlers.GetProfileExternalIdentities)),
-		newPublicRoute("GET /api/v1/events/{id}/labels", true, http.HandlerFunc(handlers.GetEventLabels)),
+		newPublicRoute("GET /api/v1/events/{id}/labels", true, cachedRead(handlers.GetEventLabels)),
 		newPublicRoute("GET /api/v1/discovery/stats/labels", true, http.HandlerFunc(handlers.GetLabelStats)),
 		newPublicRoute("GET /api/v1/discovery/stats/emoji", true, http.HandlerFunc(handlers.GetEmojiStats)),
 		newPublicRoute("GET /api/v1/groups", true, http.HandlerFunc(handlers.GetGroups)),
@@ -196,7 +200,7 @@ func buildRouteDefinitions(
 		newPublicRoute("GET /api/v1/users/{pubkey}/pins", true, http.HandlerFunc(handlers.GetPins)),
 		newPublicRoute("GET /api/v1/live", true, http.HandlerFunc(handlers.GetLive)),
 		newPublicRoute("GET /api/v1/events/{id}/comments", true, http.HandlerFunc(handlers.GetEventComments)),
-		newPublicRoute("GET /api/v1/events/{id}/reports", true, http.HandlerFunc(handlers.GetEventReports)),
+		newPublicRoute("GET /api/v1/events/{id}/reports", true, cachedRead(handlers.GetEventReports)),
 		newPublicRoute("GET /api/v1/users/{pubkey}/reports", true, http.HandlerFunc(handlers.GetUserReports)),
 		newPublicRoute("GET /api/v1/users/{pubkey}/zaps", true, http.HandlerFunc(handlers.GetZaps)),
 		newPublicRoute("GET /api/v1/users/{pubkey}/mentions", true, http.HandlerFunc(handlers.GetMentions)),

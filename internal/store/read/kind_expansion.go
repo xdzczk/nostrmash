@@ -256,20 +256,34 @@ func (s *Read) GetEventComments(ctx context.Context, eventID string, limit int) 
 		return nil, fmt.Errorf("event id is required")
 	}
 	rows, err := s.pool.Query(ctx, `
+		WITH addr AS (
+			SELECT rs.kind::text || ':' || rs.pubkey || ':' || rs.d_tag AS address
+			FROM replaceable_state rs
+			WHERE rs.event_id = $1
+		),
+		matched AS (
+			SELECT c.source_event_id, c.created_at
+			FROM comment_edges c
+			WHERE c.root_event_id <> '' AND c.root_event_id = $1
+			UNION
+			SELECT c.source_event_id, c.created_at
+			FROM comment_edges c
+			WHERE c.parent_event_id <> '' AND c.parent_event_id = $1
+			UNION
+			SELECT c.source_event_id, c.created_at
+			FROM comment_edges c
+			JOIN addr ON c.root_address = addr.address
+			WHERE c.root_address <> ''
+			UNION
+			SELECT c.source_event_id, c.created_at
+			FROM comment_edges c
+			JOIN addr ON c.parent_address = addr.address
+			WHERE c.parent_address <> ''
+		)
 		SELECT e.raw_json::text
-		FROM comment_edges c
-		JOIN events e ON e.id = c.source_event_id
-		LEFT JOIN replaceable_state rs ON rs.event_id = $1
-		WHERE c.root_event_id = $1
-		   OR c.parent_event_id = $1
-		   OR (
-		        rs.event_id IS NOT NULL
-		        AND (
-		            c.root_address = rs.kind::text || ':' || rs.pubkey || ':' || rs.d_tag
-		            OR c.parent_address = rs.kind::text || ':' || rs.pubkey || ':' || rs.d_tag
-		        )
-		   )
-		ORDER BY c.created_at ASC, c.source_event_id ASC
+		FROM matched
+		JOIN events e ON e.id = matched.source_event_id
+		ORDER BY matched.created_at ASC, matched.source_event_id ASC
 		LIMIT $2
 	`, eventID, clampPageLimit(limit))
 	if err != nil {

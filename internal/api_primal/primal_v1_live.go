@@ -32,7 +32,12 @@ func (g WSGateway) primalV1LiveEventsFromFollows(ctx context.Context, kwargs map
 	if validatePubkeyHex(viewer) != nil {
 		viewer = ""
 	}
-	return g.liveEventsPage(ctx, kwargs, viewer)
+	page, err := g.liveEventsPage(ctx, kwargs, viewer)
+	if err != nil {
+		return nil, err
+	}
+	g.feedPages.noteLive(viewer, livePageSignature(page))
+	return page, nil
 }
 
 func (g WSGateway) liveEventsPage(ctx context.Context, kwargs map[string]any, followedBy string) ([]any, error) {

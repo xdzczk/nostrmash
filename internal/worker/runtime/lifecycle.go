@@ -181,6 +181,7 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 	spawn(func(c context.Context) { RunAccountStateRecomputeLoop(c, log, bootstrap.Store, cfg.AccountState) })
 	spawn(func(c context.Context) { RunMeilisearchStartupSync(c, log, bootstrap.MeiliClient, bootstrap.Pool) })
 	spawn(func(c context.Context) { RunRelayWindowSnapshotsLoop(c, log, bootstrap.Handlers) })
+	spawn(func(c context.Context) { RunFeedIndexAndRollupLoop(c, log, bootstrap.Handlers) })
 	spawn(func(c context.Context) {
 		RunExpiredEventRetentionLoop(c, log, bootstrap.Store, cfg.ExpiredEventRetention)
 	})

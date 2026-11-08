@@ -16,10 +16,11 @@ import (
 )
 
 type WSGateway struct {
-	query    query.Service
-	upgrader websocket.Upgrader
-	opts     WSGatewayOptions
-	log      *slog.Logger
+	query     query.Service
+	upgrader  websocket.Upgrader
+	opts      WSGatewayOptions
+	log       *slog.Logger
+	feedPages *feedPageCache
 }
 
 const (
@@ -177,8 +178,9 @@ func NewWSGateway(reader EventReader, opts WSGatewayOptions) (WSGateway, error) 
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return checkOrigin(r, opts) },
 		},
-		opts: opts,
-		log:  wsLog,
+		opts:      opts,
+		log:       wsLog,
+		feedPages: newFeedPageCache(feedPageCacheTTL),
 	}, nil
 }
 

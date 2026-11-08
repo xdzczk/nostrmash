@@ -17,20 +17,42 @@ func TestAuthorFeedPageSQLUsesPerKindIndexWalk(t *testing.T) {
 	if strings.Count(sql, "raw_json") != 1 {
 		t.Fatalf("raw_json should be loaded once for the page, got %s", sql)
 	}
-	if !strings.Contains(sql, "NOT EXISTS") {
-		t.Fatalf("replies should be excluded: %s", sql)
+	if strings.Count(sql, "NOT EXISTS (SELECT 1 FROM thread_edges") != 2 {
+		t.Fatalf("replies should be excluded once per kind: %s", sql)
+	}
+	if strings.Count(sql, "event_attributes") != 1 {
+		t.Fatalf("expiry should be checked once on the page, got %s", sql)
 	}
 
 	withReplies := authorFeedPageSQL([]int{1}, true, false, false)
 	if strings.Contains(withReplies, "thread_edges") {
 		t.Fatalf("include_replies should not probe thread_edges: %s", withReplies)
 	}
+	if strings.Count(withReplies, "event_attributes") != 1 {
+		t.Fatalf("expiry should be checked once on the page, got %s", withReplies)
+	}
 	repliesOnly := authorFeedPageSQL([]int{1}, false, true, false)
 	if strings.Contains(repliesOnly, "NOT EXISTS (SELECT 1 FROM thread_edges") || !strings.Contains(repliesOnly, "EXISTS (SELECT 1 FROM thread_edges") {
 		t.Fatalf("replies-only filter: %s", repliesOnly)
 	}
-	if !strings.Contains(repliesOnly, "event_attributes ea_exp") {
-		t.Fatalf("expired events should be hidden: %s", repliesOnly)
+	if strings.Count(repliesOnly, "event_attributes") != 1 {
+		t.Fatalf("expired events should be hidden once: %s", repliesOnly)
+	}
+}
+
+func TestAuthorsAtFeedCutoffKeepsOnlyAuthorsWhoCanReachThePage(t *testing.T) {
+	heads := []authorHead{
+		{pubkey: "old", id: "1", created: 10},
+		{pubkey: "mid", id: "2", created: 20},
+		{pubkey: "new", id: "3", created: 30},
+		{pubkey: "tied", id: "4", created: 20},
+	}
+	got := authorsAtFeedCutoff(heads, 2)
+	if len(got) != 3 || got[0] != "new" || got[1] != "tied" || got[2] != "mid" {
+		t.Fatalf("cutoff authors = %#v", got)
+	}
+	if len(authorsAtFeedCutoff(heads, 10)) != 4 {
+		t.Fatalf("a window larger than the heads keeps every author")
 	}
 }
 

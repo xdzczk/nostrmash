@@ -6,19 +6,38 @@ import "fmt"
 // expression owned by the caller (a placeholder or a column), never user input.
 // A comment counts once even when its root and parent are the same event, and
 // an address-tagged comment still counts after the replaceable event is revised.
+//
+// The address is resolved once, then each arm is a separate index lookup.
+// OR-ing those predicates across a LEFT JOIN made Postgres seq-scan
+// comment_edges once per event id.
 func CommentCountSQL(idExpr string) string {
-	addr := addressExpr("rs")
 	return fmt.Sprintf(`COALESCE((
-		SELECT COUNT(DISTINCT c.source_event_id)
-		FROM comment_edges c
-		LEFT JOIN replaceable_state rs ON rs.event_id = %s
-		WHERE c.root_event_id = %s
-		   OR c.parent_event_id = %s
-		   OR (
-		        rs.event_id IS NOT NULL
-		        AND (c.root_address = %s OR c.parent_address = %s)
-		   )
-	), 0)`, idExpr, idExpr, idExpr, addr, addr)
+		WITH addr AS (
+			SELECT %s AS address
+			FROM replaceable_state rs
+			WHERE rs.event_id = %s
+		)
+		SELECT COUNT(*)
+		FROM (
+			SELECT c.source_event_id
+			FROM comment_edges c
+			WHERE c.root_event_id <> '' AND c.root_event_id = %s
+			UNION
+			SELECT c.source_event_id
+			FROM comment_edges c
+			WHERE c.parent_event_id <> '' AND c.parent_event_id = %s
+			UNION
+			SELECT c.source_event_id
+			FROM comment_edges c
+			JOIN addr ON c.root_address = addr.address
+			WHERE c.root_address <> ''
+			UNION
+			SELECT c.source_event_id
+			FROM comment_edges c
+			JOIN addr ON c.parent_address = addr.address
+			WHERE c.parent_address <> ''
+		) matched
+	), 0)`, addressExpr("rs"), idExpr, idExpr, idExpr)
 }
 
 // AddressRepostCountSQL is a scalar added to repost totals for the current
@@ -53,19 +72,25 @@ func replaceableAddressExpr(alias string) string {
 // or, for the current replaceable, at its address. Kind-6 quote reposts stay
 // inside repost_count and are not added here.
 func Kind1QuoteCountSQL(idExpr string) string {
-	addr := replaceableAddressExpr("rs")
 	return fmt.Sprintf(`COALESCE((
-		SELECT COUNT(DISTINCT q.source_event_id)
-		FROM quote_contributions q
-		LEFT JOIN replaceable_state rs ON rs.event_id = %s
-		WHERE (q.target_event_id <> '' AND q.target_event_id = %s)
-		   OR (
-		        rs.event_id IS NOT NULL
-		        AND q.target_address <> ''
-		        AND q.target_address = %s
-		        AND q.target_event_id <> %s
-		   )
-	), 0)`, idExpr, idExpr, addr, idExpr)
+		WITH addr AS (
+			SELECT %s AS address
+			FROM replaceable_state rs
+			WHERE rs.event_id = %s
+		)
+		SELECT COUNT(*)
+		FROM (
+			SELECT q.source_event_id
+			FROM quote_contributions q
+			WHERE q.target_event_id <> '' AND q.target_event_id = %s
+			UNION
+			SELECT q.source_event_id
+			FROM quote_contributions q
+			JOIN addr ON q.target_address = addr.address
+			WHERE q.target_address <> ''
+			  AND q.target_event_id <> %s
+		) matched
+	), 0)`, replaceableAddressExpr("rs"), idExpr, idExpr, idExpr)
 }
 
 // ZapCountSQL counts receipts that name this event or, when this row is the
@@ -80,16 +105,26 @@ func ZapMSatsSQL(idExpr string) string {
 }
 
 func zapMatchAggregateSQL(idExpr string, aggregate string) string {
-	addr := replaceableAddressExpr("rs")
+	// UNION ALL keeps equal amounts from different receipts. The address arm
+	// excludes receipts already matched by event id, so a receipt that names
+	// both is counted once. Selecting amount_sats (not the receipt id) lets
+	// COUNT(*) and SUM(z.amount_sats * 1000) share this shape.
 	return fmt.Sprintf(`
+		WITH addr AS (
+			SELECT %s AS address
+			FROM replaceable_state rs
+			WHERE rs.event_id = %s
+		)
 		SELECT %s
-		FROM zap_receipts z
-		LEFT JOIN replaceable_state rs ON rs.event_id = %s
-		WHERE z.event_id = %s
-		   OR (
-		        rs.event_id IS NOT NULL
-		        AND z.target_address <> ''
-		        AND z.target_address = %s
-		        AND z.event_id IS DISTINCT FROM %s
-		   )`, aggregate, idExpr, idExpr, addr, idExpr)
+		FROM (
+			SELECT z.amount_sats
+			FROM zap_receipts z
+			WHERE z.event_id = %s
+			UNION ALL
+			SELECT z.amount_sats
+			FROM zap_receipts z
+			JOIN addr ON z.target_address = addr.address
+			WHERE z.target_address <> ''
+			  AND z.event_id IS DISTINCT FROM %s
+		) z`, replaceableAddressExpr("rs"), idExpr, aggregate, idExpr, idExpr)
 }

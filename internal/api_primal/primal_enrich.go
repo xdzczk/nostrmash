@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/xdzczk/nostrmash/internal/query"
 	"github.com/xdzczk/nostrmash/internal/readmodel"
@@ -64,6 +65,145 @@ func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []
 	}
 	// The repost card shows the original author, not the kind 6 pubkey.
 	g.rememberPubkeys(&authors, seenAuthors, innerAuthors)
+	// A repost card reads kind 10000100 and kind 10000129 by the inner note id.
+	statIDs := displayEventIDs(elements, inners)
+	var (
+		referenced      []json.RawMessage
+		refAuthors      []string
+		zapEvents       []any
+		topZapSenders   []string
+		otherZapSenders []string
+		media           []any
+		wg              sync.WaitGroup
+	)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		referenced, refAuthors = g.referencedFeedEvents(ctx, posts, inners, pageIDs, known)
+	}()
+	go func() {
+		defer wg.Done()
+		zapEvents, topZapSenders, otherZapSenders = g.zapEnrichment(ctx, statIDs)
+	}()
+	go func() {
+		defer wg.Done()
+		media = g.mediaEnrichment(ctx, posts)
+	}()
+	wg.Wait()
+
+	g.rememberPubkeys(&authors, seenAuthors, refAuthors)
+	referencedAuthors := make([]string, 0, len(referenced))
+	for _, raw := range referenced {
+		referencedAuthors = append(referencedAuthors, pubkeyFromRaw(raw))
+	}
+	g.rememberPubkeys(&authors, seenAuthors, referencedAuthors)
+	// Primal iOS looks up the top-zap gallery avatar and name from kind 0
+	// events in this page, keyed by the kind 10000129 sender. That sender is
+	// the person who zapped, and their profile has to survive the author cap.
+	g.rememberPubkeys(&authors, seenAuthors, topZapSenders)
+	for _, raw := range posts {
+		for _, pubkey := range tagValuesFromRawEvent(raw, "p") {
+			g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
+		}
+	}
+	for _, pubkey := range otherZapSenders {
+		g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
+	}
+	if since == nil && until == nil {
+		since, until = createdRange(posts)
+	}
+
+	var (
+		metadata       []any
+		counts         map[string]query.EventCounts
+		actions        []readmodel.ViewerEventAction
+		followerCounts map[string]int64
+		hints          map[string]string
+	)
+	wg.Add(5)
+	go func() {
+		defer wg.Done()
+		metadata = g.buildMetadataEvents(ctx, authors)
+	}()
+	go func() {
+		defer wg.Done()
+		loaded, err := g.query.GetEventCountsBatch(ctx, statIDs)
+		if err == nil {
+			counts = loaded
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if strings.TrimSpace(viewer) == "" {
+			return
+		}
+		loaded, err := g.query.GetViewerActions(ctx, viewer, statIDs)
+		if err == nil {
+			actions = loaded
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if len(authors) == 0 {
+			return
+		}
+		loaded, err := g.query.GetFollowerCounts(ctx, authors)
+		if err == nil {
+			followerCounts = loaded
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		loaded, err := g.query.GetRelayHints(ctx, elements)
+		if err == nil {
+			hints = loaded
+		}
+	}()
+	wg.Wait()
+
+	out := make([]any, 0, len(posts)+len(authors)+len(referenced)+8)
+	for _, raw := range posts {
+		out = append(out, raw)
+	}
+	out = append(out, metadata...)
+	out = append(out, mentionEvents(referenced)...)
+	out = append(out, zapEvents...)
+	for _, id := range statIDs {
+		row := query.EventCounts{}
+		if counts != nil {
+			row = counts[id]
+		}
+		out = append(out, noteStatsEvent(id, row))
+	}
+	for _, action := range actions {
+		if !action.Liked && !action.Replied && !action.Reposted && !action.Zapped {
+			continue
+		}
+		out = append(out, kindObject(primalKindNoteActions, map[string]any{
+			"event_id":         action.EventID,
+			"replied":          action.Replied,
+			"liked":            action.Liked,
+			"reposted":         action.Reposted,
+			"zapped":           action.Zapped,
+			"voted_for_option": nil,
+		}))
+	}
+	out = append(out, media...)
+	if len(authors) > 0 {
+		if followerCounts == nil {
+			followerCounts = map[string]int64{}
+		}
+		out = append(out, followerMapEvent(primalKindUserScore, followerCounts, authors))
+		out = append(out, followerMapEvent(primalKindUserFollowers, followerCounts, authors))
+	}
+	if len(hints) > 0 {
+		out = append(out, kindObject(primalKindRelayHints, hints))
+	}
+	out = append(out, buildPrimalRange(orderBy, since, until, elements))
+	return out
+}
+
+func (g WSGateway) referencedFeedEvents(ctx context.Context, posts, inners []json.RawMessage, pageIDs map[string]struct{}, known map[string]json.RawMessage) ([]json.RawMessage, []string) {
 	// Primal renders "Mentioned note not found" unless the quoted event is
 	// returned as kind 10000107 and the quoted author's kind 0 is in the same
 	// page. Quotes are collected from the note itself and from the note inside
@@ -104,91 +244,7 @@ func (g WSGateway) enrichFeedEvents(ctx context.Context, viewer string, posts []
 		refAuthors = append(refAuthors, nestedAuthors...)
 		referenced = append(referenced, g.resolveReferenced(ctx, nestedIDs, known)...)
 	}
-	g.rememberPubkeys(&authors, seenAuthors, refAuthors)
-	referencedAuthors := make([]string, 0, len(referenced))
-	for _, raw := range referenced {
-		referencedAuthors = append(referencedAuthors, pubkeyFromRaw(raw))
-	}
-	g.rememberPubkeys(&authors, seenAuthors, referencedAuthors)
-	// A repost card reads kind 10000100 and kind 10000129 by the inner note id.
-	statIDs := displayEventIDs(elements, inners)
-	// Primal iOS looks up the top-zap gallery avatar and name from kind 0
-	// events in this page, keyed by the kind 10000129 sender. That sender is
-	// the person who zapped, and their profile has to survive the author cap.
-	zapEvents, topZapSenders, otherZapSenders := g.zapEnrichment(ctx, statIDs)
-	g.rememberPubkeys(&authors, seenAuthors, topZapSenders)
-	for _, raw := range posts {
-		for _, pubkey := range tagValuesFromRawEvent(raw, "p") {
-			g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
-		}
-	}
-	for _, pubkey := range otherZapSenders {
-		g.rememberPubkey(&authors, seenAuthors, pubkey, maxFeedAuthors)
-	}
-	if since == nil && until == nil {
-		since, until = createdRange(posts)
-	}
-
-	out := make([]any, 0, len(posts)+len(authors)+len(referenced)+8)
-	for _, raw := range posts {
-		out = append(out, raw)
-	}
-	out = append(out, g.buildMetadataEvents(ctx, authors)...)
-	out = append(out, mentionEvents(referenced)...)
-	out = append(out, zapEvents...)
-	for _, id := range statIDs {
-		out = append(out, noteStatsEvent(id, query.EventCounts{}))
-	}
-	if counts, err := g.query.GetEventCountsBatch(ctx, statIDs); err == nil {
-		for i := range out {
-			event, ok := out[i].(map[string]any)
-			if !ok {
-				continue
-			}
-			kind, ok := kindOf(event["kind"])
-			if !ok || kind != primalKindNoteStats {
-				continue
-			}
-			var body struct {
-				EventID string `json:"event_id"`
-			}
-			_ = json.Unmarshal([]byte(stringValue(event["content"])), &body)
-			if row, ok := counts[body.EventID]; ok {
-				out[i] = noteStatsEvent(body.EventID, row)
-			}
-		}
-	}
-	if strings.TrimSpace(viewer) != "" {
-		if actions, err := g.query.GetViewerActions(ctx, viewer, statIDs); err == nil {
-			for _, action := range actions {
-				if !action.Liked && !action.Replied && !action.Reposted && !action.Zapped {
-					continue
-				}
-				out = append(out, kindObject(primalKindNoteActions, map[string]any{
-					"event_id":         action.EventID,
-					"replied":          action.Replied,
-					"liked":            action.Liked,
-					"reposted":         action.Reposted,
-					"zapped":           action.Zapped,
-					"voted_for_option": nil,
-				}))
-			}
-		}
-	}
-	out = append(out, g.mediaEnrichment(ctx, posts)...)
-	if len(authors) > 0 {
-		counts := map[string]int64{}
-		if loaded, err := g.query.GetFollowerCounts(ctx, authors); err == nil {
-			counts = loaded
-		}
-		out = append(out, followerMapEvent(primalKindUserScore, counts, authors))
-		out = append(out, followerMapEvent(primalKindUserFollowers, counts, authors))
-	}
-	if hints, err := g.query.GetRelayHints(ctx, elements); err == nil && len(hints) > 0 {
-		out = append(out, kindObject(primalKindRelayHints, hints))
-	}
-	out = append(out, buildPrimalRange(orderBy, since, until, elements))
-	return out
+	return referenced, refAuthors
 }
 
 func (g WSGateway) rememberPubkeys(out *[]string, seen map[string]struct{}, pubkeys []string) {

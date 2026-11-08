@@ -2,6 +2,7 @@ package derivation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -130,7 +131,7 @@ func (h *Handlers) PurgeProjectionlessPending(ctx context.Context, limit int) (i
 }
 
 func dbResultLabel(err error) string {
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrBackgroundBusy) {
 		return "error"
 	}
 	return "ok"

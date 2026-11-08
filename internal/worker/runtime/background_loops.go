@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -440,4 +442,86 @@ func RunQueueAndRebuildMetricsReporter(ctx context.Context, log Logger, pool *pg
 			}
 		}
 	}
+}
+
+const (
+	feedIndexIdleWait = 2 * time.Second
+	feedIndexBusyWait = 50 * time.Millisecond
+)
+
+// RunFeedIndexAndRollupLoop backfills the follows-feed index and the daily
+// discovery buckets. Both cursors advance one batch or one day per call, so
+// a busy tick waits only long enough to let ingest use the database. Reads
+// keep using the existing queries until each cursor reports that it has
+// caught up.
+func RunFeedIndexAndRollupLoop(ctx context.Context, log Logger, handlers *derivation.Handlers) {
+	if handlers == nil {
+		log.Error("feed_index_rollup_no_handlers")
+		return
+	}
+	log.Info("feed_index_rollup_enabled")
+	var indexProgress, rollupProgress bool
+	var loggedIndex, loggedRollup bool
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		indexMore, indexErr := backfillAuthorFeedIndex(ctx, log, handlers)
+		rollupMore, rollupErr := advanceDiscoveryDailyRollup(ctx, log, handlers)
+		indexBusy := errors.Is(indexErr, derivation.ErrBackgroundBusy)
+		rollupBusy := errors.Is(rollupErr, derivation.ErrBackgroundBusy)
+		if indexErr == nil && indexMore {
+			indexProgress = true
+		}
+		if indexErr == nil && !indexBusy && !indexMore && indexProgress && !loggedIndex {
+			log.Info("author_feed_index_ready")
+			loggedIndex = true
+		}
+		if rollupErr == nil && rollupMore {
+			rollupProgress = true
+		}
+		if rollupErr == nil && !rollupBusy && !rollupMore && rollupProgress && !loggedRollup {
+			log.Info("discovery_daily_rollup_caught_up")
+			loggedRollup = true
+		}
+		wait := feedIndexIdleWait
+		if (indexErr == nil && indexMore) || (rollupErr == nil && rollupMore) {
+			wait = feedIndexBusyWait
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func backfillAuthorFeedIndex(ctx context.Context, log Logger, handlers *derivation.Handlers) (more bool, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic: %v", recovered)
+			log.Error("author_feed_index_backfill_panicked", "error", err)
+		}
+	}()
+	more, err = handlers.BackfillAuthorFeedIndex(ctx)
+	if err != nil && !errors.Is(err, derivation.ErrBackgroundBusy) && ctx.Err() == nil {
+		log.Error("author_feed_index_backfill_failed", "error", err)
+	}
+	return more, err
+}
+
+func advanceDiscoveryDailyRollup(ctx context.Context, log Logger, handlers *derivation.Handlers) (more bool, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic: %v", recovered)
+			log.Error("discovery_daily_rollup_panicked", "error", err)
+		}
+	}()
+	more, err = handlers.AdvanceDiscoveryDailyRollup(ctx)
+	if err != nil && !errors.Is(err, derivation.ErrBackgroundBusy) && ctx.Err() == nil {
+		log.Error("discovery_daily_rollup_failed", "error", err)
+	}
+	return more, err
 }

@@ -230,6 +230,13 @@ func (g WSGateway) primalV1LongFormThread(ctx context.Context, kwargs map[string
 }
 
 func (g WSGateway) followsFeedPage(ctx context.Context, viewer string, kinds []int, since, until int64, limit, offset int, includeReplies, hasImage bool) ([]any, error) {
+	cacheKey := ""
+	if since == 0 && until == 0 && offset == 0 && !includeReplies && !hasImage {
+		cacheKey = feedPageCacheKey(viewer, kinds, limit)
+		if page, ok := g.feedPages.get(cacheKey, time.Now()); ok {
+			return page, nil
+		}
+	}
 	list, err := g.query.GetContactList(ctx, viewer)
 	if err != nil {
 		return nil, errors.New("error")
@@ -239,9 +246,20 @@ func (g WSGateway) followsFeedPage(ctx context.Context, viewer string, kinds []i
 		authors = append(authors, pubkey)
 	}
 	if len(authors) == 0 {
-		return g.emptyFeedPage(), nil
+		page := g.emptyFeedPage()
+		if cacheKey != "" {
+			g.feedPages.set(cacheKey, page, time.Now())
+		}
+		return page, nil
 	}
-	return g.authorFeedPage(ctx, viewer, authors, kinds, since, until, limit, offset, includeReplies, false, hasImage)
+	page, err := g.authorFeedPage(ctx, viewer, authors, kinds, since, until, limit, offset, includeReplies, false, hasImage)
+	if err != nil {
+		return nil, err
+	}
+	if cacheKey != "" {
+		g.feedPages.set(cacheKey, page, time.Now())
+	}
+	return page, nil
 }
 
 func (g WSGateway) authorFeedPage(ctx context.Context, viewer string, authors []string, kinds []int, since, until int64, limit, offset int, includeReplies, onlyReplies, hasImage bool) ([]any, error) {

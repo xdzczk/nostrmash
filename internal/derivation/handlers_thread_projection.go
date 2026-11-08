@@ -19,13 +19,14 @@ func (h *Handlers) updateThreadProjectionWithVersion(ctx context.Context, eventI
 		return fmt.Errorf("event id is required")
 	}
 
+	var pubkey string
 	var kind int
 	var createdAt int64
 	if err := h.pool.QueryRow(ctx, `
-		SELECT kind, created_at
+		SELECT pubkey, kind, created_at
 		FROM events
 		WHERE id = $1
-	`, eventID).Scan(&kind, &createdAt); err != nil {
+	`, eventID).Scan(&pubkey, &kind, &createdAt); err != nil {
 		return fmt.Errorf("load event for thread projection: %w", err)
 	}
 
@@ -74,6 +75,9 @@ func (h *Handlers) updateThreadProjectionWithVersion(ctx context.Context, eventI
 		if err := h.refreshThreadSummariesTx(ctx, tx, rootsToRefresh, summaryVersion); err != nil {
 			return err
 		}
+		if err := syncAuthorFeedIndexTx(ctx, tx, pubkey, kind, createdAt, eventID, kind == 6); err != nil {
+			return err
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("commit non-thread projection tx: %w", err)
 		}
@@ -102,6 +106,9 @@ func (h *Handlers) updateThreadProjectionWithVersion(ctx context.Context, eventI
 			rootsToRefresh[eventID] = struct{}{}
 		}
 		if err := h.refreshThreadSummariesTx(ctx, tx, rootsToRefresh, summaryVersion); err != nil {
+			return err
+		}
+		if err := syncAuthorFeedIndexTx(ctx, tx, pubkey, kind, createdAt, eventID, true); err != nil {
 			return err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -184,6 +191,9 @@ func (h *Handlers) updateThreadProjectionWithVersion(ctx context.Context, eventI
 		rootsToRefresh[rootEventID] = struct{}{}
 	}
 	if err := h.refreshThreadSummariesTx(ctx, tx, rootsToRefresh, summaryVersion); err != nil {
+		return err
+	}
+	if err := syncAuthorFeedIndexTx(ctx, tx, pubkey, kind, createdAt, eventID, false); err != nil {
 		return err
 	}
 

@@ -110,6 +110,15 @@ func (s *Read) getAuthorFeedEvents(
 	onlyReplies bool,
 	hasImage bool,
 ) ([]json.RawMessage, error) {
+	if feedUsesTopLevelIndex(kinds, includeReplies, onlyReplies, hasImage) && len(authors) > authorFeedTwoPhaseMin {
+		// A page only needs the authors whose newest top-level note is new
+		// enough to land in the window. Walking innerLimit rows for every
+		// follow probes thread_edges tens of thousands of times.
+		return s.queryAuthorFeedTwoPhase(ctx, authors, kinds, since, until, limit, offset, s.authorFeedIndexReady(ctx))
+	}
+	if feedUsesTopLevelIndex(kinds, includeReplies, onlyReplies, hasImage) && s.authorFeedIndexReady(ctx) {
+		return s.queryAuthorFeedIndex(ctx, authors, kinds, since, until, limit, offset)
+	}
 	if len(authors) <= authorFeedChunkSize {
 		return s.queryAuthorFeed(ctx, authors, kinds, since, until, limit, offset, includeReplies, onlyReplies, hasImage)
 	}
@@ -929,8 +938,9 @@ func authorFeedPageSQL(kinds []int, includeReplies, onlyReplies, hasImage bool) 
 			LIMIT $4 OFFSET $5
 		) chosen
 		JOIN events e ON e.id = chosen.id
+		WHERE %s
 		ORDER BY chosen.created_at DESC, chosen.id DESC
-	`, branches.String())
+	`, branches.String(), nostr.EventStillLiveSQL("e"))
 }
 
 func feedKindLiterals(kinds []int) []int {
@@ -959,6 +969,9 @@ func feedKindLiterals(kinds []int) []int {
 }
 
 func feedVisibilitySQL(includeReplies, onlyReplies, hasImage bool) string {
+	// Expiry is applied once to the chosen page (see authorFeedPageSQL), not
+	// to every candidate. Almost no kind-1 note carries expires_at, and the
+	// per-candidate anti-join dominated the follows-feed scan.
 	var clause string
 	switch {
 	case onlyReplies:
@@ -966,7 +979,6 @@ func feedVisibilitySQL(includeReplies, onlyReplies, hasImage bool) string {
 	case !includeReplies:
 		clause = `AND NOT EXISTS (SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id)`
 	}
-	clause += " AND " + nostr.EventStillLiveSQL("e")
 	if hasImage {
 		clause += `
 					  AND (

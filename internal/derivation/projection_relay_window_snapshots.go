@@ -475,12 +475,13 @@ func (h *Handlers) refreshTrendingLinksSnapshots(ctx context.Context) error {
 // transactions so a slow domain aggregate cannot roll back note volume,
 // languages, or hashtags. It does not recompute relay leaderboards.
 func (h *Handlers) refreshDiscovery30dSnapshots(ctx context.Context) error {
-	coreErr := h.refreshDiscovery30dCoreSnapshots(ctx)
-	domainErr := h.refreshDiscovery30dDomainSnapshots(ctx)
+	daily := h.prepareDiscoveryDailySnapshots(ctx)
+	coreErr := h.refreshDiscovery30dCoreSnapshots(ctx, daily)
+	domainErr := h.refreshDiscovery30dDomainSnapshots(ctx, daily)
 	return errors.Join(coreErr, domainErr)
 }
 
-func (h *Handlers) refreshDiscovery30dCoreSnapshots(ctx context.Context) error {
+func (h *Handlers) refreshDiscovery30dCoreSnapshots(ctx context.Context, daily bool) error {
 	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
 		if err := configureRelayWindowSnapshotTx(ctx, tx); err != nil {
 			return err
@@ -512,14 +513,24 @@ func (h *Handlers) refreshDiscovery30dCoreSnapshots(ctx context.Context) error {
 		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelHomeWindow30dLang, homeLang30); err != nil {
 			return err
 		}
-		topHashtags30d, err := computeTopHashtagsSnapshot(ctx, tx, cutoff30d, 50)
+		var topHashtags30d []hashtagRow
+		if daily {
+			topHashtags30d, err = computeTopHashtagsFromDaily(ctx, tx, cutoff30d, 50)
+		} else {
+			topHashtags30d, err = computeTopHashtagsSnapshot(ctx, tx, cutoff30d, 50)
+		}
 		if err != nil {
 			return fmt.Errorf("compute top hashtags 30d snapshot: %w", err)
 		}
 		if err := upsertSnapshotPayload(ctx, tx, relaySnapshotLabelTopHashtags30d, jsonArray(topHashtags30d)); err != nil {
 			return err
 		}
-		hashtagsLang30, err := computeTopHashtagsByLanguage(ctx, tx, cutoff30d, langs30, 50)
+		var hashtagsLang30 map[string][]hashtagRow
+		if daily {
+			hashtagsLang30, err = computeTopHashtagsByLanguageFromDaily(ctx, tx, cutoff30d, langs30, 50)
+		} else {
+			hashtagsLang30, err = computeTopHashtagsByLanguage(ctx, tx, cutoff30d, langs30, 50)
+		}
 		if err != nil {
 			return fmt.Errorf("compute top hashtags by language 30d: %w", err)
 		}
@@ -527,7 +538,7 @@ func (h *Handlers) refreshDiscovery30dCoreSnapshots(ctx context.Context) error {
 	})
 }
 
-func (h *Handlers) refreshDiscovery30dDomainSnapshots(ctx context.Context) error {
+func (h *Handlers) refreshDiscovery30dDomainSnapshots(ctx context.Context, daily bool) error {
 	return pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
 		if err := configureRelayWindowSnapshotTx(ctx, tx); err != nil {
 			return err
@@ -537,7 +548,13 @@ func (h *Handlers) refreshDiscovery30dDomainSnapshots(ctx context.Context) error
 		cutoff7d := now.Add(-7 * 24 * time.Hour).Unix()
 		cutoff30d := now.Add(-30 * 24 * time.Hour).Unix()
 
-		topDomains30d, err := computeTopDomains30dSnapshot(ctx, tx, cutoff24h, cutoff7d, cutoff30d, 50)
+		var topDomains30d []domainRow
+		var err error
+		if daily {
+			topDomains30d, err = computeTopDomains30dFromDaily(ctx, tx, cutoff24h, cutoff7d, cutoff30d, 50)
+		} else {
+			topDomains30d, err = computeTopDomains30dSnapshot(ctx, tx, cutoff24h, cutoff7d, cutoff30d, 50)
+		}
 		if err != nil {
 			return fmt.Errorf("compute top domains 30d snapshot: %w", err)
 		}
@@ -548,7 +565,12 @@ func (h *Handlers) refreshDiscovery30dDomainSnapshots(ctx context.Context) error
 		if err != nil {
 			return fmt.Errorf("compute ranking languages 30d for domains: %w", err)
 		}
-		domainsLang30, err := computeTopDomains30dByLanguage(ctx, tx, cutoff24h, cutoff7d, cutoff30d, langs30, 50)
+		var domainsLang30 map[string][]domainRow
+		if daily {
+			domainsLang30, err = computeTopDomains30dByLanguageFromDaily(ctx, tx, cutoff24h, cutoff7d, cutoff30d, langs30, 50)
+		} else {
+			domainsLang30, err = computeTopDomains30dByLanguage(ctx, tx, cutoff24h, cutoff7d, cutoff30d, langs30, 50)
+		}
 		if err != nil {
 			return fmt.Errorf("compute top domains by language 30d: %w", err)
 		}
