@@ -120,6 +120,8 @@ func rebuildDomainBaselinesTx(ctx context.Context, tx pgx.Tx, today time.Time) e
 	return nil
 }
 
+// A domain is emerging only after the prior week already had a pace. A first
+// appearance has nothing to be faster than.
 func rebuildDomainMomentumTx(ctx context.Context, tx pgx.Tx, today time.Time) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM domain_momentum`); err != nil {
 		return fmt.Errorf("clear domain momentum: %w", err)
@@ -129,7 +131,7 @@ func rebuildDomainMomentumTx(ctx context.Context, tx pgx.Tx, today time.Time) er
 		SELECT domain,
 		       CASE WHEN prior = 0 THEN recent ELSE (recent - prior)::float8 / GREATEST(prior, 1) END,
 		       CASE
-		           WHEN recent >= prior * 2 AND recent >= 8 THEN 'emerging'
+		           WHEN prior >= 8 AND recent >= prior * 2 AND recent >= 8 THEN 'emerging'
 		           WHEN prior > 0 AND recent * 2 < prior THEN 'fading'
 		           ELSE 'steady'
 		       END,
