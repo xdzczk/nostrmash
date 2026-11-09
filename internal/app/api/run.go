@@ -162,6 +162,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		}
 	}
 	personalizedRanker := trust.NewPersonalizedRanker(pool, cfg.Shared.TrustPolicy.PersonalizedMaxSeedFollows)
+	var cohortCache query.CohortCache
 	// Optional cache for personalized trust rankings. Without it every
 	// cache-miss request loads the full follow-graph adjacency and runs the
 	// ranking iterations, so production should point TRUST_REDIS_URL at the
@@ -181,6 +182,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 			// seconds after api is the normal compose race, and cache
 			// reads/writes degrade gracefully per request.
 			personalizedRanker = personalizedRanker.WithRedis(trustRedis, cfg.TrustRedis.KeyPrefix)
+			cohortCache = redisStringCache{client: trustRedis, prefix: cfg.TrustRedis.KeyPrefix}
 			log.Info("trust_personalized_cache_enabled", "key_prefix", cfg.TrustRedis.KeyPrefix)
 		}
 	}
@@ -242,6 +244,11 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		PersonalizedTrustRanker: personalizedTrustAdapter{
 			inner: personalizedRanker,
 		},
+		PersonalizedDiscoveryEnabled: &cfg.Personalized.Enabled,
+		PersonalizedCohortWeight:     cfg.Personalized.CohortWeight,
+		PersonalizedMaxFollows:       cfg.Personalized.MaxFollows,
+		PersonalizedCandidates:       cfg.Personalized.Candidates,
+		CohortCache:                  cohortCache,
 	}
 	discoveryCacheEnabled := cfg.DiscoveryCache.Enabled
 	handlers, err := api.NewHandlersWithOptions(queryStore, api.HandlersOptions{
@@ -251,14 +258,15 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		Hydration:             cfg.Hydration,
 		RelayCatalogFreshness: cfg.RelayCatalogFreshness,
 		DiscoveryCache: &api.DiscoveryCacheOptions{
-			Enabled:        &discoveryCacheEnabled,
-			MaxEntries:     cfg.DiscoveryCache.MaxEntries,
-			BundleTTL:      cfg.DiscoveryCache.BundleTTL,
-			DiscoveryTTL:   cfg.DiscoveryCache.DiscoveryTTL,
-			SuggestionTTL:  cfg.DiscoveryCache.SuggestionTTL,
-			TrendingTTL:    cfg.DiscoveryCache.TrendingTTL,
-			StatsTTL:       cfg.DiscoveryCache.StatsTTL,
-			PublicStatsTTL: cfg.DiscoveryCache.PublicStatsTTL,
+			Enabled:         &discoveryCacheEnabled,
+			MaxEntries:      cfg.DiscoveryCache.MaxEntries,
+			BundleTTL:       cfg.DiscoveryCache.BundleTTL,
+			DiscoveryTTL:    cfg.DiscoveryCache.DiscoveryTTL,
+			SuggestionTTL:   cfg.DiscoveryCache.SuggestionTTL,
+			TrendingTTL:     cfg.DiscoveryCache.TrendingTTL,
+			StatsTTL:        cfg.DiscoveryCache.StatsTTL,
+			PublicStatsTTL:  cfg.DiscoveryCache.PublicStatsTTL,
+			PersonalizedTTL: cfg.Personalized.CacheTTL,
 		},
 	})
 	if err != nil {
@@ -344,13 +352,14 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		MaxDiscoveryWindowHours: cfg.HTTP.PublicMaxDiscoveryWindowHrs,
 	}, handler)
 	handler = api.WithHTTPRateLimit(api.HTTPRateLimitOptions{
-		DefaultRPM:     cfg.HTTP.RateLimitRPM,
-		DefaultBurst:   cfg.HTTP.RateLimitBurst,
-		SearchRPM:      cfg.HTTP.SearchRateLimitRPM,
-		BatchRPM:       cfg.HTTP.BatchRateLimitRPM,
-		DiscoveryRPM:   cfg.HTTP.DiscoveryRateLimitRPM,
-		SuggestRPM:     cfg.HTTP.SuggestRateLimitRPM,
-		PublicStatsRPM: cfg.HTTP.PublicStatsRateLimitRPM,
+		DefaultRPM:      cfg.HTTP.RateLimitRPM,
+		DefaultBurst:    cfg.HTTP.RateLimitBurst,
+		SearchRPM:       cfg.HTTP.SearchRateLimitRPM,
+		BatchRPM:        cfg.HTTP.BatchRateLimitRPM,
+		DiscoveryRPM:    cfg.HTTP.DiscoveryRateLimitRPM,
+		SuggestRPM:      cfg.HTTP.SuggestRateLimitRPM,
+		PublicStatsRPM:  cfg.HTTP.PublicStatsRateLimitRPM,
+		PersonalizedRPM: cfg.HTTP.PersonalizedRateLimitRPM,
 	}, handler)
 	handler = api.LogRequests(log, handler)
 	handler = api.WithRequestID(handler)

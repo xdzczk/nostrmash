@@ -362,11 +362,17 @@ func TestBuildHashtagAndDomainRankings_LeadWithAuthorBreadth(t *testing.T) {
 func TestBuildFollowedProfileItems_RanksByTrustedCount(t *testing.T) {
 	items := buildFollowedProfileItems([]query.TrendingProfile{{
 		Pubkey:               "farmed",
-		Score:                67860,
+		Score:                1,
 		FollowerCount:        67860,
 		TrustedFollowerCount: 1,
+	}, {
+		Pubkey:               "already",
+		Score:                0.91,
+		FollowerCount:        10,
+		TrustedFollowerCount: 4,
+		ViewerFollows:        true,
 	}}, nil)
-	if len(items) != 1 {
+	if len(items) != 2 {
 		t.Fatalf("items = %#v", items)
 	}
 	if items[0]["follower_count"] != int64(67860) {
@@ -374,6 +380,9 @@ func TestBuildFollowedProfileItems_RanksByTrustedCount(t *testing.T) {
 	}
 	if items[0]["trusted_follower_count"] != int64(1) || items[0]["score"] != float64(1) {
 		t.Fatalf("rank fields = score %#v trusted %#v", items[0]["score"], items[0]["trusted_follower_count"])
+	}
+	if _, ok := items[0]["viewer_follows"]; ok {
+		t.Fatalf("global row marked viewer_follows")
 	}
 	ranking, ok := items[0]["ranking"].(query.DiscoveryItemRanking)
 	if !ok {
@@ -385,5 +394,12 @@ func TestBuildFollowedProfileItems_RanksByTrustedCount(t *testing.T) {
 	evidence := ranking.Reasons[0].Evidence
 	if len(evidence) != 1 || evidence[0].Metric != "follower_count" || evidence[0].Value != 1 || evidence[0].Unit != "followers" {
 		t.Fatalf("evidence = %#v", evidence)
+	}
+	if items[1]["score"] != 0.91 || items[1]["viewer_follows"] != true || items[1]["trusted_follower_count"] != int64(4) {
+		t.Fatalf("personalized row = %#v", items[1])
+	}
+	blended, ok := items[1]["ranking"].(query.DiscoveryItemRanking)
+	if !ok || blended.Score != 0.91 || blended.Reasons[0].Evidence[0].Value != 4 {
+		t.Fatalf("personalized ranking = %#v", items[1]["ranking"])
 	}
 }

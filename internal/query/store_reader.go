@@ -62,6 +62,8 @@ type CuratedReads interface {
 	creatorPaidTiersCapability
 	pubkeyByLNAddressCapability
 	groupedNoteAnalyticsCapability
+	followedPubkeysCapability
+	personalizedCohortCapability
 }
 
 // TrustReads bundles the trust-state/score/qualification capability surface.

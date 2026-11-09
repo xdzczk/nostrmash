@@ -184,6 +184,27 @@ func loadExpiredEventRetentionConfig() (WorkerExpiredEventRetentionConfig, error
 	}, nil
 }
 
+func loadBridgedEventRetentionConfig() (WorkerBridgedEventRetentionConfig, error) {
+	interval, err := getEnvPositiveDurationStrict("WORKER_RETENTION_BRIDGED_RUN_INTERVAL", 10*time.Minute)
+	if err != nil {
+		return WorkerBridgedEventRetentionConfig{}, err
+	}
+	pause, err := getEnvPositiveDurationStrict("WORKER_RETENTION_BRIDGED_BATCH_PAUSE", 2*time.Second)
+	if err != nil {
+		return WorkerBridgedEventRetentionConfig{}, err
+	}
+	limit, err := getEnvPositiveIntStrict("WORKER_RETENTION_BRIDGED_DELETE_BATCH_LIMIT", 2000)
+	if err != nil {
+		return WorkerBridgedEventRetentionConfig{}, err
+	}
+	return WorkerBridgedEventRetentionConfig{
+		Enabled:          getEnvBool("WORKER_RETENTION_BRIDGED_ENABLED", true),
+		RunInterval:      interval,
+		BatchPause:       pause,
+		DeleteBatchLimit: limit,
+	}, nil
+}
+
 func loadEngagementRetentionConfig() (WorkerEngagementRetentionConfig, error) {
 	maxAge, err := getEnvPositiveDurationStrict("WORKER_RETENTION_ENGAGEMENT_MAX_AGE", 32*24*time.Hour)
 	if err != nil {

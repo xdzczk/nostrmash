@@ -49,8 +49,8 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, la
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
+	if limit > discoveryReadLimit {
+		limit = discoveryReadLimit
 	}
 	if offset < 0 {
 		offset = 0

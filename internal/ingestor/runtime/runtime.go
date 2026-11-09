@@ -152,6 +152,7 @@ func buildRunner(
 		return runner{}, err
 	}
 	processor.SetDedupCache(cfg.Runtime.DedupCacheSize)
+	processor.SetDropBridged(cfg.Runtime.DropBridged)
 
 	// Always wire the trust gate. In "open" mode it only records shadow
 	// metrics; in "trusted_only" it enforces. Keeping it always wired lets

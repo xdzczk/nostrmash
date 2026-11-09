@@ -46,6 +46,8 @@ func wireCuratedGroup(g CuratedReads, caps *serviceCapabilities) {
 	caps.curated.creatorPaidTiers = g
 	caps.curated.pubkeyByLNAddress = g
 	caps.curated.groupedNoteAnalytics = g
+	caps.curated.followedPubkeys = g
+	caps.curated.personalizedCohort = g
 }
 
 func wireTrustGroup(g TrustReads, caps *serviceCapabilities) {

@@ -9,13 +9,14 @@ import (
 
 // HTTPRateLimitOptions controls API-side per-client request limiting.
 type HTTPRateLimitOptions struct {
-	DefaultRPM     int
-	DefaultBurst   int
-	SearchRPM      int
-	BatchRPM       int
-	DiscoveryRPM   int
-	SuggestRPM     int
-	PublicStatsRPM int
+	DefaultRPM      int
+	DefaultBurst    int
+	SearchRPM       int
+	BatchRPM        int
+	DiscoveryRPM    int
+	SuggestRPM      int
+	PublicStatsRPM  int
+	PersonalizedRPM int
 }
 
 // WithHTTPRateLimit applies per-IP token-bucket limits for public HTTP APIs.
@@ -26,7 +27,7 @@ func WithHTTPRateLimit(opts HTTPRateLimitOptions, next http.Handler) http.Handle
 			next.ServeHTTP(w, r)
 			return
 		}
-		plan := limiter.planForPath(r.URL.Path)
+		plan := limiter.planForRequest(r)
 		if !plan.enabled {
 			next.ServeHTTP(w, r)
 			return
@@ -106,10 +107,10 @@ func (l *rateLimiter) sweepLocked(now time.Time) {
 	}
 }
 
-func (l *rateLimiter) planForPath(path string) rateLimitPlan {
+func (l *rateLimiter) planForRequest(r *http.Request) rateLimitPlan {
 	rpm := l.opts.DefaultRPM
 	bucket := "default"
-	switch classifyPublicEndpoint(path) {
+	switch classifyPublicRequest(r) {
 	case publicEndpointClassSearch:
 		if l.opts.SearchRPM > 0 {
 			rpm = l.opts.SearchRPM
@@ -120,6 +121,12 @@ func (l *rateLimiter) planForPath(path string) rateLimitPlan {
 			rpm = l.opts.DiscoveryRPM
 		}
 		bucket = "discovery"
+	case publicEndpointClassPersonalized:
+		rpm = l.opts.PersonalizedRPM
+		if rpm <= 0 {
+			rpm = 30
+		}
+		bucket = "personalized"
 	case publicEndpointClassSuggest:
 		if l.opts.SuggestRPM > 0 {
 			rpm = l.opts.SuggestRPM
@@ -180,13 +187,28 @@ func (l *rateLimiter) allow(key string, rpm int, burst int, now time.Time) bool 
 type publicEndpointClass string
 
 const (
-	publicEndpointClassUnknown     publicEndpointClass = "unknown"
-	publicEndpointClassSearch      publicEndpointClass = "search"
-	publicEndpointClassSuggest     publicEndpointClass = "suggest"
-	publicEndpointClassDiscovery   publicEndpointClass = "discovery"
-	publicEndpointClassPublicStats publicEndpointClass = "public_stats"
-	publicEndpointClassBatch       publicEndpointClass = "batch"
+	publicEndpointClassUnknown      publicEndpointClass = "unknown"
+	publicEndpointClassSearch       publicEndpointClass = "search"
+	publicEndpointClassSuggest      publicEndpointClass = "suggest"
+	publicEndpointClassDiscovery    publicEndpointClass = "discovery"
+	publicEndpointClassPersonalized publicEndpointClass = "personalized"
+	publicEndpointClassPublicStats  publicEndpointClass = "public_stats"
+	publicEndpointClassBatch        publicEndpointClass = "batch"
 )
+
+// classifyPublicRequest puts a discovery read that names a viewer in its
+// own bucket. The follow-list aggregate is heavier than the shared ranking,
+// and a viewer's pages must not spend the anonymous discovery allowance.
+func classifyPublicRequest(r *http.Request) publicEndpointClass {
+	if r != nil && r.URL != nil && strings.TrimSpace(r.URL.Query().Get("viewer")) != "" && strings.HasPrefix(r.URL.Path, "/api/v1/discovery/") {
+		return publicEndpointClassPersonalized
+	}
+	path := ""
+	if r != nil && r.URL != nil {
+		path = r.URL.Path
+	}
+	return classifyPublicEndpoint(path)
+}
 
 func classifyPublicEndpoint(path string) publicEndpointClass {
 	path = strings.TrimSpace(path)

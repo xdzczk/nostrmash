@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/model"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/store"
 	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
@@ -100,6 +101,8 @@ type fakeEventReader struct {
 	getNoteConversationVelocityFn    func(context.Context, string) (storeread.NoteConversationVelocity, error)
 	getNoteQuoteRepostLinkageFn      func(context.Context, string, int) (store.NoteQuoteRepostLinkageProjection, error)
 	getRelatedNotesFn                func(context.Context, string, int) ([]storeread.RelatedNote, error)
+	listFollowedPubkeysFn            func(context.Context, string, int) ([]string, error)
+	getCohortTrendingNotesFn         func(context.Context, []string, []int, time.Duration, string, int) ([]readmodel.CohortNote, error)
 	kindExpansionHooks
 }
 
@@ -757,6 +760,56 @@ func (f fakeEventReader) GetNoteQuoteRepostLinkage(
 		return store.NoteQuoteRepostLinkageProjection{EventID: eventID}, nil
 	}
 	return f.getNoteQuoteRepostLinkageFn(ctx, eventID, recentLimit)
+}
+
+func (f fakeEventReader) ListFollowedPubkeys(ctx context.Context, viewer string, limit int) ([]string, error) {
+	if f.listFollowedPubkeysFn == nil {
+		return nil, nil
+	}
+	return f.listFollowedPubkeysFn(ctx, viewer, limit)
+}
+
+func (f fakeEventReader) GetCohortTrendingNotes(ctx context.Context, follows []string, kinds []int, window time.Duration, lang string, limit int) ([]readmodel.CohortNote, error) {
+	if f.getCohortTrendingNotesFn == nil {
+		return nil, nil
+	}
+	return f.getCohortTrendingNotesFn(ctx, follows, kinds, window, lang, limit)
+}
+
+func (f fakeEventReader) GetCohortHotConversations(context.Context, []string, time.Duration, string, int) ([]readmodel.CohortConversation, error) {
+	return nil, nil
+}
+
+func (f fakeEventReader) GetCohortZappedNotes(context.Context, []string, time.Duration, string, int) ([]readmodel.CohortNote, error) {
+	return nil, nil
+}
+
+func (f fakeEventReader) GetCohortBookmarkedNotes(context.Context, []string, string, int) ([]readmodel.CohortNote, error) {
+	return nil, nil
+}
+
+func (f fakeEventReader) GetCohortFollowedProfiles(context.Context, string, []string, int) ([]readmodel.CohortProfile, error) {
+	return nil, nil
+}
+
+func (f fakeEventReader) GetCohortSupportedProfiles(context.Context, []string, time.Duration, int64, int) ([]readmodel.CohortProfile, error) {
+	return nil, nil
+}
+
+func (f fakeEventReader) GetCohortTrendingProfiles(context.Context, []string, time.Duration, string, int) ([]readmodel.CohortProfile, error) {
+	return nil, nil
+}
+
+func (f fakeEventReader) GetCohortRisingProfiles(context.Context, string, []string, time.Duration, string, int) ([]readmodel.CohortProfile, error) {
+	return nil, nil
+}
+
+func (f fakeEventReader) GetCohortTrendingHashtags(context.Context, []string, time.Duration, string, int) ([]readmodel.TrendingHashtag, error) {
+	return nil, nil
+}
+
+func (f fakeEventReader) GetCohortTrendingDomains(context.Context, []string, time.Duration, string, int) ([]readmodel.CohortDomain, error) {
+	return nil, nil
 }
 
 func (f fakeEventReader) GetRelatedNotes(ctx context.Context, eventID string, limit int) ([]storeread.RelatedNote, error) {

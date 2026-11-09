@@ -143,6 +143,13 @@ func configEnvDocsIngestor() []EnvVarDoc {
 			Description:  "Entries in the in-memory duplicate short-circuit cache; repeat relay sightings of already-persisted events skip validation and the canonical insert (a provenance upsert still runs). 0 disables.",
 		},
 		{
+			Name:         "INGESTOR_DROP_BRIDGED",
+			Runtimes:     []string{"ingestor"},
+			Required:     false,
+			DefaultValue: "true",
+			Description:  "Drop every event that carries a NIP-48 proxy tag (content copied in from ActivityPub, RSS, or another network) before the trust gate, in every gate mode. The author is not observed and nothing is stored; the drop is counted as nostrmash_ingest_gate_decisions_total{decision=\"reject_bridged\"}.",
+		},
+		{
 			Name:         "INGESTOR_FILTER_GROUP",
 			Runtimes:     []string{"ingestor"},
 			Required:     false,

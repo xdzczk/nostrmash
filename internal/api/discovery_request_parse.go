@@ -10,23 +10,11 @@ import (
 )
 
 var errInvalidTrendingWindow = errors.New("window must be one of: 24h, 7d, 30d")
-var errInvalidExcludeBridged = errors.New("exclude_bridged must be true or false")
 var errInvalidDiscoveryLanguage = errors.New(`language must be "und", "und-uncertain", or a 2-8 letter code`)
 var errInvalidHashtagNotesWindow = errors.New("window must be one of: 24h, 7d, 30d, all")
 var errInvalidHashtagNotesSort = errors.New("sort must be one of: latest, top")
 var errInvalidDomainNotesWindow = errors.New("window must be one of: 24h, 7d, 30d, all")
 var errInvalidDomainNotesSort = errors.New("sort must be one of: latest, top")
-
-func parseExcludeBridged(r *http.Request) (bool, error) {
-	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("exclude_bridged"))) {
-	case "", "false", "0":
-		return false, nil
-	case "true", "1":
-		return true, nil
-	default:
-		return false, errInvalidExcludeBridged
-	}
-}
 
 func parseTrendingHashtagWindow(r *http.Request) (time.Duration, string, error) {
 	return parseTrendingWindow(r)

@@ -16,12 +16,11 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	lang, err := parseOptionalDiscoveryLanguage(r)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+	viewer, ok := h.parseDiscoveryViewer(w, r)
+	if !ok {
 		return
 	}
-	excludeBridged, err := parseExcludeBridged(r)
+	lang, err := parseOptionalDiscoveryLanguage(r)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -31,18 +30,26 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, 5000)
+	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, discoveryOffsetCap(viewer))
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_domains", cacheExcludeBridged(discoveryCacheParams(map[string]any{
+	scope := discoveryScopeWithViewer(lang, viewer)
+	cachePolicy := h.rankingCachePolicy("trending_domains", map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang), excludeBridged))
+	}, lang, viewer)
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		rows, rowsErr := h.service.GetTrendingDomains(ctx, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
+		var rows []query.DomainSummary
+		var meta query.PersonalizationMeta
+		var rowsErr error
+		if viewer == "" {
+			rows, rowsErr = h.service.GetTrendingDomains(ctx, window, scope, limit, offset)
+		} else {
+			rows, meta, rowsErr = h.service.GetPersonalizedTrendingDomains(ctx, window, scope, limit, offset)
+		}
 		if rowsErr != nil {
 			return nil, rowsErr
 		}
@@ -58,6 +65,9 @@ func (h Handlers) GetTrendingDomains(w http.ResponseWriter, r *http.Request) {
 		addDiscoveryListMeta(payload, windowLabel, &computedAt, len(domains))
 		h.addDiscoveryTrustMetadata(payload)
 		h.attachDiscoveryLanguage(ctx, payload, lang)
+		evidence, scores := domainBlend(rows)
+		attachPersonalization(payload, meta)
+		personalizeRankingItems(domains, meta, evidence, scores, "followed_authors", "cohort_authors", "authors")
 		return payload, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {

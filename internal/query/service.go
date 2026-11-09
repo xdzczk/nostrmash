@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/xdzczk/nostrmash/internal/model"
 	"github.com/xdzczk/nostrmash/internal/readmodel"
 )
@@ -130,6 +132,13 @@ type Service struct {
 	rankedPubkeyCountCache          *rankedPubkeyCountCache
 	authorHeadChecks                *authorHeadCheckCache
 	personalizedTrust               PersonalizedTrustRanker
+	personalizedEnabled             bool
+	personalizedCohortWeight        float64
+	personalizedMaxFollows          int
+	personalizedCandidates          int
+	cohortRedis                     CohortCache
+	cohortMem                       *cohortMemCache
+	cohortFlight                    *singleflight.Group
 }
 
 // FallbackReader fetches entity-shaped data from configured relays on local miss.
@@ -173,6 +182,13 @@ type ServiceOptions struct {
 	TrustRetentionHooks             TrustRetentionHooks
 	MeilisearchSearcher             MeilisearchSearcher
 	PersonalizedTrustRanker         PersonalizedTrustRanker
+	// PersonalizedDiscoveryEnabled gates viewer-scoped rankings. Nil keeps
+	// the feature on, matching DISCOVERY_PERSONALIZED_ENABLED.
+	PersonalizedDiscoveryEnabled *bool
+	PersonalizedCohortWeight     float64
+	PersonalizedMaxFollows       int
+	PersonalizedCandidates       int
+	CohortCache                  CohortCache
 
 	// Optional typed capability groups. When a group is non-nil it is wired
 	// whole (the typed production path). When nil, the corresponding
@@ -292,6 +308,26 @@ func buildService(nativeReader Reader, probeSource any, options ServiceOptions) 
 	if discoveryProjectionMaxStaleness <= 0 {
 		discoveryProjectionMaxStaleness = 10 * time.Minute
 	}
+	personalizedEnabled := true
+	if options.PersonalizedDiscoveryEnabled != nil {
+		personalizedEnabled = *options.PersonalizedDiscoveryEnabled
+	}
+	personalizedWeight := options.PersonalizedCohortWeight
+	if personalizedWeight <= 0 || personalizedWeight > 1 {
+		personalizedWeight = 0.85
+	}
+	personalizedMaxFollows := options.PersonalizedMaxFollows
+	if personalizedMaxFollows <= 0 {
+		personalizedMaxFollows = 2000
+	}
+	personalizedCandidates := options.PersonalizedCandidates
+	if personalizedCandidates <= 0 {
+		personalizedCandidates = 300
+	}
+	if personalizedCandidates > 500 {
+		personalizedCandidates = 500
+	}
+	cohortMem, cohortFlight := newPersonalizedState()
 	retentionHooks := options.TrustRetentionHooks
 	if retentionHooks.isZero() {
 		retentionHooks = DefaultTrustRetentionHooks(trustModeOpen)
@@ -338,7 +374,20 @@ func buildService(nativeReader Reader, probeSource any, options ServiceOptions) 
 		rankedPubkeyCountCache:          &rankedPubkeyCountCache{},
 		authorHeadChecks:                &authorHeadCheckCache{},
 		personalizedTrust:               options.PersonalizedTrustRanker,
+		personalizedEnabled:             personalizedEnabled,
+		personalizedCohortWeight:        personalizedWeight,
+		personalizedMaxFollows:          personalizedMaxFollows,
+		personalizedCandidates:          personalizedCandidates,
+		cohortRedis:                     options.CohortCache,
+		cohortMem:                       cohortMem,
+		cohortFlight:                    cohortFlight,
 	}, nil
+}
+
+// PersonalizedDiscoveryEnabled reports whether a viewer query parameter
+// should change ranking. Handlers ignore a valid viewer when this is false.
+func (s Service) PersonalizedDiscoveryEnabled() bool {
+	return s.personalizedEnabled
 }
 
 var (

@@ -87,6 +87,20 @@ Gate decisions per kind:
 
 Rejected events increment metrics only. They are **not** written to `invalid_events` (they are valid Nostr events, just out of scope). The live resume checkpoint still advances so restarts do not re-fetch and re-drop the same span.
 
+### Bridged content (`ingestor` + `worker`)
+
+Events carrying a NIP-48 `proxy` tag are copies of content from another network (ActivityPub via mostr/momostr, RSS, Bluesky bridges). nostrmash indexes native Nostr, so they are dropped before any write, regardless of kind or gate mode. The check runs before the trust gate and the observation sink, so a bridged author never enters the observed-pubkey funnel either. The drop is recorded as gate decision `reject_bridged` and ingest outcome `bridged`; the live checkpoint advances as for other rejections. Every ingest path (live, backfill, trust fetch, contact crawl) shares `processor.Handle`, so there is no side door.
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `INGESTOR_DROP_BRIDGED` | `true` | Drop NIP-48 proxied events at ingest. |
+| `WORKER_RETENTION_BRIDGED_ENABLED` | `true` | Purge bridged events stored before the ingest drop existed. Candidates come from the partial index `idx_event_attributes_bridged`, so once the backlog is gone each tick is a single index probe. |
+| `WORKER_RETENTION_BRIDGED_RUN_INTERVAL` | `10m` | Idle probe cadence after the backlog drains. |
+| `WORKER_RETENTION_BRIDGED_BATCH_PAUSE` | `2s` | Pause between consecutive full batches while draining. |
+| `WORKER_RETENTION_BRIDGED_DELETE_BATCH_LIMIT` | `2000` | Max events deleted per batch. |
+
+The purge reverses projections and deletes the raw rows through the same path as the other retention targets, and additionally removes `profile_discovery_stats`, `profile_public_stats`, `profile_fields`, and `nip05_verifications` rows for authors in the batch that have no events left, so a bridged account disappears from profile rankings in the same transaction as its last event. `profiles_latest` cascades from the kind-0 delete, and the worker drops those authors' Meilisearch profile documents (profile search hits are served from the index without a Postgres hydration step; note hits are hydrated, so purged notes vanish on their own). Aggregates that already counted bridged events (`content_flags_daily`, `bridged_share_bps` in ecosystem stats) keep their history; new days count zero.
+
 ### Untrusted-author retention and replies
 
 `WORKER_RETENTION_UNTRUSTED_AUTHOR_*` still purges untrusted root notes and other author-gated kinds after the horizon. Kind-1 events that already have a `thread_edges` row (replies accepted via target-exists) are excluded so conversation totals are not rolled back after ingest.

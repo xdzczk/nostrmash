@@ -186,6 +186,9 @@ func RunLifecycle(ctx context.Context, log Logger, cfg config.WorkerConfig, boot
 		RunExpiredEventRetentionLoop(c, log, bootstrap.Store, cfg.ExpiredEventRetention)
 	})
 	spawn(func(c context.Context) {
+		RunBridgedEventRetentionLoop(c, log, bootstrap.Store, profileSearchIndex(bootstrap.MeiliClient), cfg.BridgedEventRetention)
+	})
+	spawn(func(c context.Context) {
 		RunNIP05VerificationLoop(c, log, bootstrap.Pool, cfg.NIP05)
 	})
 	spawn(func(c context.Context) {

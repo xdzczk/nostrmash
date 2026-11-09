@@ -988,7 +988,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
-        - $ref: '#/components/parameters/ExcludeBridged'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1012,7 +1012,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
-        - $ref: '#/components/parameters/ExcludeBridged'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1046,7 +1046,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
-        - $ref: '#/components/parameters/ExcludeBridged'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1072,6 +1072,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1104,6 +1105,7 @@ paths:
         includes `bookmark_count`. `reasons[0].code` is `saved_by`.
       parameters:
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1136,6 +1138,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 7d }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1159,6 +1162,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: notes_limit
           schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
@@ -1207,7 +1211,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
-        - $ref: '#/components/parameters/ExcludeBridged'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1263,6 +1267,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1288,10 +1293,13 @@ paths:
         stay in the list when that count is positive. A trusted count of
         zero does not rank. `window` is `all`. `lang` is accepted and
         ignored. `follower_count` is everyone on a latest contact list.
-        `score`, `trusted_follower_count`, and the `reasons[0]` evidence
-        value are the trust-graph count. `reasons[0].code` is `audience_size`
-        and the unit is `followers`.
+        `trusted_follower_count` and the `reasons[0]` evidence value are the
+        trust-graph count. `score` matches that count on the global list.
+        With `viewer` set, `score` is the blended rank and a profile the
+        viewer already follows has `viewer_follows: true`. `reasons[0].code`
+        is `audience_size` and the unit is `followers`.
       parameters:
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1319,6 +1327,7 @@ paths:
         few minutes. `lang` is accepted and ignored. `reasons[0].code` is
         `supporter_sats`.
       parameters:
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 30d }
@@ -1364,7 +1373,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
-        - $ref: '#/components/parameters/ExcludeBridged'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
@@ -1453,7 +1462,7 @@ paths:
           name: window
           schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
         - $ref: '#/components/parameters/DiscoveryLanguage'
-        - $ref: '#/components/parameters/ExcludeBridged'
+        - $ref: '#/components/parameters/Viewer'
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -2984,14 +2993,20 @@ paths:
           $ref: '#/components/responses/Error'
 components:
   parameters:
-    ExcludeBridged:
-      name: exclude_bridged
+    Viewer:
+      name: viewer
       in: query
       description: >
-        When true, drop events whose event_attributes.proxy_protocol is
-        non-empty. Profile trending applies the same rule to the latest
-        kind-0 event. Default false.
-      schema: { type: boolean, default: false }
+        Personalize this ranking for one account. Hex pubkey or npub.
+        No authentication: follow lists are public. The list blends
+        engagement from that account's follows with the global ranking
+        (default cohort weight 0.85). Zero follows returns the global
+        ranking with personalization.source global_fallback. A follow
+        list above the cap keeps the most trusted follows and sets
+        follows_truncated. Offset is capped at 500 when viewer is set.
+        The response is Cache-Control private. An invalid value is 400.
+        When personalized discovery is disabled, a valid viewer is ignored.
+      schema: { type: string }
     DiscoveryLanguage:
       name: lang
       in: query
@@ -3078,6 +3093,16 @@ components:
         conversations:
           type: array
           items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+        personalization: { $ref: '#/components/schemas/Personalization' }
+    Personalization:
+      type: object
+      properties:
+        viewer: { type: string, description: Canonical hex pubkey }
+        source: { type: string, enum: [personalized, global_fallback] }
+        follow_count: { type: integer }
+        follows_truncated: { type: boolean }
+        cohort_weight: { type: number }
+      required: [viewer, source, follow_count, follows_truncated, cohort_weight]
     DiscoveryHomeResponse:
       type: object
       additionalProperties: true
@@ -3110,6 +3135,7 @@ components:
                 rising:
                   type: array
                   items: { $ref: '#/components/schemas/DiscoveryRankedItem' }
+        personalization: { $ref: '#/components/schemas/Personalization' }
   responses:
     Error:
       description: Structured API error

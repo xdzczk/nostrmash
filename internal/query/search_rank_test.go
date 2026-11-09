@@ -98,12 +98,11 @@ func TestRankNotes_BotAndTickerDemotion(t *testing.T) {
 		AuthorDisplayName: "Block Art",
 	}
 	rss := NoteScoreInput{
-		ID:          "rss",
-		Pubkey:      "feed",
-		CreatedAt:   now.Add(-time.Minute).Unix(),
-		Content:     "bitcoin headline from the mirror",
-		AuthorName:  "Example (RSS Feed)",
-		AuthorNIP05: "news@mostr.pub",
+		ID:         "rss",
+		Pubkey:     "feed",
+		CreatedAt:  now.Add(-time.Minute).Unix(),
+		Content:    "bitcoin headline from the mirror",
+		AuthorName: "Example (RSS Feed)",
 	}
 	ranked := RankNotes("bitcoin", []NoteScoreInput{bot, ticker, blockArt, rss, human}, RankOptions{Now: now})
 	if ranked[0].ID != "human" {

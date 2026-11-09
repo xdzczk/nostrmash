@@ -131,25 +131,21 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	viewer, ok := h.parseDiscoveryViewer(w, r)
+	if !ok {
+		return
+	}
 	lang, err := parseOptionalDiscoveryLanguage(r)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
-	}
-	excludeBridged := false
-	if surface == "trending" {
-		excludeBridged, err = parseExcludeBridged(r)
-		if err != nil {
-			writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
-			return
-		}
 	}
 	limit, err := parseBoundedPositiveInt(r, "limit", 20, 100)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, 5000)
+	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, discoveryOffsetCap(viewer))
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -158,19 +154,29 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", "unsupported discovery surface")
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "profiles_"+surface, cacheExcludeBridged(discoveryCacheParams(map[string]any{
+	scope := discoveryScopeWithViewer(lang, viewer)
+	cachePolicy := h.rankingCachePolicy("profiles_"+surface, map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang), excludeBridged))
+	}, lang, viewer)
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
 		var profilesRows []query.TrendingProfile
+		var meta query.PersonalizationMeta
 		var rowsErr error
 		switch surface {
 		case "rising":
-			profilesRows, rowsErr = h.service.GetRisingProfiles(ctx, window, discoveryScope(lang), limit, offset)
+			if viewer == "" {
+				profilesRows, rowsErr = h.service.GetRisingProfiles(ctx, window, scope, limit, offset)
+			} else {
+				profilesRows, meta, rowsErr = h.service.GetPersonalizedRisingProfiles(ctx, window, scope, limit, offset)
+			}
 		default:
-			profilesRows, rowsErr = h.service.GetTrendingProfiles(ctx, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
+			if viewer == "" {
+				profilesRows, rowsErr = h.service.GetTrendingProfiles(ctx, window, scope, limit, offset)
+			} else {
+				profilesRows, meta, rowsErr = h.service.GetPersonalizedTrendingProfiles(ctx, window, scope, limit, offset)
+			}
 		}
 		degraded := false
 		if rowsErr != nil {
@@ -206,6 +212,12 @@ func (h Handlers) writeDiscoveryProfiles(w http.ResponseWriter, r *http.Request,
 		addDiscoveryListMeta(payload, windowLabel, &computedAt, len(profiles))
 		h.addDiscoveryTrustMetadata(payload)
 		h.attachDiscoveryLanguage(ctx, payload, lang)
+		attachPersonalization(payload, meta)
+		reasonCode, reasonMetric, reasonUnit := "followed_engagers", "cohort_engagers", "accounts"
+		if surface == "rising" {
+			reasonCode, reasonMetric, reasonUnit = "followed_by", "cohort_new_followers", "followers"
+		}
+		personalizeRankingItems(profiles, meta, profileCohortEvidence(profilesRows), nil, reasonCode, reasonMetric, reasonUnit)
 		return payload, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {

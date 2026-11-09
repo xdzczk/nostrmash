@@ -263,6 +263,38 @@ func TestWithHTTPRateLimit_ClassifiedPublicBuckets(t *testing.T) {
 	}
 }
 
+func TestWithHTTPRateLimit_ViewerUsesSeparateBucket(t *testing.T) {
+	limited := WithHTTPRateLimit(HTTPRateLimitOptions{
+		DefaultRPM:      100,
+		DefaultBurst:    1,
+		DiscoveryRPM:    1,
+		PersonalizedRPM: 1,
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	ip := "127.0.0.1:5566"
+	serve := func(path string) int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = ip
+		rec := httptest.NewRecorder()
+		limited.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := serve("/api/v1/discovery/notes/trending"); code != http.StatusNoContent {
+		t.Fatalf("global status = %d", code)
+	}
+	if code := serve("/api/v1/discovery/notes/trending?viewer=abc"); code != http.StatusNoContent {
+		t.Fatalf("viewer status = %d", code)
+	}
+	if code := serve("/api/v1/discovery/notes/trending"); code != http.StatusTooManyRequests {
+		t.Fatalf("second global status = %d", code)
+	}
+	if code := serve("/api/v1/discovery/notes/trending?viewer=abc"); code != http.StatusTooManyRequests {
+		t.Fatalf("second viewer status = %d", code)
+	}
+}
+
 func TestWithHTTPRateLimit_ConcurrentRequestsShareBucket(t *testing.T) {
 	limited := WithHTTPRateLimit(HTTPRateLimitOptions{
 		DefaultRPM:   1,

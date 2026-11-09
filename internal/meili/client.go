@@ -419,6 +419,14 @@ func (c *Client) deleteByFilter(ctx context.Context, indexUID, filter, what stri
 	return task.Details.DeletedDocuments, nil
 }
 
+// DeleteProfileDocuments removes profile documents by pubkey. Used when a
+// retention purge removes an author's last event: profile search hits are
+// served from the index without a Postgres hydration step, so the document
+// has to go explicitly.
+func (c *Client) DeleteProfileDocuments(ctx context.Context, pubkeys []string) error {
+	return c.deleteDocuments(ctx, IndexProfiles, pubkeys)
+}
+
 func (c *Client) deleteDocuments(ctx context.Context, indexUID string, ids []string) error {
 	_, err := c.deleteDocumentsCounted(ctx, indexUID, ids)
 	return err

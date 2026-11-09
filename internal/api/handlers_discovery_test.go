@@ -6,10 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/xdzczk/nostrmash/internal/query"
+	"github.com/xdzczk/nostrmash/internal/readmodel"
 	"github.com/xdzczk/nostrmash/internal/store"
 	storeread "github.com/xdzczk/nostrmash/internal/store/read"
 	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
@@ -1701,5 +1703,222 @@ func TestDomainPageRoutes_NormalizationMissingAndValidation(t *testing.T) {
 	mux.ServeHTTP(badRec, badReq)
 	if badRec.Code != http.StatusBadRequest {
 		t.Fatalf("unexpected status for invalid domain notes params: got %d want %d", badRec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestTrendingNotes_ViewerPersonalizesAndSeparatesCache(t *testing.T) {
+	viewer := strings.Repeat("ab", 32)
+	var lookups []string
+	enabled := true
+	h := mustNewHandlersWithOptions(t, fakeEventReader{
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, _ int, _ int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{{
+				EventID: "global-note", AuthorPubkey: strings.Repeat("c", 64), CreatedAt: 1700000000, Content: "global", Score: 4,
+			}}, nil
+		},
+		listFollowedPubkeysFn: func(context.Context, string, int) ([]string, error) {
+			return []string{strings.Repeat("d", 64)}, nil
+		},
+		getCohortTrendingNotesFn: func(context.Context, []string, []int, time.Duration, string, int) ([]readmodel.CohortNote, error) {
+			return []readmodel.CohortNote{{
+				Note:        readmodel.TrendingNote{EventID: "cohort-note", AuthorPubkey: strings.Repeat("c", 64), CreatedAt: 1700000000, Content: "cohort", Score: 1},
+				CohortScore: 40,
+			}}, nil
+		},
+	}, HandlersOptions{
+		DiscoveryCache: &DiscoveryCacheOptions{Enabled: &enabled, MaxEntries: 1},
+		CacheLookupObserver: func(family, endpoint string, hit bool) {
+			state := "miss"
+			if hit {
+				state = "hit"
+			}
+			lookups = append(lookups, family+":"+endpoint+":"+state)
+		},
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/notes/trending", h.GetTrendingNotes)
+
+	globalReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending?window=24h", nil)
+	globalRec := httptest.NewRecorder()
+	mux.ServeHTTP(globalRec, globalReq)
+	if globalRec.Code != http.StatusOK {
+		t.Fatalf("global status = %d body=%s", globalRec.Code, globalRec.Body.String())
+	}
+	if !strings.Contains(globalRec.Header().Get("Cache-Control"), "public") {
+		t.Fatalf("global cache control = %q", globalRec.Header().Get("Cache-Control"))
+	}
+	var globalBody map[string]any
+	if err := json.Unmarshal(globalRec.Body.Bytes(), &globalBody); err != nil {
+		t.Fatalf("decode global: %v", err)
+	}
+	if _, ok := globalBody["personalization"]; ok {
+		t.Fatalf("global response included personalization: %#v", globalBody["personalization"])
+	}
+
+	viewerReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending?window=24h&viewer="+viewer, nil)
+	viewerRec := httptest.NewRecorder()
+	mux.ServeHTTP(viewerRec, viewerReq)
+	if viewerRec.Code != http.StatusOK {
+		t.Fatalf("viewer status = %d body=%s", viewerRec.Code, viewerRec.Body.String())
+	}
+	cacheControl := viewerRec.Header().Get("Cache-Control")
+	if !strings.Contains(cacheControl, "private") || viewerRec.Header().Get("CDN-Cache-Control") != "" {
+		t.Fatalf("viewer cache headers = %q cdn=%q", cacheControl, viewerRec.Header().Get("CDN-Cache-Control"))
+	}
+	var viewerBody struct {
+		Notes []struct {
+			EventID string `json:"event_id"`
+			Ranking struct {
+				Score   float64 `json:"score"`
+				Reasons []struct {
+					Code string `json:"code"`
+				} `json:"reasons"`
+			} `json:"ranking"`
+		} `json:"notes"`
+		Personalization struct {
+			Viewer string `json:"viewer"`
+			Source string `json:"source"`
+		} `json:"personalization"`
+	}
+	if err := json.Unmarshal(viewerRec.Body.Bytes(), &viewerBody); err != nil {
+		t.Fatalf("decode viewer: %v", err)
+	}
+	if viewerBody.Personalization.Source != query.PersonalizationSourcePersonalized || viewerBody.Personalization.Viewer != viewer {
+		t.Fatalf("personalization = %+v", viewerBody.Personalization)
+	}
+	if len(viewerBody.Notes) == 0 || viewerBody.Notes[0].EventID != "cohort-note" {
+		t.Fatalf("notes = %+v", viewerBody.Notes)
+	}
+	foundReason := false
+	for _, reason := range viewerBody.Notes[0].Ranking.Reasons {
+		if reason.Code == "followed_engagers" {
+			foundReason = true
+		}
+	}
+	if !foundReason {
+		t.Fatalf("missing followed_engagers reason: %+v", viewerBody.Notes[0].Ranking)
+	}
+
+	again := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending?window=24h", nil)
+	againRec := httptest.NewRecorder()
+	mux.ServeHTTP(againRec, again)
+	if againRec.Code != http.StatusOK {
+		t.Fatalf("repeat global status = %d", againRec.Code)
+	}
+	want := []string{
+		"discovery:trending_notes:miss",
+		"personalized:trending_notes:miss",
+		"discovery:trending_notes:hit",
+	}
+	if strings.Join(lookups, ",") != strings.Join(want, ",") {
+		t.Fatalf("lookups = %#v", lookups)
+	}
+
+	bad := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending?window=24h&viewer=not-a-key", nil)
+	badRec := httptest.NewRecorder()
+	mux.ServeHTTP(badRec, bad)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("bad viewer status = %d", badRec.Code)
+	}
+	npub := encodeNpub(viewer)
+	npubReq := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending?window=24h&viewer="+npub, nil)
+	npubRec := httptest.NewRecorder()
+	mux.ServeHTTP(npubRec, npubReq)
+	if npubRec.Code != http.StatusOK {
+		t.Fatalf("npub status = %d body=%s", npubRec.Code, npubRec.Body.String())
+	}
+}
+
+func TestTrendingNotes_DisabledViewerStaysGlobal(t *testing.T) {
+	off := false
+	var limitSeen int
+	h := mustNewHandlersWithOptions(t, fakeEventReader{
+		getTrendingNotesFn: func(_ context.Context, _ time.Duration, limit int, _ int) ([]storeread.TrendingNote, error) {
+			limitSeen = limit
+			return []storeread.TrendingNote{{EventID: "global-note", AuthorPubkey: "pk", CreatedAt: 1, Content: "hi", Score: 2}}, nil
+		},
+	}, HandlersOptions{
+		QueryOptions: query.ServiceOptions{PersonalizedDiscoveryEnabled: &off},
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/notes/trending", h.GetTrendingNotes)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending?window=24h&viewer="+strings.Repeat("ab", 32), nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Header().Get("Cache-Control"), "private") {
+		t.Fatalf("disabled viewer was cached private: %q", rec.Header().Get("Cache-Control"))
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := body["personalization"]; ok {
+		t.Fatalf("disabled viewer still personalized: %#v", body["personalization"])
+	}
+	if limitSeen != 20 {
+		t.Fatalf("limit = %d, want the public page size", limitSeen)
+	}
+	bad := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/notes/trending?viewer=nope", nil)
+	badRec := httptest.NewRecorder()
+	mux.ServeHTTP(badRec, bad)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid viewer status = %d", badRec.Code)
+	}
+}
+
+func TestDiscoveryHome_ViewerDegradesOneSection(t *testing.T) {
+	h := mustNewHandlers(t, fakeEventReader{
+		listFollowedPubkeysFn: func(context.Context, string, int) ([]string, error) {
+			return []string{strings.Repeat("b", 64)}, nil
+		},
+		getTrendingNotesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingNote, error) {
+			return []storeread.TrendingNote{{EventID: "note_1", AuthorPubkey: "pk_1", CreatedAt: 1700000000, Content: "hello", Score: 2}}, nil
+		},
+		getTrendingProfilesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingProfile, error) {
+			return []storeread.TrendingProfile{{Pubkey: strings.Repeat("c", 64), Score: 9}}, nil
+		},
+		getRisingProfilesFn: func(context.Context, time.Duration, int, int) ([]storeread.TrendingProfile, error) {
+			return nil, errors.New("rising snapshot timeout")
+		},
+		getHomeTrendingDomainsFn: func(context.Context, time.Duration, int) ([]store.DomainSummaryProjection, error) {
+			return nil, nil
+		},
+		getPublicNetworkStatsFn: func(context.Context, int) (storeread.PublicDiscoveryNetworkStats, error) {
+			return storeread.PublicDiscoveryNetworkStats{EventsIngested: 1, ProjectedProfiles: 1, Relays: 1}, nil
+		},
+	}, 200)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/discovery/home", h.GetDiscoveryHome)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/home?viewer="+strings.Repeat("a", 64), nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Header().Get("Cache-Control"), "private") {
+		t.Fatalf("home cache control = %q", rec.Header().Get("Cache-Control"))
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	personalization, ok := body["personalization"].(map[string]any)
+	if !ok || personalization["source"] != query.PersonalizationSourcePersonalized {
+		t.Fatalf("personalization = %#v", body["personalization"])
+	}
+	if body["degraded"] != true {
+		t.Fatalf("expected degraded bundle, got %#v", body["degraded_reasons"])
+	}
+	reasons, ok := body["degraded_reasons"].([]any)
+	if !ok || len(reasons) != 1 || reasons[0] != "rising_profiles" {
+		t.Fatalf("degraded_reasons = %#v", body["degraded_reasons"])
+	}
+	sections := body["sections"].(map[string]any)
+	notes, ok := sections["trending_notes"].([]any)
+	if !ok || len(notes) != 1 {
+		t.Fatalf("trending notes = %#v", sections["trending_notes"])
 	}
 }

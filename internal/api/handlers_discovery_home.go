@@ -26,12 +26,11 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	lang, err := parseOptionalDiscoveryLanguage(r)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+	viewer, ok := h.parseDiscoveryViewer(w, r)
+	if !ok {
 		return
 	}
-	excludeBridged, err := parseExcludeBridged(r)
+	lang, err := parseOptionalDiscoveryLanguage(r)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -41,18 +40,26 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, 5000)
+	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, discoveryOffsetCap(viewer))
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_notes", cacheExcludeBridged(discoveryCacheParams(map[string]any{
+	scope := discoveryScopeWithViewer(lang, viewer)
+	cachePolicy := h.rankingCachePolicy("trending_notes", map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang), excludeBridged))
+	}, lang, viewer)
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		notes, notesErr := h.service.GetTrendingNotes(ctx, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
+		var notes []query.TrendingNote
+		var meta query.PersonalizationMeta
+		var notesErr error
+		if viewer == "" {
+			notes, notesErr = h.service.GetTrendingNotes(ctx, window, scope, limit, offset)
+		} else {
+			notes, meta, notesErr = h.service.GetPersonalizedTrendingNotes(ctx, window, scope, limit, offset)
+		}
 		degraded := false
 		if notesErr != nil {
 			if query.IsUnsupportedCapability(notesErr) {
@@ -87,6 +94,8 @@ func (h Handlers) GetTrendingNotes(w http.ResponseWriter, r *http.Request) {
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
 		h.addDiscoveryTrustMetadata(payloadResponse)
 		h.attachDiscoveryLanguage(ctx, payloadResponse, lang)
+		attachPersonalization(payloadResponse, meta)
+		personalizeRankingItems(payload, meta, noteCohortEvidence(notes), nil, "followed_engagers", "cohort_engagers", "accounts")
 		return payloadResponse, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
@@ -104,12 +113,11 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	lang, err := parseOptionalDiscoveryLanguage(r)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+	viewer, ok := h.parseDiscoveryViewer(w, r)
+	if !ok {
 		return
 	}
-	excludeBridged, err := parseExcludeBridged(r)
+	lang, err := parseOptionalDiscoveryLanguage(r)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -119,18 +127,26 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, 5000)
+	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, discoveryOffsetCap(viewer))
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_long_form", cacheExcludeBridged(discoveryCacheParams(map[string]any{
+	scope := discoveryScopeWithViewer(lang, viewer)
+	cachePolicy := h.rankingCachePolicy("trending_long_form", map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang), excludeBridged))
+	}, lang, viewer)
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		articles, articlesErr := h.service.GetTrendingLongForm(ctx, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
+		var articles []query.TrendingNote
+		var meta query.PersonalizationMeta
+		var articlesErr error
+		if viewer == "" {
+			articles, articlesErr = h.service.GetTrendingLongForm(ctx, window, scope, limit, offset)
+		} else {
+			articles, meta, articlesErr = h.service.GetPersonalizedTrendingLongForm(ctx, window, scope, limit, offset)
+		}
 		degraded := false
 		if articlesErr != nil {
 			if query.IsUnsupportedCapability(articlesErr) {
@@ -165,6 +181,8 @@ func (h Handlers) GetTrendingLongForm(w http.ResponseWriter, r *http.Request) {
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
 		h.addDiscoveryTrustMetadata(payloadResponse)
 		h.attachDiscoveryLanguage(ctx, payloadResponse, lang)
+		attachPersonalization(payloadResponse, meta)
+		personalizeRankingItems(payload, meta, noteCohortEvidence(articles), nil, "followed_engagers", "cohort_engagers", "accounts")
 		return payloadResponse, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
@@ -187,12 +205,11 @@ func (h Handlers) GetTrendingMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	lang, err := parseOptionalDiscoveryLanguage(r)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+	viewer, ok := h.parseDiscoveryViewer(w, r)
+	if !ok {
 		return
 	}
-	excludeBridged, err := parseExcludeBridged(r)
+	lang, err := parseOptionalDiscoveryLanguage(r)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -202,19 +219,27 @@ func (h Handlers) GetTrendingMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, 5000)
+	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, discoveryOffsetCap(viewer))
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "trending_media", cacheExcludeBridged(discoveryCacheParams(map[string]any{
+	scope := discoveryScopeWithViewer(lang, viewer)
+	cachePolicy := h.rankingCachePolicy("trending_media", map[string]any{
 		"format": format,
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang), excludeBridged))
+	}, lang, viewer)
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		events, eventsErr := h.service.GetTrendingMedia(ctx, format, window, discoveryScopeWithBridge(lang, excludeBridged), limit, offset)
+		var events []query.TrendingNote
+		var meta query.PersonalizationMeta
+		var eventsErr error
+		if viewer == "" {
+			events, eventsErr = h.service.GetTrendingMedia(ctx, format, window, scope, limit, offset)
+		} else {
+			events, meta, eventsErr = h.service.GetPersonalizedTrendingMedia(ctx, format, window, scope, limit, offset)
+		}
 		degraded := false
 		if eventsErr != nil {
 			if query.IsUnsupportedCapability(eventsErr) {
@@ -250,6 +275,8 @@ func (h Handlers) GetTrendingMedia(w http.ResponseWriter, r *http.Request) {
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(payload))
 		h.addDiscoveryTrustMetadata(payloadResponse)
 		h.attachDiscoveryLanguage(ctx, payloadResponse, lang)
+		attachPersonalization(payloadResponse, meta)
+		personalizeRankingItems(payload, meta, noteCohortEvidence(events), nil, "followed_engagers", "cohort_engagers", "accounts")
 		return payloadResponse, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
@@ -267,6 +294,10 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	viewer, ok := h.parseDiscoveryViewer(w, r)
+	if !ok {
+		return
+	}
 	lang, err := parseOptionalDiscoveryLanguage(r)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -277,18 +308,26 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, 5000)
+	offset, err := parseBoundedNonNegativeInt(r, "offset", 0, discoveryOffsetCap(viewer))
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	cachePolicy := h.newPublicCachePolicy(publicCacheFamilyDiscovery, "hot_conversations", discoveryCacheParams(map[string]any{
+	scope := discoveryScopeWithViewer(lang, viewer)
+	cachePolicy := h.rankingCachePolicy("hot_conversations", map[string]any{
 		"window": windowLabel,
 		"limit":  limit,
 		"offset": offset,
-	}, lang))
+	}, lang, viewer)
 	if err := h.servePublicCached(r.Context(), w, cachePolicy, func(ctx context.Context) (map[string]any, error) {
-		conversations, conversationsErr := h.service.GetHotConversations(ctx, window, discoveryScope(lang), limit, offset)
+		var conversations []query.HotConversation
+		var meta query.PersonalizationMeta
+		var conversationsErr error
+		if viewer == "" {
+			conversations, conversationsErr = h.service.GetHotConversations(ctx, window, scope, limit, offset)
+		} else {
+			conversations, meta, conversationsErr = h.service.GetPersonalizedHotConversations(ctx, window, scope, limit, offset)
+		}
 		degraded := false
 		if conversationsErr != nil {
 			if query.IsUnsupportedCapability(conversationsErr) {
@@ -337,6 +376,9 @@ func (h Handlers) GetHotConversations(w http.ResponseWriter, r *http.Request) {
 		addDiscoveryListMeta(payloadResponse, windowLabel, &computedAt, len(items))
 		h.addDiscoveryTrustMetadata(payloadResponse)
 		h.attachDiscoveryLanguage(ctx, payloadResponse, lang)
+		evidence, scores := conversationBlend(conversations)
+		attachPersonalization(payloadResponse, meta)
+		personalizeRankingItems(items, meta, evidence, scores, "followed_replies", "cohort_replies", "replies")
 		return payloadResponse, nil
 	}); err != nil {
 		if query.IsUnsupportedCapability(err) {
@@ -360,6 +402,7 @@ type discoveryHomeRequest struct {
 	domainsLimit     int
 	hashtagStatLimit int
 	language         string
+	viewer           string
 }
 
 func defaultDiscoveryHomeRequest(window time.Duration, label string) discoveryHomeRequest {
@@ -375,20 +418,30 @@ func defaultDiscoveryHomeRequest(window time.Duration, label string) discoveryHo
 }
 
 func (h Handlers) discoveryHomePolicy(req discoveryHomeRequest) publicResponseCachePolicy {
-	return h.newPublicCachePolicy(publicCacheFamilyBundle, "discovery_home", discoveryCacheParams(map[string]any{
+	family := publicCacheFamilyBundle
+	params := map[string]any{
 		"window":             req.windowLabel,
 		"notes_limit":        req.notesLimit,
 		"hashtags_limit":     req.hashtagsLimit,
 		"profiles_limit":     req.profilesLimit,
 		"domains_limit":      req.domainsLimit,
 		"hashtag_stat_limit": req.hashtagStatLimit,
-	}, req.language))
+	}
+	if req.viewer != "" {
+		family = publicCacheFamilyPersonalized
+		params["viewer"] = req.viewer
+	}
+	return h.newPublicCachePolicy(family, "discovery_home", discoveryCacheParams(params, req.language))
 }
 
 func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 	window, windowLabel, err := parseTrendingWindow(r)
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	viewer, ok := h.parseDiscoveryViewer(w, r)
+	if !ok {
 		return
 	}
 	lang, err := parseOptionalDiscoveryLanguage(r)
@@ -430,6 +483,7 @@ func (h Handlers) GetDiscoveryHome(w http.ResponseWriter, r *http.Request) {
 		domainsLimit:     domainsLimit,
 		hashtagStatLimit: hashtagStatLimit,
 		language:         lang,
+		viewer:           viewer,
 	}
 	if err := h.servePublicCached(r.Context(), w, h.discoveryHomePolicy(homeReq), func(reqCtx context.Context) (map[string]any, error) {
 		// Bound the whole fan-out below by a fixed wall-clock budget,
@@ -548,19 +602,47 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 		domainsErr       error
 		networkErr       error
 	)
-	scope := discoveryScope(req.language)
+	scope := discoveryScopeWithViewer(req.language, req.viewer)
+	var (
+		notesMeta    query.PersonalizationMeta
+		trendingMeta query.PersonalizationMeta
+		risingMeta   query.PersonalizationMeta
+		domainsMeta  query.PersonalizationMeta
+		cohortErr    error
+	)
+	personalized := req.viewer != ""
+	if personalized {
+		// Resolve the follow list once so the four ranking calls share it.
+		cohortErr = h.service.PrepareViewerCohort(ctx, req.viewer)
+		if cohortErr != nil {
+			personalized = false
+			scope.Viewer = ""
+		}
+	}
 	var wg sync.WaitGroup
 	wg.Add(5)
 	go func() {
 		defer wg.Done()
+		if personalized {
+			notes, notesMeta, notesErr = h.service.GetPersonalizedTrendingNotes(ctx, req.window, scope, req.notesLimit, 0)
+			return
+		}
 		notes, notesErr = h.service.GetTrendingNotes(ctx, req.window, scope, req.notesLimit, 0)
 	}()
 	go func() {
 		defer wg.Done()
+		if personalized {
+			trendingProfiles, trendingMeta, trendingErr = h.service.GetPersonalizedTrendingProfiles(ctx, req.window, scope, req.profilesLimit, 0)
+			return
+		}
 		trendingProfiles, trendingErr = h.service.GetTrendingProfiles(ctx, req.window, scope, req.profilesLimit, 0)
 	}()
 	go func() {
 		defer wg.Done()
+		if personalized {
+			risingProfiles, risingMeta, risingErr = h.service.GetPersonalizedRisingProfiles(ctx, req.window, scope, req.profilesLimit, 0)
+			return
+		}
 		risingProfiles, risingErr = h.service.GetRisingProfiles(ctx, req.window, scope, req.profilesLimit, 0)
 	}()
 	go func() {
@@ -568,6 +650,10 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 		// Trending domains are served from the top_domains_24h/7d
 		// snapshot (see internal/derivation/projection_relay_window_snapshots.go).
 		// /discovery/domains/trending reads the same snapshot.
+		if personalized {
+			domains, domainsMeta, domainsErr = h.service.GetPersonalizedTrendingDomains(ctx, req.window, scope, req.domainsLimit, 0)
+			return
+		}
 		domains, domainsErr = h.service.GetHomeTrendingDomains(ctx, req.window, scope, req.domainsLimit)
 	}()
 	go func() {
@@ -585,6 +671,9 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 	wg.Wait()
 
 	var degraded []string
+	if cohortErr != nil {
+		recordDiscoveryDegrade(ctx, "discovery_home", "viewer_cohort", cohortErr, &degraded)
+	}
 	if notesErr != nil {
 		recordDiscoveryDegrade(ctx, "discovery_home", "trending_notes", notesErr, &degraded)
 		notes = nil
@@ -631,6 +720,13 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 	h.attachDomainBaselines(ctx, req.windowLabel, domainItems)
 	trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities, discoverySurfaceTrending, req.windowLabel)
 	risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities, discoverySurfaceRising, req.windowLabel)
+	if personalized {
+		personalizeRankingItems(noteItems, notesMeta, noteCohortEvidence(notes), nil, "followed_engagers", "cohort_engagers", "accounts")
+		personalizeRankingItems(trendingProfileItems, trendingMeta, profileCohortEvidence(trendingProfiles), nil, "followed_engagers", "cohort_engagers", "accounts")
+		personalizeRankingItems(risingProfileItems, risingMeta, profileCohortEvidence(risingProfiles), nil, "followed_by", "cohort_new_followers", "followers")
+		domainEvidence, domainScores := domainBlend(domains)
+		personalizeRankingItems(domainItems, domainsMeta, domainEvidence, domainScores, "followed_authors", "cohort_authors", "authors")
+	}
 	network := map[string]any{
 		"totals": map[string]any{
 			"events_ingested":    networkStats.EventsIngested,
@@ -692,5 +788,18 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 	}
 	addDiscoveryListMeta(payload, req.windowLabel, computedAt, len(noteItems)+len(hashtagItems)+len(trendingProfileItems)+len(domainItems))
 	h.addDiscoveryTrustMetadata(payload)
+	if personalized {
+		meta := notesMeta
+		if meta.Source == "" {
+			meta = trendingMeta
+		}
+		if meta.Source == "" {
+			meta = risingMeta
+		}
+		if meta.Source == "" {
+			meta = domainsMeta
+		}
+		attachPersonalization(payload, meta)
+	}
 	return payload, nil
 }

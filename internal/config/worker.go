@@ -39,6 +39,7 @@ type WorkerConfig struct {
 	RelayRegistry              RelayRegistryConfig
 	NIP05                      WorkerNIP05Config
 	ExpiredEventRetention      WorkerExpiredEventRetentionConfig
+	BridgedEventRetention      WorkerBridgedEventRetentionConfig
 }
 
 // WorkerIncrementalStatsConfig controls the O(1) delta path that replaces
@@ -196,6 +197,17 @@ type WorkerExpiredEventRetentionConfig struct {
 	Enabled          bool
 	Grace            time.Duration
 	RunInterval      time.Duration
+	DeleteBatchLimit int
+}
+
+// WorkerBridgedEventRetentionConfig purges stored events that carry a NIP-48
+// proxy tag. The ingestor drops new ones, so this drains the backlog that
+// predates the drop: full batches repeat after BatchPause until a short batch,
+// then the loop waits RunInterval.
+type WorkerBridgedEventRetentionConfig struct {
+	Enabled          bool
+	RunInterval      time.Duration
+	BatchPause       time.Duration
 	DeleteBatchLimit int
 }
 
@@ -455,6 +467,10 @@ func LoadWorker() (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	bridgedCfg, err := loadBridgedEventRetentionConfig()
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	cfg := WorkerConfig{
 		Shared:                     shared,
 		Concurrency:                concurrency.Concurrency,
@@ -487,6 +503,7 @@ func LoadWorker() (WorkerConfig, error) {
 		Meilisearch:                loadWorkerMeilisearchConfig(),
 		NIP05:                      nip05Cfg,
 		ExpiredEventRetention:      expiredCfg,
+		BridgedEventRetention:      bridgedCfg,
 	}
 	relayRegistryCfg, err := LoadRelayRegistryConfig()
 	if err != nil {
@@ -800,6 +817,17 @@ func validateWorkerConfig(cfg WorkerConfig) error {
 		}
 		if cfg.ExpiredEventRetention.DeleteBatchLimit <= 0 {
 			return fmt.Errorf("WORKER_RETENTION_EXPIRED_DELETE_BATCH_LIMIT must be > 0")
+		}
+	}
+	if cfg.BridgedEventRetention.Enabled {
+		if cfg.BridgedEventRetention.RunInterval <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_BRIDGED_RUN_INTERVAL must be > 0")
+		}
+		if cfg.BridgedEventRetention.BatchPause <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_BRIDGED_BATCH_PAUSE must be > 0")
+		}
+		if cfg.BridgedEventRetention.DeleteBatchLimit <= 0 {
+			return fmt.Errorf("WORKER_RETENTION_BRIDGED_DELETE_BATCH_LIMIT must be > 0")
 		}
 	}
 	if cfg.Meilisearch.Enabled {
