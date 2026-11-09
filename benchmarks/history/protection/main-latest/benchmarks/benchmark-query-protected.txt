@@ -1,21 +1,21 @@
 goos: linux
 goarch: amd64
 pkg: github.com/xdzczk/nostrmash/internal/query
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkServiceGetEventBatch-4     	   56312	     21214 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetEventBatch-4     	   57860	     21163 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetEventBatch-4     	   56996	     20988 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetEventBatch-4     	   56232	     20971 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetEventBatch-4     	   57603	     20853 ns/op	   21952 B/op	      12 allocs/op
-BenchmarkServiceGetUserInfos-4      	   31377	     47756 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetUserInfos-4      	   22612	     51854 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetUserInfos-4      	   22527	     51756 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetUserInfos-4      	   23250	     43308 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetUserInfos-4      	   32014	     37437 ns/op	   50528 B/op	      24 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   23660	     50082 ns/op	   22730 B/op	     329 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   23916	     49795 ns/op	   22730 B/op	     329 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   24192	     49936 ns/op	   22731 B/op	     329 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   23830	     50624 ns/op	   22730 B/op	     329 allocs/op
-BenchmarkServiceGetThreadWindow-4   	   24026	     50014 ns/op	   22730 B/op	     329 allocs/op
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkServiceGetEventBatch-4     	  100002	     11686 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetEventBatch-4     	  103819	     12012 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetEventBatch-4     	  102118	     11808 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetEventBatch-4     	  100622	     14640 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetEventBatch-4     	   71127	     17322 ns/op	   21952 B/op	      12 allocs/op
+BenchmarkServiceGetUserInfos-4      	   36274	     31274 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetUserInfos-4      	   51770	     23076 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetUserInfos-4      	   50810	     23381 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetUserInfos-4      	   51934	     23072 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetUserInfos-4      	   52389	     22662 ns/op	   50528 B/op	      24 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   43635	     27462 ns/op	   22730 B/op	     329 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   44314	     28057 ns/op	   22730 B/op	     329 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   42799	     27328 ns/op	   22730 B/op	     329 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   44416	     27260 ns/op	   22729 B/op	     329 allocs/op
+BenchmarkServiceGetThreadWindow-4   	   43496	     27461 ns/op	   22729 B/op	     329 allocs/op
 PASS
-ok  	github.com/xdzczk/nostrmash/internal/query	24.052s
+ok  	github.com/xdzczk/nostrmash/internal/query	21.603s
