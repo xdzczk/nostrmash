@@ -99,6 +99,21 @@ type AuthorEngagementStat struct {
 	UpdatedAt                pgtype.Timestamptz
 }
 
+type AuthorFeedEvent struct {
+	EventID   string
+	Pubkey    string
+	Kind      int32
+	CreatedAt int64
+}
+
+type AuthorFeedIndexState struct {
+	ID              bool
+	CursorKind      int32
+	CursorCreatedAt pgtype.Int8
+	CursorEventID   string
+	Complete        bool
+}
+
 type AuthorFirstSeen struct {
 	Pubkey       string
 	FirstSeenAt  pgtype.Timestamptz
@@ -413,6 +428,20 @@ type DerivationVersion struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type DiscoveryArchive struct {
+	Day         pgtype.Date
+	Language    string
+	WindowLabel string
+	Payload     []byte
+	ComputedAt  pgtype.Timestamptz
+}
+
+type DiscoveryDailyRollupState struct {
+	ID          bool
+	HashtagNext pgtype.Date
+	DomainNext  pgtype.Date
+}
+
 type DmReadCursor struct {
 	UserPubkey        string
 	PeerPubkey        string
@@ -446,6 +475,24 @@ type DmVolumeDaily struct {
 	MessageCount   int64
 }
 
+type DomainAuthorDaily struct {
+	Day             pgtype.Date
+	CanonicalDomain string
+	AuthorPubkey    string
+	Language        string
+	Links           int32
+	Notes           int32
+	LatestCreatedAt int64
+}
+
+type DomainMomentum struct {
+	Domain       string
+	ZScore7d     float64
+	Status       string
+	HalfLifeDays float64
+	UpdatedAt    pgtype.Timestamptz
+}
+
 type EcosystemDailyRollup struct {
 	Day        pgtype.Date
 	ComputedAt pgtype.Timestamptz
@@ -455,6 +502,20 @@ type EmojiSetsLatest struct {
 	Pubkey     string
 	Shortcodes []byte
 	UpdatedAt  pgtype.Timestamptz
+}
+
+type EntityBaseline struct {
+	EntityType string
+	EntityKey  string
+	Metric     string
+	Typical    float64
+	SampleDays int32
+	UpdatedAt  pgtype.Timestamptz
+}
+
+type EntityBaselineState struct {
+	ID        bool
+	RebuiltOn pgtype.Date
 }
 
 type Event struct {
@@ -638,6 +699,14 @@ type GroupsLatest struct {
 	MemberCount     int32
 	MetadataEventID string
 	UpdatedAt       pgtype.Timestamptz
+}
+
+type HashtagAuthorDaily struct {
+	Day          pgtype.Date
+	Hashtag      string
+	AuthorPubkey string
+	Language     string
+	Events       int32
 }
 
 type HashtagDaily struct {
@@ -1241,6 +1310,16 @@ type RelayActivityHourly struct {
 type RelayActivityRollupState struct {
 	ID            bool
 	RolledUpUntil pgtype.Timestamptz
+}
+
+type RelayCoverageChange struct {
+	ID         int64
+	OccurredAt pgtype.Timestamptz
+	UrlKey     string
+	Host       string
+	FromState  string
+	ToState    string
+	ChangeKind string
 }
 
 type RelayDesiredSet struct {

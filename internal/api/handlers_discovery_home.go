@@ -607,6 +607,7 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 	}
 
 	hashtagItems := buildDiscoveryHashtagItems(sliceHashtags(pickHashtagWindow(networkStats.TopHashtags, req.windowLabel), req.hashtagsLimit))
+	h.attachHashtagBaselines(ctx, req.windowLabel, hashtagItems)
 
 	identityPubkeys := make([]string, 0, len(notes)+len(trendingProfiles)+len(risingProfiles))
 	for _, note := range notes {
@@ -627,6 +628,7 @@ func (h Handlers) buildDiscoveryHome(ctx context.Context, req discoveryHomeReque
 	noteItems := buildDiscoveryNoteItems(notes, profileIdentities, req.windowLabel)
 	h.attachTopZaps(ctx, noteItems)
 	domainItems := buildDiscoveryDomainItems(domains, req.windowLabel)
+	h.attachDomainBaselines(ctx, req.windowLabel, domainItems)
 	trendingProfileItems := buildDiscoveryProfileItems(trendingProfiles, profileIdentities, discoverySurfaceTrending, req.windowLabel)
 	risingProfileItems := buildDiscoveryProfileItems(risingProfiles, profileIdentities, discoverySurfaceRising, req.windowLabel)
 	network := map[string]any{

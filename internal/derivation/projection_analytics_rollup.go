@@ -136,12 +136,13 @@ func refreshAnalyticsRollupTx(ctx context.Context, tx pgx.Tx, day string) error 
 	`, day); err != nil {
 		return fmt.Errorf("rollup hashtags: %w", err)
 	}
+	// Emerging needs a prior week of mentions. A new tag is not a pace.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO hashtag_momentum (hashtag, z_score_7d, status, half_life_days, updated_at)
 		SELECT hashtag,
 		       CASE WHEN prior = 0 THEN recent ELSE (recent - prior)::float8 / GREATEST(prior, 1) END,
 		       CASE
-		           WHEN recent >= prior * 2 AND recent >= 20 THEN 'emerging'
+		           WHEN prior >= 20 AND recent >= prior * 2 AND recent >= 20 THEN 'emerging'
 		           WHEN prior > 0 AND recent * 2 < prior THEN 'fading'
 		           ELSE 'steady'
 		       END,
