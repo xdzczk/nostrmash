@@ -2,11 +2,15 @@ package retention_test
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/xdzczk/nostrmash/internal/store/retention"
 )
 
 func insertEventAttributes(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, proxyProtocol, proxyID string) {
@@ -45,6 +49,20 @@ func countAuthorProjections(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		t.Fatalf("count author projections for %s: %v", pubkey, err)
 	}
 	return n
+}
+
+func TestLockConflict(t *testing.T) {
+	deadlock := fmt.Errorf("delete events by id: %w", &pgconn.PgError{Code: "40P01"})
+	if !retention.LockConflict(deadlock) {
+		t.Fatal("deadlock was not a lock conflict")
+	}
+	timeout := &pgconn.PgError{Code: "55P03"}
+	if !retention.LockConflict(timeout) {
+		t.Fatal("lock_timeout was not a lock conflict")
+	}
+	if retention.LockConflict(&pgconn.PgError{Code: "57014"}) {
+		t.Fatal("statement timeout was treated as a lock conflict")
+	}
 }
 
 func TestPurgeBridgedEvents(t *testing.T) {

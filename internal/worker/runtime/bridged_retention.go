@@ -61,6 +61,12 @@ func RunBridgedEventRetentionLoop(ctx context.Context, log Logger, st BridgedEve
 			}
 			metrics.IncRetentionPurgeRun("bridged_events", "error")
 			log.Error("bridged_event_retention_failed", "error", err)
+			// A deadlock or lock timeout already retried inside the purge.
+			// Pause briefly and take the next batch instead of waiting out
+			// the idle interval while bridged rows are still queued.
+			if retention.LockConflict(err) {
+				wait = cfg.BatchPause
+			}
 		default:
 			metrics.IncRetentionPurgeRun("bridged_events", "ok")
 			metrics.AddRetentionPurgedRows("bridged_events", result.Deleted)
