@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/xdzczk/nostrmash/internal/discoveryctx"
 )
 
 func (s Service) GetNetworkStats(ctx context.Context) (NetworkStats, error) {
@@ -101,14 +99,12 @@ func (s Service) GetCuratedFeaturedAuthors(ctx context.Context, limit int) ([]Cu
 }
 
 func (s Service) GetTrendingHashtags(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingHashtag, error) {
-	ctx = discoveryctx.WithExcludeBridged(ctx, scope.ExcludeBridged)
 	// 24h, 7d, and 30d are the windows the overview and the topics tab
 	// request. Serve the same trust-filtered snapshot the homepage uses.
 	// The trust-aware fallback counts hashtags inside a small sample of
 	// trending notes, which ranks a different set (and reports sample-sized
-	// event counts) than the overview. exclude_bridged cannot use that
-	// snapshot, because the snapshot was ranked with bridged events included.
-	if isFixedDiscoveryWindow(window) && !scope.ExcludeBridged {
+	// event counts) than the overview.
+	if isFixedDiscoveryWindow(window) {
 		if r := s.capabilities.curated.homeTrendingHashtags; r != nil {
 			rows, err := r.GetHomeTrendingHashtags(ctx, window, scope.Lang(), limit, offset)
 			if err != nil {
@@ -191,7 +187,6 @@ func normalizeHashtagToken(value string) (string, error) {
 }
 
 func (s Service) GetTrendingNotes(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingNote, error) {
-	ctx = discoveryctx.WithExcludeBridged(ctx, scope.ExcludeBridged)
 	if r := s.capabilities.curated.trendingNotes; r != nil {
 		if s.discoveryTrustMode == trustModeOpen {
 			rows, err := r.GetTrendingNotes(ctx, window, scope.Lang(), limit, offset)
@@ -206,7 +201,6 @@ func (s Service) GetTrendingNotes(ctx context.Context, window time.Duration, sco
 }
 
 func (s Service) GetTrendingMedia(ctx context.Context, format string, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingNote, error) {
-	ctx = discoveryctx.WithExcludeBridged(ctx, scope.ExcludeBridged)
 	if r := s.capabilities.curated.trendingMedia; r != nil {
 		if s.discoveryTrustMode == trustModeOpen {
 			rows, err := r.GetTrendingMedia(ctx, format, window, scope.Lang(), limit, offset)
@@ -221,7 +215,6 @@ func (s Service) GetTrendingMedia(ctx context.Context, format string, window tim
 }
 
 func (s Service) GetTrendingLongForm(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingNote, error) {
-	ctx = discoveryctx.WithExcludeBridged(ctx, scope.ExcludeBridged)
 	if r := s.capabilities.curated.trendingLongForm; r != nil {
 		if s.discoveryTrustMode == trustModeOpen {
 			rows, err := r.GetTrendingLongForm(ctx, window, scope.Lang(), limit, offset)
@@ -291,7 +284,6 @@ func (s Service) GetHotConversations(ctx context.Context, window time.Duration, 
 }
 
 func (s Service) GetTrendingProfiles(ctx context.Context, window time.Duration, scope DiscoveryScope, limit int, offset int) ([]TrendingProfile, error) {
-	ctx = discoveryctx.WithExcludeBridged(ctx, scope.ExcludeBridged)
 	if r := s.capabilities.curated.trendingProfiles; r != nil {
 		fetch := queryTrendingProfilesFetch(r.GetTrendingProfiles)
 		if s.discoveryTrustMode == trustModeOpen {

@@ -109,4 +109,10 @@ func adaptCuratedCapabilities(reader any, caps *serviceCapabilities) {
 	if r, ok := reader.(groupedNoteAnalyticsCapability); ok {
 		caps.curated.groupedNoteAnalytics = r
 	}
+	if r, ok := reader.(followedPubkeysCapability); ok {
+		caps.curated.followedPubkeys = r
+	}
+	if r, ok := reader.(personalizedCohortCapability); ok {
+		caps.curated.personalizedCohort = r
+	}
 }

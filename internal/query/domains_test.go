@@ -146,17 +146,6 @@ func TestGetTrendingDomains_UsesHomeSnapshotForFixedWindows(t *testing.T) {
 	if len(past) != 0 {
 		t.Fatalf("expected empty page past the snapshot, got %#v", past)
 	}
-
-	bridged, err := svc.GetTrendingDomains(context.Background(), 24*time.Hour, DiscoveryScope{ExcludeBridged: true}, 10, 0)
-	if err != nil {
-		t.Fatalf("GetTrendingDomains exclude_bridged: %v", err)
-	}
-	if gotWindow != 24*time.Hour {
-		t.Fatalf("exclude_bridged fell through to the live aggregate, window %s", gotWindow)
-	}
-	if len(bridged) != 3 || bridged[0].Domain != "youtube.com" {
-		t.Fatalf("unexpected exclude_bridged domains: %#v", bridged)
-	}
 }
 
 func TestGetHomeTrendingDomains_UnsupportedWithoutCapability(t *testing.T) {

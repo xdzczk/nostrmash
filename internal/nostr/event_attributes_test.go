@@ -45,6 +45,22 @@ func TestParseEventAttributes(t *testing.T) {
 	if !attrs.Expired(1700000000) || attrs.Expired(1699999999) {
 		t.Fatal("expiry boundary")
 	}
+	if !attrs.Bridged() {
+		t.Fatal("a proxy tag marks the event as bridged")
+	}
+}
+
+func TestEventAttributesBridged(t *testing.T) {
+	t.Parallel()
+	if ParseEventAttributes("", [][]string{{"client", "Damus"}}).Bridged() {
+		t.Fatal("no proxy tag is native")
+	}
+	if !ParseEventAttributes("", [][]string{{"proxy", "https://example.social/n/1"}}).Bridged() {
+		t.Fatal("a proxy tag without a protocol still names a non-Nostr origin")
+	}
+	if !ParseEventAttributes("", [][]string{{"proxy", "https://example.social/n/1", "activitypub"}}).Bridged() {
+		t.Fatal("activitypub proxy is bridged")
+	}
 }
 
 func TestNormalizeReactionContent(t *testing.T) {

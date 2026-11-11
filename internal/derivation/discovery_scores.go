@@ -112,6 +112,24 @@ func RankRecencyMatters(windowLabel string) bool {
 // the day, a 7-day score keeps 85% at the end of the week, and a 30-day
 // score does not decay inside the month. Anything older than the window
 // scores 0.
+// CohortTrendingScore ranks one note from the engagement weights of a single
+// cohort. Every reply counts as substantive and the cheap-engagement unlock
+// share is 1: the caller has already dropped the note author and anyone
+// outside the cohort. Recency follows the same window curve as the global
+// discovery score.
+func CohortTrendingScore(
+	window time.Duration,
+	nowUnix int64,
+	noteCreatedAt int64,
+	replyWeight float64,
+	repostWeight float64,
+	reactionWeight float64,
+	zapWeight float64,
+	zapMSats float64,
+) float64 {
+	return computeTrendingScore(window, nowUnix, noteCreatedAt, replyWeight, replyWeight, repostWeight, reactionWeight, zapWeight, zapMSats, 1)
+}
+
 func computeTrendingScore(
 	window time.Duration,
 	nowUnix int64,

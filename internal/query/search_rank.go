@@ -188,7 +188,7 @@ func ScoreNote(query string, note NoteScoreInput, now time.Time) float64 {
 	if IsQueryStub(note.Content, query) {
 		score *= queryStubMultiplier
 	}
-	if noteIsAutomated(note, parsed) {
+	if noteIsAutomated(note) {
 		score *= automatedMultiplier
 	}
 	return score
@@ -226,7 +226,6 @@ func RankNotes(query string, notes []NoteScoreInput, opts RankOptions) []NoteSco
 		sortName = "relevant"
 	}
 	rows := make([]noteRankRow, 0, len(notes))
-	parsed := ParseSearchQuery(query)
 	for i, note := range notes {
 		score := ScoreNote(query, note, opts.Now)
 		if score < 0 {
@@ -236,7 +235,7 @@ func RankNotes(query string, notes []NoteScoreInput, opts RankOptions) []NoteSco
 			note:    note,
 			score:   score,
 			idx:     i,
-			demoted: noteIsAutomated(note, parsed),
+			demoted: noteIsAutomated(note),
 		})
 	}
 	if len(rows) == 0 {
@@ -763,11 +762,8 @@ func noteEngagement(note NoteScoreInput) float64 {
 	return value
 }
 
-func noteIsAutomated(note NoteScoreInput, parsed ParsedQuery) bool {
+func noteIsAutomated(note NoteScoreInput) bool {
 	if note.AuthorBot || isRSSAccount(note.AuthorName, note.AuthorDisplayName) {
-		return true
-	}
-	if isMostrBridge(note.AuthorNIP05) && !QueryLooksLikePersonName(parsed.Raw) {
 		return true
 	}
 	content := note.Content
@@ -783,14 +779,6 @@ func noteIsAutomated(note NoteScoreInput, parsed ParsedQuery) bool {
 func isRSSAccount(name, display string) bool {
 	combined := strings.ToLower(name + " " + display)
 	return strings.Contains(combined, "(rss feed)") || strings.Contains(combined, "rss feed")
-}
-
-func isMostrBridge(nip05 string) bool {
-	host := strings.ToLower(strings.TrimSpace(nip05))
-	if at := strings.LastIndex(host, "@"); at >= 0 {
-		host = host[at+1:]
-	}
-	return host == "mostr.pub" || strings.HasSuffix(host, ".mostr.pub")
 }
 
 func markNearDuplicates(rows []noteRankRow) {

@@ -13,6 +13,9 @@ type IngestorRuntimeConfig struct {
 	// DedupCacheSize bounds the in-memory LRU of recently persisted event
 	// IDs consulted before validation on the live hot path. 0 disables.
 	DedupCacheSize int
+	// DropBridged drops events carrying a NIP-48 proxy tag before the trust
+	// gate, in every gate mode. NostrMash indexes Nostr-native content.
+	DropBridged bool
 }
 
 // IngestorConfig owns ingestor runtime configuration plus shared settings.
@@ -141,6 +144,7 @@ func LoadIngestor() (IngestorConfig, error) {
 		Runtime: IngestorRuntimeConfig{
 			Mode:           strings.ToLower(strings.TrimSpace(getEnv("INGESTOR_MODE", "live"))),
 			DedupCacheSize: dedupCacheSize,
+			DropBridged:    getEnvBool("INGESTOR_DROP_BRIDGED", true),
 		},
 		Relay: RelayConfig{
 			URLs:           parseCSVEnv("INGESTOR_RELAY_URLS"),

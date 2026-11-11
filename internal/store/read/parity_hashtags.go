@@ -22,8 +22,8 @@ func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, la
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
+	if limit > discoveryReadLimit {
+		limit = discoveryReadLimit
 	}
 	if offset < 0 {
 		offset = 0
@@ -31,8 +31,7 @@ func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, la
 
 	minCreatedAt := time.Now().UTC().Add(-window).Unix()
 	args := []any{minCreatedAt, limit, offset}
-	bridge := nativeEventFilter(ctx, "event_hashtags.event_id")
-	query := fmt.Sprintf(`
+	query := `
 		SELECT
 			hashtag,
 			COUNT(*) AS event_count,
@@ -40,7 +39,6 @@ func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, la
 		FROM event_hashtags
 		WHERE created_at >= $1
 		  AND hashtag !~ '^[0-9]+$'
-		  %s
 		GROUP BY hashtag
 		ORDER BY
 			unique_authors DESC,
@@ -48,10 +46,10 @@ func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, la
 			event_count DESC,
 			hashtag ASC
 		LIMIT $2 OFFSET $3
-	`, bridge)
+	`
 	if lang != "" {
 		args = append(args, lang)
-		query = fmt.Sprintf(`
+		query = `
 		SELECT
 			event_hashtags.hashtag,
 			COUNT(*) AS event_count,
@@ -60,8 +58,7 @@ func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, la
 		JOIN note_discovery_stats nds ON nds.event_id = event_hashtags.event_id
 		WHERE event_hashtags.created_at >= $1
 		  AND event_hashtags.hashtag !~ '^[0-9]+$'
-		  AND `+languagelabel.FilterSQL("nds", "$4::text")+`
-		  %s
+		  AND ` + languagelabel.FilterSQL("nds", "$4::text") + `
 		GROUP BY event_hashtags.hashtag
 		ORDER BY
 			unique_authors DESC,
@@ -69,7 +66,7 @@ func (s *Read) GetTrendingHashtags(ctx context.Context, window time.Duration, la
 			event_count DESC,
 			event_hashtags.hashtag ASC
 		LIMIT $2 OFFSET $3
-	`, bridge)
+	`
 	}
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {

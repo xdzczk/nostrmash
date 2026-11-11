@@ -42,13 +42,14 @@ const (
 )
 
 type DiscoveryCacheOptions struct {
-	Enabled        *bool
-	MaxEntries     int
-	BundleTTL      time.Duration
-	DiscoveryTTL   time.Duration
-	PublicStatsTTL time.Duration
-	SuggestionTTL  time.Duration
-	RelatedTTL     time.Duration
+	Enabled         *bool
+	MaxEntries      int
+	BundleTTL       time.Duration
+	DiscoveryTTL    time.Duration
+	PublicStatsTTL  time.Duration
+	SuggestionTTL   time.Duration
+	RelatedTTL      time.Duration
+	PersonalizedTTL time.Duration
 
 	// Backward-compatible aliases. Prefer family-based TTL fields above.
 	TrendingTTL time.Duration
@@ -56,24 +57,26 @@ type DiscoveryCacheOptions struct {
 }
 
 type discoveryCacheConfig struct {
-	Enabled        bool
-	MaxEntries     int
-	BundleTTL      time.Duration
-	DiscoveryTTL   time.Duration
-	PublicStatsTTL time.Duration
-	SuggestionTTL  time.Duration
-	RelatedTTL     time.Duration
+	Enabled         bool
+	MaxEntries      int
+	BundleTTL       time.Duration
+	DiscoveryTTL    time.Duration
+	PublicStatsTTL  time.Duration
+	SuggestionTTL   time.Duration
+	RelatedTTL      time.Duration
+	PersonalizedTTL time.Duration
 }
 
 func defaultDiscoveryCacheConfig() discoveryCacheConfig {
 	return discoveryCacheConfig{
-		Enabled:        true,
-		MaxEntries:     defaultDiscoveryCacheMaxEntries,
-		BundleTTL:      defaultDiscoveryBundleTTL,
-		DiscoveryTTL:   defaultDiscoveryDiscoveryTTL,
-		PublicStatsTTL: defaultDiscoveryPublicStatsTTL,
-		SuggestionTTL:  defaultDiscoverySuggestionTTL,
-		RelatedTTL:     defaultDiscoveryRelatedTTL,
+		Enabled:         true,
+		MaxEntries:      defaultDiscoveryCacheMaxEntries,
+		BundleTTL:       defaultDiscoveryBundleTTL,
+		DiscoveryTTL:    defaultDiscoveryDiscoveryTTL,
+		PublicStatsTTL:  defaultDiscoveryPublicStatsTTL,
+		SuggestionTTL:   defaultDiscoverySuggestionTTL,
+		RelatedTTL:      defaultDiscoveryRelatedTTL,
+		PersonalizedTTL: 3 * time.Minute,
 	}
 }
 
@@ -105,6 +108,9 @@ func (c discoveryCacheConfig) withOverrides(overrides DiscoveryCacheOptions) dis
 	if overrides.RelatedTTL > 0 {
 		out.RelatedTTL = overrides.RelatedTTL
 	}
+	if overrides.PersonalizedTTL > 0 {
+		out.PersonalizedTTL = overrides.PersonalizedTTL
+	}
 	if overrides.PublicStatsTTL > 0 {
 		out.PublicStatsTTL = overrides.PublicStatsTTL
 	}
@@ -114,11 +120,12 @@ func (c discoveryCacheConfig) withOverrides(overrides DiscoveryCacheOptions) dis
 type publicCacheFamily string
 
 const (
-	publicCacheFamilyBundle     publicCacheFamily = "bundle"
-	publicCacheFamilyDiscovery  publicCacheFamily = "discovery"
-	publicCacheFamilyStats      publicCacheFamily = "stats"
-	publicCacheFamilySuggestion publicCacheFamily = "suggestion"
-	publicCacheFamilyRelated    publicCacheFamily = "related"
+	publicCacheFamilyBundle       publicCacheFamily = "bundle"
+	publicCacheFamilyDiscovery    publicCacheFamily = "discovery"
+	publicCacheFamilyStats        publicCacheFamily = "stats"
+	publicCacheFamilySuggestion   publicCacheFamily = "suggestion"
+	publicCacheFamilyRelated      publicCacheFamily = "related"
+	publicCacheFamilyPersonalized publicCacheFamily = "personalized"
 )
 
 func (c discoveryCacheConfig) ttlForFamily(family publicCacheFamily) time.Duration {
@@ -131,6 +138,8 @@ func (c discoveryCacheConfig) ttlForFamily(family publicCacheFamily) time.Durati
 		return c.SuggestionTTL
 	case publicCacheFamilyRelated:
 		return c.RelatedTTL
+	case publicCacheFamilyPersonalized:
+		return c.PersonalizedTTL
 	case publicCacheFamilyDiscovery:
 		fallthrough
 	default:
@@ -273,16 +282,32 @@ func (c *discoveryResponseCache) evictOldestLocked() {
 // Entries past their freshness window but within their stale grace period are
 // served immediately (stale-while-revalidate) while a background rebuild is
 // kicked off asynchronously; see refreshStaleAsync.
+func (h Handlers) responseCache(policy publicResponseCachePolicy) *discoveryResponseCache {
+	if policy.family == publicCacheFamilyPersonalized {
+		return h.personalizedCache
+	}
+	return h.discoveryCache
+}
+
 func (h Handlers) servePublicCached(ctx context.Context, w http.ResponseWriter, policy publicResponseCachePolicy, build func(ctx context.Context) (map[string]any, error)) error {
-	if h.discoveryCache == nil {
+	cache := h.responseCache(policy)
+	if cache == nil {
 		payload, err := build(ctx)
 		if err != nil {
 			return err
 		}
+		if policy.family == publicCacheFamilyPersonalized {
+			encoded, marshalErr := json.Marshal(payload)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			h.writeCachedPayload(w, policy, encoded)
+			return nil
+		}
 		writeJSON(w, http.StatusOK, payload)
 		return nil
 	}
-	if payload, fresh, ok := h.discoveryCache.get(policy.key); ok {
+	if payload, fresh, ok := cache.get(policy.key); ok {
 		if h.cacheLookupObserver != nil {
 			h.cacheLookupObserver(string(policy.family), policy.endpoint, true)
 		}
@@ -313,7 +338,7 @@ func (h Handlers) servePublicCached(ctx context.Context, w http.ResponseWriter, 
 // rebuild via the cache's singleflight group, so a burst of requests during
 // the stale window still only triggers one recompute.
 func (h Handlers) refreshStaleAsync(policy publicResponseCachePolicy, build func(ctx context.Context) (map[string]any, error)) {
-	if h.discoveryCache == nil {
+	if h.responseCache(policy) == nil {
 		return
 	}
 	go func() {
@@ -328,9 +353,13 @@ func (h Handlers) refreshStaleAsync(policy publicResponseCachePolicy, build func
 // that arrives after the leader has already populated a fresh cache entry
 // serves the freshly-cached bytes without rebuilding.
 func (h Handlers) buildAndCachePayload(ctx context.Context, policy publicResponseCachePolicy, build func(ctx context.Context) (map[string]any, error)) ([]byte, error) {
+	cache := h.responseCache(policy)
+	if cache == nil {
+		return nil, fmt.Errorf("response cache is not configured")
+	}
 	ttl := h.cacheConfig.ttlForFamily(policy.family)
-	encoded, err, _ := h.discoveryCache.builds.Do(policy.key, func() (any, error) {
-		if payload, fresh, ok := h.discoveryCache.get(policy.key); ok && fresh {
+	encoded, err, _ := cache.builds.Do(policy.key, func() (any, error) {
+		if payload, fresh, ok := cache.get(policy.key); ok && fresh {
 			return payload, nil
 		}
 		payload, buildErr := build(ctx)
@@ -342,7 +371,7 @@ func (h Handlers) buildAndCachePayload(ctx context.Context, policy publicRespons
 			return nil, marshalErr
 		}
 		if ttl > 0 && cacheablePublicPayload(payload) {
-			h.discoveryCache.set(policy.key, bytes, ttl)
+			cache.set(policy.key, bytes, ttl)
 		}
 		return bytes, nil
 	})
@@ -381,9 +410,23 @@ func cacheablePublicPayload(payload map[string]any) bool {
 
 func (h Handlers) writeCachedPayload(w http.ResponseWriter, policy publicResponseCachePolicy, payload []byte) {
 	w.Header().Set("Content-Type", discoveryCacheContentTypeJSONName)
-	setPublicCacheControl(w, h.cacheConfig.ttlForFamily(policy.family))
+	ttl := h.cacheConfig.ttlForFamily(policy.family)
+	if policy.family == publicCacheFamilyPersonalized {
+		setPrivateCacheControl(w, ttl)
+	} else {
+		setPublicCacheControl(w, ttl)
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(payload)
+}
+
+// setPrivateCacheControl keeps a viewer-scoped response out of shared caches.
+// The page is safe to reuse in that one browser for the personalized TTL.
+func setPrivateCacheControl(w http.ResponseWriter, ttl time.Duration) {
+	if ttl <= 0 {
+		ttl = 3 * time.Minute
+	}
+	w.Header().Set("Cache-Control", fmt.Sprintf("private, max-age=%d", int(ttl.Seconds())))
 }
 
 // setPublicCacheControl mirrors the in-process cache policy as HTTP cache

@@ -13,23 +13,6 @@ func discoveryCacheParams(params map[string]any, lang string) map[string]any {
 	return params
 }
 
-func discoveryScope(lang string) query.DiscoveryScope {
-	return query.DiscoveryScope{Language: lang}
-}
-
-func discoveryScopeWithBridge(lang string, excludeBridged bool) query.DiscoveryScope {
-	scope := discoveryScope(lang)
-	scope.ExcludeBridged = excludeBridged
-	return scope
-}
-
-func cacheExcludeBridged(params map[string]any, exclude bool) map[string]any {
-	if exclude {
-		params["exclude_bridged"] = true
-	}
-	return params
-}
-
 // attachDiscoveryLanguage echoes the active language and adds the chart the
 // selector is built from. The chart stays global so a filtered page can still
 // offer the other languages. A chart lookup failure leaves the ranking itself.

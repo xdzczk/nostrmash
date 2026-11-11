@@ -27,6 +27,19 @@ type APIConfig struct {
 	// rebuild uses when it recomputes trusted_follower_count. The count does
 	// not consult TrustWeighted.
 	DiscoveryEngagement WorkerDiscoveryEngagementConfig
+	// Personalized ranks discovery lists toward accounts the viewer follows.
+	Personalized PersonalizedDiscoveryConfig
+}
+
+// PersonalizedDiscoveryConfig controls viewer-scoped discovery rankings.
+// A request without viewer keeps the global list. CohortWeight is how much
+// of the blended score comes from engagement by accounts the viewer follows.
+type PersonalizedDiscoveryConfig struct {
+	Enabled      bool
+	CohortWeight float64
+	MaxFollows   int
+	Candidates   int
+	CacheTTL     time.Duration
 }
 
 type APIHTTPConfig struct {
@@ -44,6 +57,7 @@ type APIHTTPConfig struct {
 	PublicMaxPageOffset         int
 	PublicMaxSearchWindowHrs    int
 	PublicMaxDiscoveryWindowHrs int
+	PersonalizedRateLimitRPM    int
 	AdminBearerToken            string
 }
 
@@ -136,6 +150,10 @@ func LoadAPI() (APIConfig, error) {
 		return APIConfig{}, err
 	}
 	httpPublicStatsRateLimitRPM, err := getEnvPositiveIntStrict("HTTP_PUBLIC_STATS_RATE_LIMIT_RPM", 120)
+	if err != nil {
+		return APIConfig{}, err
+	}
+	httpPersonalizedRateLimitRPM, err := getEnvPositiveIntStrict("HTTP_PERSONALIZED_RATE_LIMIT_RPM", 30)
 	if err != nil {
 		return APIConfig{}, err
 	}
@@ -247,6 +265,10 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	personalized, err := loadPersonalizedDiscoveryConfig()
+	if err != nil {
+		return APIConfig{}, err
+	}
 
 	cfg := APIConfig{
 		Shared: shared,
@@ -265,6 +287,7 @@ func LoadAPI() (APIConfig, error) {
 			PublicMaxPageOffset:         publicMaxPageOffset,
 			PublicMaxSearchWindowHrs:    publicMaxSearchWindowHours,
 			PublicMaxDiscoveryWindowHrs: publicMaxDiscoveryWindowHours,
+			PersonalizedRateLimitRPM:    httpPersonalizedRateLimitRPM,
 			AdminBearerToken:            strings.TrimSpace(getEnv("ADMIN_BEARER_TOKEN", "")),
 		},
 		PrimalWS: APIPrimalWSConfig{
@@ -319,6 +342,7 @@ func LoadAPI() (APIConfig, error) {
 			KeyPrefix: strings.TrimSpace(getEnv("TRUST_REDIS_KEY_PREFIX", "nostrmash")),
 		},
 		RelayCatalogFreshness: relayCatalogFreshness,
+		Personalized:          personalized,
 	}
 	if cfg.Meilisearch.SearchAPIKey == "" {
 		cfg.Meilisearch.SearchAPIKey = cfg.Meilisearch.MasterKey
@@ -406,4 +430,33 @@ func normalizeFallbackRelayURLs(urls []string) ([]string, error) {
 		out = append(out, normalized)
 	}
 	return out, nil
+}
+
+func loadPersonalizedDiscoveryConfig() (PersonalizedDiscoveryConfig, error) {
+	weight, err := getEnvNonNegativeFloat64Strict("DISCOVERY_PERSONALIZED_COHORT_WEIGHT", 0.85)
+	if err != nil {
+		return PersonalizedDiscoveryConfig{}, err
+	}
+	if weight <= 0 || weight > 1 {
+		return PersonalizedDiscoveryConfig{}, fmt.Errorf("DISCOVERY_PERSONALIZED_COHORT_WEIGHT must be greater than 0 and at most 1")
+	}
+	maxFollows, err := getEnvPositiveIntStrict("DISCOVERY_PERSONALIZED_MAX_FOLLOWS", 2000)
+	if err != nil {
+		return PersonalizedDiscoveryConfig{}, err
+	}
+	candidates, err := getEnvPositiveIntStrict("DISCOVERY_PERSONALIZED_CANDIDATES", 300)
+	if err != nil {
+		return PersonalizedDiscoveryConfig{}, err
+	}
+	cacheTTL, err := getEnvPositiveDurationStrict("DISCOVERY_PERSONALIZED_CACHE_TTL", 3*time.Minute)
+	if err != nil {
+		return PersonalizedDiscoveryConfig{}, err
+	}
+	return PersonalizedDiscoveryConfig{
+		Enabled:      getEnvBool("DISCOVERY_PERSONALIZED_ENABLED", true),
+		CohortWeight: weight,
+		MaxFollows:   maxFollows,
+		Candidates:   candidates,
+		CacheTTL:     cacheTTL,
+	}, nil
 }

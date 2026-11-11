@@ -99,6 +99,13 @@ func ParseEventAttributes(eventID string, tags [][]string) EventAttributes {
 	return out
 }
 
+// Bridged reports whether the event carries a NIP-48 proxy tag, meaning it
+// was copied in from another network. A proxy tag with no protocol still
+// counts: the tag itself is the claim of a non-Nostr origin.
+func (a EventAttributes) Bridged() bool {
+	return a.ProxyID != "" || a.ProxyProtocol != ""
+}
+
 // Expired reports whether a NIP-40 expiration is already in the past.
 func (a EventAttributes) Expired(nowUnix int64) bool {
 	return a.ExpiresAt != nil && *a.ExpiresAt <= nowUnix

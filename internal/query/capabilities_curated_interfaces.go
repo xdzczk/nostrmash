@@ -178,3 +178,24 @@ type pubkeyByLNAddressCapability interface {
 type groupedNoteAnalyticsCapability interface {
 	GetGroupedNoteAnalytics(ctx context.Context, req readmodel.GroupedNoteAnalyticsQuery) (readmodel.GroupedNoteAnalyticsProjection, error)
 }
+
+// followedPubkeysCapability lists the accounts one pubkey follows, most
+// trusted first, so a truncated cohort keeps the strongest follows.
+type followedPubkeysCapability interface {
+	ListFollowedPubkeys(ctx context.Context, viewer string, limit int) ([]string, error)
+}
+
+// personalizedCohortCapability aggregates engagement from one follow list.
+// A reader implements the whole surface or none of it.
+type personalizedCohortCapability interface {
+	GetCohortTrendingNotes(ctx context.Context, follows []string, kinds []int, window time.Duration, lang string, limit int) ([]readmodel.CohortNote, error)
+	GetCohortHotConversations(ctx context.Context, follows []string, window time.Duration, lang string, limit int) ([]readmodel.CohortConversation, error)
+	GetCohortZappedNotes(ctx context.Context, follows []string, window time.Duration, lang string, limit int) ([]readmodel.CohortNote, error)
+	GetCohortBookmarkedNotes(ctx context.Context, follows []string, lang string, limit int) ([]readmodel.CohortNote, error)
+	GetCohortFollowedProfiles(ctx context.Context, viewer string, follows []string, limit int) ([]readmodel.CohortProfile, error)
+	GetCohortSupportedProfiles(ctx context.Context, follows []string, window time.Duration, senderCap int64, limit int) ([]readmodel.CohortProfile, error)
+	GetCohortTrendingProfiles(ctx context.Context, follows []string, window time.Duration, lang string, limit int) ([]readmodel.CohortProfile, error)
+	GetCohortRisingProfiles(ctx context.Context, viewer string, follows []string, window time.Duration, lang string, limit int) ([]readmodel.CohortProfile, error)
+	GetCohortTrendingHashtags(ctx context.Context, follows []string, window time.Duration, lang string, limit int) ([]readmodel.TrendingHashtag, error)
+	GetCohortTrendingDomains(ctx context.Context, follows []string, window time.Duration, lang string, limit int) ([]readmodel.CohortDomain, error)
+}

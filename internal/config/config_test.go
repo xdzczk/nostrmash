@@ -374,6 +374,7 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 		t.Fatalf("unexpected api defaults: %#v", cfg.HTTP)
 	}
 	if cfg.HTTP.DiscoveryRateLimitRPM != 90 ||
+		cfg.HTTP.PersonalizedRateLimitRPM != 30 ||
 		cfg.HTTP.SuggestRateLimitRPM != 120 ||
 		cfg.HTTP.PublicStatsRateLimitRPM != 120 ||
 		cfg.HTTP.PublicMaxResultLimit != 100 ||
@@ -397,6 +398,11 @@ func TestLoadAPI_DefaultsAndEnv(t *testing.T) {
 	}
 	if cfg.RelayCatalogFreshness != time.Hour {
 		t.Fatalf("expected relay catalog freshness default 1h, got %s", cfg.RelayCatalogFreshness)
+	}
+	if !cfg.Personalized.Enabled || cfg.Personalized.CohortWeight != 0.85 ||
+		cfg.Personalized.MaxFollows != 2000 || cfg.Personalized.Candidates != 300 ||
+		cfg.Personalized.CacheTTL != 3*time.Minute {
+		t.Fatalf("unexpected personalized discovery defaults: %#v", cfg.Personalized)
 	}
 	if !cfg.DiscoveryCache.Enabled || cfg.DiscoveryCache.MaxEntries != 256 ||
 		cfg.DiscoveryCache.BundleTTL != 5*time.Minute ||

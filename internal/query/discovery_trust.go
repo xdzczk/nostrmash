@@ -130,7 +130,7 @@ func (s Service) getTrendingTrustAware(
 	plain plainTrendingFetch,
 	tq trustQualifiedTrendingFetch,
 ) ([]TrendingNote, error) {
-	limit, offset = normalizeDiscoveryPage(limit, offset, 20, 100)
+	limit, offset = normalizeDiscoveryPage(limit, offset, 20, 500)
 	target := limit + offset
 	candidates, err := s.collectTrustedTrending(ctx, window, lang, target, target*4, plain, tq)
 	if err != nil {
@@ -151,7 +151,7 @@ func (s Service) getTrendingProfilesTrustAware(
 	if fetch == nil {
 		return nil, unsupportedCapabilityError("profile discovery")
 	}
-	limit, offset = normalizeDiscoveryPage(limit, offset, 20, 100)
+	limit, offset = normalizeDiscoveryPage(limit, offset, 20, 500)
 	target := limit + offset
 	candidates, err := s.collectTrustedTrendingProfiles(ctx, fetch, rising, window, lang, target, target*4)
 	if err != nil {
@@ -161,7 +161,7 @@ func (s Service) getTrendingProfilesTrustAware(
 }
 
 func (s Service) getTrendingHashtagsTrustAware(ctx context.Context, window time.Duration, lang string, limit int, offset int) ([]TrendingHashtag, error) {
-	limit, offset = normalizeDiscoveryPage(limit, offset, 50, 100)
+	limit, offset = normalizeDiscoveryPage(limit, offset, 50, 500)
 	target := limit + offset
 	// Hashtags are derived from trust-qualified note candidates.
 	notes, err := s.collectTrustedTrendingNotes(ctx, window, lang, target*20, target*40)

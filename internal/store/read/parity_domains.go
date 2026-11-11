@@ -179,8 +179,8 @@ func (s *Read) GetTrendingDomains(
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
+	if limit > discoveryReadLimit {
+		limit = discoveryReadLimit
 	}
 	if offset < 0 {
 		offset = 0
@@ -212,7 +212,6 @@ func (s *Read) GetTrendingDomains(
 		WHERE event_urls.created_at >= $3
 		  AND %s
 		  %s
-		  %s
 		GROUP BY event_urls.canonical_domain
 		ORDER BY
 			COUNT(DISTINCT event_urls.author_pubkey) FILTER (WHERE event_urls.created_at >= $3) DESC,
@@ -222,7 +221,7 @@ func (s *Read) GetTrendingDomains(
 			COUNT(*) FILTER (WHERE event_urls.created_at >= $3) DESC,
 			event_urls.canonical_domain ASC
 		LIMIT $4 OFFSET $5
-	`, languageJoin, domainMediaURLFilterClause, languageClause, nativeEventFilter(ctx, "event_urls.event_id"))
+	`, languageJoin, domainMediaURLFilterClause, languageClause)
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get trending domains: %w", err)

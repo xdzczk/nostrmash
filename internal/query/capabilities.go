@@ -67,6 +67,8 @@ type curatedCapabilities struct {
 	creatorPaidTiers       creatorPaidTiersCapability
 	pubkeyByLNAddress      pubkeyByLNAddressCapability
 	groupedNoteAnalytics   groupedNoteAnalyticsCapability
+	followedPubkeys        followedPubkeysCapability
+	personalizedCohort     personalizedCohortCapability
 }
 
 type trustCapabilities struct {

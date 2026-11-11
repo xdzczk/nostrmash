@@ -154,6 +154,10 @@ type TrendingHashtag struct {
 	Hashtag       string `json:"hashtag"`
 	EventCount    int64  `json:"event_count"`
 	UniqueAuthors int64  `json:"unique_authors"`
+	// CohortEvidence is how many of the viewer's follows used the hashtag.
+	// BlendScore is the normalized mix of that cohort with the global list.
+	CohortEvidence float64 `json:"-"`
+	BlendScore     float64 `json:"-"`
 }
 
 type HashtagActivity struct {
@@ -207,11 +211,13 @@ type DomainActivityStats struct {
 }
 
 type DomainSummary struct {
-	Domain        string              `json:"domain"`
-	LatestEventAt *int64              `json:"latest_event_at,omitempty"`
-	Activity      DomainActivityStats `json:"activity"`
-	RecentNotes   []TrendingNote      `json:"recent_notes"`
-	TopNotes      []TrendingNote      `json:"top_notes"`
+	Domain         string              `json:"domain"`
+	LatestEventAt  *int64              `json:"latest_event_at,omitempty"`
+	Activity       DomainActivityStats `json:"activity"`
+	RecentNotes    []TrendingNote      `json:"recent_notes"`
+	TopNotes       []TrendingNote      `json:"top_notes"`
+	CohortEvidence float64             `json:"-"`
+	BlendScore     float64             `json:"-"`
 }
 
 type TrendingNote struct {
@@ -228,6 +234,9 @@ type TrendingNote struct {
 	ZapMSats      int64   `json:"zap_msats"`
 	BookmarkCount int64   `json:"bookmark_count,omitempty"`
 	Score         float64 `json:"score"`
+	// CohortEvidence is engagement from accounts the viewer follows.
+	// Zero on a global ranking.
+	CohortEvidence float64 `json:"-"`
 }
 
 type DiscoveryEvidence struct {
@@ -275,6 +284,8 @@ type HotConversation struct {
 	Replies30d       int64   `json:"replies_30d"`
 	VelocityScore    float64 `json:"velocity_score"`
 	Consistency      string  `json:"consistency"`
+	CohortEvidence   float64 `json:"-"`
+	BlendScore       float64 `json:"-"`
 }
 
 type TrendingProfile struct {
@@ -300,6 +311,10 @@ type TrendingProfile struct {
 	SupporterCount           int64    `json:"-"`
 	RawSats                  int64    `json:"-"`
 	CappedSats               int64    `json:"-"`
+	CohortEvidence           float64  `json:"-"`
+	// ViewerFollows reports that this profile is already on the viewer's
+	// contact list. The most-followed ranking keeps those rows.
+	ViewerFollows bool `json:"-"`
 }
 
 type RelatedProfile struct {

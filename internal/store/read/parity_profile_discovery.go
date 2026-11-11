@@ -453,8 +453,8 @@ func (s *Read) getProfileDiscoveryRows(
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
+	if limit > discoveryReadLimit {
+		limit = discoveryReadLimit
 	}
 	if offset < 0 {
 		offset = 0
@@ -517,10 +517,9 @@ func (s *Read) getProfileDiscoveryRows(
 		  )
 		  %s
 		  %s
-		  %s
 		ORDER BY score DESC, recent_engagement_received DESC, recent_activity_at DESC, pubkey ASC
 		LIMIT $2 OFFSET $3
-	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, scoreColumn, rootNoteClause, langClause, profileBridgeFilter(ctx))
+	`, scoreColumn, scoredEngagementCol, scoredFollowersCol, scoreColumn, rootNoteClause, langClause)
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get profile discovery rows: %w", err)

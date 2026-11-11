@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xdzczk/nostrmash/internal/discoveryctx"
 	"github.com/xdzczk/nostrmash/internal/domainnorm"
 )
 
@@ -109,23 +108,21 @@ func (s Service) GetTrendingDomains(
 	limit int,
 	offset int,
 ) ([]DomainSummary, error) {
-	ctx = discoveryctx.WithExcludeBridged(ctx, scope.ExcludeBridged)
 	if window <= 0 {
 		return nil, fmt.Errorf("window must be positive")
 	}
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
+	if limit > 500 {
+		limit = 500
 	}
 	if offset < 0 {
 		offset = 0
 	}
 	// 24h, 7d, and 30d are the windows the overview and the links tab
 	// request. Serve the same trust-filtered snapshot the homepage uses so
-	// the two surfaces rank the same domains, including when the caller
-	// sets exclude_bridged. The live COUNT(DISTINCT) over event_urls is
+	// the two surfaces rank the same domains. The live COUNT(DISTINCT) over event_urls is
 	// what times out under load; the snapshot is already limited to
 	// trusted authors. The live aggregate stays available for other windows.
 	if isFixedDiscoveryWindow(window) {

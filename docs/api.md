@@ -114,7 +114,7 @@ Representative implemented native routes include:
 - `GET /api/v1/search/profiles`
 - `GET /api/v1/search/suggest`
 - `GET /api/v1/discovery/home`
-- `GET /api/v1/discovery/notes/trending` (`exclude_bridged=true` drops events with a non-empty NIP-48 proxy; the same flag is accepted on long-form, media, hashtag, domain, and profile trending)
+- `GET /api/v1/discovery/notes/trending`
 - `GET /api/v1/discovery/notes/bookmarked` (kind 1 and kind 30023, current public saves, no time window)
 - `GET /api/v1/discovery/notes/zapped` (sats received in the window; default `7d`)
 - `GET /api/v1/discovery/long-form/trending`
@@ -148,6 +148,25 @@ Representative implemented native routes include:
 Most bookmarked notes (`/discovery/notes/bookmarked`) count distinct people who currently include the note on a public kind-10003 list or kind-30003 bookmark set. The author does not count. The response `window` is `all`. Most zapped notes (`/discovery/notes/zapped`) rank root notes and articles published inside `24h`, `7d` (the default), or `30d` by sats other people zapped onto them during that same window. A note older than the window stays off that list. The worker rewrites that table every few minutes. Most followed profiles (`/discovery/profiles/followed`) order accounts that have a profile by follows from the published trust graph (`trusted_follower_count`), including dormant accounts and accounts under 1000 raw followers, and ignore `lang`. `window` is `all`. `follower_count` is everyone on a latest contact list. `score` and the `reasons[0]` evidence value are the trust-graph count; the reason code stays `audience_size` and the unit stays `followers`. A trusted count of zero does not rank. Most supported profiles (`/discovery/profiles/supported`) order by sats received in the window after each sender is capped at 100000 sats (`sender_cap_sats`). The default window is `30d`. `sats_received` is the uncapped total and `supporter_count` is the number of senders. That list ignores `lang` and is refreshed with the zapped notes.
 
 Those discovery rankings take an optional `lang` query parameter. Omit it to rank every language. A value is a lowercase 2–8 letter code, `und`, or `und-uncertain`. Responses echo `language` and include a global `top_languages` chart (`24h`, `7d`, and `30d`) for the selector, except most-followed and most-supported profiles, which stay global. Each window lists the 15 highest real language codes, plus `und` and `und-uncertain` when those buckets have notes. Notes, long-form, media, conversations, trending and rising profiles, hashtags, domains, and the home bundle all honor the filter. Bookmarked and zapped notes honor it too. Media trending also requires `format`. Pictures (kind 20), videos (kinds 21 and 34235), and shorts (kinds 22 and 34236) are ranked and cached separately, using the same note discovery score. A missing or unknown format is 400.
+
+### Personalized view
+
+The same ranking routes, including `GET /api/v1/discovery/home`, take an optional `viewer` query parameter. The value is a hex pubkey or an `npub`. There is no login: contact lists are already public. An invalid value is 400. When `DISCOVERY_PERSONALIZED_ENABLED` is false, a valid viewer is ignored and the response matches the global ranking.
+
+The cohort is the accounts that viewer follows, one hop. A list longer than `DISCOVERY_PERSONALIZED_MAX_FOLLOWS` (default 2000) keeps the most trusted follows, ordered by `trust_pubkeys_latest.rank`, and sets `follows_truncated`. Each surface scores that cohort from the engagement those accounts already produced (reactions, reposts, replies, zaps, bookmarks, follows, support, hashtags, and link domains), then mixes it with the global score. Both sides are divided by their own maximum in the candidate set, then combined as `cohort_weight * cohort + (1 - cohort_weight) * global`. The default weight is 0.85 (`DISCOVERY_PERSONALIZED_COHORT_WEIGHT`). The candidate pool is the top `DISCOVERY_PERSONALIZED_CANDIDATES` rows from each side (default 300). Sort is the blended score, then how much of the cohort touched the row, then a stable id. `offset` on a viewer request is capped at 500.
+
+The response adds `personalization`:
+
+- `viewer` is the canonical hex pubkey
+- `source` is `personalized` when the viewer follows anyone in the cap, or `global_fallback` when the follow list is empty
+- `follow_count` and `follows_truncated` describe the cohort that was used
+- `cohort_weight` is the mix above
+
+A failed follow-list lookup does not use `global_fallback`. The homepage degrades a `viewer_cohort` section and serves the global lists without claiming they were personalized. The homepage network summary stays global either way. Hashtags on the homepage stay the global snapshot; the hashtag ranking route itself is personalized.
+
+Ranking `score` on notes, trending profiles, rising profiles, most followed, most supported, bookmarks, and zaps is the blended score, so the order matches the number. Raw counts stay on their own fields (`bookmark_count`, `trusted_follower_count`, `capped_sats`, and the rest). Hashtags, domains, and hot conversations keep their displayed counts and velocity, and put the blend on `ranking.score`. A personalized row also gains a reason such as `followed_engagers`, `followed_zappers`, `followed_savers`, `followed_replies`, `followed_by`, `followed_supporters`, or `followed_authors`. Most followed keeps profiles the viewer already follows and sets `viewer_follows` on them. The viewer is left off the followed and rising lists.
+
+Viewer responses use a separate in-process cache from the shared global pages, so one viewer's entries cannot evict the public lists. `Cache-Control` is `private`. The homepage warmer does not prebuild viewer variants. Requests that send `viewer` use the `HTTP_PERSONALIZED_RATE_LIMIT_RPM` bucket (default 30) instead of the shared discovery bucket.
 
 Compatibility aliases also exist for `GET /api/v1/discovery/network/stats` and `GET /api/v1/discovery/content/stats`.
 

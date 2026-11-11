@@ -76,6 +76,11 @@ type Processor struct {
 	// blocked author is dropped regardless of gate mode.
 	blockedAuthors BlockedAuthors
 
+	// dropBridged drops every event that carries a NIP-48 proxy tag before
+	// the trust gate, in any gate mode. The index is Nostr-native content;
+	// copies from ActivityPub, RSS, or other networks are out of scope.
+	dropBridged bool
+
 	// observationSink (optional) records that a pubkey was seen at ingest
 	// (including gated/blocked events). Must be cheap and non-blocking.
 	observationSink ObservationSink
@@ -161,6 +166,17 @@ func (p *Processor) SetBlockedAuthors(blocked BlockedAuthors) {
 	p.blockedAuthors = blocked
 }
 
+// SetDropBridged controls whether events with a NIP-48 proxy tag are dropped
+// at ingest. The drop is a scope rule, not a trust rule: it applies in both
+// gate modes, like the blocked-author drop, and the author is not observed,
+// so a bridged account never gains an account_states row.
+func (p *Processor) SetDropBridged(enabled bool) {
+	if p == nil {
+		return
+	}
+	p.dropBridged = enabled
+}
+
 // SetObservationSink wires an optional, non-blocking observation accounting
 // sink. When set, every valid event's author is recorded (including gated and
 // blocked events) so account promotion can be signal-driven.
@@ -239,6 +255,30 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 	}
 	result := nostr.ParseAndValidate(payload, p.validateOpts)
 	if result.Valid() {
+		attrs := nostr.ParseEventAttributes(result.Event.ID, result.Event.Tags)
+		if p.dropBridged && attrs.Bridged() {
+			p.gatedCount.Add(1)
+			metrics.IncIngestGateDecision(gateKindLabel(result.Event.Kind), gateDecisionRejectBridged)
+			metrics.IncIngestOutcome("bridged")
+			p.log.Debug(
+				"ingest_event_bridged",
+				"relay_url", relayURL,
+				"event_id", result.Event.ID,
+				"kind", result.Event.Kind,
+				"protocol", attrs.ProxyProtocol,
+			)
+			if p.checkpointWriter != nil {
+				if err := p.checkpointWriter.MarkEventProcessed(
+					ctx,
+					relayURL,
+					result.Event.ID,
+					result.Event.CreatedAt,
+				); err != nil {
+					return fmt.Errorf("persist live checkpoint (bridged): %w", err)
+				}
+			}
+			return nil
+		}
 		// Kind 1059 is signed by a fresh key. Recording that key creates an
 		// account_states row per wrap and is what a gift-wrap flood uses
 		// to grow the account table. The trusted recipient is already known.
@@ -311,7 +351,7 @@ func (p *Processor) Handle(ctx context.Context, relayURL string, payload []byte)
 				return nil
 			}
 		}
-		if nostr.ParseEventAttributes(result.Event.ID, result.Event.Tags).Expired(seenAt.Unix()) {
+		if attrs.Expired(seenAt.Unix()) {
 			metrics.IncIngestOutcome("expired")
 			p.log.Debug(
 				"ingest_event_expired",

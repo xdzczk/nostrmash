@@ -21,12 +21,17 @@ const rankedProfileExistsSQL = `
 			)
 		  )`
 
+// discoveryReadLimit is the most rows a discovery read returns. Public
+// handlers ask for at most 100. Viewer-scoped ranking loads a larger
+// candidate pool (default 300) before it blends and pages.
+const discoveryReadLimit = 500
+
 func clampRankPage(limit, offset int) (int, int) {
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
+	if limit > discoveryReadLimit {
+		limit = discoveryReadLimit
 	}
 	if offset < 0 {
 		offset = 0

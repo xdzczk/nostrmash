@@ -28,11 +28,17 @@ Do not hand-edit this file.
 | `DATABASE_MAX_CONNS` | `api, ingestor, trust_worker, worker` | optional | `per-service (api 32, worker 16, ingestor 8, trust_worker 8)` | Override pgxpool max connections. Precedence: this env var (when > 0) > pool_max_conns in DATABASE_URL > per-service default. Explicit values are clamped to a per-service ceiling (api 32, worker 24, ingestor 12, trust_worker 12) so the binaries cannot collectively exceed Postgres max_connections. When unset and the DSN omits pool_max_conns, a safe per-service default is applied instead of the pgx default of 4, which is dangerously low: the API deadlocks under mixed WS+API load, and worker sweeper goroutines (author_analytics, profile_stats, meilisearch) monopolize all connections and block bundle workers indefinitely. |
 | `DATABASE_URL` | `api, ingestor, trust_worker, worker` | required | `-` | PostgreSQL connection string. |
 | `DEBUG_ADDR` | `api, trust_worker, worker` | optional | `-` | Optional debug/pprof listen address. Leave empty by default; prefer localhost binding. |
+| `DISCOVERY_PERSONALIZED_CACHE_TTL` | `api` | optional | `3m0s` | TTL for viewer-scoped discovery responses. These entries live in a separate cache from the shared public rankings and are sent with Cache-Control: private. |
+| `DISCOVERY_PERSONALIZED_CANDIDATES` | `api` | optional | `300` | How many cohort rows and how many global rows are loaded before a viewer-scoped ranking is blended and paged. |
+| `DISCOVERY_PERSONALIZED_COHORT_WEIGHT` | `api` | optional | `0.85` | Share of a viewer-scoped discovery score taken from engagement by accounts the viewer follows. The rest is the normalized global score. Must be greater than 0 and at most 1. |
+| `DISCOVERY_PERSONALIZED_ENABLED` | `api` | optional | `true` | Enable viewer-scoped discovery rankings. When false, a viewer parameter is ignored and every list stays global. |
+| `DISCOVERY_PERSONALIZED_MAX_FOLLOWS` | `api` | optional | `2000` | Maximum follow-list size used as the cohort for viewer-scoped discovery. Larger lists keep the most trusted follows and set follows_truncated. |
 | `ENVIRONMENT` | `api, ingestor, trust_worker, worker` | optional | `development` | Deployment environment label. |
 | `HTTP_ADDR` | `api` | optional | `:8080` | HTTP listen address for the API server. |
 | `HTTP_BATCH_RATE_LIMIT_RPM` | `api` | optional | `40` | Per-IP requests per minute for HTTP batch endpoints. |
 | `HTTP_DISCOVERY_RATE_LIMIT_RPM` | `api` | optional | `90` | Per-IP requests per minute for public discovery endpoints. |
 | `HTTP_DM_COMPAT_RATE_LIMIT_RPM` | `api` | optional | `30` | Per-connection requests per minute for DM compatibility calls on the Primal WebSocket gateway. |
+| `HTTP_PERSONALIZED_RATE_LIMIT_RPM` | `api` | optional | `30` | Per-client request rate for discovery reads that carry a viewer parameter. Stricter than HTTP_DISCOVERY_RATE_LIMIT_RPM because each response is computed for one follow list. |
 | `HTTP_PUBLIC_MAX_DISCOVERY_WINDOW_HOURS` | `api` | optional | `720` | Maximum discovery/public stats window size in hours for guarded query params. |
 | `HTTP_PUBLIC_MAX_PAGE_OFFSET` | `api` | optional | `5000` | Maximum offset accepted by guarded public pagination endpoints. |
 | `HTTP_PUBLIC_MAX_PAGE_SIZE` | `api` | optional | `100` | Maximum page size accepted by guarded public pagination endpoints. |
@@ -79,6 +85,7 @@ Do not hand-edit this file.
 | `INGESTOR_CONTACT_CRAWL_SEED_BATCH` | `ingestor` | optional | `200` | Hop-0 pubkeys queued per contact-list crawl cycle. Active trust seeds are queued first, then note authors who have no contact list yet. |
 | `INGESTOR_CONTACT_CRAWL_SEED_RESCAN_INTERVAL` | `ingestor` | optional | `6h` | After one full pass of profile_public_stats, wait this long before scanning for new authors again. |
 | `INGESTOR_DEDUP_CACHE_SIZE` | `ingestor` | optional | `100000` | Entries in the in-memory duplicate short-circuit cache; repeat relay sightings of already-persisted events skip validation and the canonical insert (a provenance upsert still runs). 0 disables. |
+| `INGESTOR_DROP_BRIDGED` | `ingestor` | optional | `true` | Drop every event that carries a NIP-48 proxy tag (content copied in from ActivityPub, RSS, or another network) before the trust gate, in every gate mode. The author is not observed and nothing is stored; the drop is counted as nostrmash_ingest_gate_decisions_total{decision="reject_bridged"}. |
 | `INGESTOR_FILTER_GROUP` | `ingestor` | optional | `default_v1` | Active relay filter group name. |
 | `INGESTOR_FILTER_GROUPS_JSON` | `ingestor` | optional | `-` | Optional JSON map of relay filter groups; `default_v1` remains required and must keep the built-in live-ingest kind set. |
 | `INGESTOR_GIFT_WRAP_RECIPIENT_PER_HOUR` | `ingestor` | optional | `240` | Maximum kind-1059 gift wraps accepted for one trusted p-tag recipient per hour. Further wraps for that recipient are dropped in both open and trusted_only mode. A non-positive value falls back to this default. |
@@ -267,6 +274,10 @@ Do not hand-edit this file.
 | `WORKER_RETENTION_AUTHOR_RECENT_MAX_AGE` | `worker` | optional | `2160h0m0s` | Age (by event created_at) beyond which author_recent_events rows are pruned. |
 | `WORKER_RETENTION_AUTHOR_RECENT_PER_AUTHOR_CAP` | `worker` | optional | `200` | Maximum author_recent_events rows retained per author (newest first). Must be >= 100 because the API serves up to 100 recent events per request. |
 | `WORKER_RETENTION_AUTHOR_RECENT_RUN_INTERVAL` | `worker` | optional | `6h0m0s` | How often the author_recent_events retention loop runs. |
+| `WORKER_RETENTION_BRIDGED_BATCH_PAUSE` | `worker` | optional | `2s` | Pause between consecutive full batches while the bridged backlog is draining. |
+| `WORKER_RETENTION_BRIDGED_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum bridged events deleted per purge batch. |
+| `WORKER_RETENTION_BRIDGED_ENABLED` | `worker` | optional | `true` | Delete stored events that carry a NIP-48 proxy tag (content copied in from another network). The ingestor drops new ones (INGESTOR_DROP_BRIDGED); this drains the rows stored before that. Per-author projections are removed when an author has no events left. |
+| `WORKER_RETENTION_BRIDGED_RUN_INTERVAL` | `worker` | optional | `10m0s` | How often the bridged-event purge checks for a backlog once it has drained. An empty check is one partial-index probe. |
 | `WORKER_RETENTION_DELETION_DEAD_GRACE` | `worker` | optional | `168h0m0s` | Derivation-safety grace window: a dead derive_event_bundle job only blocks purge of its deletion event while updated within this window. Past it, a permanently-dead derivation no longer blocks cleanup. |
 | `WORKER_RETENTION_DELETION_DELETE_BATCH_LIMIT` | `worker` | optional | `2000` | Maximum raw deletion events (kind 5) deleted per retention purge batch. |
 | `WORKER_RETENTION_DELETION_ENABLED` | `worker` | optional | `true` | Enable periodic retention purge of processed raw deletion events (kind 5). The distilled deletion_events tombstone ledger survives; only the raw rows and cascade-cleaned tags/references are removed. |

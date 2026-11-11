@@ -45,6 +45,7 @@ const (
 	gateDecisionRejectMissingTarget   = "reject_missing_target"
 	gateDecisionRejectBlockedAuthor   = "reject_blocked_author"
 	gateDecisionRejectRecipientBudget = "reject_recipient_budget"
+	gateDecisionRejectBridged         = "reject_bridged"
 	gateDecisionShadowReject          = "shadow_reject"
 	gateDecisionFailClosed            = "fail_closed"
 )
