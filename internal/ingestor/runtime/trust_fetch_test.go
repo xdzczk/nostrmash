@@ -11,15 +11,17 @@ import (
 )
 
 type recordingPageFetcher struct {
-	kinds [][]int
-	err   error
+	kinds  [][]int
+	relays []string
+	err    error
 }
 
-func (f *recordingPageFetcher) FetchPage(_ context.Context, _ string, request backfill.PageRequest) (backfill.PageResult, error) {
+func (f *recordingPageFetcher) FetchPage(_ context.Context, relayURL string, request backfill.PageRequest) (backfill.PageResult, error) {
 	if f.err != nil {
 		return backfill.PageResult{}, f.err
 	}
 	f.kinds = append(f.kinds, append([]int(nil), request.Kinds...))
+	f.relays = append(f.relays, relayURL)
 	return backfill.PageResult{EOSESeen: true}, nil
 }
 
@@ -31,6 +33,7 @@ func TestFetchTrustedPubkeySliceRequestsNotesThenReplaceables(t *testing.T) {
 		fetcher,
 		func(context.Context, string, []byte) error { return nil },
 		[]string{"wss://relay.example"},
+		nil,
 		"pk",
 		172800,
 		50,
@@ -51,6 +54,7 @@ func TestFetchTrustedPubkeySliceErrorsWhenEveryRelayFails(t *testing.T) {
 		fetcher,
 		func(context.Context, string, []byte) error { return nil },
 		[]string{"wss://relay.example"},
+		nil,
 		"pk",
 		60,
 		10,
@@ -76,6 +80,7 @@ func TestFetchTrustedPubkeySliceSucceedsWhenOneKindGroupWorks(t *testing.T) {
 		fetcher,
 		func(context.Context, string, []byte) error { return nil },
 		[]string{"wss://relay.example"},
+		nil,
 		"pk",
 		60,
 		10,
@@ -88,6 +93,39 @@ func TestFetchTrustedPubkeySliceSucceedsWhenOneKindGroupWorks(t *testing.T) {
 	}
 	if time.Since(started) > 2*time.Second {
 		t.Fatal("fetch retry loop stalled")
+	}
+}
+
+func TestFetchTrustedPubkeySliceAsksWriteRelaysForNotesOnly(t *testing.T) {
+	t.Parallel()
+	fetcher := &recordingPageFetcher{}
+	err := fetchTrustedPubkeySlice(
+		context.Background(),
+		fetcher,
+		func(context.Context, string, []byte) error { return nil },
+		[]string{"wss://relay.example"},
+		[]string{"wss://no.str.cr", "wss://nostr.oxtr.dev"},
+		"pk",
+		60,
+		10,
+	)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	notes := 0
+	other := 0
+	for i, kinds := range fetcher.kinds {
+		if len(kinds) > 0 && kinds[0] == 1 {
+			notes++
+			continue
+		}
+		other++
+		if fetcher.relays[i] != "wss://relay.example" {
+			t.Fatalf("non-note request went to %s", fetcher.relays[i])
+		}
+	}
+	if notes != 3 || other != len(trustFetchKindGroups)-1 {
+		t.Fatalf("notes = %d other = %d relays = %#v", notes, other, fetcher.relays)
 	}
 }
 

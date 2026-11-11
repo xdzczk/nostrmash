@@ -215,6 +215,47 @@ func (c *Client) FetchEventsByIDs(ctx context.Context, ids []string) (map[string
 // author and kinds, and deduplicated by event id. Used by the query-layer
 // thin-profile fallback when the local store has too few events for an author.
 func (c *Client) FetchEventsByAuthor(ctx context.Context, pubkey string, kinds []int, limit int) ([]json.RawMessage, error) {
+	return c.fetchEventsByAuthorRelays(ctx, pubkey, kinds, limit, nil, c.maxFanout, false)
+}
+
+// FetchEventsByAuthorOnRelays is FetchEventsByAuthor plus extra relays, used
+// for an author's write relays that are not in the fallback set. Every dialed
+// relay keeps its own page. Callers sort by created_at and trim, so a newer
+// event that only a write relay returned is not dropped because the base
+// relays filled the page first.
+func (c *Client) FetchEventsByAuthorOnRelays(ctx context.Context, pubkey string, kinds []int, limit int, extra []string) ([]json.RawMessage, error) {
+	if len(extra) == 0 {
+		return c.FetchEventsByAuthor(ctx, pubkey, kinds, limit)
+	}
+	base := c.EventRelays()
+	if c.maxFanout > 0 && c.maxFanout < len(base) {
+		base = append([]string{}, base[:c.maxFanout]...)
+	}
+	relays := mergeRelayURLs(base, extra)
+	return c.fetchEventsByAuthorRelays(ctx, pubkey, kinds, limit, relays, len(relays), true)
+}
+
+func mergeRelayURLs(base, extra []string) []string {
+	out := append([]string{}, base...)
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	for _, relayURL := range base {
+		seen[relayURL] = struct{}{}
+	}
+	for _, relayURL := range extra {
+		relayURL = strings.TrimSpace(relayURL)
+		if relayURL == "" {
+			continue
+		}
+		if _, dup := seen[relayURL]; dup {
+			continue
+		}
+		seen[relayURL] = struct{}{}
+		out = append(out, relayURL)
+	}
+	return out
+}
+
+func (c *Client) fetchEventsByAuthorRelays(ctx context.Context, pubkey string, kinds []int, limit int, relays []string, fanout int, keepEveryRelayPage bool) ([]json.RawMessage, error) {
 	if !c.Enabled() {
 		return []json.RawMessage{}, nil
 	}
@@ -227,6 +268,9 @@ func (c *Client) FetchEventsByAuthor(ctx context.Context, pubkey string, kinds [
 	}
 	if limit > 100 {
 		limit = 100
+	}
+	if relays == nil {
+		relays = c.EventRelays()
 	}
 
 	filter := map[string]any{
@@ -242,8 +286,16 @@ func (c *Client) FetchEventsByAuthor(ctx context.Context, pubkey string, kinds [
 	if len(normalizedKinds) > 0 {
 		filter["kinds"] = normalizedKinds
 	}
+	// Each relay is asked for one page. When write relays are added, keep every
+	// relay's page. Stopping after the first full base page would cancel a
+	// slower write relay, and trimming in arrival order would drop its newer
+	// events before the caller sorts by created_at.
+	resultCap := limit
+	if keepEveryRelayPage && len(relays) > 0 {
+		resultCap = limit * len(relays)
+	}
 
-	events, err := c.collectFromRelays(ctx, c.EventRelays(), filter, limit)
+	events, err := c.collectFromRelaysFanout(ctx, relays, filter, resultCap, fanout)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +325,7 @@ func (c *Client) FetchEventsByAuthor(ctx context.Context, pubkey string, kinds [
 		}
 		seen[evt.ID] = struct{}{}
 		out = append(out, validatedRaw)
-		if len(out) >= limit {
+		if len(out) >= resultCap {
 			break
 		}
 	}
@@ -348,9 +400,13 @@ func (c *Client) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (
 }
 
 func (c *Client) collectFromRelays(ctx context.Context, relays []string, filter map[string]any, maxEvents int) ([]json.RawMessage, error) {
+	return c.collectFromRelaysFanout(ctx, relays, filter, maxEvents, c.maxFanout)
+}
+
+func (c *Client) collectFromRelaysFanout(ctx context.Context, relays []string, filter map[string]any, maxEvents int, fanout int) ([]json.RawMessage, error) {
 	relays = c.withoutCooledDownRelays(relays)
-	if c.maxFanout < len(relays) {
-		relays = relays[:c.maxFanout]
+	if fanout > 0 && fanout < len(relays) {
+		relays = relays[:fanout]
 	}
 	if len(relays) == 0 {
 		return []json.RawMessage{}, nil

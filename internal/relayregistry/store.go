@@ -545,6 +545,41 @@ func (s *Store) GetActiveAndPinnedRelayURLs(ctx context.Context) ([]string, erro
 	return out, rows.Err()
 }
 
+// ProbeOKRelaySet returns the subset of urls whose latest probe connected,
+// subscribed, and reached EOSE. Blocked and drained relays are excluded.
+// Admission state is ignored: a relay that is healthy but not in the live
+// firehose is still a valid on-demand target. urls must already be normalized.
+// The result set preserves nothing about order; callers walk their own list.
+func (s *Store) ProbeOKRelaySet(ctx context.Context, urls []string) (map[string]struct{}, error) {
+	out := make(map[string]struct{})
+	if s == nil || s.pool == nil || len(urls) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT normalized_url
+		FROM relay_registry
+		WHERE normalized_url = ANY($1)
+		  AND manual_policy NOT IN ('blocked', 'drained')
+		  AND last_probe_status = 'ok'
+		  AND last_eose_ok IS TRUE
+	`, urls)
+	if err != nil {
+		return nil, fmt.Errorf("probe-ok relays: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var relayURL string
+		if err := rows.Scan(&relayURL); err != nil {
+			return nil, fmt.Errorf("scan probe-ok relay: %w", err)
+		}
+		out[relayURL] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read probe-ok relays: %w", err)
+	}
+	return out, nil
+}
+
 // ListFastHealthyLookupRelays returns active/pinned relays whose most recent
 // probe fully succeeded (connect+subscribe+EOSE), ranked by connect+EOSE
 // latency then score. Popularity score is a tie-break only — slow firehoses

@@ -388,6 +388,10 @@ type readModelAuthorEventsFallbackReader interface {
 	FetchEventsByAuthor(ctx context.Context, pubkey string, kinds []int, limit int) ([]json.RawMessage, error)
 }
 
+type readModelAuthorWriteRelayReader interface {
+	FetchEventsByAuthorOnRelays(ctx context.Context, pubkey string, kinds []int, limit int, relays []string) ([]json.RawMessage, error)
+}
+
 type readModelFallbackReaderAdapter struct {
 	readModel readModelFallbackReader
 }
@@ -416,6 +420,14 @@ func (a readModelFallbackReaderAdapter) FetchEventsByAuthor(ctx context.Context,
 		return nil, unsupportedCapabilityError("author events fallback")
 	}
 	return reader.FetchEventsByAuthor(ctx, pubkey, kinds, limit)
+}
+
+func (a readModelFallbackReaderAdapter) FetchEventsByAuthorOnRelays(ctx context.Context, pubkey string, kinds []int, limit int, relays []string) ([]json.RawMessage, error) {
+	reader, ok := a.readModel.(readModelAuthorWriteRelayReader)
+	if !ok || len(relays) == 0 {
+		return a.FetchEventsByAuthor(ctx, pubkey, kinds, limit)
+	}
+	return reader.FetchEventsByAuthorOnRelays(ctx, pubkey, kinds, limit, relays)
 }
 
 func (a readModelFallbackReaderAdapter) FetchProfilesByPubkeys(ctx context.Context, pubkeys []string) (map[string]Profile, error) {

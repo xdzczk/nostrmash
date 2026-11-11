@@ -344,6 +344,11 @@ func runLifecycle(
 				cfg.TrustPrioritization,
 				cfg.TrustFetch,
 				prioritizedRelays,
+				authorWriteRelayPolicy{
+					disabled:   cfg.Relay.Disabled,
+					requireTLS: cfg.Relay.RequireTLS,
+				},
+				relayregistry.NewStore(pool),
 				backfill.WebsocketFetcher{
 					Log:            log,
 					ConnectTimeout: cfg.Backfill.ConnectTimeout,

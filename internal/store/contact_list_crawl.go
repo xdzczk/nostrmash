@@ -464,6 +464,17 @@ func (s *PostgresStore) ContactListCrawlDueByHop(ctx context.Context) (map[int]i
 // LatestKind10002Raw returns the newest stored kind-10002 event for pubkey.
 // A missing row is (nil, nil); callers fall back to the configured relays.
 func (s *PostgresStore) LatestKind10002Raw(ctx context.Context, pubkey string) ([]byte, error) {
+	return s.latestAuthorKindRaw(ctx, pubkey, 10002)
+}
+
+// LatestKind3Raw returns the newest stored kind-3 event for pubkey. A missing
+// row is (nil, nil). Callers read the legacy relay map from its content when
+// the author has no kind-10002 list.
+func (s *PostgresStore) LatestKind3Raw(ctx context.Context, pubkey string) ([]byte, error) {
+	return s.latestAuthorKindRaw(ctx, pubkey, 3)
+}
+
+func (s *PostgresStore) latestAuthorKindRaw(ctx context.Context, pubkey string, kind int) ([]byte, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
@@ -475,15 +486,15 @@ func (s *PostgresStore) LatestKind10002Raw(ctx context.Context, pubkey string) (
 	err := s.pool.QueryRow(ctx, `
 		SELECT raw_json::text
 		FROM events
-		WHERE pubkey = $1 AND kind = 10002
+		WHERE pubkey = $1 AND kind = $2
 		ORDER BY created_at DESC, id DESC
 		LIMIT 1
-	`, pubkey).Scan(&raw)
+	`, pubkey, kind).Scan(&raw)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("load latest kind 10002 for %s: %w", pubkey, err)
+		return nil, fmt.Errorf("load latest kind %d for %s: %w", kind, pubkey, err)
 	}
 	return []byte(raw), nil
 }

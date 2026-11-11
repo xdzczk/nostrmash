@@ -453,6 +453,70 @@ func TestOmitAuthorReplyEvents_KeepsNotesAndMentions(t *testing.T) {
 	}
 }
 
+func TestGetAuthorEvents_FallbackIncludesAuthorWriteRelays(t *testing.T) {
+	t.Parallel()
+	const pubkey = "pk_write_relays"
+	fallback := &writeRelayFallback{}
+	svc := mustNewServiceWithOptions(t, authorEventsFakeReader{
+		getAuthorRecentEventsFn: func(context.Context, string, int) ([]json.RawMessage, error) {
+			return []json.RawMessage{authorEventJSON("evt_local", pubkey, 500)}, nil
+		},
+	}, ServiceOptions{
+		FallbackAuthorEventsMinResults: 5,
+		AuthorNoteRelays: func(context.Context, string) ([]string, error) {
+			return []string{"wss://no.str.cr"}, nil
+		},
+		FallbackReader: fallback,
+	})
+	events, err := svc.GetAuthorEvents(context.Background(), pubkey, 20)
+	if err != nil {
+		t.Fatalf("GetAuthorEvents: %v", err)
+	}
+	if !reflect.DeepEqual(fallback.extra, []string{"wss://no.str.cr"}) {
+		t.Fatalf("write relays = %#v", fallback.extra)
+	}
+	if got := decodeTestEventIDs(t, events); !reflect.DeepEqual(got, []string{"evt_write", "evt_local"}) {
+		t.Fatalf("events = %#v", got)
+	}
+}
+
+func TestGetAuthorEventsByKind_SkipsWriteRelaysForOtherKinds(t *testing.T) {
+	t.Parallel()
+	fallback := &writeRelayFallback{}
+	called := false
+	fallback.fetchEventsByAuthorFn = func(context.Context, string, []int, int) ([]json.RawMessage, error) {
+		called = true
+		return nil, nil
+	}
+	svc := mustNewServiceWithOptions(t, fakeReader{}, ServiceOptions{
+		FallbackAuthorEventsMinResults: 1,
+		AuthorNoteRelays: func(context.Context, string) ([]string, error) {
+			t.Fatal("write relays were resolved for a non-note kind")
+			return nil, nil
+		},
+		FallbackReader: fallback,
+	})
+	if _, err := svc.GetAuthorEventsByKind(context.Background(), "pk", 7, 20); err != nil {
+		t.Fatalf("GetAuthorEventsByKind: %v", err)
+	}
+	if len(fallback.extra) != 0 {
+		t.Fatalf("write relays = %#v", fallback.extra)
+	}
+	if !called {
+		t.Fatal("expected the ordinary author fetch")
+	}
+}
+
+type writeRelayFallback struct {
+	fakeAuthorEventsFallbackReader
+	extra []string
+}
+
+func (f *writeRelayFallback) FetchEventsByAuthorOnRelays(_ context.Context, _ string, _ []int, _ int, relays []string) ([]json.RawMessage, error) {
+	f.extra = append([]string(nil), relays...)
+	return []json.RawMessage{authorEventJSON("evt_write", "pk_write_relays", 900)}, nil
+}
+
 func decodeTestEventIDs(t *testing.T, rows []json.RawMessage) []string {
 	t.Helper()
 	out := make([]string, 0, len(rows))

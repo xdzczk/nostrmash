@@ -68,3 +68,31 @@ func TestListFastHealthyLookupRelays_ExcludesNeverProbedRelays(t *testing.T) {
 		t.Fatalf("expected never-probed relay to be excluded, got %#v", got)
 	}
 }
+
+func TestProbeOKRelaySetIncludesHealthyRelaysOutsideTheLiveSet(t *testing.T) {
+	pool, ctx := setupRelayRegistryPool(t)
+	s := relayregistry.NewStore(pool)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO relay_registry (
+			url_key, normalized_url, admission_state, manual_policy,
+			last_probe_status, last_eose_ok
+		) VALUES
+			('ok', 'wss://no.str.cr', 'candidate', 'none', 'ok', TRUE),
+			('blocked', 'wss://blocked.example', 'active', 'blocked', 'ok', TRUE),
+			('flaky', 'wss://flaky.example', 'active', 'none', 'eose_timeout', FALSE)
+	`); err != nil {
+		t.Fatalf("seed probe rows: %v", err)
+	}
+	got, err := s.ProbeOKRelaySet(ctx, []string{
+		"wss://no.str.cr",
+		"wss://blocked.example",
+		"wss://flaky.example",
+		"wss://missing.example",
+	})
+	if err != nil {
+		t.Fatalf("probe-ok relays: %v", err)
+	}
+	if _, ok := got["wss://no.str.cr"]; !ok || len(got) != 1 {
+		t.Fatalf("probe-ok = %#v", got)
+	}
+}

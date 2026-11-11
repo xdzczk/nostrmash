@@ -135,12 +135,13 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 	}
 	meiliSearcher := meili.NewSearcher(meiliClient, queryStore)
 	var fallbackReader query.FallbackStoreReader
+	var lookupClient *relaylookup.Client
 	if cfg.RelayFallback.Enabled {
 		maxFanout := cfg.RelayFallback.MaxFanout
 		if policyMax := cfg.Shared.TrustPolicy.FallbackFetchMaxRelaysPerAttempt; policyMax > 0 && policyMax < maxFanout {
 			maxFanout = policyMax
 		}
-		lookupClient := relaylookup.NewSplitClient(relaylookup.Config{
+		lookupClient = relaylookup.NewSplitClient(relaylookup.Config{
 			EventURLs:   cfg.RelayFallback.URLs,
 			ProfileURLs: cfg.RelayFallback.ProfileURLs,
 			Timeout:     cfg.RelayFallback.Timeout,
@@ -207,6 +208,7 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		FallbackFetchMaxTimeBudget:      cfg.Shared.TrustPolicy.FallbackFetchMaxTimeBudget,
 		FallbackFetchAllowDirectLookup:  &cfg.Shared.TrustPolicy.FallbackFetchAllowDirectLookup,
 		FallbackAuthorEventsMinResults:  cfg.Shared.TrustPolicy.FallbackAuthorEventsMinResults,
+		AuthorNoteRelays:                authorNoteRelaysOption(queryStore, pool, lookupClient, cfg.Relay.Disabled),
 		DiscoveryCandidateTrustMode:     cfg.Shared.TrustPolicy.DiscoveryCandidateMode,
 		SearchRankingTrustMode:          cfg.Shared.TrustPolicy.SearchRankingMode,
 		DiscoveryCandidateMinimumScore:  cfg.Shared.TrustPolicy.MinimumScore,

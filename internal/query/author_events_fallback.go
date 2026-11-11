@@ -58,6 +58,12 @@ type authorEventsFallbackReader interface {
 	FetchEventsByAuthor(ctx context.Context, pubkey string, kinds []int, limit int) ([]json.RawMessage, error)
 }
 
+// authorWriteRelayFetcher queries an author's notes on relays beyond the
+// configured fallback set. Implemented by the relay lookup client.
+type authorWriteRelayFetcher interface {
+	FetchEventsByAuthorOnRelays(ctx context.Context, pubkey string, kinds []int, limit int, relays []string) ([]json.RawMessage, error)
+}
+
 // thinProfileFallbackKinds are the note-like kinds fetched for the general
 // (kind-agnostic) author-events surface: short notes and long-form articles.
 var thinProfileFallbackKinds = []int{1, 30023}
@@ -125,7 +131,7 @@ func (s Service) maybeAugmentAuthorEventsFromRelays(
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		observeFallbackAttemptByEntity(fallbackEntityEvent)
-		rows, fetchErr := fetcher.FetchEventsByAuthor(budgetCtx, pubkey, kinds, limit)
+		rows, fetchErr := s.fetchAuthorFallbackEvents(budgetCtx, fetcher, pubkey, kinds, limit)
 		if fetchErr != nil {
 			if IsUnsupportedCapability(fetchErr) {
 				fallbackSpan.End(nil)
@@ -236,6 +242,38 @@ func mergeAuthorEvents(
 		out = append(out, row.raw)
 	}
 	return out, discovered
+}
+
+func authorNoteKinds(kinds []int) bool {
+	if len(kinds) == 0 {
+		return false
+	}
+	for _, kind := range kinds {
+		if kind != 1 && kind != 30023 {
+			return false
+		}
+	}
+	return true
+}
+
+func (s Service) fetchAuthorFallbackEvents(
+	ctx context.Context,
+	fetcher authorEventsFallbackReader,
+	pubkey string,
+	kinds []int,
+	limit int,
+) ([]json.RawMessage, error) {
+	if s.authorNoteRelays != nil && authorNoteKinds(kinds) {
+		extra, err := s.authorNoteRelays(ctx, pubkey)
+		if err != nil {
+			slog.Warn("author_note_relays_failed", "pubkey", pubkey, "error", err.Error())
+		} else if len(extra) > 0 {
+			if withExtra, ok := fetcher.(authorWriteRelayFetcher); ok {
+				return withExtra.FetchEventsByAuthorOnRelays(ctx, pubkey, kinds, limit, extra)
+			}
+		}
+	}
+	return fetcher.FetchEventsByAuthor(ctx, pubkey, kinds, limit)
 }
 
 func authorEventsHeadStale(local []json.RawMessage, now time.Time) bool {

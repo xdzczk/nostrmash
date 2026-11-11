@@ -9,9 +9,20 @@ import (
 	"github.com/xdzczk/nostrmash/internal/config"
 	"github.com/xdzczk/nostrmash/internal/ingestor/backfill"
 	"github.com/xdzczk/nostrmash/internal/metrics"
+	"github.com/xdzczk/nostrmash/internal/nostr"
+	"github.com/xdzczk/nostrmash/internal/relaylookup"
+	"github.com/xdzczk/nostrmash/internal/relayregistry"
 	"github.com/xdzczk/nostrmash/internal/store"
 	storetrust "github.com/xdzczk/nostrmash/internal/store/trust"
 )
+
+// authorWriteRelayPolicy is the dial gate for relays taken from an author's
+// own relay list. Disabled relays are operator exclusions. requireTLS drops
+// ws:// URLs when the ingestor is not in local dev.
+type authorWriteRelayPolicy struct {
+	disabled   []string
+	requireTLS bool
+}
 
 func runTrustTargetedFetchLoop(
 	ctx context.Context,
@@ -20,6 +31,8 @@ func runTrustTargetedFetchLoop(
 	trustPrioritization config.IngestorTrustPrioritizationConfig,
 	trustFetch config.IngestorTrustFetchConfig,
 	relays []string,
+	writeRelays authorWriteRelayPolicy,
+	registry *relayregistry.Store,
 	fetcher backfill.PageFetcher,
 	onMessage backfill.MessageHandler,
 ) {
@@ -81,11 +94,19 @@ func runTrustTargetedFetchLoop(
 		successes := 0
 		failures := 0
 		for _, entry := range entries {
+			noteRelays, noteErr := extraAuthorWriteRelays(ctx, eventStore, registry, entry.Pubkey, relays, writeRelays)
+			if noteErr != nil {
+				log.Warn("trust_fetch_write_relays_failed", "pubkey", entry.Pubkey, "error", noteErr)
+				noteRelays = nil
+			} else if len(noteRelays) > 0 {
+				log.Debug("trust_fetch_write_relays", "pubkey", entry.Pubkey, "relays", noteRelays)
+			}
 			err := fetchTrustedPubkeySlice(
 				ctx,
 				fetcher,
 				onMessage,
 				relays,
+				noteRelays,
 				entry.Pubkey,
 				trustFetch.RecentLookbackSeconds,
 				trustFetch.PageLimitPerRelay,
@@ -135,11 +156,47 @@ func runTrustTargetedFetchLoop(
 	}
 }
 
+// extraAuthorWriteRelays returns up to MaxExtraAuthorWriteRelays of pubkey's
+// write relays that are not already in base. A relay is included only when
+// the registry's latest probe reached EOSE. Lookup failures return an error
+// so the caller can keep the base relays and still fetch the pubkey.
+func extraAuthorWriteRelays(
+	ctx context.Context,
+	eventStore *store.PostgresStore,
+	registry *relayregistry.Store,
+	pubkey string,
+	base []string,
+	policy authorWriteRelayPolicy,
+) ([]string, error) {
+	if eventStore == nil || registry == nil {
+		return nil, nil
+	}
+	kind10002, err := eventStore.LatestKind10002Raw(ctx, pubkey)
+	if err != nil {
+		return nil, err
+	}
+	kind3, err := eventStore.LatestKind3Raw(ctx, pubkey)
+	if err != nil {
+		return nil, err
+	}
+	candidates := nostr.NormalizedAuthorWriteRelays(kind10002, kind3, policy.requireTLS)
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	healthy, err := registry.ProbeOKRelaySet(ctx, candidates)
+	if err != nil {
+		return nil, err
+	}
+	extras := nostr.PickExtraWriteRelays(candidates, base, policy.disabled, healthy, policy.requireTLS, nostr.MaxExtraAuthorWriteRelays)
+	return relaylookup.WithoutDirectoryRelays(extras), nil
+}
+
 func fetchTrustedPubkeySlice(
 	ctx context.Context,
 	fetcher backfill.PageFetcher,
 	onMessage backfill.MessageHandler,
 	relays []string,
+	noteRelays []string,
 	pubkey string,
 	recentLookbackSeconds int64,
 	pageLimit int,
@@ -166,7 +223,14 @@ func fetchTrustedPubkeySlice(
 	succeeded := 0
 	var lastErr error
 	for _, kinds := range trustFetchKindGroups {
-		for _, relayURL := range relays {
+		// Notes are the events a write-relay gap drops. Replaceables and
+		// lists stay on the ingest relays; asking every write relay for
+		// them would multiply the refetch by the whole kind list.
+		targets := relays
+		if len(kinds) > 0 && kinds[0] == 1 {
+			targets = append(append([]string{}, relays...), noteRelays...)
+		}
+		for _, relayURL := range targets {
 			page, err := fetcher.FetchPage(ctx, relayURL, backfill.PageRequest{
 				Kinds:   kinds,
 				Authors: []string{pubkey},

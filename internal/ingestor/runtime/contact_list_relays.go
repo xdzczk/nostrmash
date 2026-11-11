@@ -1,9 +1,7 @@
 package runtime
 
 import (
-	"encoding/json"
-	"strings"
-
+	"github.com/xdzczk/nostrmash/internal/nostr"
 	"github.com/xdzczk/nostrmash/internal/relayurl"
 )
 
@@ -11,34 +9,7 @@ import (
 // NIP-65 marker is missing or "write". Read-only relays are skipped.
 // relay_lists_latest drops that marker, so the crawl reads the raw event.
 func writeRelaysFromKind10002(raw []byte) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-	var event struct {
-		Kind int        `json:"kind"`
-		Tags [][]string `json:"tags"`
-	}
-	if err := json.Unmarshal(raw, &event); err != nil || event.Kind != 10002 {
-		return nil
-	}
-	out := make([]string, 0)
-	for _, tag := range event.Tags {
-		if len(tag) < 2 || tag[0] != "r" {
-			continue
-		}
-		if len(tag) >= 3 {
-			marker := strings.ToLower(strings.TrimSpace(tag[2]))
-			if marker != "" && marker != "write" {
-				continue
-			}
-		}
-		relayURL := strings.TrimSpace(tag[1])
-		if relayURL == "" {
-			continue
-		}
-		out = append(out, relayURL)
-	}
-	return out
+	return nostr.WriteRelaysFromKind10002(raw)
 }
 
 // selectContactCrawlRelays prefers the author's write relays when they are on

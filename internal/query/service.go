@@ -119,6 +119,7 @@ type Service struct {
 	fallbackMaxTimeBudget           time.Duration
 	fallbackDirectLookups           bool
 	authorEventsFallbackMinResults  int
+	authorNoteRelays                func(context.Context, string) ([]string, error)
 	discoveryTrustMode              string
 	discoveryTrustPolicy            TrustQualificationPolicy
 	discoveryTrustScanSize          int
@@ -172,7 +173,12 @@ type ServiceOptions struct {
 	// FallbackAuthorEventsMinResults triggers an on-demand relay fetch when a
 	// local author-events read returns fewer rows than this threshold.
 	// Zero (the default) disables the thin-profile fallback.
-	FallbackAuthorEventsMinResults  int
+	FallbackAuthorEventsMinResults int
+	// AuthorNoteRelays returns write relays to add when a profile fallback
+	// fetches an author's notes. Nil leaves the fallback on its configured
+	// relay set. The returned relays are already filtered to ones this
+	// process is willing to dial.
+	AuthorNoteRelays                func(ctx context.Context, pubkey string) ([]string, error)
 	DiscoveryCandidateTrustMode     string
 	SearchRankingTrustMode          string
 	DiscoveryCandidateMinimumScore  float64
@@ -355,6 +361,7 @@ func buildService(nativeReader Reader, probeSource any, options ServiceOptions) 
 			}
 			return options.FallbackAuthorEventsMinResults
 		}(),
+		authorNoteRelays:     options.AuthorNoteRelays,
 		discoveryTrustMode:   mode,
 		discoveryTrustPolicy: TrustQualificationPolicy{MaxHops: maxHops, MinimumScore: minScore},
 		// Keep trust-aware candidate scans bounded and predictable.
