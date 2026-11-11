@@ -73,3 +73,16 @@ func clampCohortLimit(limit int) int {
 	}
 	return limit
 }
+
+// cohortShortlist bounds how many aggregated rows are checked against events.
+// The aggregate reads covering indexes. Profile, root-note, and kind filters
+// run only on this shortlist, because checking every note a cohort touched
+// walks far past the page the request returns.
+func cohortShortlist(limit, multiple, cap int) int {
+	limit = clampCohortLimit(limit)
+	n := limit * multiple
+	if cap > 0 && n > cap {
+		return cap
+	}
+	return n
+}

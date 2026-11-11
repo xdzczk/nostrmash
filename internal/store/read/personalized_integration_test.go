@@ -92,11 +92,11 @@ func TestPersonalizedCohortAggregates(t *testing.T) {
 		t.Fatalf("insert note stats: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO reaction_events (event_id, target_event_id, reactor_pubkey, content, created_at, derivation_version)
+		INSERT INTO reaction_events (event_id, target_event_id, reactor_pubkey, content, created_at, derivation_version, target_pubkey)
 		VALUES
-			('react_follow', 'note', $1, '+', $3, 1),
-			('react_author', 'note', $2, '+', $3, 1),
-			('react_out', 'note', $4, '+', $3, 1)
+			('react_follow', 'note', $1, '+', $3, 1, $2),
+			('react_author', 'note', $2, '+', $3, 1, $2),
+			('react_out', 'note', $4, '+', $3, 1, $2)
 	`, trusted, author, recent, outsider); err != nil {
 		t.Fatalf("insert reactions: %v", err)
 	}
@@ -106,6 +106,61 @@ func TestPersonalizedCohortAggregates(t *testing.T) {
 	}
 	if len(notes) != 1 || notes[0].Note.EventID != "note" || notes[0].ReactionWeight != 1 {
 		t.Fatalf("cohort notes = %+v", notes)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO profiles_latest (pubkey, metadata_event_id, metadata_created_at, derivation_version)
+		VALUES ($1, 'meta_author', $2, 1)
+	`, author, recent); err != nil {
+		t.Fatalf("insert profile: %v", err)
+	}
+	trendingProfiles, err := reader.GetCohortTrendingProfiles(ctx, []string{trusted, plain}, 24*time.Hour, "", 20)
+	if err != nil {
+		t.Fatalf("cohort trending profiles: %v", err)
+	}
+	if len(trendingProfiles) != 1 || trendingProfiles[0].Profile.Pubkey != author || trendingProfiles[0].CohortScore != 1 {
+		t.Fatalf("trending profiles = %+v", trendingProfiles)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE author_feed_index_state SET complete = true WHERE id`); err != nil {
+		t.Fatalf("mark author feed complete: %v", err)
+	}
+	unindexed, err := reader.GetCohortTrendingProfiles(ctx, []string{trusted, plain}, 24*time.Hour, "", 20)
+	if err != nil {
+		t.Fatalf("cohort trending profiles from feed index: %v", err)
+	}
+	if len(unindexed) != 0 {
+		t.Fatalf("unindexed root = %+v", unindexed)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO author_feed_events (event_id, pubkey, kind, created_at)
+		VALUES ('note', $1, 1, $2)
+	`, author, recent); err != nil {
+		t.Fatalf("insert author feed row: %v", err)
+	}
+	indexed, err := reader.GetCohortTrendingProfiles(ctx, []string{trusted, plain}, 24*time.Hour, "", 20)
+	if err != nil {
+		t.Fatalf("cohort trending profiles indexed: %v", err)
+	}
+	if len(indexed) != 1 || indexed[0].Profile.Pubkey != author {
+		t.Fatalf("indexed profiles = %+v", indexed)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO follower_edges (followed_pubkey, follower_pubkey, source_event_id, contact_list_created_at, derivation_version)
+		VALUES ($1, $2, 'contact', $3, 1)
+	`, author, trusted, recent); err != nil {
+		t.Fatalf("insert cohort follow: %v", err)
+	}
+	followedProfiles, err := reader.GetCohortFollowedProfiles(ctx, viewer, []string{trusted, plain}, 20)
+	if err != nil {
+		t.Fatalf("cohort followed: %v", err)
+	}
+	if len(followedProfiles) != 1 || followedProfiles[0].Profile.Pubkey != author || followedProfiles[0].CohortScore != 1 || followedProfiles[0].ViewerFollows {
+		t.Fatalf("followed profiles = %+v", followedProfiles)
+	}
+	if _, err := reader.GetCohortHotConversations(ctx, []string{trusted, plain}, 24*time.Hour, "", 20); err != nil {
+		t.Fatalf("cohort conversations: %v", err)
+	}
+	if _, err := reader.GetCohortRisingProfiles(ctx, viewer, []string{trusted, plain}, 24*time.Hour, "", 20); err != nil {
+		t.Fatalf("cohort rising: %v", err)
 	}
 
 	if _, err := pool.Exec(ctx, `

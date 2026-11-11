@@ -18,13 +18,16 @@ func (s *Read) GetCohortBookmarkedNotes(ctx context.Context, follows []string, l
 	}
 	limit = clampCohortLimit(limit)
 	query := fmt.Sprintf(`
-		WITH cohort AS (
+		WITH follows AS (
+			SELECT unnest($1::text[]) AS pubkey
+		),
+		cohort AS (
 			SELECT be.target_event_id AS event_id,
 			       COUNT(DISTINCT be.bookmarker_pubkey)::float8 AS cohort_count
-			FROM bookmark_edges be
+			FROM follows f
+			JOIN bookmark_edges be ON be.bookmarker_pubkey = f.pubkey
 			JOIN events author_event ON author_event.id = be.target_event_id
-			WHERE be.bookmarker_pubkey = ANY($1::text[])
-			  AND be.target_event_id <> ''
+			WHERE be.target_event_id <> ''
 			  AND be.bookmarker_pubkey <> author_event.pubkey
 			  AND author_event.kind IN (1, 30023)
 			GROUP BY be.target_event_id
@@ -80,13 +83,18 @@ func (s *Read) GetCohortZappedNotes(ctx context.Context, follows []string, windo
 	limit = clampCohortLimit(limit)
 	cutoff := time.Now().UTC().Add(-window).Unix()
 	query := fmt.Sprintf(`
-		WITH cohort AS (
+		WITH follows AS (
+			SELECT unnest($1::text[]) AS pubkey
+		),
+		cohort AS (
 			SELECT z.event_id,
 			       SUM(z.amount_sats)::float8 AS cohort_sats
-			FROM zap_receipts z
+			FROM follows f
+			JOIN zap_receipts z
+			  ON z.sender_pubkey = f.pubkey
+			 AND z.created_at >= $2
 			JOIN events e ON e.id = z.event_id
-			WHERE z.sender_pubkey = ANY($1::text[])
-			  AND z.created_at >= $2
+			WHERE z.event_id IS NOT NULL
 			  AND z.sender_pubkey <> e.pubkey
 			  AND e.created_at >= $2
 			  AND e.kind IN (1, 30023)
@@ -179,23 +187,34 @@ func (s *Read) GetCohortFollowedProfiles(ctx context.Context, viewer string, fol
 		return nil, err
 	}
 	limit = clampCohortLimit(limit)
-	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+	// Count from the (follower, followed) index, then keep accounts that have
+	// a projected profile. Probing events for a kind-0 per followee was the
+	// whole follow graph.
+	rows, err := s.pool.Query(ctx, `
+		WITH follows AS (
+			SELECT unnest($1::text[]) AS pubkey
+		),
+		counted AS (
+			SELECT fe.followed_pubkey AS pubkey,
+			       COUNT(*)::float8 AS cohort_count
+			FROM follows f
+			JOIN follower_edges fe ON fe.follower_pubkey = f.pubkey
+			WHERE fe.followed_pubkey <> $2
+			GROUP BY fe.followed_pubkey
+		)
 		SELECT
-			fe.followed_pubkey,
-			COUNT(DISTINCT fe.follower_pubkey)::float8,
+			counted.pubkey,
+			counted.cohort_count,
 			COALESCE(pps.trusted_follower_count, 0)::float8,
 			COALESCE(pps.follower_count, 0),
 			pps.recent_activity_at,
-			(fe.followed_pubkey = ANY($1::text[]))
-		FROM follower_edges fe
-		LEFT JOIN profile_public_stats pps ON pps.pubkey = fe.followed_pubkey
-		WHERE fe.follower_pubkey = ANY($1::text[])
-		  AND fe.followed_pubkey <> $2
-		  %s
-		GROUP BY fe.followed_pubkey, pps.trusted_follower_count, pps.follower_count, pps.recent_activity_at
-		ORDER BY COUNT(DISTINCT fe.follower_pubkey) DESC, fe.followed_pubkey ASC
+			(counted.pubkey = ANY($1::text[]))
+		FROM counted
+		JOIN profiles_latest pl ON pl.pubkey = counted.pubkey
+		LEFT JOIN profile_public_stats pps ON pps.pubkey = counted.pubkey
+		ORDER BY counted.cohort_count DESC, counted.pubkey ASC
 		LIMIT $3
-	`, fmt.Sprintf(rankedProfileExistsSQL, "fe.followed_pubkey", "fe.followed_pubkey")), follows, viewer, limit)
+	`, follows, viewer, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get cohort followed profiles: %w", err)
 	}
@@ -244,13 +263,14 @@ func (s *Read) GetCohortSupportedProfiles(ctx context.Context, follows []string,
 			SELECT receiver_pubkey,
 			       SUM(LEAST(sender_sats, $4::bigint))::float8 AS cohort_sats
 			FROM (
-				SELECT receiver_pubkey, sender_pubkey, SUM(amount_sats) AS sender_sats
-				FROM zap_receipts
-				WHERE sender_pubkey = ANY($1::text[])
-				  AND created_at >= $2
-				  AND receiver_pubkey IS NOT NULL
-				  AND sender_pubkey <> receiver_pubkey
-				GROUP BY receiver_pubkey, sender_pubkey
+				SELECT z.receiver_pubkey, z.sender_pubkey, SUM(z.amount_sats) AS sender_sats
+				FROM unnest($1::text[]) AS follow(pubkey)
+				JOIN zap_receipts z
+				  ON z.sender_pubkey = follow.pubkey
+				 AND z.created_at >= $2
+				WHERE z.receiver_pubkey IS NOT NULL
+				  AND z.sender_pubkey <> z.receiver_pubkey
+				GROUP BY z.receiver_pubkey, z.sender_pubkey
 			) senders
 			GROUP BY receiver_pubkey
 		)
@@ -314,15 +334,18 @@ func (s *Read) GetCohortTrendingHashtags(ctx context.Context, follows []string, 
 	cutoff := time.Now().UTC().Add(-window).Unix()
 	args := []any{follows, cutoff, limit}
 	query := `
-		SELECT hashtag,
-		       COUNT(DISTINCT event_id),
-		       COUNT(DISTINCT author_pubkey)
-		FROM event_hashtags
-		WHERE author_pubkey = ANY($1::text[])
-		  AND created_at >= $2
-		  AND hashtag !~ '^[0-9]+$'
-		GROUP BY hashtag
-		ORDER BY COUNT(DISTINCT author_pubkey) DESC, COUNT(DISTINCT event_id) DESC, hashtag ASC
+		SELECT event_hashtags.hashtag,
+		       COUNT(DISTINCT event_hashtags.event_id),
+		       COUNT(DISTINCT event_hashtags.author_pubkey)
+		FROM unnest($1::text[]) AS follow(pubkey)
+		JOIN event_hashtags
+		  ON event_hashtags.author_pubkey = follow.pubkey
+		 AND event_hashtags.created_at >= $2
+		WHERE event_hashtags.hashtag !~ '^[0-9]+$'
+		GROUP BY event_hashtags.hashtag
+		ORDER BY COUNT(DISTINCT event_hashtags.author_pubkey) DESC,
+		         COUNT(DISTINCT event_hashtags.event_id) DESC,
+		         event_hashtags.hashtag ASC
 		LIMIT $3
 	`
 	if lang != "" {
@@ -331,11 +354,12 @@ func (s *Read) GetCohortTrendingHashtags(ctx context.Context, follows []string, 
 		SELECT event_hashtags.hashtag,
 		       COUNT(DISTINCT event_hashtags.event_id),
 		       COUNT(DISTINCT event_hashtags.author_pubkey)
-		FROM event_hashtags
+		FROM unnest($1::text[]) AS follow(pubkey)
+		JOIN event_hashtags
+		  ON event_hashtags.author_pubkey = follow.pubkey
+		 AND event_hashtags.created_at >= $2
 		JOIN note_discovery_stats nds ON nds.event_id = event_hashtags.event_id
-		WHERE event_hashtags.author_pubkey = ANY($1::text[])
-		  AND event_hashtags.created_at >= $2
-		  AND event_hashtags.hashtag !~ '^[0-9]+$'
+		WHERE event_hashtags.hashtag !~ '^[0-9]+$'
 		  AND ` + languagelabel.FilterSQL("nds", "$4::text") + `
 		GROUP BY event_hashtags.hashtag
 		ORDER BY COUNT(DISTINCT event_hashtags.author_pubkey) DESC,
@@ -389,11 +413,12 @@ func (s *Read) GetCohortTrendingDomains(ctx context.Context, follows []string, w
 		       COUNT(*),
 		       COUNT(DISTINCT event_urls.event_id),
 		       COUNT(DISTINCT event_urls.author_pubkey)
-		FROM event_urls
+		FROM unnest($1::text[]) AS follow(pubkey)
+		JOIN event_urls
+		  ON event_urls.author_pubkey = follow.pubkey
+		 AND event_urls.created_at >= $2
 		%s
-		WHERE event_urls.author_pubkey = ANY($1::text[])
-		  AND event_urls.created_at >= $2
-		  AND %s
+		WHERE %s
 		  %s
 		GROUP BY event_urls.canonical_domain
 		ORDER BY COUNT(DISTINCT event_urls.author_pubkey) DESC,

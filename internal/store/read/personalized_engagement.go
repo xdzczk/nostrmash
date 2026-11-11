@@ -26,19 +26,27 @@ func (s *Read) GetCohortTrendingNotes(ctx context.Context, follows []string, kin
 	}
 	limit = clampCohortLimit(limit)
 	cutoff := time.Now().UTC().Add(-windowDuration).Unix()
+	// target_pubkey is the engaged note's author, written at projection.
+	// Comparing it here avoids joining events once per reaction. Kind, root,
+	// and profile checks run on the shortlist, and content is read only for
+	// the page that survives them.
 	query := fmt.Sprintf(`
-		WITH parts AS (
+		WITH follows AS (
+			SELECT unnest($1::text[]) AS pubkey
+		),
+		parts AS (
 			SELECT r.target_event_id AS event_id,
 			       0::float8 AS reply_weight,
 			       0::float8 AS repost_weight,
 			       COUNT(DISTINCT r.reactor_pubkey)::float8 AS reaction_weight,
 			       0::float8 AS zap_weight,
 			       0::float8 AS zap_msats
-			FROM reaction_events r
-			JOIN events te ON te.id = r.target_event_id
-			WHERE r.reactor_pubkey = ANY($1::text[])
-			  AND r.created_at >= $2
-			  AND r.reactor_pubkey <> te.pubkey
+			FROM follows f
+			JOIN reaction_events r
+			  ON r.reactor_pubkey = f.pubkey
+			 AND r.created_at >= $2
+			WHERE r.target_pubkey IS NOT NULL
+			  AND r.reactor_pubkey <> r.target_pubkey
 			GROUP BY r.target_event_id
 			UNION ALL
 			SELECT p.target_event_id,
@@ -47,11 +55,12 @@ func (s *Read) GetCohortTrendingNotes(ctx context.Context, follows []string, kin
 			       0::float8,
 			       0::float8,
 			       0::float8
-			FROM repost_events p
-			JOIN events te ON te.id = p.target_event_id
-			WHERE p.reposter_pubkey = ANY($1::text[])
-			  AND p.created_at >= $2
-			  AND p.reposter_pubkey <> te.pubkey
+			FROM follows f
+			JOIN repost_events p
+			  ON p.reposter_pubkey = f.pubkey
+			 AND p.created_at >= $2
+			WHERE p.target_pubkey IS NOT NULL
+			  AND p.reposter_pubkey <> p.target_pubkey
 			GROUP BY p.target_event_id
 			UNION ALL
 			SELECT c.target_event_id,
@@ -60,11 +69,12 @@ func (s *Read) GetCohortTrendingNotes(ctx context.Context, follows []string, kin
 			       0::float8,
 			       0::float8,
 			       0::float8
-			FROM reply_count_contributions c
-			JOIN events te ON te.id = c.target_event_id
-			WHERE c.source_pubkey = ANY($1::text[])
-			  AND c.source_created_at >= $2
-			  AND c.source_pubkey <> te.pubkey
+			FROM follows f
+			JOIN reply_count_contributions c
+			  ON c.source_pubkey = f.pubkey
+			 AND c.source_created_at >= $2
+			WHERE c.target_pubkey IS NOT NULL
+			  AND c.source_pubkey <> c.target_pubkey
 			GROUP BY c.target_event_id
 			UNION ALL
 			SELECT z.event_id,
@@ -73,12 +83,12 @@ func (s *Read) GetCohortTrendingNotes(ctx context.Context, follows []string, kin
 			       0::float8,
 			       COUNT(DISTINCT z.sender_pubkey)::float8,
 			       SUM(z.amount_sats)::float8 * 1000
-			FROM zap_receipts z
+			FROM follows f
+			JOIN zap_receipts z
+			  ON z.sender_pubkey = f.pubkey
+			 AND z.created_at >= $2
 			JOIN events te ON te.id = z.event_id
-			WHERE z.sender_pubkey = ANY($1::text[])
-			  AND z.created_at >= $2
-			  AND z.event_id IS NOT NULL
-			  AND z.sender_pubkey <> te.pubkey
+			WHERE z.sender_pubkey <> te.pubkey
 			GROUP BY z.event_id
 		),
 		agg AS (
@@ -90,6 +100,40 @@ func (s *Read) GetCohortTrendingNotes(ctx context.Context, follows []string, kin
 			       SUM(zap_msats) AS zap_msats
 			FROM parts
 			GROUP BY event_id
+		),
+		shortlist AS (
+			SELECT event_id, reply_weight, repost_weight, reaction_weight, zap_weight, zap_msats
+			FROM agg
+			ORDER BY (reply_weight + repost_weight + reaction_weight + zap_weight) DESC, event_id ASC
+			LIMIT $5
+		),
+		kept AS (
+			SELECT
+				shortlist.event_id,
+				shortlist.reply_weight,
+				shortlist.repost_weight,
+				shortlist.reaction_weight,
+				shortlist.zap_weight,
+				shortlist.zap_msats
+			FROM shortlist
+			JOIN events e ON e.id = shortlist.event_id
+			JOIN note_discovery_stats s ON s.event_id = e.id
+			WHERE e.kind = ANY($4::int[])
+			  AND s.created_at >= $2
+			  AND NOT EXISTS (
+				SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
+			  )
+			  AND (
+				EXISTS (SELECT 1 FROM profiles_latest pl WHERE pl.pubkey = s.author_pubkey)
+				OR EXISTS (
+					SELECT 1 FROM events metadata
+					WHERE metadata.pubkey = s.author_pubkey AND metadata.kind = 0
+				)
+			  )
+			  %s
+			ORDER BY (shortlist.reply_weight + shortlist.repost_weight + shortlist.reaction_weight + shortlist.zap_weight) DESC,
+			         e.created_at DESC, e.id ASC
+			LIMIT $3
 		)
 		SELECT
 			e.id,
@@ -104,32 +148,18 @@ func (s *Read) GetCohortTrendingNotes(ctx context.Context, follows []string, kin
 			s.zap_count,
 			s.zap_msats,
 			COALESCE(s.%s, 0),
-			agg.reply_weight,
-			agg.repost_weight,
-			agg.reaction_weight,
-			agg.zap_weight,
-			agg.zap_msats
-		FROM agg
-		JOIN events e ON e.id = agg.event_id
-		JOIN note_discovery_stats s ON s.event_id = e.id
-		WHERE e.kind = ANY($4::int[])
-		  AND s.created_at >= $2
-		  AND NOT EXISTS (
-			SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
-		  )
-		  AND (
-			EXISTS (SELECT 1 FROM profiles_latest pl WHERE pl.pubkey = s.author_pubkey)
-			OR EXISTS (
-				SELECT 1 FROM events metadata
-				WHERE metadata.pubkey = s.author_pubkey AND metadata.kind = 0
-			)
-		  )
-		  %s
-		ORDER BY (agg.reply_weight + agg.repost_weight + agg.reaction_weight + agg.zap_weight) DESC,
+			kept.reply_weight,
+			kept.repost_weight,
+			kept.reaction_weight,
+			kept.zap_weight,
+			kept.zap_msats
+		FROM kept
+		JOIN events e ON e.id = kept.event_id
+		JOIN note_discovery_stats s ON s.event_id = kept.event_id
+		ORDER BY (kept.reply_weight + kept.repost_weight + kept.reaction_weight + kept.zap_weight) DESC,
 		         e.created_at DESC, e.id ASC
-		LIMIT $3
-	`, scoreColumn, noteLanguageClause("s", "$5::text", lang))
-	args := []any{follows, cutoff, limit, kinds}
+	`, noteLanguageClause("s", "$6::text", lang), scoreColumn)
+	args := []any{follows, cutoff, limit, kinds, cohortShortlist(limit, 20, 8000)}
 	if lang != "" {
 		args = append(args, lang)
 	}
@@ -191,16 +221,20 @@ func (s *Read) GetCohortHotConversations(ctx context.Context, follows []string, 
 	limit = clampCohortLimit(limit)
 	cutoff := time.Now().UTC().Add(-windowDuration).Unix()
 	query := fmt.Sprintf(`
-		WITH cohort AS (
+		WITH follows AS (
+			SELECT unnest($1::text[]) AS pubkey
+		),
+		cohort AS (
 			SELECT te.root_event_id,
 			       COUNT(*)::float8 AS cohort_replies,
 			       COUNT(DISTINCT child.pubkey)::float8 AS cohort_participants
-			FROM events child
+			FROM follows f
+			JOIN events child
+			  ON child.pubkey = f.pubkey
+			 AND child.created_at >= $2
 			JOIN thread_edges te ON te.child_event_id = child.id
 			JOIN events root ON root.id = te.root_event_id
-			WHERE child.pubkey = ANY($1::text[])
-			  AND child.created_at >= $2
-			  AND te.root_event_id IS NOT NULL
+			WHERE te.root_event_id IS NOT NULL
 			  AND child.pubkey <> root.pubkey
 			  AND root.kind = 1
 			GROUP BY te.root_event_id
@@ -323,23 +357,33 @@ func (s *Read) GetCohortRisingProfiles(ctx context.Context, viewer string, follo
 	limit = clampCohortLimit(limit)
 	cutoff := time.Now().UTC().Add(-windowDuration).Unix()
 	langClause := ""
-	args := []any{follows, cutoff, viewer, limit}
+	args := []any{follows, cutoff, viewer, limit, cohortShortlist(limit, 8, 2500)}
 	if lang != "" {
-		langClause = fmt.Sprintf("AND p.%s = $5", profileLanguageColumn(scoreColumn))
+		langClause = fmt.Sprintf("AND p.%s = $6", profileLanguageColumn(scoreColumn))
 		args = append(args, lang)
 	}
 	query := fmt.Sprintf(`
-		WITH cohort AS (
-			SELECT followed_pubkey AS pubkey, COUNT(*)::float8 AS cohort_count
-			FROM follower_gain_events
-			WHERE follower_pubkey = ANY($1::text[])
-			  AND gained_at >= $2
-			  AND followed_pubkey <> $3
-			GROUP BY followed_pubkey
+		WITH follows AS (
+			SELECT unnest($1::text[]) AS pubkey
+		),
+		cohort AS (
+			SELECT g.followed_pubkey AS pubkey, COUNT(*)::float8 AS cohort_count
+			FROM follows f
+			JOIN follower_gain_events g
+			  ON g.follower_pubkey = f.pubkey
+			 AND g.gained_at >= $2
+			WHERE g.followed_pubkey <> $3
+			GROUP BY g.followed_pubkey
+		),
+		shortlist AS (
+			SELECT pubkey, cohort_count
+			FROM cohort
+			ORDER BY cohort_count DESC, pubkey ASC
+			LIMIT $5
 		)
 		SELECT
-			cohort.pubkey,
-			cohort.cohort_count,
+			shortlist.pubkey,
+			shortlist.cohort_count,
 			COALESCE(p.%s, 0),
 			COALESCE(p.recent_post_count, 0),
 			COALESCE(p.recent_reply_count, 0),
@@ -348,15 +392,15 @@ func (s *Read) GetCohortRisingProfiles(ctx context.Context, viewer string, follo
 			COALESCE(p.recent_active_days, 0),
 			p.recent_activity_at,
 			COALESCE(pps.follower_count, 0)
-		FROM cohort
-		LEFT JOIN profile_discovery_stats p ON p.pubkey = cohort.pubkey
-		LEFT JOIN profile_public_stats pps ON pps.pubkey = cohort.pubkey
+		FROM shortlist
+		JOIN profiles_latest pl ON pl.pubkey = shortlist.pubkey
+		LEFT JOIN profile_discovery_stats p ON p.pubkey = shortlist.pubkey
+		LEFT JOIN profile_public_stats pps ON pps.pubkey = shortlist.pubkey
 		WHERE 1 = 1
 		  %s
-		  %s
-		ORDER BY cohort.cohort_count DESC, cohort.pubkey ASC
+		ORDER BY shortlist.cohort_count DESC, shortlist.pubkey ASC
 		LIMIT $4
-	`, scoreColumn, langClause, fmt.Sprintf(rankedProfileExistsSQL, "cohort.pubkey", "cohort.pubkey"))
+	`, scoreColumn, langClause)
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get cohort rising profiles: %w", err)
@@ -379,53 +423,70 @@ func (s *Read) cohortProfiles(ctx context.Context, follows []string, window time
 	limit = clampCohortLimit(limit)
 	cutoff := time.Now().UTC().Add(-windowDuration).Unix()
 	langClause := ""
-	args := []any{follows, cutoff, limit}
+	args := []any{follows, cutoff, limit, cohortShortlist(limit, 8, 2500)}
 	if lang != "" {
-		langClause = fmt.Sprintf("AND p.%s = $4", profileLanguageColumn(scoreColumn))
+		langClause = fmt.Sprintf("AND p.%s = $5", profileLanguageColumn(scoreColumn))
 		args = append(args, lang)
 	}
+	rootFilter, err := s.cohortRootNoteFilter(ctx, "shortlist.pubkey")
+	if err != nil {
+		return nil, err
+	}
 	query := fmt.Sprintf(`
-		WITH parts AS (
-			SELECT target_pubkey AS pubkey, COUNT(DISTINCT reactor_pubkey)::float8 AS weight
-			FROM reaction_events
-			WHERE reactor_pubkey = ANY($1::text[])
-			  AND created_at >= $2
-			  AND target_pubkey IS NOT NULL
-			  AND reactor_pubkey <> target_pubkey
-			GROUP BY target_pubkey
+		WITH follows AS (
+			SELECT unnest($1::text[]) AS pubkey
+		),
+		parts AS (
+			SELECT r.target_pubkey AS pubkey, COUNT(DISTINCT r.reactor_pubkey)::float8 AS weight
+			FROM follows f
+			JOIN reaction_events r
+			  ON r.reactor_pubkey = f.pubkey
+			 AND r.created_at >= $2
+			WHERE r.target_pubkey IS NOT NULL
+			  AND r.reactor_pubkey <> r.target_pubkey
+			GROUP BY r.target_pubkey
 			UNION ALL
-			SELECT target_pubkey, COUNT(DISTINCT reposter_pubkey)::float8
-			FROM repost_events
-			WHERE reposter_pubkey = ANY($1::text[])
-			  AND created_at >= $2
-			  AND target_pubkey IS NOT NULL
-			  AND reposter_pubkey <> target_pubkey
-			GROUP BY target_pubkey
+			SELECT p.target_pubkey, COUNT(DISTINCT p.reposter_pubkey)::float8
+			FROM follows f
+			JOIN repost_events p
+			  ON p.reposter_pubkey = f.pubkey
+			 AND p.created_at >= $2
+			WHERE p.target_pubkey IS NOT NULL
+			  AND p.reposter_pubkey <> p.target_pubkey
+			GROUP BY p.target_pubkey
 			UNION ALL
-			SELECT target_pubkey, COUNT(DISTINCT source_pubkey)::float8
-			FROM reply_count_contributions
-			WHERE source_pubkey = ANY($1::text[])
-			  AND source_created_at >= $2
-			  AND target_pubkey IS NOT NULL
-			  AND source_pubkey <> target_pubkey
-			GROUP BY target_pubkey
+			SELECT c.target_pubkey, COUNT(DISTINCT c.source_pubkey)::float8
+			FROM follows f
+			JOIN reply_count_contributions c
+			  ON c.source_pubkey = f.pubkey
+			 AND c.source_created_at >= $2
+			WHERE c.target_pubkey IS NOT NULL
+			  AND c.source_pubkey <> c.target_pubkey
+			GROUP BY c.target_pubkey
 			UNION ALL
-			SELECT receiver_pubkey, COUNT(DISTINCT sender_pubkey)::float8
-			FROM zap_receipts
-			WHERE sender_pubkey = ANY($1::text[])
-			  AND created_at >= $2
-			  AND receiver_pubkey IS NOT NULL
-			  AND sender_pubkey <> receiver_pubkey
-			GROUP BY receiver_pubkey
+			SELECT z.receiver_pubkey, COUNT(DISTINCT z.sender_pubkey)::float8
+			FROM follows f
+			JOIN zap_receipts z
+			  ON z.sender_pubkey = f.pubkey
+			 AND z.created_at >= $2
+			WHERE z.receiver_pubkey IS NOT NULL
+			  AND z.sender_pubkey <> z.receiver_pubkey
+			GROUP BY z.receiver_pubkey
 		),
 		cohort AS (
 			SELECT pubkey, SUM(weight) AS weight
 			FROM parts
 			GROUP BY pubkey
+		),
+		shortlist AS (
+			SELECT pubkey, weight
+			FROM cohort
+			ORDER BY weight DESC, pubkey ASC
+			LIMIT $4
 		)
 		SELECT
-			cohort.pubkey,
-			cohort.weight,
+			shortlist.pubkey,
+			shortlist.weight,
 			COALESCE(p.%s, 0),
 			COALESCE(p.recent_post_count, 0),
 			COALESCE(p.recent_reply_count, 0),
@@ -434,29 +495,47 @@ func (s *Read) cohortProfiles(ctx context.Context, follows []string, window time
 			COALESCE(p.recent_active_days, 0),
 			p.recent_activity_at,
 			COALESCE(pps.follower_count, 0)
-		FROM cohort
-		LEFT JOIN profile_discovery_stats p ON p.pubkey = cohort.pubkey
-		LEFT JOIN profile_public_stats pps ON pps.pubkey = cohort.pubkey
-		WHERE EXISTS (
-			SELECT 1 FROM events e
-			WHERE e.pubkey = cohort.pubkey
-			  AND e.kind = 1
-			  AND e.created_at >= $2
-			  AND NOT EXISTS (
-				SELECT 1 FROM thread_edges te WHERE te.child_event_id = e.id
-			  )
-		)
+		FROM shortlist
+		JOIN profiles_latest pl ON pl.pubkey = shortlist.pubkey
+		LEFT JOIN profile_discovery_stats p ON p.pubkey = shortlist.pubkey
+		LEFT JOIN profile_public_stats pps ON pps.pubkey = shortlist.pubkey
+		WHERE %s
 		  %s
-		  %s
-		ORDER BY cohort.weight DESC, cohort.pubkey ASC
+		ORDER BY shortlist.weight DESC, shortlist.pubkey ASC
 		LIMIT $3
-	`, scoreColumn, langClause, fmt.Sprintf(rankedProfileExistsSQL, "cohort.pubkey", "cohort.pubkey"))
+	`, scoreColumn, rootFilter, langClause)
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get cohort trending profiles: %w", err)
 	}
 	defer rows.Close()
 	return scanCohortProfiles(rows)
+}
+
+// cohortRootNoteFilter is true when pubkeyExpr published a root kind-1 note
+// inside the window. $2 is the cutoff. After the follows-feed backfill, that
+// is one index probe. Before it, the events probe stays, limited to the
+// shortlist the caller already sliced.
+func (s *Read) cohortRootNoteFilter(ctx context.Context, pubkeyExpr string) (string, error) {
+	var complete bool
+	if err := s.pool.QueryRow(ctx, `SELECT complete FROM author_feed_index_state WHERE id`).Scan(&complete); err != nil {
+		return "", fmt.Errorf("author feed index state: %w", err)
+	}
+	if complete {
+		return fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM author_feed_events feed
+			WHERE feed.pubkey = %s AND feed.kind = 1 AND feed.created_at >= $2
+		)`, pubkeyExpr), nil
+	}
+	return fmt.Sprintf(`EXISTS (
+		SELECT 1 FROM events root_note
+		WHERE root_note.pubkey = %s
+		  AND root_note.kind = 1
+		  AND root_note.created_at >= $2
+		  AND NOT EXISTS (
+			SELECT 1 FROM thread_edges te WHERE te.child_event_id = root_note.id
+		  )
+	)`, pubkeyExpr), nil
 }
 
 func profileWindowScoreColumn(window time.Duration, rising bool) (string, time.Duration, error) {
