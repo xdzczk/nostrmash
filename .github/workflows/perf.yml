@@ -1,1 +1,563 @@
-placeholder
+name: Performance Snapshot
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      bench_count:
+        description: "go test benchmark count per suite"
+        required: false
+        default: "5"
+      enforcement_mode:
+        description: "advisory or release_candidate"
+        required: false
+        default: "advisory"
+      baseline_run_id:
+        description: "Optional prior workflow run ID to compare against"
+        required: false
+        default: ""
+      baseline_artifact_name:
+        description: "Artifact name from baseline run (e.g. perf-snapshot-123)"
+        required: false
+        default: ""
+      regression_threshold_pct:
+        description: "Regression threshold percent for protected benchmarks"
+        required: false
+        default: "15"
+      fail_on_regression:
+        description: "Fail this run when regressions exceed threshold"
+        required: false
+        default: "false"
+      include_loadtest:
+        description: "Run the WS+API load harness (non-gating, artifacts only)"
+        required: false
+        default: "false"
+      recalibrate_gates:
+        description: "Print advisory gate-threshold recommendations from committed history"
+        required: false
+        default: "false"
+
+# The protected baseline lives at a fixed path so pull requests always know
+# where to find it. It is regenerated and committed by the baseline job on every
+# push to main, keeping it on the same runner architecture as PR comparisons.
+env:
+  PROTECTED_BASELINE_DIR: benchmarks/history/protection/main-latest
+  PROTECTED_THRESHOLD_PCT: "15"
+  # Append-only compact history (pruned to the last 90 entries) accumulated
+  # alongside the overwritten main-latest baselines. gate_recalibrate.sh reads
+  # these to recommend tighter thresholds after enough main pushes accrue.
+  PROTECTED_HISTORY_FILE: benchmarks/history/protection/history.ndjson
+  LOADTEST_HISTORY_FILE: loadtest/baseline/history.ndjson
+  # The committed WS+API load-harness baseline lives at a fixed path so PRs
+  # always know where to compare. It is regenerated and committed by the
+  # loadtest-baseline job on every push to main, keeping it on the same runner
+  # architecture as PR comparisons.
+  LOADTEST_BASELINE_DIR: loadtest/baseline/main-latest
+  # Seeding + harness knobs shared by the baseline and compare jobs so the two
+  # runs are byte-for-byte identical in shape.
+  LOADTEST_FIXTURE_SOURCE: internal/replay/testdata/relay_payloads/basic_flow.ndjson
+  LOADTEST_FIXTURE_REPEAT: "300"
+  LOADTEST_WS_CLIENTS: "32"
+  LOADTEST_API_CLIENTS: "32"
+  LOADTEST_WARMUP: "3s"
+  LOADTEST_DURATION: "30s"
+
+jobs:
+  baseline:
+    name: Refresh committed protected baseline (main)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.11"
+          cache: true
+
+      - name: Collect protected baseline
+        run: |
+          rm -rf "${PROTECTED_BASELINE_DIR}"
+          PERF_BENCH_COUNT=5 \
+          PERF_COLLECT_SCOPE=protected \
+          PERF_OUTPUT_BASE="$(dirname "${PROTECTED_BASELINE_DIR}")" \
+          PERF_RUN_ID="$(basename "${PROTECTED_BASELINE_DIR}")" \
+          bash ./scripts/perf_collect.sh
+
+      - name: Append pruned benchmark history
+        run: |
+          HISTORY_SHA="${GITHUB_SHA}" \
+          bash ./scripts/perf_history_append.sh benchmarks \
+            "${PROTECTED_BASELINE_DIR}" \
+            "${PROTECTED_HISTORY_FILE}"
+
+      - name: Commit updated baseline
+        run: |
+          # Stage first: `git diff --quiet` ignores untracked files, so checking
+          # before `git add` skipped the very first baseline forever and the PR
+          # compare job never found a committed baseline.
+          git add "${PROTECTED_BASELINE_DIR}" "${PROTECTED_HISTORY_FILE}"
+          if git diff --cached --quiet; then
+            echo "No baseline changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(perf): refresh protected benchmark baseline [skip ci]"
+          bash ./scripts/git_push_rebase.sh main
+
+  compare:
+    name: Compare protected benchmarks (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.11"
+          cache: true
+
+      - name: Collect current protected snapshot
+        run: |
+          PERF_BENCH_COUNT=5 \
+          PERF_COLLECT_SCOPE=protected \
+          PERF_OUTPUT_BASE=benchmarks/history/ci \
+          PERF_RUN_ID=current \
+          bash ./scripts/perf_collect.sh
+
+      - name: Compare against committed baseline
+        run: |
+          set -euo pipefail
+          if [ ! -d "${PROTECTED_BASELINE_DIR}/benchmarks" ]; then
+            echo "No committed protected baseline yet (${PROTECTED_BASELINE_DIR}); running advisory only."
+            echo "The baseline is created by the first push to main after this workflow lands."
+            exit 0
+          fi
+          REGRESSION_THRESHOLD_PCT="${PROTECTED_THRESHOLD_PCT}" \
+          ENFORCEMENT_MODE="release_candidate" \
+          FAIL_ON_REGRESSION=1 \
+          bash ./scripts/perf_protect_compare.sh \
+            "${PROTECTED_BASELINE_DIR}" \
+            benchmarks/history/ci/current \
+            benchmarks/compare
+
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-compare-${{ github.run_number }}
+          path: benchmarks/compare/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  snapshot:
+    name: Manual perf snapshot
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.11"
+
+      - name: Collect benchmark snapshot
+        run: make perf-collect
+        env:
+          PERF_BENCH_COUNT: ${{ inputs.bench_count }}
+          PERF_COLLECT_SCOPE: protected
+          PERF_OUTPUT_BASE: benchmarks/history/ci/current
+          PERF_RUN_ID: current-${{ github.run_number }}-${{ github.sha }}
+
+      - name: Upload performance artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-snapshot-${{ github.run_number }}
+          path: benchmarks/history/ci/current/
+          retention-days: 30
+
+      - name: Download baseline artifact
+        if: ${{ inputs.baseline_run_id != '' && inputs.baseline_artifact_name != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          run-id: ${{ inputs.baseline_run_id }}
+          name: ${{ inputs.baseline_artifact_name }}
+          path: benchmarks/history/ci/baseline
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Compare protected benchmarks
+        id: compare
+        if: ${{ inputs.baseline_run_id != '' && inputs.baseline_artifact_name != '' }}
+        env:
+          REGRESSION_THRESHOLD_PCT: ${{ inputs.regression_threshold_pct }}
+          ENFORCEMENT_MODE: ${{ inputs.enforcement_mode }}
+          FAIL_ON_REGRESSION: 0
+        run: |
+          set -euo pipefail
+          BASELINE_DIR="$(python3 - <<'PY'
+          import pathlib
+          base = pathlib.Path("benchmarks/history/ci/baseline")
+          selected = None
+          for path in sorted(base.rglob("metadata.json")):
+              if path.parent.joinpath("benchmarks").is_dir():
+                  selected = path.parent
+                  break
+          print(selected if selected else "")
+          PY
+          )"
+          CURRENT_DIR="$(python3 - <<'PY'
+          import pathlib
+          base = pathlib.Path("benchmarks/history/ci/current")
+          selected = None
+          for path in sorted(base.rglob("metadata.json")):
+              if path.parent.joinpath("benchmarks").is_dir():
+                  selected = path.parent
+                  break
+          print(selected if selected else "")
+          PY
+          )"
+          if [ -z "${BASELINE_DIR}" ] || [ -z "${CURRENT_DIR}" ]; then
+            mkdir -p benchmarks/compare
+            cat > benchmarks/compare/protected-summary.md <<'EOF'
+          # Protected Benchmark Comparison
+
+          Baseline comparison was requested but baseline/current snapshot could not be resolved.
+          Run remains advisory unless explicit enforcement is configured and a valid baseline is provided.
+          EOF
+            cat > benchmarks/compare/protected-summary.json <<'EOF'
+          {"error":"missing baseline or current snapshot"}
+          EOF
+            echo "comparison_ready=false" >> "${GITHUB_OUTPUT}"
+            echo "regression_count=0" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          bash ./scripts/perf_protect_compare.sh "${BASELINE_DIR}" "${CURRENT_DIR}" benchmarks/compare
+
+      - name: Upload comparison report
+        if: ${{ inputs.baseline_run_id != '' && inputs.baseline_artifact_name != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-compare-${{ github.run_number }}
+          path: benchmarks/compare/
+          retention-days: 30
+
+      - name: Enforce regression threshold
+        if: ${{ inputs.enforcement_mode == 'release_candidate' && inputs.fail_on_regression == 'true' && steps.compare.outputs.comparison_ready == 'true' && steps.compare.outputs.regression_count != '0' }}
+        run: |
+          echo "Protected benchmark regressions exceeded threshold."
+          echo "See perf-compare artifact for details."
+          exit 1
+
+  loadtest:
+    name: WS + API load harness (manual, non-gating)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_loadtest == 'true' }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: nostrmash
+          POSTGRES_PASSWORD: nostrmash
+          POSTGRES_DB: nostrmash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nostrmash -d nostrmash"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+      HTTP_ADDR: ":8080"
+      # The pgx default pool of 4 connections deadlocks under mixed WS+API
+      # concurrency; size it to comfortably exceed total client count so the
+      # harness measures backend latency rather than pool-acquire queueing.
+      DATABASE_MAX_CONNS: "64"
+      # Raise per-connection/per-client limits so the harness measures backend
+      # latency rather than rate-limit rejections.
+      PRIMAL_WS_MAX_REQ_PER_MINUTE: "1000000"
+      HTTP_RATE_LIMIT_RPM: "1000000"
+      HTTP_RATE_LIMIT_BURST: "100000"
+      HTTP_DISCOVERY_RATE_LIMIT_RPM: "1000000"
+      HTTP_SEARCH_RATE_LIMIT_RPM: "1000000"
+      HTTP_BATCH_RATE_LIMIT_RPM: "1000000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.11"
+          cache: true
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -U nostrmash -d nostrmash && exit 0
+            sleep 1
+          done
+          echo "Postgres did not become healthy in time"
+          exit 1
+
+      - name: Start API server
+        run: |
+          go run ./cmd/api > api-server.log 2>&1 &
+          echo "API_PID=$!" >> "${GITHUB_ENV}"
+          for i in {1..60}; do
+            if curl -sf http://localhost:8080/health >/dev/null; then
+              echo "API is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become healthy in time"
+          cat api-server.log || true
+          exit 1
+
+      - name: Run WS + API load harness
+        continue-on-error: true
+        run: |
+          mkdir -p loadtest/results
+          go run ./loadtest/harness \
+            -base-url http://localhost:8080 \
+            -ws-clients 32 -api-clients 32 \
+            -warmup 3s -duration 30s \
+            -out loadtest/results/ws-api-summary.json
+
+      - name: Stop API server
+        if: always()
+        run: |
+          if [ -n "${API_PID:-}" ]; then
+            kill "${API_PID}" || true
+          fi
+
+      - name: Upload load-test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-ws-api-${{ github.run_number }}
+          path: |
+            loadtest/results/
+            api-server.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  loadtest-baseline:
+    name: Refresh committed load-harness baseline (main)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: nostrmash
+          POSTGRES_PASSWORD: nostrmash
+          POSTGRES_DB: nostrmash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nostrmash -d nostrmash"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+      HTTP_ADDR: ":8080"
+      # Size the pool above total client count so the harness measures backend
+      # latency rather than pool-acquire queueing (matches the manual job).
+      DATABASE_MAX_CONNS: "64"
+      PRIMAL_WS_MAX_REQ_PER_MINUTE: "1000000"
+      HTTP_RATE_LIMIT_RPM: "1000000"
+      HTTP_RATE_LIMIT_BURST: "100000"
+      HTTP_DISCOVERY_RATE_LIMIT_RPM: "1000000"
+      HTTP_SEARCH_RATE_LIMIT_RPM: "1000000"
+      HTTP_BATCH_RATE_LIMIT_RPM: "1000000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.11"
+          cache: true
+
+      - name: Wait for Postgres
+        run: bash ./scripts/loadtest_ci_seed.sh wait
+
+      - name: Seed Postgres via replay
+        run: bash ./scripts/loadtest_ci_seed.sh seed
+
+      - name: Start API server
+        run: bash ./scripts/loadtest_ci_seed.sh start-api
+
+      - name: Run WS + API load harness
+        run: |
+          mkdir -p "${LOADTEST_BASELINE_DIR}"
+          go run ./loadtest/harness \
+            -base-url http://localhost:8080 \
+            -ws-clients "${LOADTEST_WS_CLIENTS}" -api-clients "${LOADTEST_API_CLIENTS}" \
+            -warmup "${LOADTEST_WARMUP}" -duration "${LOADTEST_DURATION}" \
+            -out "${LOADTEST_BASELINE_DIR}/summary.json"
+
+      - name: Stop API server
+        if: always()
+        run: bash ./scripts/loadtest_ci_seed.sh stop-api
+
+      - name: Append pruned load-harness history
+        run: |
+          HISTORY_SHA="${GITHUB_SHA}" \
+          bash ./scripts/perf_history_append.sh loadtest \
+            "${LOADTEST_BASELINE_DIR}/summary.json" \
+            "${LOADTEST_HISTORY_FILE}"
+
+      - name: Commit updated baseline
+        run: |
+          # Stage first: `git diff --quiet` ignores untracked files, so checking
+          # before `git add` skipped the very first baseline forever and the PR
+          # compare job never found a committed baseline.
+          git add "${LOADTEST_BASELINE_DIR}/summary.json" "${LOADTEST_HISTORY_FILE}"
+          if git diff --cached --quiet; then
+            echo "No load-harness baseline changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(loadtest): refresh WS+API harness baseline [skip ci]"
+          bash ./scripts/git_push_rebase.sh main
+
+      - name: Upload baseline artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-baseline-${{ github.run_number }}
+          path: |
+            loadtest/baseline/
+            api-server.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  loadtest-compare:
+    name: Compare WS + API load harness (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: nostrmash
+          POSTGRES_PASSWORD: nostrmash
+          POSTGRES_DB: nostrmash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nostrmash -d nostrmash"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://nostrmash:nostrmash@localhost:5432/nostrmash?sslmode=disable
+      HTTP_ADDR: ":8080"
+      DATABASE_MAX_CONNS: "64"
+      PRIMAL_WS_MAX_REQ_PER_MINUTE: "1000000"
+      HTTP_RATE_LIMIT_RPM: "1000000"
+      HTTP_RATE_LIMIT_BURST: "100000"
+      HTTP_DISCOVERY_RATE_LIMIT_RPM: "1000000"
+      HTTP_SEARCH_RATE_LIMIT_RPM: "1000000"
+      HTTP_BATCH_RATE_LIMIT_RPM: "1000000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.11"
+          cache: true
+
+      - name: Wait for Postgres
+        run: bash ./scripts/loadtest_ci_seed.sh wait
+
+      - name: Seed Postgres via replay
+        run: bash ./scripts/loadtest_ci_seed.sh seed
+
+      - name: Start API server
+        run: bash ./scripts/loadtest_ci_seed.sh start-api
+
+      - name: Run WS + API load harness
+        run: |
+          mkdir -p loadtest/results
+          go run ./loadtest/harness \
+            -base-url http://localhost:8080 \
+            -ws-clients "${LOADTEST_WS_CLIENTS}" -api-clients "${LOADTEST_API_CLIENTS}" \
+            -warmup "${LOADTEST_WARMUP}" -duration "${LOADTEST_DURATION}" \
+            -out loadtest/results/ws-api-summary.json
+
+      - name: Stop API server
+        if: always()
+        run: bash ./scripts/loadtest_ci_seed.sh stop-api
+
+      - name: Compare against committed baseline
+        run: |
+          set -euo pipefail
+          if [ ! -f "${LOADTEST_BASELINE_DIR}/summary.json" ]; then
+            echo "No committed load-harness baseline yet (${LOADTEST_BASELINE_DIR}/summary.json); running advisory only."
+            echo "The baseline is created by the first push to main after this workflow lands."
+          fi
+          FAIL_ON_REGRESSION=1 \
+          bash ./scripts/loadtest_compare.sh \
+            "${LOADTEST_BASELINE_DIR}/summary.json" \
+            loadtest/results/ws-api-summary.json \
+            loadtest/compare >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-compare-${{ github.run_number }}
+          path: |
+            loadtest/compare/
+            loadtest/results/
+            api-server.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  recalibrate:
+    name: Recommend gate thresholds (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.recalibrate_gates == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Recommend thresholds from committed history
+        env:
+          # Surface the currently-configured gates so the reducer can print a
+          # "vs configured" column. Keep these in sync with the gate defaults.
+          LOADTEST_ERROR_RATE_FLOOR: "0.01"
+          LOADTEST_ERROR_RATE_FACTOR: "2.0"
+          PROTECTED_THRESHOLD_PCT: ${{ env.PROTECTED_THRESHOLD_PCT }}
+        run: |
+          bash ./scripts/gate_recalibrate.sh \
+            "${LOADTEST_HISTORY_FILE}" \
+            "${PROTECTED_HISTORY_FILE}" >> "${GITHUB_STEP_SUMMARY}"
