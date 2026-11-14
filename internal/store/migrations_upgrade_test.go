@@ -116,6 +116,12 @@ func applyMigrationsForTest(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	if err := tx.QueryRow(ctx, `SELECT current_schema()`).Scan(&currentSchema); err != nil {
 		t.Fatalf("resolve current schema: %v", err)
 	}
+	// Same lock Migrate and schema cleanup take. Without it, another test's
+	// DROP SCHEMA CASCADE invalidates a relation this transaction still has
+	// open and Postgres fails the next statement with "could not open relation".
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, dbmigrate.MigrationAdvisoryLockID); err != nil {
+		t.Fatalf("acquire migration lock: %v", err)
+	}
 	if _, err := tx.Exec(ctx, dbmigrate.BootstrapAuditSQL); err != nil {
 		t.Fatalf("bootstrap audit table: %v", err)
 	}
