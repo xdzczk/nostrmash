@@ -1621,6 +1621,9 @@ type ThreadSummary struct {
 	FirstReplyLatencyS int32
 	BranchingX100      int32
 	HalfLifeS          int32
+	Velocity24h        pgtype.Float8
+	Velocity7d         pgtype.Float8
+	Velocity30d        pgtype.Float8
 }
 
 type TrustGraphSnapshot struct {
