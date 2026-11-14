@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/sync/errgroup"
 )
 
 func (h Handlers) GetClientStats(w http.ResponseWriter, r *http.Request) {
@@ -209,101 +210,127 @@ func (h Handlers) GetAccountStats(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusServiceUnavailable, "feature_unavailable", "stats database is not configured")
 		return
 	}
-	newAuthors, err := h.dailyCounts(r.Context(), `
-		SELECT (first_seen_at AT TIME ZONE 'utc')::date, count(*)::bigint
-		FROM author_first_seen
-		WHERE first_seen_at >= now() - interval '30 days'
-		GROUP BY 1 ORDER BY 1
-	`)
-	if err != nil {
+	policy := h.newPublicCachePolicy(publicCacheFamilyStats, "account_stats", nil)
+	if err := h.servePublicCached(r.Context(), w, policy, h.accountStatsPayload); err != nil {
 		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
 	}
-	var dau, wau, active30, losses, gains int64
-	if err := h.pool.QueryRow(r.Context(), `
-		SELECT
-			count(DISTINCT pubkey) FILTER (WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 1),
-			count(DISTINCT pubkey) FILTER (WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 7),
-			count(DISTINCT pubkey)
-		FROM author_activity_daily
-		WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 30
-		  AND post_count > 0
-	`).Scan(&dau, &wau, &active30); err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
+}
+
+func (h Handlers) accountStatsPayload(ctx context.Context) (map[string]any, error) {
+	var (
+		newAuthors               []map[string]any
+		dau, wau, active30       int64
+		profiles, postedProfiles int64
+		losses, gains            int64
+		ageCounts                map[int]int64
+		aged                     int64
+	)
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		rows, err := h.dailyCounts(ctx, `
+			SELECT (first_seen_at AT TIME ZONE 'utc')::date, count(*)::bigint
+			FROM author_first_seen
+			WHERE first_seen_at >= now() - interval '30 days'
+			GROUP BY 1 ORDER BY 1
+		`)
+		if err != nil {
+			return err
+		}
+		newAuthors = rows
+		return nil
+	})
+	g.Go(func() error {
+		return h.pool.QueryRow(ctx, `
+			SELECT
+				count(DISTINCT pubkey) FILTER (WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 1),
+				count(DISTINCT pubkey) FILTER (WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 7),
+				count(DISTINCT pubkey)
+			FROM author_activity_daily
+			WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 30
+			  AND post_count > 0
+		`).Scan(&dau, &wau, &active30)
+	})
 	// profiles is the kind-0 population, the same count as identity stats.
 	// Dormant profiles are that population minus those who posted in 30 days,
 	// so the two numbers share a denominator. active_authors_* stays every
 	// pubkey who posted, including pubkeys that never published a profile.
-	var profiles, postedProfiles int64
-	if err := h.pool.QueryRow(r.Context(), `
-		SELECT
-			count(*)::bigint,
-			count(*) FILTER (WHERE EXISTS (
-				SELECT 1 FROM author_activity_daily a
-				WHERE a.pubkey = f.pubkey
-				  AND a.activity_date >= (now() AT TIME ZONE 'utc')::date - 30
-				  AND a.post_count > 0
-			))::bigint
-		FROM profile_fields f
-	`).Scan(&profiles, &postedProfiles); err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-	if err := h.pool.QueryRow(r.Context(), `
-		SELECT
-			(SELECT count(*) FROM follower_loss_events WHERE lost_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7),
-			(SELECT count(*) FROM follower_gain_events WHERE gained_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7)
-	`).Scan(&losses, &gains); err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
+	//
+	// Posters are aggregated once from the partial activity_date index, then
+	// hashed against profile_fields. A per-profile EXISTS was planned as a
+	// nested index lookup, one probe per profile, which is what pushed this
+	// route past the client timeout.
+	g.Go(func() error {
+		return h.pool.QueryRow(ctx, `
+			WITH posters AS MATERIALIZED (
+				SELECT DISTINCT pubkey
+				FROM author_activity_daily
+				WHERE activity_date >= (now() AT TIME ZONE 'utc')::date - 30
+				  AND post_count > 0
+			)
+			SELECT
+				count(*)::bigint,
+				count(posters.pubkey)::bigint
+			FROM profile_fields
+			LEFT JOIN posters ON posters.pubkey = profile_fields.pubkey
+		`).Scan(&profiles, &postedProfiles)
+	})
+	g.Go(func() error {
+		return h.pool.QueryRow(ctx, `
+			SELECT
+				(SELECT count(*) FROM follower_loss_events WHERE lost_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7),
+				(SELECT count(*) FROM follower_gain_events WHERE gained_at >= EXTRACT(EPOCH FROM now())::bigint - 86400 * 7)
+		`).Scan(&losses, &gains)
+	})
+	// Age is the oldest stored event for a kind-0 profile, not the moment
+	// the index first saw the pubkey. Future dates and pre-Nostr dates are
+	// counted separately so they do not land in the newest or oldest bucket.
+	g.Go(func() error {
+		rows, err := h.pool.Query(ctx, `
+			SELECT width_bucket(
+			         ((EXTRACT(EPOCH FROM now()) - s.time_joined) / 86400.0)::float8,
+			         ARRAY[1, 7, 30, 90, 365]::float8[]
+			       ),
+			       count(*)::bigint
+			FROM profile_fields f
+			JOIN profile_public_stats s ON s.pubkey = f.pubkey
+			WHERE s.time_joined IS NOT NULL
+			  AND s.time_joined >= $1
+			  AND s.time_joined <= EXTRACT(EPOCH FROM now())::bigint
+			GROUP BY 1
+		`, accountAgeEpochFloor)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		counts := map[int]int64{}
+		var known int64
+		for rows.Next() {
+			var bucket int
+			var count int64
+			if err := rows.Scan(&bucket, &count); err != nil {
+				return err
+			}
+			if bucket < 0 || bucket > 5 {
+				continue
+			}
+			counts[bucket] = count
+			known += count
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		ageCounts = counts
+		aged = known
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 	unfollow := int64(0)
 	if losses+gains > 0 {
 		unfollow = losses * 10000 / (losses + gains)
 	}
-	// Age is the oldest stored event for a kind-0 profile, not the moment
-	// the index first saw the pubkey. Future dates and pre-Nostr dates are
-	// counted separately so they do not land in the newest or oldest bucket.
-	ageRows, err := h.pool.Query(r.Context(), `
-		SELECT width_bucket(
-		         ((EXTRACT(EPOCH FROM now()) - s.time_joined) / 86400.0)::float8,
-		         ARRAY[1, 7, 30, 90, 365]::float8[]
-		       ),
-		       count(*)::bigint
-		FROM profile_fields f
-		JOIN profile_public_stats s ON s.pubkey = f.pubkey
-		WHERE s.time_joined IS NOT NULL
-		  AND s.time_joined >= $1
-		  AND s.time_joined <= EXTRACT(EPOCH FROM now())::bigint
-		GROUP BY 1
-	`, accountAgeEpochFloor)
-	if err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-	defer ageRows.Close()
-	ageCounts := map[int]int64{}
-	var aged int64
-	for ageRows.Next() {
-		var bucket int
-		var count int64
-		if err := ageRows.Scan(&bucket, &count); err != nil {
-			writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-			return
-		}
-		if bucket < 0 || bucket > 5 {
-			continue
-		}
-		ageCounts[bucket] = count
-		aged += count
-	}
-	if err := ageRows.Err(); err != nil {
-		writeError(r.Context(), w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"new_authors":         newAuthors,
 		"active_authors_1d":   dau,
 		"active_authors_7d":   wau,
@@ -314,7 +341,7 @@ func (h Handlers) GetAccountStats(w http.ResponseWriter, r *http.Request) {
 		"unfollow_rate_bps":   unfollow,
 		"account_age":         accountAgeBuckets(ageCounts),
 		"account_age_unknown": profiles - aged,
-	})
+	}, nil
 }
 
 // accountAgeBuckets returns one row per width_bucket index. Thresholds are
