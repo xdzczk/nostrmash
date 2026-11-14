@@ -42,7 +42,7 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, la
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("store is not initialized")
 	}
-	repliesColumn, weightColumn, windowDuration, err := resolveConversationWindow(window)
+	_, _, windowDuration, err := resolveConversationWindow(window)
 	if err != nil {
 		return nil, err
 	}
@@ -56,59 +56,16 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, la
 		offset = 0
 	}
 	activityCutoff := time.Now().UTC().Add(-windowDuration).Unix()
-	// Broad threads score reply_weight_* (unique repliers excluding the root
-	// author, optionally trust-weighted, with a copied phrase counting once).
-	// Rows projected before thread summary derivation v2 have no weights yet
-	// and fall back to the raw counters until the rebuild sweep reaches them.
-	//
-	// Small threads never use that raw volume. One author scores zero. Two to
-	// five authors score (authors - 1), and each author can carry about eight
-	// replies before more messages stop raising the rank. Author headcount is
-	// the windowed authors_* column once a row is on derivation v4; older rows
-	// use lifetime participant_count so a three-person pile-on drops on the
-	// next read, before the rebuild.
-	authorsColumn := "authors_24h"
-	authorVersion := conversationWindowAuthorVersion
+	// thread_summary_velocity stores the rank at projection time. Ordering by
+	// that column walks idx_thread_summaries_velocity_* instead of scoring
+	// every thread that was active in the window.
+	velocityColumn := "velocity_24h"
 	switch windowDuration {
 	case 7 * 24 * time.Hour:
-		authorsColumn = "authors_7d"
+		velocityColumn = "velocity_7d"
 	case 30 * 24 * time.Hour:
-		authorsColumn = "authors_30d"
-		// authors_30d is written at thread summary v5. Older rows still
-		// rank from lifetime participant_count until they are rewritten.
-		authorVersion = 5
+		velocityColumn = "velocity_30d"
 	}
-	velocityBase := fmt.Sprintf(`
-		CASE
-			WHEN COALESCE(ts.derivation_version, 0) >= 2 THEN COALESCE(ts.%s, 0)::double precision
-			ELSE COALESCE(ts.%s, 0)::double precision
-		END`, weightColumn, repliesColumn)
-	velocityCore := fmt.Sprintf(`(%s + (LEAST(%s, %.1f) * %.2f))`, velocityBase, velocityBase, conversationBoostCap, conversationReplyBoost)
-	authorsExpr := fmt.Sprintf(`
-		CASE
-			WHEN COALESCE(ts.derivation_version, 0) >= %d THEN COALESCE(ts.%s, 0)
-			ELSE COALESCE(ts.participant_count, 1)
-		END`, authorVersion, authorsColumn)
-	repliesExpr := fmt.Sprintf(`COALESCE(ts.%s, 0)`, repliesColumn)
-	velocityScore := fmt.Sprintf(`
-		CASE
-			WHEN (%[1]s) <= 1 THEN 0.0
-			WHEN (%[1]s) <= %[2]d THEN
-				CASE
-					WHEN (%[3]s) <= 0 THEN 0.0
-					ELSE ((%[1]s) - 1)::double precision * LEAST(
-						1.0,
-						(%[4]g * (%[1]s))::double precision / GREATEST((%[3]s), 1)::double precision
-					)
-				END
-			ELSE %[5]s
-		END`,
-		authorsExpr,
-		conversationSmallGroupMaxAuthors,
-		repliesExpr,
-		float64(conversationRepliesPerAuthor),
-		velocityCore,
-	)
 	query := fmt.Sprintf(`
 		SELECT
 			ts.root_event_id,
@@ -125,17 +82,17 @@ func (s *Read) GetHotConversations(ctx context.Context, window time.Duration, la
 			COALESCE(ts.replies_24h, 0),
 			COALESCE(ts.replies_7d, 0),
 			COALESCE(ts.replies_30d, 0),
-			%s AS velocity_score
+			ts.%[1]s AS velocity_score
 		FROM thread_summaries ts
 		INNER JOIN events e ON e.id = ts.root_event_id
 		LEFT JOIN note_discovery_stats nds ON nds.event_id = ts.root_event_id
 		WHERE e.kind = 1
 		  AND COALESCE(ts.last_activity_at, e.created_at) >= $1
-		  AND %s > 0
-		  %s
-		ORDER BY velocity_score DESC, COALESCE(ts.last_activity_at, e.created_at) DESC, ts.root_event_id ASC
+		  AND ts.%[1]s > 0
+		  %[2]s
+		ORDER BY ts.%[1]s DESC, COALESCE(ts.last_activity_at, e.created_at) DESC, ts.root_event_id ASC
 		LIMIT $2 OFFSET $3
-	`, velocityScore, velocityScore, noteLanguageClause("nds", "$4::text", lang))
+	`, velocityColumn, noteLanguageClause("nds", "$4::text", lang))
 	args := []any{activityCutoff, limit, offset}
 	if lang != "" {
 		args = append(args, lang)

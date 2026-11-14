@@ -353,6 +353,10 @@ func Run(ctx context.Context, log *slog.Logger, build BuildInfo, stop func()) er
 		MaxSearchWindowHours:    cfg.HTTP.PublicMaxSearchWindowHrs,
 		MaxDiscoveryWindowHours: cfg.HTTP.PublicMaxDiscoveryWindowHrs,
 	}, handler)
+	// Inside the rate limiter, outside the handlers: a client already over
+	// its limit never checks out a connection, and a saturated pool returns
+	// 503 before the handler queues.
+	handler = api.WithDBAcquireBudget(pool, handler)
 	handler = api.WithHTTPRateLimit(api.HTTPRateLimitOptions{
 		DefaultRPM:      cfg.HTTP.RateLimitRPM,
 		DefaultBurst:    cfg.HTTP.RateLimitBurst,

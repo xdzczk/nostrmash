@@ -96,6 +96,9 @@ func (h *Handlers) recountTrustedFollowers(ctx context.Context) error {
 	return nil
 }
 
+// source_run_id is stored on rows that actually change, but it is not a
+// change by itself. A trust run mints a new id even when hops and score are
+// the same, and treating that as a difference rewrote every candidate row.
 func refreshTrustedNoteDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersion int) error {
 	var snapshotRefreshedAt *time.Time
 	if err := tx.QueryRow(ctx, `
@@ -141,7 +144,6 @@ func refreshTrustedNoteDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersion 
 		   OR existing.author_pubkey IS DISTINCT FROM n.author_pubkey
 		   OR existing.min_hops IS DISTINCT FROM latest.min_hops
 		   OR existing.trust_score IS DISTINCT FROM latest.score
-		   OR existing.source_run_id IS DISTINCT FROM latest.source_run_id
 		   OR existing.derivation_version IS DISTINCT FROM $2
 		ON CONFLICT (event_id) DO UPDATE
 		SET author_pubkey = EXCLUDED.author_pubkey,
@@ -154,7 +156,6 @@ func refreshTrustedNoteDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersion 
 		WHERE trusted_note_discovery_candidates.author_pubkey IS DISTINCT FROM EXCLUDED.author_pubkey
 		   OR trusted_note_discovery_candidates.min_hops IS DISTINCT FROM EXCLUDED.min_hops
 		   OR trusted_note_discovery_candidates.trust_score IS DISTINCT FROM EXCLUDED.trust_score
-		   OR trusted_note_discovery_candidates.source_run_id IS DISTINCT FROM EXCLUDED.source_run_id
 		   OR trusted_note_discovery_candidates.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
 	`, snapshotRefreshedAt, writeVersion); err != nil {
 		return fmt.Errorf("refresh trusted note candidates: %w", err)
@@ -219,7 +220,6 @@ func refreshTrustedProfileDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersi
 		WHERE existing.pubkey IS NULL
 		   OR existing.min_hops IS DISTINCT FROM latest.min_hops
 		   OR existing.trust_score IS DISTINCT FROM latest.score
-		   OR existing.source_run_id IS DISTINCT FROM latest.source_run_id
 		   OR existing.derivation_version IS DISTINCT FROM $2
 		ON CONFLICT (pubkey) DO UPDATE
 		SET min_hops = EXCLUDED.min_hops,
@@ -230,7 +230,6 @@ func refreshTrustedProfileDiscoveryTx(ctx context.Context, tx pgx.Tx, writeVersi
 		    projected_at = now()
 		WHERE trusted_profile_discovery_candidates.min_hops IS DISTINCT FROM EXCLUDED.min_hops
 		   OR trusted_profile_discovery_candidates.trust_score IS DISTINCT FROM EXCLUDED.trust_score
-		   OR trusted_profile_discovery_candidates.source_run_id IS DISTINCT FROM EXCLUDED.source_run_id
 		   OR trusted_profile_discovery_candidates.derivation_version IS DISTINCT FROM EXCLUDED.derivation_version
 	`, snapshotRefreshedAt, writeVersion); err != nil {
 		return fmt.Errorf("refresh trusted profile candidates: %w", err)

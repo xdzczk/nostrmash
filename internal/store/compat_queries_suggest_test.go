@@ -101,6 +101,9 @@ func TestSuggestHashtags_MatchesPrefixAndAggregates(t *testing.T) {
 		newTaggedEvent("sg_hash_spam_1", "author_spam", now.Add(-14*time.Minute), "nostrspam"),
 		newTaggedEvent("sg_hash_spam_2", "author_spam", now.Add(-13*time.Minute), "nostrspam"),
 		newTaggedEvent("sg_hash_spam_3", "author_spam", now.Add(-12*time.Minute), "nostrspam"),
+		// Older than the suggestion window, so a prefix match here must not
+		// surface. The typeahead scans 30 days, not the whole hashtag table.
+		newTaggedEvent("sg_hash_old", "author_old", now.Add(-40*24*time.Hour), "nostalgic"),
 	}
 	for _, event := range events {
 		tags := extractTagsForStoreTest(t, event.RawJSON)

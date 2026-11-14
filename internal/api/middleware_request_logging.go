@@ -121,16 +121,23 @@ func requestPathTemplate(r *http.Request) string {
 
 // requestClientIP returns the best-effort originating client address.
 //
-// Behind Coolify/Traefik the API's RemoteAddr is always the proxy, so a
-// RemoteAddr-only lookup collapses every user into one shared rate-limit
-// bucket. Prefer proxy-set headers when present:
-//  1. X-Real-IP (Traefik sets this to the connecting client)
-//  2. left-most X-Forwarded-For hop (original client)
-//  3. RemoteAddr host
+// Behind Coolify/Traefik the API's RemoteAddr is always the proxy, and the
+// edge nginx sets X-Real-IP to that proxy address. Website renders call the
+// API from a Cloudflare Worker, which forwards the visitor as
+// CF-Connecting-IP. Prefer that when it is present so page traffic is limited
+// per visitor instead of per proxy.
+//
+//  1. CF-Connecting-IP (visitor, when the edge or worker forwarded one)
+//  2. X-Real-IP (Traefik sets this to the connecting client)
+//  3. left-most X-Forwarded-For hop (original client)
+//  4. RemoteAddr host
 //
 // Only syntactically valid IPs are accepted from headers so a garbage or
 // spoofed value cannot create unbounded limiter keys.
 func requestClientIP(r *http.Request) string {
+	if ip := parseClientIP(r.Header.Get("CF-Connecting-IP")); ip != "" {
+		return ip
+	}
 	if ip := parseClientIP(r.Header.Get("X-Real-IP")); ip != "" {
 		return ip
 	}

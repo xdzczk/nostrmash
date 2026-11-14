@@ -530,6 +530,9 @@ func (s *Read) SuggestHashtags(ctx context.Context, query string, limit int) ([]
 	// are already Web-of-Trust gated at projection time, and unique-author
 	// ordering means spamming a tag from one account cannot push it up the
 	// typeahead — inflating it requires many distinct trusted authors.
+	// The 30-day bound keeps a short prefix on the (hashtag, created_at)
+	// index instead of aggregating the whole table.
+	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour).Unix()
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			hashtag,
@@ -538,10 +541,11 @@ func (s *Read) SuggestHashtags(ctx context.Context, query string, limit int) ([]
 		FROM event_hashtags
 		WHERE hashtag LIKE $1 || '%'
 		  AND hashtag !~ '^[0-9]+$'
+		  AND created_at >= $3
 		GROUP BY hashtag
 		ORDER BY unique_authors DESC, event_count DESC, hashtag ASC
 		LIMIT $2
-	`, query, limit)
+	`, query, limit, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("suggest hashtags: %w", err)
 	}

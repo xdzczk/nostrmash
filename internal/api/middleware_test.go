@@ -102,6 +102,7 @@ func TestRequestClientIP_PrefersProxyHeaders(t *testing.T) {
 	cases := []struct {
 		name       string
 		remoteAddr string
+		cfIP       string
 		realIP     string
 		forwarded  string
 		want       string
@@ -143,11 +144,29 @@ func TestRequestClientIP_PrefersProxyHeaders(t *testing.T) {
 			realIP:     "2001:db8::1",
 			want:       "2001:db8::1",
 		},
+		{
+			name:       "cf_connecting_ip_beats_proxy_real_ip",
+			remoteAddr: "10.0.1.6:4321",
+			cfIP:       "203.0.113.44",
+			realIP:     "10.0.2.5",
+			forwarded:  "203.0.113.44, 10.0.2.5",
+			want:       "203.0.113.44",
+		},
+		{
+			name:       "invalid_cf_connecting_ip_falls_through",
+			remoteAddr: "10.0.1.6:4321",
+			cfIP:       "not-an-ip",
+			realIP:     "203.0.113.10",
+			want:       "203.0.113.10",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/events/1", nil)
 			req.RemoteAddr = tc.remoteAddr
+			if tc.cfIP != "" {
+				req.Header.Set("CF-Connecting-IP", tc.cfIP)
+			}
 			if tc.realIP != "" {
 				req.Header.Set("X-Real-IP", tc.realIP)
 			}

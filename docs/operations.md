@@ -716,6 +716,12 @@ Alert rules are defined in `observability/alerts/core_workflow_alerts.yml`. Use 
 - `NostrMashAPIHighErrorRate`
   - Meaning: sustained API `5xx` ratio above SLO early-warning level.
   - Check next: per-route `status_code` mix, then `http.request -> query.* -> store.*` traces.
+- `NostrMashAPIErrorBurst`
+  - Meaning: HTTP 500 ratio above 5% for 2m. A short burst will not wait out the 15m warning above.
+  - Check next: `nostrmash:db_pool:wait_rate5m` and in-use connections. A full API pool returns 500 until the acquire budget is deployed, then 503 `overloaded`.
+- `NostrMashDBPoolWaitBurst`
+  - Meaning: the pool is above 95% used and callers are waiting, for 2m.
+  - Check next: which service holds the connections (`pg_stat_activity.application_name`) and the statement at the top of `pg_stat_statements`. Do not raise `DATABASE_MAX_CONNS` past the per-service ceiling.
 - `NostrMashAPICriticalPathLatencyHigh`
   - Meaning: p95 latency of the Postgres store operations behind events/threads/profiles by ID is above target. Measured from `nostrmash_db_operation_duration_seconds` (store layer), not the HTTP handler, so it does not include relay-fallback time on local misses — that has its own alert (`NostrMashFallbackLatencyHigh`). Excludes `/api/v1/search`, which has its own alert below since it fails for unrelated reasons.
   - Check next: DB pool pressure, then dominant query/store spans by `trace_id`. If this alert is quiet but `profiles/{pubkey}`/`events/{id}` still feel slow end-to-end, check `NostrMashFallbackLatencyHigh` and `nostrmash_lookup_fallback_total` instead — that is very likely relay-side, not Postgres.

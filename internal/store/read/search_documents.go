@@ -22,71 +22,81 @@ func (s *Read) SearchDocuments(ctx context.Context, query string, limit int) ([]
 		limit = 100
 	}
 
+	// Each branch is bounded and indexable. OR-ing a leading-wildcard LIKE
+	// with the tsvector match made Postgres scan search_documents, and that
+	// fallback then exceeded the search deadline. Alias and identity
+	// substring matches stay on Meilisearch; this path keeps full-text hits
+	// plus identifier and title prefixes.
 	rows, err := s.pool.Query(ctx, `
 		WITH params AS (
 			SELECT lower(trim($1)) AS q
 		),
-		ranked AS (
-			SELECT
-				doc.entity_type,
-				doc.entity_id,
-				doc.title,
-				doc.body,
-				doc.aliases,
-				doc.identity_tokens,
-				doc.freshness,
-				doc.popularity,
-				doc.trust_score,
-				(
-					CASE
-						WHEN lower(doc.entity_id) = params.q THEN 120
-						WHEN EXISTS (
-							SELECT 1
-							FROM unnest(doc.aliases) AS alias
-							WHERE lower(alias) = params.q
-						) THEN 95
-						WHEN lower(doc.entity_id) LIKE params.q || '%' THEN 80
-						WHEN lower(coalesce(doc.title, '')) LIKE params.q || '%' THEN 70
-						WHEN lower(coalesce(doc.title, '')) = params.q THEN 90
-						ELSE 0
-					END
-					+ COALESCE(ts_rank_cd(doc.search_tsv, websearch_to_tsquery('simple', params.q)) * 25, 0)
-					+ CASE
-						WHEN lower(coalesce(doc.body, '')) LIKE '%' || params.q || '%' THEN 5
-						ELSE 0
-					END
-					+ LEAST(coalesce(doc.popularity, 0) / 1000.0, 8)
-				) AS rank_score
-			FROM search_documents doc
-			CROSS JOIN params
-			WHERE
-				doc.search_tsv @@ websearch_to_tsquery('simple', params.q)
-				OR lower(doc.entity_id) LIKE '%' || params.q || '%'
-				OR lower(coalesce(doc.title, '')) LIKE '%' || params.q || '%'
-				OR EXISTS (
-					SELECT 1
-					FROM unnest(doc.aliases) AS alias
-					WHERE lower(alias) LIKE '%' || params.q || '%'
-				)
-				OR EXISTS (
-					SELECT 1
-					FROM unnest(doc.identity_tokens) AS token
-					WHERE lower(token) LIKE '%' || params.q || '%'
-				)
+		hit AS (
+			(
+				SELECT
+					doc.entity_type, doc.entity_id, doc.title, doc.body, doc.aliases,
+					doc.identity_tokens, doc.freshness, doc.popularity, doc.trust_score, doc.search_tsv
+				FROM search_documents doc
+				CROSS JOIN params
+				WHERE params.q <> ''
+				  AND doc.search_tsv @@ websearch_to_tsquery('simple', params.q)
+				ORDER BY doc.popularity DESC, doc.freshness DESC
+				LIMIT 200
+			)
+			UNION
+			(
+				SELECT
+					doc.entity_type, doc.entity_id, doc.title, doc.body, doc.aliases,
+					doc.identity_tokens, doc.freshness, doc.popularity, doc.trust_score, doc.search_tsv
+				FROM search_documents doc
+				CROSS JOIN params
+				WHERE params.q <> ''
+				  AND lower(doc.entity_id) LIKE params.q || '%'
+				ORDER BY doc.popularity DESC, doc.freshness DESC
+				LIMIT 50
+			)
+			UNION
+			(
+				SELECT
+					doc.entity_type, doc.entity_id, doc.title, doc.body, doc.aliases,
+					doc.identity_tokens, doc.freshness, doc.popularity, doc.trust_score, doc.search_tsv
+				FROM search_documents doc
+				CROSS JOIN params
+				WHERE params.q <> ''
+				  AND left(lower(doc.title), 200) LIKE params.q || '%'
+				ORDER BY doc.popularity DESC, doc.freshness DESC
+				LIMIT 50
+			)
 		)
 		SELECT
-			entity_type,
-			entity_id,
-			title,
-			body,
-			aliases,
-			identity_tokens,
-			freshness,
-			popularity,
-			trust_score,
-			rank_score
-		FROM ranked
-		ORDER BY rank_score DESC, freshness DESC, popularity DESC, entity_id ASC
+			hit.entity_type,
+			hit.entity_id,
+			hit.title,
+			hit.body,
+			hit.aliases,
+			hit.identity_tokens,
+			hit.freshness,
+			hit.popularity,
+			hit.trust_score,
+			(
+				CASE
+					WHEN lower(hit.entity_id) = params.q THEN 120
+					WHEN EXISTS (
+						SELECT 1
+						FROM unnest(hit.aliases) AS alias
+						WHERE lower(alias) = params.q
+					) THEN 95
+					WHEN lower(coalesce(hit.title, '')) = params.q THEN 90
+					WHEN lower(hit.entity_id) LIKE params.q || '%' THEN 80
+					WHEN lower(coalesce(hit.title, '')) LIKE params.q || '%' THEN 70
+					ELSE 0
+				END
+				+ COALESCE(ts_rank_cd(hit.search_tsv, websearch_to_tsquery('simple', params.q)) * 25, 0)
+				+ LEAST(coalesce(hit.popularity, 0) / 1000.0, 8)
+			) AS rank_score
+		FROM hit
+		CROSS JOIN params
+		ORDER BY rank_score DESC, hit.freshness DESC, hit.popularity DESC, hit.entity_id ASC
 		LIMIT $2
 	`, query, limit)
 	if err != nil {

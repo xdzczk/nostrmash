@@ -231,8 +231,8 @@ func (h *Handlers) refreshThreadSummaryTx(
 
 	// Velocity score inputs: unique repliers excluding the root author,
 	// optionally trust-weighted. Raw replies_24h/7d above stay as display
-	// counters; hot-conversation ranking reads these weights instead, so
-	// self-replies and repeat replies from one account buy zero velocity.
+	// counters. thread_summary_velocity stores the hot-conversation rank
+	// from these weights, so self-replies buy zero velocity.
 	nowUnix := time.Now().UTC().Unix()
 	reply24h, err := loadWindowedThreadReplyWeight(ctx, tx, rootEventID, rootPubkey, nowUnix, 24*time.Hour, h.engagementWeighting)
 	if err != nil {
@@ -311,9 +311,17 @@ func (h *Handlers) refreshThreadSummaryTx(
 			direct_reply_count,
 			first_reply_latency_s,
 			branching_x100,
-			half_life_s
+			half_life_s,
+			velocity_24h,
+			velocity_7d,
+			velocity_30d
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+			thread_summary_velocity($15, $3, $6, $9, $12, 4),
+			thread_summary_velocity($15, $3, $7, $10, $13, 4),
+			thread_summary_velocity($15, $3, $8, $11, $14, 5)
+		)
 		ON CONFLICT (root_event_id) DO UPDATE
 		SET reply_count = EXCLUDED.reply_count,
 		    participant_count = EXCLUDED.participant_count,
@@ -333,6 +341,9 @@ func (h *Handlers) refreshThreadSummaryTx(
 		    first_reply_latency_s = EXCLUDED.first_reply_latency_s,
 		    branching_x100 = EXCLUDED.branching_x100,
 		    half_life_s = EXCLUDED.half_life_s,
+		    velocity_24h = EXCLUDED.velocity_24h,
+		    velocity_7d = EXCLUDED.velocity_7d,
+		    velocity_30d = EXCLUDED.velocity_30d,
 		    projected_at = now()
 	`,
 		rootEventID,

@@ -35,6 +35,19 @@ groups:
           description: "Sustained 5xx error ratio (5m) is above 1% for 15m. Follow API availability SLO triage in docs/operations.md."
           runbook: "docs/operations.md#alert-response-playbook"
 
+      # The 15m warning above stayed quiet through the 2026-11-14 burst:
+      # about one in five API responses was a 500 for roughly ten minutes.
+      - alert: NostrMashAPIErrorBurst
+        expr: sum(rate(nostrmash_api_requests_total{path_template=~"/api/v1/.*|/primal/v1/.*",status_code="500"}[5m])) / clamp_min(sum(rate(nostrmash_api_requests_total{path_template=~"/api/v1/.*|/primal/v1/.*"}[5m])), 0.001) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          slo: api-availability
+        annotations:
+          summary: "API is returning HTTP 500 for more than 5% of requests"
+          description: "The 5m HTTP 500 ratio has been above 5% for 2m. This is the pool-exhaustion failure mode: requests queue on the API database pool and then fail. Check nostrmash:db_pool:wait_rate5m and in-use connections before looking for a bad deploy."
+          runbook: "docs/operations.md#alert-response-playbook"
+
       - alert: NostrMashAPICriticalPathLatencyHigh
         expr: nostrmash:api:critical_path_latency_p95_seconds:5m > 1.5
         for: 10m
@@ -66,6 +79,17 @@ groups:
         annotations:
           summary: "DB pool saturation is sustained"
           description: "Pool usage ratio > 0.90 with non-trivial wait rate for 10m. Investigate slow queries and pool tuning."
+          runbook: "docs/operations.md#alert-response-playbook"
+
+      - alert: NostrMashDBPoolWaitBurst
+        expr: nostrmash:db_pool:max_open_usage_ratio > 0.95 and nostrmash:db_pool:wait_rate5m > 1
+        for: 2m
+        labels:
+          severity: critical
+          slo: api-latency
+        annotations:
+          summary: "DB pool is full and callers are waiting"
+          description: "Pool usage is above 95% and the wait rate is above 1/s for 2m. New API requests should be failing fast with 503 overloaded. Find the query holding connections before raising DATABASE_MAX_CONNS; the per-service ceilings exist so the four binaries cannot fill Postgres max_connections."
           runbook: "docs/operations.md#alert-response-playbook"
 
       - alert: NostrMashWorkerDeadLetterRateHigh
